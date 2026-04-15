@@ -1,0 +1,195 @@
+get:
+  operationId: listUsers
+  summary: 成員列表
+  description: |
+    查詢工作室成員列表，可依 role 篩選。
+    x-required-role：admin 可查全部；業主無權限。
+  tags:
+    - Identity & Access
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+  parameters:
+    - name: role
+      in: query
+      schema:
+        type: string
+        enum:
+          - admin
+          - organizer
+          - staff
+          - owner
+    - name: page
+      in: query
+      schema:
+        type: integer
+        default: 1
+    - name: limit
+      in: query
+      schema:
+        type: integer
+        default: 20
+        maximum: 100
+  responses:
+    '200':
+      description: 成員列表
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/iam/UserListResponse.yaml
+          examples:
+            success:
+              summary: 成員列表
+              value:
+                data:
+                  - id: 00000000-0000-0000-0000-000000000001
+                    name: 王小明
+                    email: organizer@studio.com
+                    role: organizer
+                  - id: 00000000-0000-0000-0000-000000000002
+                    name: 李小花
+                    email: staff@studio.com
+                    role: staff
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              summary: 未提供 token
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '403':
+      description: 權限不足
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              summary: 業主無法查看成員列表
+              value:
+                error_code: FORBIDDEN
+                message: 權限不足
+post:
+  operationId: createUser
+  summary: 建立使用者帳號
+  description: >
+    在後端 DB 建立使用者記錄（對應 Firebase 帳號已在 Firebase Console 或由 Firebase Admin SDK 建立）。
+
+    - 建立工作室成員：x-required-role: admin
+
+    - 建立業主帳號：x-required-role: admin, organizer
+
+    注意：帳號建立後需另行在 Firebase 建立對應帳號（或由 admin SDK 呼叫），密碼由 Firebase 管理，此 API 不接受
+    password 欄位。
+  tags:
+    - Identity & Access
+  x-required-role:
+    - admin
+    - organizer
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: ../../components/schemas/iam/CreateUserRequest.yaml
+        examples:
+          create_staff:
+            summary: 建立員工帳號
+            value:
+              firebase_uid: uid_staff_def456
+              email: newstaff@studio.com
+              name: 張大維
+              role: staff
+          create_owner:
+            summary: 建立業主帳號
+            value:
+              firebase_uid: uid_owner_ghi789
+              email: owner@example.com
+              name: 陳老闆
+              role: owner
+  responses:
+    '201':
+      description: 帳號建立成功
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/iam/UserResponse.yaml
+          examples:
+            success:
+              summary: 建立成功
+              value:
+                id: 00000000-0000-0000-0000-000000000003
+                firebase_uid: uid_staff_def456
+                email: newstaff@studio.com
+                name: 張大維
+                role: staff
+                created_at: '2026-04-15T10:00:00Z'
+    '400':
+      description: 欄位驗證錯誤
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            missing_email:
+              summary: email 未填
+              value:
+                error_code: VALIDATION_EMAIL_REQUIRED
+                message: email 為必填欄位
+            invalid_email:
+              summary: email 格式錯誤
+              value:
+                error_code: VALIDATION_EMAIL_INVALID
+                message: email 格式不正確
+            missing_firebase_uid:
+              summary: firebase_uid 未填
+              value:
+                error_code: VALIDATION_FIREBASE_UID_REQUIRED
+                message: firebase_uid 為必填欄位
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              summary: 未提供 token
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '403':
+      description: 權限不足
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              summary: 員工無法建立成員帳號
+              value:
+                error_code: FORBIDDEN
+                message: 權限不足
+    '409':
+      description: Email 或 firebase_uid 已存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            email_exists:
+              summary: Email 重複
+              value:
+                error_code: EMAIL_ALREADY_EXISTS
+                message: 此 Email 已被使用
+            firebase_uid_exists:
+              summary: firebase_uid 重複
+              value:
+                error_code: FIREBASE_UID_ALREADY_EXISTS
+                message: 此 Firebase UID 已被使用

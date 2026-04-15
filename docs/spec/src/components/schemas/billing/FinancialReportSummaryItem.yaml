@@ -1,0 +1,12 @@
+type: object
+properties:
+  year:
+    type: integer
+  month:
+    type: integer
+  total_income:
+    type: integer
+  total_expense:
+    type: integer
+  net:
+    type: integer

@@ -1,0 +1,49 @@
+type: object
+properties:
+  id:
+    type: string
+    format: uuid
+  tenant_id:
+    type: string
+    format: uuid
+  room_id:
+    type: string
+    format: uuid
+  property_id:
+    type: string
+    format: uuid
+  rent_amount:
+    type: integer
+  start_date:
+    type: string
+    format: date
+  end_date:
+    type: string
+    format: date
+  status:
+    type: string
+    enum:
+      - active
+      - expired
+      - terminated
+      - force_terminated
+  deposit_amount:
+    type: integer
+  deposit_status:
+    type: string
+    enum:
+      - held
+      - refunded
+      - deducted
+      - written_off
+  deposit_deduction_reason:
+    type: string
+    nullable: true
+  created_at:
+    type: string
+    format: date-time
+  updated_at:
+    type: string
+    format: date-time
+  version:
+    type: integer

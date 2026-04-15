@@ -1,0 +1,5275 @@
+openapi: 3.0.3
+info:
+  title: STDS API
+  version: 1.0.0
+  license:
+    name: Proprietary
+    url: https://example.com/licenses/proprietary
+  description: |
+    STDS（物業代管系統）API 規格
+    產出依據：docs/design/domain-model.md v3.0
+    授權模型：混合型（RBAC + Resource-based）
+    - x-required-role：列出可呼叫的角色（RBAC）
+    - x-ownership-required：物業層級存取控制（resource-based），透過 Firebase ID token 內 Custom Claims 的 assigned_property_ids 驗證
+    - 優先順序：先驗 RBAC role，再驗 property ownership（兩者皆須通過）
+
+    認證機制（v3.0）：系統使用 Firebase Auth 管理使用者認證。
+    - 登入流程：由前端 Firebase SDK 處理，後端不接受 email/password 登入
+    - 後端驗證：每個 request 以 Firebase ID token（Bearer token）呼叫後端
+    - 後端 middleware 以 Firebase Admin SDK 驗證 token，從 Custom Claims 讀取 role 與 assigned_property_ids
+    - 密碼重設：由 Firebase SDK 處理，後端不提供密碼重設 API
+    - users table 透過 firebase_uid 與 Firebase 帳號對應
+
+    ## Notification 機制
+
+    Email 通知由後端 event handler 統一處理，不提供 REST endpoint：
+    - RentBillsGenerated → 寄送帳單通知給租客
+    - LeaseExpiringSoon → 寄送到期提醒給 organizer/staff
+    - OverdueBillReminder → 寄送催收通知（最多 3 次）
+    - FinancialReportSend → 寄送財報 Email
+
+    通知服務由後端訂閱 Domain Event 後透過 SendGrid 發送，前端無需呼叫任何 notification API。
+servers:
+  - url: /api/v1
+security:
+  - BearerAuth: []
+paths:
+  /auth/sync:
+    post:
+      operationId: syncAuth
+      summary: 同步 Firebase 使用者至後端 DB（首次登入或 token 更新時呼叫）
+      description: |
+        前端以 Firebase SDK 完成登入後，帶 Firebase ID token 呼叫此 endpoint。
+        後端以 firebase_uid 查詢或建立 users table 記錄，並將最新 role 與 assigned_property_ids
+        寫入 Firebase Custom Claims（若與 DB 不一致時更新）。
+        此 endpoint 取代原本的 POST /auth/login（v2.9），登入由 Firebase SDK 處理。
+      tags:
+        - Identity & Access
+      responses:
+        '200':
+          description: 同步成功，回傳使用者基本資料與 Custom Claims 資訊
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+              examples:
+                success:
+                  summary: 同步成功
+                  value:
+                    id: 00000000-0000-0000-0000-000000000001
+                    firebase_uid: uid_abc123xyz
+                    name: 王小明
+                    role: organizer
+                    assigned_property_ids:
+                      - 10000000-0000-0000-0000-000000000001
+                      - 10000000-0000-0000-0000-000000000002
+        '401':
+          description: Firebase ID token 無效或已過期
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_token:
+                  summary: token 無效
+                  value:
+                    error_code: INVALID_FIREBASE_TOKEN
+                    message: Firebase ID token 無效或已過期
+        '404':
+          description: 此 firebase_uid 尚未在後端建立帳號
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  summary: 帳號尚未建立
+                  value:
+                    error_code: USER_NOT_FOUND
+                    message: 此 Firebase 帳號尚未在系統中建立，請聯絡管理員
+  /users:
+    get:
+      operationId: listUsers
+      summary: 成員列表
+      description: |
+        查詢工作室成員列表，可依 role 篩選。
+        x-required-role：admin 可查全部；業主無權限。
+      tags:
+        - Identity & Access
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      parameters:
+        - name: role
+          in: query
+          schema:
+            type: string
+            enum:
+              - admin
+              - organizer
+              - staff
+              - owner
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+      responses:
+        '200':
+          description: 成員列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserListResponse'
+              examples:
+                success:
+                  summary: 成員列表
+                  value:
+                    data:
+                      - id: 00000000-0000-0000-0000-000000000001
+                        name: 王小明
+                        email: organizer@studio.com
+                        role: organizer
+                      - id: 00000000-0000-0000-0000-000000000002
+                        name: 李小花
+                        email: staff@studio.com
+                        role: staff
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  summary: 未提供 token
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  summary: 業主無法查看成員列表
+                  value:
+                    error_code: FORBIDDEN
+                    message: 權限不足
+    post:
+      operationId: createUser
+      summary: 建立使用者帳號
+      description: |
+        在後端 DB 建立使用者記錄（對應 Firebase 帳號已在 Firebase Console 或由 Firebase Admin SDK 建立）。
+        - 建立工作室成員：x-required-role: admin
+        - 建立業主帳號：x-required-role: admin, organizer
+        注意：帳號建立後需另行在 Firebase 建立對應帳號（或由 admin SDK 呼叫），密碼由 Firebase 管理，此 API 不接受 password 欄位。
+      tags:
+        - Identity & Access
+      x-required-role:
+        - admin
+        - organizer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+            examples:
+              create_staff:
+                summary: 建立員工帳號
+                value:
+                  firebase_uid: uid_staff_def456
+                  email: newstaff@studio.com
+                  name: 張大維
+                  role: staff
+              create_owner:
+                summary: 建立業主帳號
+                value:
+                  firebase_uid: uid_owner_ghi789
+                  email: owner@example.com
+                  name: 陳老闆
+                  role: owner
+      responses:
+        '201':
+          description: 帳號建立成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+              examples:
+                success:
+                  summary: 建立成功
+                  value:
+                    id: 00000000-0000-0000-0000-000000000003
+                    firebase_uid: uid_staff_def456
+                    email: newstaff@studio.com
+                    name: 張大維
+                    role: staff
+                    created_at: '2026-04-15T10:00:00Z'
+        '400':
+          description: 欄位驗證錯誤
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missing_email:
+                  summary: email 未填
+                  value:
+                    error_code: VALIDATION_EMAIL_REQUIRED
+                    message: email 為必填欄位
+                invalid_email:
+                  summary: email 格式錯誤
+                  value:
+                    error_code: VALIDATION_EMAIL_INVALID
+                    message: email 格式不正確
+                missing_firebase_uid:
+                  summary: firebase_uid 未填
+                  value:
+                    error_code: VALIDATION_FIREBASE_UID_REQUIRED
+                    message: firebase_uid 為必填欄位
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  summary: 未提供 token
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  summary: 員工無法建立成員帳號
+                  value:
+                    error_code: FORBIDDEN
+                    message: 權限不足
+        '409':
+          description: Email 或 firebase_uid 已存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                email_exists:
+                  summary: Email 重複
+                  value:
+                    error_code: EMAIL_ALREADY_EXISTS
+                    message: 此 Email 已被使用
+                firebase_uid_exists:
+                  summary: firebase_uid 重複
+                  value:
+                    error_code: FIREBASE_UID_ALREADY_EXISTS
+                    message: 此 Firebase UID 已被使用
+  /users/me:
+    get:
+      operationId: getCurrentUser
+      summary: 查看自己的帳號資料
+      tags:
+        - Identity & Access
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+        - owner
+      responses:
+        '200':
+          description: 自己的帳號資料
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+              examples:
+                success:
+                  summary: 帳號資料
+                  value:
+                    id: 00000000-0000-0000-0000-000000000001
+                    firebase_uid: uid_abc123xyz
+                    name: 王小明
+                    email: organizer@studio.com
+                    role: organizer
+                    assigned_property_ids:
+                      - 10000000-0000-0000-0000-000000000001
+                      - 10000000-0000-0000-0000-000000000002
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  summary: 未提供 token
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+  /users/{id}:
+    get:
+      operationId: getUser
+      summary: 成員詳情
+      tags:
+        - Identity & Access
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成員詳情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+              examples:
+                success:
+                  summary: 成員詳情
+                  value:
+                    id: 00000000-0000-0000-0000-000000000001
+                    firebase_uid: uid_abc123xyz
+                    name: 王小明
+                    email: organizer@studio.com
+                    role: organizer
+                    assigned_property_ids:
+                      - 10000000-0000-0000-0000-000000000001
+                      - 10000000-0000-0000-0000-000000000002
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 權限不足
+        '404':
+          description: 使用者不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: USER_NOT_FOUND
+                    message: 使用者不存在
+    patch:
+      operationId: updateUser
+      summary: 更新使用者帳號（角色調整）
+      tags:
+        - Identity & Access
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+        - owner
+      description: |
+        - 角色調整：x-required-role: admin
+        - 名稱更新：x-required-role: admin, organizer, staff, owner（本人）
+        - 密碼重設：由 Firebase SDK 處理，不透過此 API（前端呼叫 Firebase sendPasswordResetEmail）
+        - BR-13：系統管理員不得降低自己的角色
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+            examples:
+              change_role:
+                summary: 變更角色
+                value:
+                  role: organizer
+              update_name:
+                summary: 更新名稱
+                value:
+                  name: 王大明
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+              examples:
+                success:
+                  value:
+                    id: 00000000-0000-0000-0000-000000000001
+                    name: 王大明
+                    role: organizer
+                    updated_at: '2026-04-15T11:00:00Z'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 權限不足
+        '404':
+          description: 使用者不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: USER_NOT_FOUND
+                    message: 使用者不存在
+        '422':
+          description: Business Rule 拒絕
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                admin_cannot_downgrade_self:
+                  summary: BR-13 系統管理員不得降低自己的角色
+                  value:
+                    error_code: ADMIN_CANNOT_DOWNGRADE_SELF
+                    message: 系統管理員不得降低自己的角色
+  /users/{id}/property-assignments:
+    post:
+      operationId: assignUserProperties
+      summary: 指派物業給成員（觸發 PropertyUnassigned/PropertyAssigned 邏輯）
+      description: |
+        將物業指派給工作室成員。
+        BR-11：指派對象必須為工作室成員（非業主）。
+        x-required-role: admin
+        指派成功後，後端呼叫 Firebase Admin SDK 更新該使用者的 Custom Claims（role 與 assigned_property_ids），
+        前端下次 refresh token 後新指派生效。
+      tags:
+        - Identity & Access
+      x-required-role:
+        - admin
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PropertyAssignmentRequest'
+            examples:
+              assign:
+                summary: 指派物業
+                value:
+                  property_ids:
+                    - 10000000-0000-0000-0000-000000000001
+                    - 10000000-0000-0000-0000-000000000002
+      responses:
+        '200':
+          description: 指派成功（Firebase Custom Claims 已更新）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+              examples:
+                success:
+                  value:
+                    id: 00000000-0000-0000-0000-000000000002
+                    assigned_property_ids:
+                      - 10000000-0000-0000-0000-000000000001
+                      - 10000000-0000-0000-0000-000000000002
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 只有系統管理員可執行物業指派
+        '404':
+          description: 使用者或物業不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                user_not_found:
+                  value:
+                    error_code: USER_NOT_FOUND
+                    message: 使用者不存在
+        '422':
+          description: Business Rule 拒絕
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                cannot_assign_to_owner:
+                  summary: BR-11 指派對象必須為工作室成員
+                  value:
+                    error_code: CANNOT_ASSIGN_PROPERTY_TO_OWNER
+                    message: 物業指派對象必須為工作室成員，不可指派給業主
+  /properties:
+    get:
+      operationId: listProperties
+      summary: 物業列表（含房間數、出租率）
+      description: |
+        x-ownership-required: 依角色過濾：
+        - admin：全部物業
+        - organizer/staff：Firebase Custom Claims 內 assigned_property_ids
+        - owner：自己名下（properties.owner_id = JWT.sub）
+      tags:
+        - Property
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+        - owner
+      x-ownership-required: true
+      responses:
+        '200':
+          description: 物業列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PropertyListResponse'
+              examples:
+                success:
+                  value:
+                    data:
+                      - id: 10000000-0000-0000-0000-000000000001
+                        name: 台北大安物業
+                        address: 台北市大安區復興南路一段100號
+                        electricity_unit_price: 5
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+    post:
+      operationId: createProperty
+      summary: 建立物業（觸發 PropertyCreated event）
+      description: |
+        x-required-role: admin, organizer, staff
+        觸發 PropertyCreated event → Billing BC 建立 PropertyAccount
+      tags:
+        - Property
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePropertyRequest'
+            examples:
+              default:
+                summary: 建立物業
+                value:
+                  name: 台北大安物業
+                  address: 台北市大安區復興南路一段100號
+                  electricity_unit_price: 5
+                  owner_id: 00000000-0000-0000-0000-000000000010
+      responses:
+        '201':
+          description: 物業建立成功（PropertyCreated event 已發出）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PropertyResponse'
+              examples:
+                success:
+                  value:
+                    id: 10000000-0000-0000-0000-000000000001
+                    name: 台北大安物業
+                    address: 台北市大安區復興南路一段100號
+                    electricity_unit_price: 5
+                    owner_id: 00000000-0000-0000-0000-000000000010
+                    created_at: '2026-04-15T10:00:00Z'
+        '400':
+          description: 欄位驗證錯誤
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missing_name:
+                  value:
+                    error_code: VALIDATION_NAME_REQUIRED
+                    message: 物業名稱為必填欄位
+                invalid_electricity_price:
+                  value:
+                    error_code: VALIDATION_ELECTRICITY_PRICE_INVALID
+                    message: 電價必須為正整數
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 業主無法建立物業
+  /properties/{id}:
+    get:
+      operationId: getProperty
+      summary: 物業詳情
+      tags:
+        - Property
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+        - owner
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 物業詳情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PropertyResponse'
+              examples:
+                success:
+                  value:
+                    id: 10000000-0000-0000-0000-000000000001
+                    name: 台北大安物業
+                    address: 台北市大安區復興南路一段100號
+                    electricity_unit_price: 5
+                    owner_id: 00000000-0000-0000-0000-000000000010
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 權限不足（非指派物業）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 無此物業的存取權限
+        '404':
+          description: 物業不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: PROPERTY_NOT_FOUND
+                    message: 物業不存在
+    patch:
+      operationId: updateProperty
+      summary: 編輯物業（含修改電價 BR-17）
+      description: |
+        修改電價（electricity_unit_price）：x-required-role: admin, organizer（BR-17）
+        其他欄位編輯：x-required-role: admin, organizer, staff
+      tags:
+        - Property
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePropertyRequest'
+            examples:
+              update_price:
+                summary: 修改電價
+                value:
+                  electricity_unit_price: 6
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PropertyResponse'
+              examples:
+                success:
+                  value:
+                    id: 10000000-0000-0000-0000-000000000001
+                    electricity_unit_price: 6
+                    updated_at: '2026-04-15T12:00:00Z'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 權限不足（員工不可修改電價 BR-17）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden_electricity_price:
+                  summary: BR-17 員工不可修改電價
+                  value:
+                    error_code: FORBIDDEN_ELECTRICITY_PRICE_UPDATE
+                    message: 修改電價需要主辦以上角色
+        '404':
+          description: 物業不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: PROPERTY_NOT_FOUND
+                    message: 物業不存在
+        '422':
+          description: Business Rule 拒絕
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_price:
+                  summary: 電價不得為零或負
+                  value:
+                    error_code: ELECTRICITY_PRICE_MUST_BE_POSITIVE
+                    message: 電價必須為正整數
+    delete:
+      operationId: deleteProperty
+      summary: 刪除物業（軟刪除）
+      description: |
+        x-required-role: admin, organizer
+        BR-07：底下有出租中房間的物業不得刪除。
+      tags:
+        - Property
+      x-required-role:
+        - admin
+        - organizer
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: 刪除成功
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 員工無法刪除物業
+        '404':
+          description: 物業不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: PROPERTY_NOT_FOUND
+                    message: 物業不存在
+        '422':
+          description: Business Rule 拒絕
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                has_occupied_rooms:
+                  summary: BR-07 有出租中房間不得刪除
+                  value:
+                    error_code: PROPERTY_HAS_OCCUPIED_ROOMS
+                    message: 物業底下有出租中的房間，無法刪除
+                    details:
+                      occupied_room_ids:
+                        - 20000000-0000-0000-0000-000000000001
+                        - 20000000-0000-0000-0000-000000000003
+  /properties/{id}/rooms:
+    get:
+      operationId: listPropertyRooms
+      summary: 房間列表（含狀態）
+      tags:
+        - Property
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+        - owner
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum:
+              - vacant
+              - occupied
+              - maintenance
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+      responses:
+        '200':
+          description: 房間列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoomListResponse'
+              examples:
+                success:
+                  value:
+                    data:
+                      - id: 20000000-0000-0000-0000-000000000001
+                        name: 101 室
+                        status: occupied
+                      - id: 20000000-0000-0000-0000-000000000002
+                        name: 102 室
+                        status: vacant
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 無此物業存取權限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 無此物業的存取權限
+        '404':
+          description: 物業不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: PROPERTY_NOT_FOUND
+                    message: 物業不存在
+    post:
+      operationId: createPropertyRoom
+      summary: 建立房間
+      description: 'x-required-role: admin, organizer, staff'
+      tags:
+        - Property
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRoomRequest'
+            examples:
+              default:
+                value:
+                  name: 103 室
+      responses:
+        '201':
+          description: 房間建立成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoomResponse'
+              examples:
+                success:
+                  value:
+                    id: 20000000-0000-0000-0000-000000000003
+                    property_id: 10000000-0000-0000-0000-000000000001
+                    name: 103 室
+                    status: vacant
+                    created_at: '2026-04-15T10:00:00Z'
+        '400':
+          description: 欄位驗證錯誤
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missing_name:
+                  value:
+                    error_code: VALIDATION_ROOM_NAME_REQUIRED
+                    message: 房間名稱為必填欄位
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 無此物業的存取權限或角色權限不足
+        '404':
+          description: 物業不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: PROPERTY_NOT_FOUND
+                    message: 物業不存在
+  /rooms/{id}:
+    get:
+      operationId: getRoom
+      summary: 房間詳情
+      tags:
+        - Property
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+        - owner
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 房間詳情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoomResponse'
+              examples:
+                success:
+                  value:
+                    id: 20000000-0000-0000-0000-000000000001
+                    property_id: 10000000-0000-0000-0000-000000000001
+                    name: 101 室
+                    status: occupied
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 無此物業存取權限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 無此物業的存取權限
+        '404':
+          description: 房間不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: ROOM_NOT_FOUND
+                    message: 房間不存在
+    patch:
+      operationId: updateRoom
+      summary: 編輯房間
+      description: 'x-required-role: admin, organizer, staff'
+      tags:
+        - Property
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRoomRequest'
+            examples:
+              default:
+                value:
+                  name: 101 室（重新命名）
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoomResponse'
+              examples:
+                success:
+                  value:
+                    id: 20000000-0000-0000-0000-000000000001
+                    name: 101 室（重新命名）
+                    updated_at: '2026-04-15T12:00:00Z'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 無此物業的存取權限
+        '404':
+          description: 房間不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: ROOM_NOT_FOUND
+                    message: 房間不存在
+    delete:
+      operationId: deleteRoom
+      summary: 刪除房間（軟刪除）
+      description: |
+        x-required-role: admin, organizer
+        BR-08：出租中或維修中的房間不得刪除。
+      tags:
+        - Property
+      x-required-role:
+        - admin
+        - organizer
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: 刪除成功
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 員工無法刪除房間
+        '404':
+          description: 房間不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: ROOM_NOT_FOUND
+                    message: 房間不存在
+        '422':
+          description: Business Rule 拒絕
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                room_occupied:
+                  summary: BR-08 出租中的房間不得刪除
+                  value:
+                    error_code: ROOM_IS_OCCUPIED
+                    message: 出租中的房間不得刪除
+                room_in_maintenance:
+                  summary: BR-08 維修中的房間不得刪除
+                  value:
+                    error_code: ROOM_IS_IN_MAINTENANCE
+                    message: 維修中的房間不得刪除
+  /rooms/{id}/maintenance:
+    post:
+      operationId: createRoomMaintenance
+      summary: 設定房間進入維修狀態（觸發 RoomSetToMaintenance event）
+      description: |
+        x-required-role: admin, organizer, staff
+        觸發 RoomSetToMaintenance event。
+      tags:
+        - Property
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetMaintenanceRequest'
+            examples:
+              default:
+                value:
+                  reason: 浴室漏水維修
+      responses:
+        '200':
+          description: 房間已進入維修狀態（RoomSetToMaintenance event 已發出）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoomResponse'
+              examples:
+                success:
+                  value:
+                    id: 20000000-0000-0000-0000-000000000002
+                    status: maintenance
+                    updated_at: '2026-04-15T14:00:00Z'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 業主無法設定房間維修狀態
+        '404':
+          description: 房間不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: ROOM_NOT_FOUND
+                    message: 房間不存在
+        '422':
+          description: Business Rule 拒絕（房間已在維修或出租中）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                room_already_occupied:
+                  summary: 出租中的房間無法設為維修
+                  value:
+                    error_code: ROOM_IS_OCCUPIED
+                    message: 出租中的房間無法設定維修狀態
+  /properties/{id}/dashboard:
+    get:
+      operationId: getPropertyDashboard
+      summary: PropertyOwnerView Dashboard（跨 BC 組合查詢）
+      description: |
+        房間狀態 + 本月收支 + 逾期帳單數 + 最近 5 筆 Journal。
+        x-ownership-required: 依角色過濾。
+      tags:
+        - Property
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+        - owner
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Dashboard 資料
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardResponse'
+              examples:
+                success:
+                  value:
+                    property_id: 10000000-0000-0000-0000-000000000001
+                    rooms:
+                      - id: 20000000-0000-0000-0000-000000000001
+                        name: 101 室
+                        status: occupied
+                      - id: 20000000-0000-0000-0000-000000000002
+                        name: 102 室
+                        status: vacant
+                    monthly_summary:
+                      expected_rent: 50000
+                      collected_rent: 40000
+                      overdue_bill_count: 2
+                    recent_journals:
+                      - id: 60000000-0000-0000-0000-000000000001
+                        type: journal_log
+                        content: 更換大廳燈泡
+                        created_at: '2026-04-10T09:00:00Z'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 無此物業存取權限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 無此物業的存取權限
+        '404':
+          description: 物業不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: PROPERTY_NOT_FOUND
+                    message: 物業不存在
+  /tenants:
+    get:
+      operationId: listTenants
+      summary: 租客列表
+      tags:
+        - Leasing
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: property_id
+          in: query
+          description: 依物業篩選（跨 BC JOIN：tenants → leases → property_id）；organizer/staff 限指派物業
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum:
+              - active
+              - inactive
+              - blacklisted
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+      responses:
+        '200':
+          description: 租客列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantListResponse'
+              examples:
+                success:
+                  value:
+                    data:
+                      - id: 30000000-0000-0000-0000-000000000001
+                        name: 黃小芳
+                        email: huang@example.com
+                        status: active
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 業主無法查看租客資料
+    post:
+      operationId: createTenant
+      summary: 建立租客資料
+      description: 'x-required-role: admin, organizer, staff'
+      tags:
+        - Leasing
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTenantRequest'
+            examples:
+              default:
+                value:
+                  name: 黃小芳
+                  email: huang@example.com
+                  phone: 0912-345-678
+                  contacts: []
+      responses:
+        '201':
+          description: 租客建立成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantResponse'
+              examples:
+                success:
+                  value:
+                    id: 30000000-0000-0000-0000-000000000001
+                    name: 黃小芳
+                    email: huang@example.com
+                    status: active
+                    created_at: '2026-04-15T10:00:00Z'
+        '400':
+          description: 欄位驗證錯誤
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missing_email:
+                  value:
+                    error_code: VALIDATION_TENANT_EMAIL_REQUIRED
+                    message: 租客 email 為必填欄位
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 業主無法建立租客資料
+  /tenants/{id}:
+    get:
+      operationId: getTenant
+      summary: 租客詳情
+      tags:
+        - Leasing
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 租客詳情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantResponse'
+              examples:
+                success:
+                  value:
+                    id: 30000000-0000-0000-0000-000000000001
+                    name: 黃小芳
+                    email: huang@example.com
+                    phone: 0912-345-678
+                    status: active
+                    contacts: []
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 業主無法查看租客資料
+        '404':
+          description: 租客不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: TENANT_NOT_FOUND
+                    message: 租客不存在
+    patch:
+      operationId: updateTenant
+      summary: 更新租客資料（觸發 TenantInfoUpdated event）
+      description: |
+        x-required-role: admin, organizer, staff
+        觸發 TenantInfoUpdated event（預留，審計用）。
+      tags:
+        - Leasing
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTenantRequest'
+            examples:
+              default:
+                value:
+                  phone: 0987-654-321
+      responses:
+        '200':
+          description: 更新成功（TenantInfoUpdated event 已發出）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantResponse'
+              examples:
+                success:
+                  value:
+                    id: 30000000-0000-0000-0000-000000000001
+                    name: 黃小芳
+                    phone: 0987-654-321
+                    updated_at: '2026-04-15T11:00:00Z'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 業主無法修改租客資料
+        '404':
+          description: 租客不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: TENANT_NOT_FOUND
+                    message: 租客不存在
+  /tenants/{id}/leases:
+    get:
+      operationId: listTenantLeases
+      summary: 某租客的租約歷史
+      tags:
+        - Leasing
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum:
+              - active
+              - expired
+              - terminated
+              - force_terminated
+      responses:
+        '200':
+          description: 租約歷史
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaseListResponse'
+              examples:
+                success:
+                  value:
+                    data:
+                      - id: 40000000-0000-0000-0000-000000000001
+                        room_id: 20000000-0000-0000-0000-000000000001
+                        start_date: '2025-01-01'
+                        end_date: '2025-12-31'
+                        status: terminated
+                      - id: 40000000-0000-0000-0000-000000000002
+                        room_id: 20000000-0000-0000-0000-000000000002
+                        start_date: '2026-01-01'
+                        end_date: '2026-12-31'
+                        status: active
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '404':
+          description: 租客不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: TENANT_NOT_FOUND
+                    message: 租客不存在
+  /leases:
+    get:
+      operationId: listLeases
+      summary: 租約列表
+      description: |
+        x-ownership-required: organizer/staff 只能查詢指派物業的租約
+      tags:
+        - Leasing
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: property_id
+          in: query
+          schema:
+            type: string
+        - name: room_id
+          in: query
+          schema:
+            type: string
+        - name: tenant_id
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum:
+              - active
+              - expired
+              - terminated
+              - force_terminated
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+      responses:
+        '200':
+          description: 租約列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaseListResponse'
+              examples:
+                success:
+                  value:
+                    data:
+                      - id: 40000000-0000-0000-0000-000000000002
+                        tenant_id: 30000000-0000-0000-0000-000000000001
+                        room_id: 20000000-0000-0000-0000-000000000002
+                        rent_amount: 18000
+                        start_date: '2026-01-01'
+                        end_date: '2026-12-31'
+                        status: active
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+    post:
+      operationId: createLease
+      summary: 建立租約（觸發 LeaseCreated event）
+      description: |
+        x-required-role: admin, organizer, staff
+        觸發 LeaseCreated event → Property BC（Room 改 occupied）+ Billing BC（預產帳單）
+        BR-01：起始日不得晚於終止日
+        BR-02：租金不得為零
+        BR-03：押金不得為負
+        BR-12：目標房間必須為 vacant（取悲觀鎖後檢查）
+      tags:
+        - Leasing
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateLeaseRequest'
+            examples:
+              default:
+                value:
+                  tenant_id: 30000000-0000-0000-0000-000000000001
+                  room_id: 20000000-0000-0000-0000-000000000002
+                  rent_amount: 18000
+                  start_date: '2026-05-01'
+                  end_date: '2027-04-30'
+                  deposit_amount: 36000
+      responses:
+        '201':
+          description: 租約建立成功（LeaseCreated event 已發出，帳單已預產）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaseResponse'
+              examples:
+                success:
+                  value:
+                    id: 40000000-0000-0000-0000-000000000003
+                    tenant_id: 30000000-0000-0000-0000-000000000001
+                    room_id: 20000000-0000-0000-0000-000000000002
+                    rent_amount: 18000
+                    start_date: '2026-05-01'
+                    end_date: '2027-04-30'
+                    deposit_amount: 36000
+                    deposit_status: held
+                    status: active
+                    created_at: '2026-04-15T10:00:00Z'
+        '400':
+          description: 欄位驗證錯誤
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missing_tenant:
+                  value:
+                    error_code: VALIDATION_TENANT_ID_REQUIRED
+                    message: tenant_id 為必填欄位
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 業主無法建立租約
+        '404':
+          description: 資源不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                room_not_found:
+                  value:
+                    error_code: ROOM_NOT_FOUND
+                    message: 房間不存在
+        '409':
+          description: 樂觀鎖衝突
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                conflict:
+                  value:
+                    error_code: CONCURRENT_UPDATE_CONFLICT
+                    message: 資料已被其他操作更新，請重試
+        '422':
+          description: Business Rule 拒絕
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_date_range:
+                  summary: BR-01 起始日不得晚於終止日
+                  value:
+                    error_code: LEASE_INVALID_DATE_RANGE
+                    message: 租約起始日不得晚於終止日
+                rent_amount_zero:
+                  summary: BR-02 租金不得為零
+                  value:
+                    error_code: LEASE_RENT_AMOUNT_ZERO
+                    message: 租金不得為零
+                deposit_negative:
+                  summary: BR-03 押金不得為負
+                  value:
+                    error_code: LEASE_DEPOSIT_NEGATIVE
+                    message: 押金金額不得為負數
+                room_not_vacant:
+                  summary: BR-12 房間非 vacant 狀態
+                  value:
+                    error_code: ROOM_NOT_VACANT
+                    message: 目標房間目前不是空置狀態，無法建立租約
+  /leases/{id}:
+    get:
+      operationId: getLease
+      summary: 租約詳情（含帳單預產狀況、押金狀態）
+      tags:
+        - Leasing
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 租約詳情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaseResponse'
+              examples:
+                success:
+                  value:
+                    id: 40000000-0000-0000-0000-000000000003
+                    tenant_id: 30000000-0000-0000-0000-000000000001
+                    room_id: 20000000-0000-0000-0000-000000000002
+                    rent_amount: 18000
+                    start_date: '2026-05-01'
+                    end_date: '2027-04-30'
+                    status: active
+                    deposit_amount: 36000
+                    deposit_status: held
+                    deposit_deduction_reason: null
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 無存取權限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 無此物業的存取權限
+        '404':
+          description: 租約不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: LEASE_NOT_FOUND
+                    message: 租約不存在
+    patch:
+      operationId: updateLease
+      summary: 編輯租約（租金調整，觸發 LeaseConditionChanged event）
+      description: |
+        x-required-role: admin, organizer（BR 限制員工不可調整租金）
+        LeaseConditionChanged：void due_date >= nextPaymentDate 且 pending_payment/pending_meter 的帳單，重產新帳單。
+        BR-01、BR-02 適用。
+      tags:
+        - Leasing
+      x-required-role:
+        - admin
+        - organizer
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateLeaseRequest'
+            examples:
+              adjust_rent:
+                summary: 租金調整
+                value:
+                  rent_amount: 20000
+      responses:
+        '200':
+          description: 租約條件更新成功（LeaseConditionChanged event 已發出，帳單已 void 並重產）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaseResponse'
+              examples:
+                success:
+                  value:
+                    id: 40000000-0000-0000-0000-000000000003
+                    rent_amount: 20000
+                    updated_at: '2026-04-15T14:00:00Z'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 權限不足（員工不可調整租金）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 員工角色無法調整租金條件
+        '404':
+          description: 租約不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: LEASE_NOT_FOUND
+                    message: 租約不存在
+        '409':
+          description: 樂觀鎖衝突
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                conflict:
+                  value:
+                    error_code: CONCURRENT_UPDATE_CONFLICT
+                    message: 資料已被其他操作更新，請重試
+        '422':
+          description: Business Rule 拒絕
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                rent_amount_zero:
+                  summary: BR-02 租金不得為零
+                  value:
+                    error_code: LEASE_RENT_AMOUNT_ZERO
+                    message: 租金不得為零
+    delete:
+      operationId: deleteLease
+      summary: 刪除租約（軟刪除）
+      description: 'x-required-role: admin, organizer'
+      tags:
+        - Leasing
+      x-required-role:
+        - admin
+        - organizer
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: 刪除成功
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 員工無法刪除租約
+        '404':
+          description: 租約不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: LEASE_NOT_FOUND
+                    message: 租約不存在
+  /leases/{id}/terminate:
+    post:
+      operationId: terminateLease
+      summary: 正常終止租約（觸發 LeaseTerminated event，forced=false）
+      description: |
+        x-required-role: admin, organizer, staff
+        BR-04：所有帳單必須結清才能終止。
+        押金退還/扣款須在呼叫此 API 之前或同時確認（deposit_action 參數）。
+        觸發 LeaseTerminated（forced: false）→ Property BC（Room 改 vacant）+ Notification BC（寄退租確認）
+      tags:
+        - Leasing
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TerminateLeaseRequest'
+            examples:
+              refund_deposit:
+                summary: 退還押金
+                value:
+                  deposit_action: refund
+              deduct_deposit:
+                summary: 扣押金
+                value:
+                  deposit_action: deduct
+                  deposit_deduction_reason: 牆壁毀損修繕費用
+      responses:
+        '200':
+          description: 租約正常終止成功（LeaseTerminated forced=false event 已發出）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaseResponse'
+              examples:
+                success:
+                  value:
+                    id: 40000000-0000-0000-0000-000000000003
+                    status: terminated
+                    deposit_status: refunded
+                    updated_at: '2026-04-15T16:00:00Z'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 業主無法執行租約終止
+        '404':
+          description: 租約不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: LEASE_NOT_FOUND
+                    message: 租約不存在
+        '409':
+          description: 樂觀鎖衝突
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                conflict:
+                  value:
+                    error_code: CONCURRENT_UPDATE_CONFLICT
+                    message: 資料已被其他操作更新，請重試
+        '422':
+          description: Business Rule 拒絕
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unpaid_bills:
+                  summary: BR-04 有未清帳單不得終止
+                  value:
+                    error_code: LEASE_HAS_UNPAID_BILLS
+                    message: 尚有未結清帳單，無法執行正常終止
+                    details:
+                      unpaid_bill_ids:
+                        - 50000000-0000-0000-0000-000000000010
+                        - 50000000-0000-0000-0000-000000000011
+                deduction_reason_required:
+                  summary: BR-10 押金扣款須填寫原因
+                  value:
+                    error_code: DEPOSIT_DEDUCTION_REASON_REQUIRED
+                    message: 押金扣款須填寫扣款原因
+  /leases/{id}/force-terminate:
+    post:
+      operationId: forceTerminateLease
+      summary: 強制終止租約（觸發 LeaseTerminated event，forced=true）
+      description: |
+        x-required-role: admin, organizer（BR-14：主辦以上）
+        流程：ForceTermination 記錄 → 帳單標記 written_off → LeaseTerminated（forced: true）
+        觸發 LeaseTerminated（forced: true）→ Property BC（Room 改 vacant）+ Notification BC（寄強制終止通知）
+        BR-14：需主辦以上角色並填寫原因。
+      tags:
+        - Leasing
+      x-required-role:
+        - admin
+        - organizer
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForceTerminateRequest'
+            examples:
+              default:
+                value:
+                  reason: 租客失聯，連續 3 個月未繳租金
+      responses:
+        '202':
+          description: 強制終止流程已啟動（非同步補償，force_termination 記錄已建立）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForceTerminationResponse'
+              examples:
+                accepted:
+                  value:
+                    id: 80000000-0000-0000-0000-000000000001
+                    lease_id: 40000000-0000-0000-0000-000000000003
+                    status: in_progress
+                    created_at: '2026-04-15T17:00:00Z'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 員工角色無法執行強制終止（BR-14）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  summary: BR-14 員工不可強制終止
+                  value:
+                    error_code: FORBIDDEN_FORCE_TERMINATION
+                    message: 強制終止租約需要主辦以上角色
+        '404':
+          description: 租約不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: LEASE_NOT_FOUND
+                    message: 租約不存在
+        '422':
+          description: Business Rule 拒絕
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                reason_required:
+                  summary: BR-14 必須填寫強制終止原因
+                  value:
+                    error_code: FORCE_TERMINATION_REASON_REQUIRED
+                    message: 強制終止租約必須填寫原因
+  /force-terminations/{id}:
+    get:
+      operationId: getForceTermination
+      summary: 查詢強制終止進度
+      tags:
+        - Leasing
+      security:
+        - BearerAuth: []
+      x-required-role:
+        - admin
+        - organizer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: 強制終止進度
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForceTerminationResponse'
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 找不到強制終止記錄
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /leases/{id}/deposit:
+    patch:
+      operationId: updateLeaseDeposit
+      summary: 處理押金（退還或扣款，觸發 DepositRefunded / DepositDeducted event）
+      description: |
+        x-required-role: admin, organizer, staff
+        觸發 DepositRefunded 或 DepositDeducted → Billing BC（PropertyAccount 新增 AccountingEntry）
+        BR-10：押金扣款須填寫扣款原因。
+        注意：此 endpoint 用於獨立處理押金；正常終止流程可透過 /leases/{id}/terminate 的 deposit_action 一併處理。
+      tags:
+        - Leasing
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDepositRequest'
+            examples:
+              refund:
+                summary: 退還押金
+                value:
+                  action: refund
+              deduct:
+                summary: 扣押金
+                value:
+                  action: deduct
+                  reason: 牆壁毀損修繕費用 NT$5,000
+      responses:
+        '200':
+          description: 押金處理成功（DepositRefunded 或 DepositDeducted event 已發出）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaseResponse'
+              examples:
+                refunded:
+                  summary: 押金已退還
+                  value:
+                    id: 40000000-0000-0000-0000-000000000003
+                    deposit_status: refunded
+                deducted:
+                  summary: 押金已扣款
+                  value:
+                    id: 40000000-0000-0000-0000-000000000003
+                    deposit_status: deducted
+                    deposit_deduction_reason: 牆壁毀損修繕費用 NT$5,000
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 業主無法操作押金
+        '404':
+          description: 租約不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: LEASE_NOT_FOUND
+                    message: 租約不存在
+        '422':
+          description: Business Rule 拒絕
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                deduction_reason_required:
+                  summary: BR-10 押金扣款須填寫原因
+                  value:
+                    error_code: DEPOSIT_DEDUCTION_REASON_REQUIRED
+                    message: 押金扣款須填寫扣款原因
+  /bills:
+    get:
+      operationId: listBills
+      summary: 帳單列表
+      description: |
+        x-ownership-required: organizer/staff 查詢指派物業；owner 查詢自己名下（唯讀）。
+      tags:
+        - Billing
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+        - owner
+      x-ownership-required: true
+      parameters:
+        - name: property_id
+          in: query
+          schema:
+            type: string
+        - name: lease_id
+          in: query
+          schema:
+            type: string
+        - name: tenant_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: 依租客 ID 篩選帳單
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum:
+              - pending_meter
+              - pending_payment
+              - paid
+              - overdue
+              - voided
+              - written_off
+        - name: month
+          in: query
+          schema:
+            type: string
+            description: 格式：YYYY-MM
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+      responses:
+        '200':
+          description: 帳單列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillListResponse'
+              examples:
+                success:
+                  value:
+                    data:
+                      - id: 50000000-0000-0000-0000-000000000001
+                        lease_id: 40000000-0000-0000-0000-000000000003
+                        room_id: 20000000-0000-0000-0000-000000000002
+                        type: rent
+                        amount: 18000
+                        due_date: '2026-05-01'
+                        status: pending_payment
+                      - id: 50000000-0000-0000-0000-000000000002
+                        lease_id: 40000000-0000-0000-0000-000000000003
+                        room_id: 20000000-0000-0000-0000-000000000002
+                        type: electricity
+                        amount: null
+                        due_date: '2026-05-01'
+                        status: pending_meter
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+  /bills/{id}:
+    get:
+      operationId: getBill
+      summary: 帳單詳情（電費帳單自動帶入 previousReading）
+      description: |
+        電費帳單回傳時，系統自動查詢同 room_id 最近一張有 meter_reading 的電費帳單的 currentReading 作為 previousReading。
+      tags:
+        - Billing
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+        - owner
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 帳單詳情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillResponse'
+              examples:
+                rent_bill:
+                  summary: 租金帳單
+                  value:
+                    id: 50000000-0000-0000-0000-000000000001
+                    type: rent
+                    amount: 18000
+                    due_date: '2026-05-01'
+                    status: pending_payment
+                electricity_bill_pending_meter:
+                  summary: 電費帳單（待抄表，帶入 previousReading）
+                  value:
+                    id: 50000000-0000-0000-0000-000000000002
+                    type: electricity
+                    amount: null
+                    due_date: '2026-05-01'
+                    status: pending_meter
+                    meter_previous_reading: 1250
+                    meter_current_reading: null
+                    meter_unit_price: 5
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 無存取權限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 無此物業的存取權限
+        '404':
+          description: 帳單不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: BILL_NOT_FOUND
+                    message: 帳單不存在
+  /bills/{id}/meter:
+    post:
+      operationId: submitBillMeter
+      summary: 電表抄錄（觸發 MeterRecorded event）
+      description: |
+        x-required-role: admin, organizer, staff
+        BR-06：電表度數不得小於上月度數
+        BR-16：金額由系統計算（usage × unitPrice），不由員工輸入
+        MeterRecorded event → 帳單金額更新，狀態從 pending_meter 改為 pending_payment
+      tags:
+        - Billing
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordMeterRequest'
+            examples:
+              default:
+                value:
+                  current_reading: 1380
+      responses:
+        '200':
+          description: 電表抄錄成功（MeterRecorded event 已發出，帳單金額已更新）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillResponse'
+              examples:
+                success:
+                  value:
+                    id: 50000000-0000-0000-0000-000000000002
+                    status: pending_payment
+                    meter_previous_reading: 1250
+                    meter_current_reading: 1380
+                    meter_unit_price: 5
+                    amount: 650
+                    meter_recorded_at: '2026-04-15T10:00:00Z'
+        '400':
+          description: 欄位驗證錯誤
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missing_reading:
+                  value:
+                    error_code: VALIDATION_CURRENT_READING_REQUIRED
+                    message: current_reading 為必填欄位
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 業主無法執行電表抄錄
+        '404':
+          description: 帳單不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: BILL_NOT_FOUND
+                    message: 帳單不存在
+        '409':
+          description: 樂觀鎖衝突
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                conflict:
+                  value:
+                    error_code: CONCURRENT_UPDATE_CONFLICT
+                    message: 資料已被其他操作更新，請重試
+        '422':
+          description: Business Rule 拒絕
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                reading_less_than_previous:
+                  summary: BR-06 電表度數不得小於上月
+                  value:
+                    error_code: METER_READING_LESS_THAN_PREVIOUS
+                    message: 電表度數不得小於上月度數
+                    details:
+                      previous_reading: 1250
+                      submitted_reading: 1200
+                wrong_bill_type:
+                  summary: 非電費帳單無法抄錄
+                  value:
+                    error_code: BILL_NOT_ELECTRICITY_TYPE
+                    message: 此帳單非電費帳單，無法執行抄錄
+  /bills/{id}/payment:
+    post:
+      operationId: recordBillPayment
+      summary: 收款確認（觸發 BillPaid event）
+      description: |
+        x-required-role: admin, organizer, staff
+        BR-05：帳單不得重複收款（已 paid 狀態拒絕）
+        觸發 BillPaid event → PropertyAccount 新增 AccountingEntry
+        允許 overdue → paid 轉換
+      tags:
+        - Billing
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordPaymentRequest'
+            examples:
+              default:
+                value:
+                  payment_method: transfer
+                  paid_amount: 18000
+      responses:
+        '200':
+          description: 收款確認成功（BillPaid event 已發出）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillResponse'
+              examples:
+                success:
+                  value:
+                    id: 50000000-0000-0000-0000-000000000001
+                    status: paid
+                    payment_method: transfer
+                    paid_amount: 18000
+                    paid_at: '2026-04-15T10:30:00Z'
+        '400':
+          description: 欄位驗證錯誤
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missing_amount:
+                  value:
+                    error_code: VALIDATION_PAID_AMOUNT_REQUIRED
+                    message: paid_amount 為必填欄位
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 業主無法執行收款確認
+        '404':
+          description: 帳單不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: BILL_NOT_FOUND
+                    message: 帳單不存在
+        '409':
+          description: 樂觀鎖衝突
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                conflict:
+                  value:
+                    error_code: CONCURRENT_UPDATE_CONFLICT
+                    message: 資料已被其他操作更新，請重試
+        '422':
+          description: Business Rule 拒絕
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                already_paid:
+                  summary: BR-05 帳單已收款不得重複
+                  value:
+                    error_code: BILL_ALREADY_PAID
+                    message: 此帳單已完成收款，不得重複收款
+  /properties/{id}/pending-meter:
+    get:
+      operationId: listPropertyPendingMeters
+      summary: 某物業待抄表清單（pending_meter 帳單）
+      tags:
+        - Billing
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 待抄表帳單清單
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillListResponse'
+              examples:
+                success:
+                  value:
+                    data:
+                      - id: 50000000-0000-0000-0000-000000000002
+                        room_id: 20000000-0000-0000-0000-000000000002
+                        due_date: '2026-05-01'
+                        meter_previous_reading: 1250
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '404':
+          description: 物業不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: PROPERTY_NOT_FOUND
+                    message: 物業不存在
+  /properties/{id}/meter-history:
+    get:
+      operationId: listPropertyMeterHistory
+      summary: 某物業全房間電表歷史（按月呈現）
+      tags:
+        - Billing
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: year
+          in: query
+          schema:
+            type: integer
+            example: 2026
+      responses:
+        '200':
+          description: 電表歷史
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillListResponse'
+              examples:
+                success:
+                  value:
+                    data:
+                      - id: 50000000-0000-0000-0000-000000000002
+                        room_id: 20000000-0000-0000-0000-000000000002
+                        due_date: '2026-04-01'
+                        meter_previous_reading: 1120
+                        meter_current_reading: 1250
+                        amount: 650
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '404':
+          description: 物業不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: PROPERTY_NOT_FOUND
+                    message: 物業不存在
+  /rooms/{id}/meter-history:
+    get:
+      operationId: listRoomMeterHistory
+      summary: 單房間電表歷史
+      tags:
+        - Billing
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: year
+          in: query
+          schema:
+            type: integer
+            example: 2026
+        - name: month
+          in: query
+          schema:
+            type: integer
+            example: 4
+      responses:
+        '200':
+          description: 單房間電表歷史
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillListResponse'
+              examples:
+                success:
+                  value:
+                    data:
+                      - id: 50000000-0000-0000-0000-000000000002
+                        due_date: '2026-04-01'
+                        meter_previous_reading: 1120
+                        meter_current_reading: 1250
+                        amount: 650
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '404':
+          description: 房間不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: ROOM_NOT_FOUND
+                    message: 房間不存在
+  /properties/{id}/financial-report:
+    get:
+      operationId: getPropertyFinancialReportSummary
+      summary: 財報摘要列表（歷史月份）
+      description: |
+        x-required-role: admin, organizer, staff（指派物業）; owner（自己名下，唯讀）
+        x-ownership-required: true
+      tags:
+        - Billing
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+        - owner
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: year
+          in: query
+          schema:
+            type: integer
+            example: 2026
+      responses:
+        '200':
+          description: 財報摘要列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinancialReportListResponse'
+              examples:
+                success:
+                  value:
+                    data:
+                      - year: 2026
+                        month: 3
+                        total_income: 185000
+                        total_expense: 12000
+                        net: 173000
+                      - year: 2026
+                        month: 4
+                        total_income: 185000
+                        total_expense: 8000
+                        net: 177000
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 無存取權限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 無此物業的存取權限
+        '404':
+          description: 物業不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: PROPERTY_NOT_FOUND
+                    message: 物業不存在
+  /properties/{id}/financial-report/{year}/{month}:
+    get:
+      operationId: getPropertyFinancialReport
+      summary: 特定月份財報詳情
+      description: |
+        x-required-role: admin, organizer, staff（指派）; owner（自己名下，唯讀）
+      tags:
+        - Billing
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+        - owner
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: year
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: month
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: 特定月份財報
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinancialReportResponse'
+              examples:
+                success:
+                  value:
+                    property_id: 10000000-0000-0000-0000-000000000001
+                    year: 2026
+                    month: 3
+                    total_income: 185000
+                    total_expense: 12000
+                    net: 173000
+                    is_finalized: true
+                    entries:
+                      - category: rent_payment
+                        description: 101室 3月租金
+                        amount: 18000
+                      - category: electricity_payment
+                        description: 101室 3月電費
+                        amount: 650
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 無存取權限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 無此物業的存取權限
+        '404':
+          description: 物業或該月財報不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: FINANCIAL_REPORT_NOT_FOUND
+                    message: 該月份財報不存在
+  /properties/{id}/financial-report/{year}/{month}/send:
+    post:
+      operationId: sendPropertyFinancialReport
+      summary: 財報審核後寄送給業主
+      description: |
+        x-required-role: admin, organizer（財報審核與寄送）
+        人工操作，觸發財報 Email 寄送給業主。
+      tags:
+        - Billing
+      x-required-role:
+        - admin
+        - organizer
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: year
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: month
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: 財報已寄送
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinancialReportResponse'
+              examples:
+                success:
+                  value:
+                    property_id: 10000000-0000-0000-0000-000000000001
+                    year: 2026
+                    month: 3
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 員工無法執行財報寄送
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 財報審核與寄送需要主辦以上角色
+        '404':
+          description: 財報不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: FINANCIAL_REPORT_NOT_FOUND
+                    message: 該月份財報不存在
+  /journal-logs:
+    get:
+      operationId: listJournalLogs
+      summary: 日誌列表
+      description: |
+        x-ownership-required: organizer/staff 查詢指派物業
+      tags:
+        - Journal
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: property_id
+          in: query
+          schema:
+            type: string
+        - name: room_id
+          in: query
+          schema:
+            type: string
+        - name: date_from
+          in: query
+          schema:
+            type: string
+            format: date
+            description: 格式：YYYY-MM-DD，對應 created_at
+        - name: date_to
+          in: query
+          schema:
+            type: string
+            format: date
+            description: 格式：YYYY-MM-DD，對應 created_at
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+      responses:
+        '200':
+          description: 日誌列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JournalLogListResponse'
+              examples:
+                success:
+                  value:
+                    data:
+                      - id: 60000000-0000-0000-0000-000000000001
+                        property_id: 10000000-0000-0000-0000-000000000001
+                        room_id: null
+                        content: 更換大廳燈泡
+                        expense_amount: null
+                        created_at: '2026-04-10T09:00:00Z'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+    post:
+      operationId: createJournalLog
+      summary: 建立日誌（含費用時觸發 JournalExpenseRecorded event）
+      description: |
+        x-required-role: admin, organizer, staff
+        若有 expense_amount，觸發 JournalExpenseRecorded event → PropertyAccount 新增 AccountingEntry
+      tags:
+        - Journal
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateJournalLogRequest'
+            examples:
+              with_expense:
+                summary: 含費用的日誌
+                value:
+                  property_id: 10000000-0000-0000-0000-000000000001
+                  room_id: 20000000-0000-0000-0000-000000000001
+                  content: 浴室漏水修繕
+                  expense_amount: 3500
+                  expense_description: 水管更換費用
+              without_expense:
+                summary: 一般日誌
+                value:
+                  property_id: 10000000-0000-0000-0000-000000000001
+                  content: 定期巡視物業
+      responses:
+        '201':
+          description: 日誌建立成功（有費用時 JournalExpenseRecorded event 已發出）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JournalLogResponse'
+              examples:
+                success:
+                  value:
+                    id: 60000000-0000-0000-0000-000000000002
+                    property_id: 10000000-0000-0000-0000-000000000001
+                    content: 浴室漏水修繕
+                    expense_amount: 3500
+                    created_at: '2026-04-15T11:00:00Z'
+        '400':
+          description: 欄位驗證錯誤
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missing_content:
+                  value:
+                    error_code: VALIDATION_JOURNAL_CONTENT_REQUIRED
+                    message: 日誌內容為必填欄位
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 業主無法建立日誌
+  /journal-logs/{id}:
+    get:
+      operationId: getJournalLog
+      summary: 日誌詳情
+      tags:
+        - Journal
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 日誌詳情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JournalLogResponse'
+              examples:
+                success:
+                  value:
+                    id: 60000000-0000-0000-0000-000000000001
+                    property_id: 10000000-0000-0000-0000-000000000001
+                    room_id: null
+                    author_id: 00000000-0000-0000-0000-000000000002
+                    content: 更換大廳燈泡
+                    expense_amount: null
+                    expense_description: null
+                    created_at: '2026-04-10T09:00:00Z'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 無存取權限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 無此物業的存取權限
+        '404':
+          description: 日誌不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: JOURNAL_LOG_NOT_FOUND
+                    message: 日誌不存在
+    patch:
+      operationId: updateJournalLog
+      summary: 編輯日誌
+      description: 'x-required-role: admin, organizer, staff'
+      tags:
+        - Journal
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateJournalLogRequest'
+            examples:
+              default:
+                value:
+                  content: 浴室漏水修繕（已完成）
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JournalLogResponse'
+              examples:
+                success:
+                  value:
+                    id: 60000000-0000-0000-0000-000000000001
+                    content: 浴室漏水修繕（已完成）
+                    updated_at: '2026-04-15T15:00:00Z'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 業主無法編輯日誌
+        '404':
+          description: 日誌不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: JOURNAL_LOG_NOT_FOUND
+                    message: 日誌不存在
+    delete:
+      operationId: deleteJournalLog
+      summary: 刪除日誌（軟刪除）
+      description: 'x-required-role: admin, organizer'
+      tags:
+        - Journal
+      x-required-role:
+        - admin
+        - organizer
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: 刪除成功
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 員工無法刪除日誌
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 員工無法刪除日誌
+        '404':
+          description: 日誌不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: JOURNAL_LOG_NOT_FOUND
+                    message: 日誌不存在
+  /repair-requests:
+    get:
+      operationId: listRepairRequests
+      summary: 維修列表
+      description: 'x-ownership-required: organizer/staff 查詢指派物業'
+      tags:
+        - Journal
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: property_id
+          in: query
+          schema:
+            type: string
+        - name: room_id
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum:
+              - submitted
+              - assigned
+              - in_progress
+              - completed
+              - cancelled
+        - name: assigned_to
+          in: query
+          description: 依指派對象篩選（user_id）；staff 帶自己的 id，organizer 可帶任意 staff id
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+      responses:
+        '200':
+          description: 維修列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepairRequestListResponse'
+              examples:
+                success:
+                  value:
+                    data:
+                      - id: 70000000-0000-0000-0000-000000000001
+                        property_id: 10000000-0000-0000-0000-000000000001
+                        room_id: 20000000-0000-0000-0000-000000000002
+                        title: 浴室漏水
+                        status: in_progress
+                        assigned_to: 00000000-0000-0000-0000-000000000002
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+    post:
+      operationId: createRepairRequest
+      summary: 建立維修請求
+      description: 'x-required-role: admin, organizer, staff'
+      tags:
+        - Journal
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRepairRequestRequest'
+            examples:
+              default:
+                value:
+                  property_id: 10000000-0000-0000-0000-000000000001
+                  room_id: 20000000-0000-0000-0000-000000000002
+                  title: 浴室漏水
+                  description: 浴室天花板持續漏水，疑似上層住戶水管問題
+      responses:
+        '201':
+          description: 維修請求建立成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepairRequestResponse'
+              examples:
+                success:
+                  value:
+                    id: 70000000-0000-0000-0000-000000000002
+                    property_id: 10000000-0000-0000-0000-000000000001
+                    room_id: 20000000-0000-0000-0000-000000000002
+                    title: 浴室漏水
+                    status: submitted
+                    submitted_at: '2026-04-15T10:00:00Z'
+        '400':
+          description: 欄位驗證錯誤
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missing_title:
+                  value:
+                    error_code: VALIDATION_REPAIR_TITLE_REQUIRED
+                    message: 維修標題為必填欄位
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 業主無法建立維修請求
+  /repair-requests/{id}:
+    get:
+      operationId: getRepairRequest
+      summary: 維修詳情
+      tags:
+        - Journal
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 維修詳情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepairRequestResponse'
+              examples:
+                success:
+                  value:
+                    id: 70000000-0000-0000-0000-000000000001
+                    property_id: 10000000-0000-0000-0000-000000000001
+                    room_id: 20000000-0000-0000-0000-000000000002
+                    title: 浴室漏水
+                    description: 浴室天花板持續漏水
+                    status: in_progress
+                    assigned_to: 00000000-0000-0000-0000-000000000002
+                    submitted_at: '2026-04-10T10:00:00Z'
+                    assigned_at: '2026-04-11T09:00:00Z'
+                    completed_at: null
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 無存取權限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 無此物業的存取權限
+        '404':
+          description: 維修請求不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: REPAIR_REQUEST_NOT_FOUND
+                    message: 維修請求不存在
+    patch:
+      operationId: updateRepairRequest
+      summary: 編輯維修請求
+      description: 'x-required-role: admin, organizer, staff'
+      tags:
+        - Journal
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRepairRequestRequest'
+            examples:
+              default:
+                value:
+                  description: 浴室天花板持續漏水，已通知上層住戶
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepairRequestResponse'
+              examples:
+                success:
+                  value:
+                    id: 70000000-0000-0000-0000-000000000001
+                    description: 浴室天花板持續漏水，已通知上層住戶
+                    updated_at: '2026-04-15T10:00:00Z'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 業主無法編輯維修請求
+        '404':
+          description: 維修請求不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: REPAIR_REQUEST_NOT_FOUND
+                    message: 維修請求不存在
+    delete:
+      operationId: deleteRepairRequest
+      summary: 刪除維修請求（軟刪除）
+      description: 'x-required-role: admin, organizer'
+      tags:
+        - Journal
+      x-required-role:
+        - admin
+        - organizer
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: 刪除成功
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 員工無法刪除維修請求
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 員工無法刪除維修請求
+        '404':
+          description: 維修請求不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: REPAIR_REQUEST_NOT_FOUND
+                    message: 維修請求不存在
+  /repair-requests/{id}/assign:
+    post:
+      operationId: assignRepairRequest
+      summary: 派工（指派員工，觸發狀態機流轉）
+      description: |
+        x-required-role: admin, organizer, staff
+        狀態：submitted → assigned
+      tags:
+        - Journal
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignRepairRequest'
+            examples:
+              default:
+                value:
+                  assigned_to: 00000000-0000-0000-0000-000000000002
+      responses:
+        '200':
+          description: 派工成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepairRequestResponse'
+              examples:
+                success:
+                  value:
+                    id: 70000000-0000-0000-0000-000000000001
+                    status: assigned
+                    assigned_to: 00000000-0000-0000-0000-000000000002
+                    assigned_at: '2026-04-15T10:00:00Z'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 業主無法執行派工
+        '404':
+          description: 維修請求不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: REPAIR_REQUEST_NOT_FOUND
+                    message: 維修請求不存在
+        '422':
+          description: 狀態機不允許此操作
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_status:
+                  summary: 非 submitted 狀態無法派工
+                  value:
+                    error_code: REPAIR_INVALID_STATUS_FOR_ASSIGN
+                    message: 只有 submitted 狀態的維修請求可以派工
+  /repair-requests/{id}/progress:
+    post:
+      operationId: progressRepairRequest
+      summary: 更新維修進度（assigned → in_progress）
+      description: 'x-required-role: admin, organizer, staff'
+      tags:
+        - Journal
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 狀態更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepairRequestResponse'
+              examples:
+                success:
+                  value:
+                    id: 70000000-0000-0000-0000-000000000001
+                    status: in_progress
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '404':
+          description: 維修請求不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: REPAIR_REQUEST_NOT_FOUND
+                    message: 維修請求不存在
+        '422':
+          description: 狀態機不允許此操作
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_status:
+                  summary: 非 assigned 狀態無法進入 in_progress
+                  value:
+                    error_code: REPAIR_INVALID_STATUS_FOR_PROGRESS
+                    message: 只有 assigned 狀態的維修請求可以更新進度
+  /repair-requests/{id}/complete:
+    post:
+      operationId: completeRepairRequest
+      summary: 完成維修（觸發 RepairCompleted event）
+      description: |
+        x-required-role: admin, organizer, staff
+        狀態：in_progress → completed
+        觸發 RepairCompleted event → Property BC 檢查 Room 所有 RepairRequest，若全完成則 Room 改 vacant
+      tags:
+        - Journal
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 維修完成（RepairCompleted event 已發出）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepairRequestResponse'
+              examples:
+                success:
+                  value:
+                    id: 70000000-0000-0000-0000-000000000001
+                    status: completed
+                    completed_at: '2026-04-15T16:00:00Z'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 業主無法完成維修請求
+        '404':
+          description: 維修請求不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: REPAIR_REQUEST_NOT_FOUND
+                    message: 維修請求不存在
+        '422':
+          description: 狀態機不允許此操作
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_status:
+                  summary: 非 in_progress 狀態無法完成
+                  value:
+                    error_code: REPAIR_INVALID_STATUS_FOR_COMPLETE
+                    message: 只有 in_progress 狀態的維修請求可以標記完成
+  /repair-requests/{id}/cancel:
+    post:
+      operationId: cancelRepairRequest
+      summary: 取消維修（觸發 RepairCancelled event）
+      description: |
+        x-required-role: admin, organizer, staff
+        狀態：submitted | assigned | in_progress → cancelled
+        觸發 RepairCancelled event → Property BC 檢查 Room 所有 RepairRequest，若全完成/取消則 Room 改 vacant
+      tags:
+        - Journal
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelRepairRequest'
+            examples:
+              default:
+                value:
+                  reason: 業主決定不維修
+      responses:
+        '200':
+          description: 維修取消（RepairCancelled event 已發出）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepairRequestResponse'
+              examples:
+                success:
+                  value:
+                    id: 70000000-0000-0000-0000-000000000001
+                    status: cancelled
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 業主無法取消維修請求
+        '404':
+          description: 維修請求不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: REPAIR_REQUEST_NOT_FOUND
+                    message: 維修請求不存在
+        '422':
+          description: 狀態機不允許此操作
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                already_completed:
+                  summary: 已完成的維修無法取消
+                  value:
+                    error_code: REPAIR_ALREADY_COMPLETED
+                    message: 已完成的維修請求無法取消
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Firebase ID token。前端以 Firebase SDK 登入後取得，每個 request 帶入 Authorization header。
+        後端以 Firebase Admin SDK 驗證，Custom Claims 包含 role 與 assigned_property_ids。
+  schemas:
+    UserResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        firebase_uid:
+          type: string
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        role:
+          type: string
+          enum:
+            - admin
+            - organizer
+            - staff
+            - owner
+        permission_overrides:
+          type: array
+          items:
+            type: object
+        assigned_property_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        version:
+          type: integer
+    ErrorResponse:
+      type: object
+      properties:
+        error_code:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+          nullable: true
+    UserListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserResponse'
+    CreateUserRequest:
+      type: object
+      required:
+        - firebase_uid
+        - email
+        - name
+        - role
+      properties:
+        firebase_uid:
+          type: string
+          description: Firebase Auth 中的使用者 UID
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        role:
+          type: string
+          enum:
+            - admin
+            - organizer
+            - staff
+            - owner
+    UpdateUserRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        role:
+          type: string
+          enum:
+            - admin
+            - organizer
+            - staff
+            - owner
+    PropertyAssignmentRequest:
+      type: object
+      required:
+        - property_ids
+      properties:
+        property_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+    PropertyResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        address:
+          type: string
+        electricity_unit_price:
+          type: integer
+        owner_id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        version:
+          type: integer
+    PropertyListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/PropertyResponse'
+    CreatePropertyRequest:
+      type: object
+      required:
+        - name
+        - address
+        - electricity_unit_price
+        - owner_id
+      properties:
+        name:
+          type: string
+        address:
+          type: string
+        electricity_unit_price:
+          type: integer
+        owner_id:
+          type: string
+          format: uuid
+    UpdatePropertyRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        address:
+          type: string
+        electricity_unit_price:
+          type: integer
+    RoomResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        property_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        status:
+          type: string
+          enum:
+            - vacant
+            - occupied
+            - maintenance
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    RoomListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/RoomResponse'
+    CreateRoomRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+    UpdateRoomRequest:
+      type: object
+      properties:
+        name:
+          type: string
+    SetMaintenanceRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+    DashboardRoomItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        status:
+          type: string
+          enum:
+            - vacant
+            - occupied
+            - maintenance
+    DashboardMonthlySummary:
+      type: object
+      properties:
+        expected_rent:
+          type: integer
+        collected_rent:
+          type: integer
+        overdue_bill_count:
+          type: integer
+    DashboardRecentJournalItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+        content:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    DashboardResponse:
+      type: object
+      properties:
+        property_id:
+          type: string
+          format: uuid
+        rooms:
+          type: array
+          items:
+            $ref: '#/components/schemas/DashboardRoomItem'
+        monthly_summary:
+          $ref: '#/components/schemas/DashboardMonthlySummary'
+        recent_journals:
+          type: array
+          items:
+            $ref: '#/components/schemas/DashboardRecentJournalItem'
+    TenantResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        contacts:
+          type: array
+          items:
+            type: object
+        status:
+          type: string
+          enum:
+            - active
+            - inactive
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        version:
+          type: integer
+    TenantListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/TenantResponse'
+    CreateTenantRequest:
+      type: object
+      required:
+        - name
+        - email
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        contacts:
+          type: array
+          items:
+            type: object
+    UpdateTenantRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        contacts:
+          type: array
+          items:
+            type: object
+    LeaseResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        room_id:
+          type: string
+          format: uuid
+        property_id:
+          type: string
+          format: uuid
+        rent_amount:
+          type: integer
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        status:
+          type: string
+          enum:
+            - active
+            - expired
+            - terminated
+            - force_terminated
+        deposit_amount:
+          type: integer
+        deposit_status:
+          type: string
+          enum:
+            - held
+            - refunded
+            - deducted
+            - written_off
+        deposit_deduction_reason:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        version:
+          type: integer
+    LeaseListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/LeaseResponse'
+    CreateLeaseRequest:
+      type: object
+      required:
+        - tenant_id
+        - room_id
+        - rent_amount
+        - start_date
+        - end_date
+        - deposit_amount
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        room_id:
+          type: string
+          format: uuid
+        rent_amount:
+          type: integer
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        deposit_amount:
+          type: integer
+    UpdateLeaseRequest:
+      type: object
+      properties:
+        rent_amount:
+          type: integer
+        end_date:
+          type: string
+          format: date
+    TerminateLeaseRequest:
+      type: object
+      required:
+        - deposit_action
+      properties:
+        deposit_action:
+          type: string
+          enum:
+            - refund
+            - deduct
+        deposit_deduction_reason:
+          type: string
+          description: 扣款時必填（BR-10）
+    ForceTerminateRequest:
+      type: object
+      required:
+        - reason
+      properties:
+        reason:
+          type: string
+    ForceTerminationResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        lease_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+            - in_progress
+            - completed
+        initiated_by:
+          type: string
+          format: uuid
+        reason:
+          type: string
+        bills:
+          type: array
+          items:
+            type: object
+            properties:
+              bill_id:
+                type: string
+                format: uuid
+              status:
+                type: string
+                enum:
+                  - pending
+                  - done
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    UpdateDepositRequest:
+      type: object
+      required:
+        - action
+      properties:
+        action:
+          type: string
+          enum:
+            - refund
+            - deduct
+            - write_off
+        reason:
+          type: string
+          description: 扣款或 write_off 時必填
+    BillResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        lease_id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        room_id:
+          type: string
+          format: uuid
+        property_id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum:
+            - rent
+            - electricity
+        amount:
+          type: integer
+          nullable: true
+        due_date:
+          type: string
+          format: date
+        status:
+          type: string
+          enum:
+            - pending_meter
+            - pending_payment
+            - paid
+            - overdue
+            - voided
+            - written_off
+        payment_method:
+          type: string
+          enum:
+            - cash
+            - transfer
+            - other
+          nullable: true
+        paid_at:
+          type: string
+          format: date-time
+          nullable: true
+        paid_amount:
+          type: integer
+          nullable: true
+        meter_previous_reading:
+          type: integer
+          nullable: true
+        meter_current_reading:
+          type: integer
+          nullable: true
+        meter_unit_price:
+          type: integer
+          nullable: true
+        meter_recorded_at:
+          type: string
+          format: date-time
+          nullable: true
+        written_off_reason:
+          type: string
+          nullable: true
+        overdue_notice_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        version:
+          type: integer
+    BillListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/BillResponse'
+    RecordMeterRequest:
+      type: object
+      required:
+        - current_reading
+      properties:
+        current_reading:
+          type: integer
+          description: 本月電表度數（員工輸入）
+    RecordPaymentRequest:
+      type: object
+      required:
+        - payment_method
+        - paid_amount
+      properties:
+        payment_method:
+          type: string
+          enum:
+            - cash
+            - transfer
+            - other
+        paid_amount:
+          type: integer
+        paid_at:
+          type: string
+          format: date-time
+          description: 付款時間（選填，預設為伺服器時間）
+    FinancialReportSummaryItem:
+      type: object
+      properties:
+        year:
+          type: integer
+        month:
+          type: integer
+        total_income:
+          type: integer
+        total_expense:
+          type: integer
+        net:
+          type: integer
+    FinancialReportListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/FinancialReportSummaryItem'
+    FinancialReportEntryItem:
+      type: object
+      properties:
+        category:
+          type: string
+          enum:
+            - rent_payment
+            - electricity_payment
+            - deposit_refund
+            - deposit_deduction
+            - journal_expense
+        description:
+          type: string
+        amount:
+          type: integer
+    FinancialReportResponse:
+      type: object
+      properties:
+        property_id:
+          type: string
+          format: uuid
+        year:
+          type: integer
+        month:
+          type: integer
+        total_income:
+          type: integer
+        total_expense:
+          type: integer
+        net:
+          type: integer
+        is_finalized:
+          type: boolean
+          description: |
+            true 表示該月已完成月結（資料來自 monthly_snapshots）； false 表示當月進行中（資料來自 accounting_entries 即時彙總）
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/FinancialReportEntryItem'
+    JournalLogResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        property_id:
+          type: string
+          format: uuid
+        room_id:
+          type: string
+          format: uuid
+          nullable: true
+        author_id:
+          type: string
+          format: uuid
+        content:
+          type: string
+        expense_amount:
+          type: integer
+          nullable: true
+        expense_description:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    JournalLogListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/JournalLogResponse'
+    CreateJournalLogRequest:
+      type: object
+      required:
+        - property_id
+        - content
+      properties:
+        property_id:
+          type: string
+          format: uuid
+        room_id:
+          type: string
+          format: uuid
+          nullable: true
+        content:
+          type: string
+        expense_amount:
+          type: integer
+          nullable: true
+        expense_description:
+          type: string
+          nullable: true
+    UpdateJournalLogRequest:
+      type: object
+      properties:
+        content:
+          type: string
+        expense_amount:
+          type: integer
+        expense_description:
+          type: string
+    RepairRequestResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        property_id:
+          type: string
+          format: uuid
+        room_id:
+          type: string
+          format: uuid
+        submitted_by:
+          type: string
+          format: uuid
+        assigned_to:
+          type: string
+          format: uuid
+          nullable: true
+        title:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum:
+            - submitted
+            - assigned
+            - in_progress
+            - completed
+            - cancelled
+        submitted_at:
+          type: string
+          format: date-time
+        assigned_at:
+          type: string
+          format: date-time
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    RepairRequestListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/RepairRequestResponse'
+    CreateRepairRequestRequest:
+      type: object
+      required:
+        - property_id
+        - room_id
+        - title
+        - description
+      properties:
+        property_id:
+          type: string
+          format: uuid
+        room_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+    UpdateRepairRequestRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+    AssignRepairRequest:
+      type: object
+      required:
+        - assigned_to
+      properties:
+        assigned_to:
+          type: string
+          format: uuid
+          description: 被指派的員工 user ID
+    CancelRepairRequest:
+      type: object
+      properties:
+        reason:
+          type: string

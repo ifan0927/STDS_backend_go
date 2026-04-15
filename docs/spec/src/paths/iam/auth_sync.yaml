@@ -1,0 +1,52 @@
+post:
+  operationId: syncAuth
+  summary: 同步 Firebase 使用者至後端 DB（首次登入或 token 更新時呼叫）
+  description: |
+    前端以 Firebase SDK 完成登入後，帶 Firebase ID token 呼叫此 endpoint。
+    後端以 firebase_uid 查詢或建立 users table 記錄，並將最新 role 與 assigned_property_ids
+    寫入 Firebase Custom Claims（若與 DB 不一致時更新）。
+    此 endpoint 取代原本的 POST /auth/login（v2.9），登入由 Firebase SDK 處理。
+  tags:
+    - Identity & Access
+  responses:
+    '200':
+      description: 同步成功，回傳使用者基本資料與 Custom Claims 資訊
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/iam/UserResponse.yaml
+          examples:
+            success:
+              summary: 同步成功
+              value:
+                id: 00000000-0000-0000-0000-000000000001
+                firebase_uid: uid_abc123xyz
+                name: 王小明
+                role: organizer
+                assigned_property_ids:
+                  - 10000000-0000-0000-0000-000000000001
+                  - 10000000-0000-0000-0000-000000000002
+    '401':
+      description: Firebase ID token 無效或已過期
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            invalid_token:
+              summary: token 無效
+              value:
+                error_code: INVALID_FIREBASE_TOKEN
+                message: Firebase ID token 無效或已過期
+    '404':
+      description: 此 firebase_uid 尚未在後端建立帳號
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              summary: 帳號尚未建立
+              value:
+                error_code: USER_NOT_FOUND
+                message: 此 Firebase 帳號尚未在系統中建立，請聯絡管理員

@@ -1,0 +1,172 @@
+get:
+  operationId: listPropertyRooms
+  summary: 房間列表（含狀態）
+  tags:
+    - Property
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+    - owner
+  x-ownership-required: true
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    - name: status
+      in: query
+      schema:
+        type: string
+        enum:
+          - vacant
+          - occupied
+          - maintenance
+    - name: page
+      in: query
+      schema:
+        type: integer
+        default: 1
+    - name: limit
+      in: query
+      schema:
+        type: integer
+        default: 20
+        maximum: 100
+  responses:
+    '200':
+      description: 房間列表
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/property/RoomListResponse.yaml
+          examples:
+            success:
+              value:
+                data:
+                  - id: 20000000-0000-0000-0000-000000000001
+                    name: 101 室
+                    status: occupied
+                  - id: 20000000-0000-0000-0000-000000000002
+                    name: 102 室
+                    status: vacant
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '403':
+      description: 無此物業存取權限
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: 無此物業的存取權限
+    '404':
+      description: 物業不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: PROPERTY_NOT_FOUND
+                message: 物業不存在
+post:
+  operationId: createPropertyRoom
+  summary: 建立房間
+  description: 'x-required-role: admin, organizer, staff'
+  tags:
+    - Property
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+  x-ownership-required: true
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: ../../components/schemas/property/CreateRoomRequest.yaml
+        examples:
+          default:
+            value:
+              name: 103 室
+  responses:
+    '201':
+      description: 房間建立成功
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/property/RoomResponse.yaml
+          examples:
+            success:
+              value:
+                id: 20000000-0000-0000-0000-000000000003
+                property_id: 10000000-0000-0000-0000-000000000001
+                name: 103 室
+                status: vacant
+                created_at: '2026-04-15T10:00:00Z'
+    '400':
+      description: 欄位驗證錯誤
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            missing_name:
+              value:
+                error_code: VALIDATION_ROOM_NAME_REQUIRED
+                message: 房間名稱為必填欄位
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '403':
+      description: 權限不足
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: 無此物業的存取權限或角色權限不足
+    '404':
+      description: 物業不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: PROPERTY_NOT_FOUND
+                message: 物業不存在

@@ -1,0 +1,25 @@
+type: object
+required:
+  - tenant_id
+  - room_id
+  - rent_amount
+  - start_date
+  - end_date
+  - deposit_amount
+properties:
+  tenant_id:
+    type: string
+    format: uuid
+  room_id:
+    type: string
+    format: uuid
+  rent_amount:
+    type: integer
+  start_date:
+    type: string
+    format: date
+  end_date:
+    type: string
+    format: date
+  deposit_amount:
+    type: integer

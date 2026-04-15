@@ -1,0 +1,64 @@
+get:
+  operationId: listRoomMeterHistory
+  summary: 單房間電表歷史
+  tags:
+    - Billing
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+  x-ownership-required: true
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    - name: year
+      in: query
+      schema:
+        type: integer
+        example: 2026
+    - name: month
+      in: query
+      schema:
+        type: integer
+        example: 4
+  responses:
+    '200':
+      description: 單房間電表歷史
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/billing/BillListResponse.yaml
+          examples:
+            success:
+              value:
+                data:
+                  - id: 50000000-0000-0000-0000-000000000002
+                    due_date: '2026-04-01'
+                    meter_previous_reading: 1120
+                    meter_current_reading: 1250
+                    amount: 650
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '404':
+      description: 房間不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: ROOM_NOT_FOUND
+                message: 房間不存在

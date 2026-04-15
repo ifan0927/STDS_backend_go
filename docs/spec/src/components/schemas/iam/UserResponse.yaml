@@ -1,0 +1,36 @@
+type: object
+properties:
+  id:
+    type: string
+    format: uuid
+  firebase_uid:
+    type: string
+  email:
+    type: string
+    format: email
+  name:
+    type: string
+  role:
+    type: string
+    enum:
+      - admin
+      - organizer
+      - staff
+      - owner
+  permission_overrides:
+    type: array
+    items:
+      type: object
+  assigned_property_ids:
+    type: array
+    items:
+      type: string
+      format: uuid
+  created_at:
+    type: string
+    format: date-time
+  updated_at:
+    type: string
+    format: date-time
+  version:
+    type: integer

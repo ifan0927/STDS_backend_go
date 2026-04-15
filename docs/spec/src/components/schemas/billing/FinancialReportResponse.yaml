@@ -1,0 +1,24 @@
+type: object
+properties:
+  property_id:
+    type: string
+    format: uuid
+  year:
+    type: integer
+  month:
+    type: integer
+  total_income:
+    type: integer
+  total_expense:
+    type: integer
+  net:
+    type: integer
+  is_finalized:
+    type: boolean
+    description: >
+      true 表示該月已完成月結（資料來自 monthly_snapshots）； false 表示當月進行中（資料來自
+      accounting_entries 即時彙總）
+  entries:
+    type: array
+    items:
+      $ref: ./FinancialReportEntryItem.yaml

@@ -1,0 +1,192 @@
+get:
+  operationId: getJournalLog
+  summary: 日誌詳情
+  tags:
+    - Journal
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+  x-ownership-required: true
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    '200':
+      description: 日誌詳情
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/journal/JournalLogResponse.yaml
+          examples:
+            success:
+              value:
+                id: 60000000-0000-0000-0000-000000000001
+                property_id: 10000000-0000-0000-0000-000000000001
+                room_id: null
+                author_id: 00000000-0000-0000-0000-000000000002
+                content: 更換大廳燈泡
+                expense_amount: null
+                expense_description: null
+                created_at: '2026-04-10T09:00:00Z'
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '403':
+      description: 無存取權限
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: 無此物業的存取權限
+    '404':
+      description: 日誌不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: JOURNAL_LOG_NOT_FOUND
+                message: 日誌不存在
+patch:
+  operationId: updateJournalLog
+  summary: 編輯日誌
+  description: 'x-required-role: admin, organizer, staff'
+  tags:
+    - Journal
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+  x-ownership-required: true
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: ../../components/schemas/journal/UpdateJournalLogRequest.yaml
+        examples:
+          default:
+            value:
+              content: 浴室漏水修繕（已完成）
+  responses:
+    '200':
+      description: 更新成功
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/journal/JournalLogResponse.yaml
+          examples:
+            success:
+              value:
+                id: 60000000-0000-0000-0000-000000000001
+                content: 浴室漏水修繕（已完成）
+                updated_at: '2026-04-15T15:00:00Z'
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '403':
+      description: 權限不足
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: 業主無法編輯日誌
+    '404':
+      description: 日誌不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: JOURNAL_LOG_NOT_FOUND
+                message: 日誌不存在
+delete:
+  operationId: deleteJournalLog
+  summary: 刪除日誌（軟刪除）
+  description: 'x-required-role: admin, organizer'
+  tags:
+    - Journal
+  x-required-role:
+    - admin
+    - organizer
+  x-ownership-required: true
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    '204':
+      description: 刪除成功
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '403':
+      description: 員工無法刪除日誌
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: 員工無法刪除日誌
+    '404':
+      description: 日誌不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: JOURNAL_LOG_NOT_FOUND
+                message: 日誌不存在

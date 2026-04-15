@@ -1,0 +1,92 @@
+get:
+  operationId: listBills
+  summary: 帳單列表
+  description: |
+    x-ownership-required: organizer/staff 查詢指派物業；owner 查詢自己名下（唯讀）。
+  tags:
+    - Billing
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+    - owner
+  x-ownership-required: true
+  parameters:
+    - name: property_id
+      in: query
+      schema:
+        type: string
+    - name: lease_id
+      in: query
+      schema:
+        type: string
+    - name: tenant_id
+      in: query
+      required: false
+      schema:
+        type: string
+        format: uuid
+      description: 依租客 ID 篩選帳單
+    - name: status
+      in: query
+      schema:
+        type: string
+        enum:
+          - pending_meter
+          - pending_payment
+          - paid
+          - overdue
+          - voided
+          - written_off
+    - name: month
+      in: query
+      schema:
+        type: string
+        description: 格式：YYYY-MM
+    - name: page
+      in: query
+      schema:
+        type: integer
+        default: 1
+    - name: limit
+      in: query
+      schema:
+        type: integer
+        default: 20
+        maximum: 100
+  responses:
+    '200':
+      description: 帳單列表
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/billing/BillListResponse.yaml
+          examples:
+            success:
+              value:
+                data:
+                  - id: 50000000-0000-0000-0000-000000000001
+                    lease_id: 40000000-0000-0000-0000-000000000003
+                    room_id: 20000000-0000-0000-0000-000000000002
+                    type: rent
+                    amount: 18000
+                    due_date: '2026-05-01'
+                    status: pending_payment
+                  - id: 50000000-0000-0000-0000-000000000002
+                    lease_id: 40000000-0000-0000-0000-000000000003
+                    room_id: 20000000-0000-0000-0000-000000000002
+                    type: electricity
+                    amount: null
+                    due_date: '2026-05-01'
+                    status: pending_meter
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入

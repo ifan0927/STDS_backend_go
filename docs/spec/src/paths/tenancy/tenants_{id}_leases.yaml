@@ -1,0 +1,67 @@
+get:
+  operationId: listTenantLeases
+  summary: 某租客的租約歷史
+  tags:
+    - Leasing
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    - name: status
+      in: query
+      schema:
+        type: string
+        enum:
+          - active
+          - expired
+          - terminated
+          - force_terminated
+  responses:
+    '200':
+      description: 租約歷史
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/tenancy/LeaseListResponse.yaml
+          examples:
+            success:
+              value:
+                data:
+                  - id: 40000000-0000-0000-0000-000000000001
+                    room_id: 20000000-0000-0000-0000-000000000001
+                    start_date: '2025-01-01'
+                    end_date: '2025-12-31'
+                    status: terminated
+                  - id: 40000000-0000-0000-0000-000000000002
+                    room_id: 20000000-0000-0000-0000-000000000002
+                    start_date: '2026-01-01'
+                    end_date: '2026-12-31'
+                    status: active
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '404':
+      description: 租客不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: TENANT_NOT_FOUND
+                message: 租客不存在

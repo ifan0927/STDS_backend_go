@@ -1,0 +1,12 @@
+type: object
+required:
+  - deposit_action
+properties:
+  deposit_action:
+    type: string
+    enum:
+      - refund
+      - deduct
+  deposit_deduction_reason:
+    type: string
+    description: 扣款時必填（BR-10）

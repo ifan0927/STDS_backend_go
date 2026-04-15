@@ -1,0 +1,81 @@
+post:
+  operationId: completeRepairRequest
+  summary: 完成維修（觸發 RepairCompleted event）
+  description: >
+    x-required-role: admin, organizer, staff
+
+    狀態：in_progress → completed
+
+    觸發 RepairCompleted event → Property BC 檢查 Room 所有 RepairRequest，若全完成則 Room 改
+    vacant
+  tags:
+    - Journal
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+  x-ownership-required: true
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    '200':
+      description: 維修完成（RepairCompleted event 已發出）
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/repair/RepairRequestResponse.yaml
+          examples:
+            success:
+              value:
+                id: 70000000-0000-0000-0000-000000000001
+                status: completed
+                completed_at: '2026-04-15T16:00:00Z'
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '403':
+      description: 權限不足
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: 業主無法完成維修請求
+    '404':
+      description: 維修請求不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: REPAIR_REQUEST_NOT_FOUND
+                message: 維修請求不存在
+    '422':
+      description: 狀態機不允許此操作
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            invalid_status:
+              summary: 非 in_progress 狀態無法完成
+              value:
+                error_code: REPAIR_INVALID_STATUS_FOR_COMPLETE
+                message: 只有 in_progress 狀態的維修請求可以標記完成

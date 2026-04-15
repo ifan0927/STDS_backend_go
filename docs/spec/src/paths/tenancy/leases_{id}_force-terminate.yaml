@@ -1,0 +1,94 @@
+post:
+  operationId: forceTerminateLease
+  summary: 強制終止租約（觸發 LeaseTerminated event，forced=true）
+  description: >
+    x-required-role: admin, organizer（BR-14：主辦以上）
+
+    流程：ForceTermination 記錄 → 帳單標記 written_off → LeaseTerminated（forced: true）
+
+    觸發 LeaseTerminated（forced: true）→ Property BC（Room 改 vacant）+ Notification
+    BC（寄強制終止通知）
+
+    BR-14：需主辦以上角色並填寫原因。
+  tags:
+    - Leasing
+  x-required-role:
+    - admin
+    - organizer
+  x-ownership-required: true
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: ../../components/schemas/tenancy/ForceTerminateRequest.yaml
+        examples:
+          default:
+            value:
+              reason: 租客失聯，連續 3 個月未繳租金
+  responses:
+    '202':
+      description: 強制終止流程已啟動（非同步補償，force_termination 記錄已建立）
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/tenancy/ForceTerminationResponse.yaml
+          examples:
+            accepted:
+              value:
+                id: 80000000-0000-0000-0000-000000000001
+                lease_id: 40000000-0000-0000-0000-000000000003
+                status: in_progress
+                created_at: '2026-04-15T17:00:00Z'
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '403':
+      description: 員工角色無法執行強制終止（BR-14）
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              summary: BR-14 員工不可強制終止
+              value:
+                error_code: FORBIDDEN_FORCE_TERMINATION
+                message: 強制終止租約需要主辦以上角色
+    '404':
+      description: 租約不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: LEASE_NOT_FOUND
+                message: 租約不存在
+    '422':
+      description: Business Rule 拒絕
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            reason_required:
+              summary: BR-14 必須填寫強制終止原因
+              value:
+                error_code: FORCE_TERMINATION_REASON_REQUIRED
+                message: 強制終止租約必須填寫原因

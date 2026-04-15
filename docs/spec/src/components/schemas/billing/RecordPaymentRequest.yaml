@@ -1,0 +1,17 @@
+type: object
+required:
+  - payment_method
+  - paid_amount
+properties:
+  payment_method:
+    type: string
+    enum:
+      - cash
+      - transfer
+      - other
+  paid_amount:
+    type: integer
+  paid_at:
+    type: string
+    format: date-time
+    description: 付款時間（選填，預設為伺服器時間）

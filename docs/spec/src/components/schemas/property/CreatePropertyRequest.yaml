@@ -1,0 +1,16 @@
+type: object
+required:
+  - name
+  - address
+  - electricity_unit_price
+  - owner_id
+properties:
+  name:
+    type: string
+  address:
+    type: string
+  electricity_unit_price:
+    type: integer
+  owner_id:
+    type: string
+    format: uuid

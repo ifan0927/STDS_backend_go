@@ -1,0 +1,13 @@
+type: object
+properties:
+  name:
+    type: string
+  email:
+    type: string
+    format: email
+  phone:
+    type: string
+  contacts:
+    type: array
+    items:
+      type: object

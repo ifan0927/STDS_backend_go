@@ -1,0 +1,96 @@
+post:
+  operationId: assignUserProperties
+  summary: 指派物業給成員（觸發 PropertyUnassigned/PropertyAssigned 邏輯）
+  description: >
+    將物業指派給工作室成員。
+
+    BR-11：指派對象必須為工作室成員（非業主）。
+
+    x-required-role: admin
+
+    指派成功後，後端呼叫 Firebase Admin SDK 更新該使用者的 Custom Claims（role 與
+    assigned_property_ids），
+
+    前端下次 refresh token 後新指派生效。
+  tags:
+    - Identity & Access
+  x-required-role:
+    - admin
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: ../../components/schemas/iam/PropertyAssignmentRequest.yaml
+        examples:
+          assign:
+            summary: 指派物業
+            value:
+              property_ids:
+                - 10000000-0000-0000-0000-000000000001
+                - 10000000-0000-0000-0000-000000000002
+  responses:
+    '200':
+      description: 指派成功（Firebase Custom Claims 已更新）
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/iam/UserResponse.yaml
+          examples:
+            success:
+              value:
+                id: 00000000-0000-0000-0000-000000000002
+                assigned_property_ids:
+                  - 10000000-0000-0000-0000-000000000001
+                  - 10000000-0000-0000-0000-000000000002
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '403':
+      description: 權限不足
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: 只有系統管理員可執行物業指派
+    '404':
+      description: 使用者或物業不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            user_not_found:
+              value:
+                error_code: USER_NOT_FOUND
+                message: 使用者不存在
+    '422':
+      description: Business Rule 拒絕
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            cannot_assign_to_owner:
+              summary: BR-11 指派對象必須為工作室成員
+              value:
+                error_code: CANNOT_ASSIGN_PROPERTY_TO_OWNER
+                message: 物業指派對象必須為工作室成員，不可指派給業主

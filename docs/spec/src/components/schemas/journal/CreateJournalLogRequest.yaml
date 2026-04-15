@@ -1,0 +1,20 @@
+type: object
+required:
+  - property_id
+  - content
+properties:
+  property_id:
+    type: string
+    format: uuid
+  room_id:
+    type: string
+    format: uuid
+    nullable: true
+  content:
+    type: string
+  expense_amount:
+    type: integer
+    nullable: true
+  expense_description:
+    type: string
+    nullable: true

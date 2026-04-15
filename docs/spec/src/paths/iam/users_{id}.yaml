@@ -1,0 +1,162 @@
+get:
+  operationId: getUser
+  summary: 成員詳情
+  tags:
+    - Identity & Access
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    '200':
+      description: 成員詳情
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/iam/UserResponse.yaml
+          examples:
+            success:
+              summary: 成員詳情
+              value:
+                id: 00000000-0000-0000-0000-000000000001
+                firebase_uid: uid_abc123xyz
+                name: 王小明
+                email: organizer@studio.com
+                role: organizer
+                assigned_property_ids:
+                  - 10000000-0000-0000-0000-000000000001
+                  - 10000000-0000-0000-0000-000000000002
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '403':
+      description: 權限不足
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: 權限不足
+    '404':
+      description: 使用者不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: USER_NOT_FOUND
+                message: 使用者不存在
+patch:
+  operationId: updateUser
+  summary: 更新使用者帳號（角色調整）
+  tags:
+    - Identity & Access
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+    - owner
+  description: |
+    - 角色調整：x-required-role: admin
+    - 名稱更新：x-required-role: admin, organizer, staff, owner（本人）
+    - 密碼重設：由 Firebase SDK 處理，不透過此 API（前端呼叫 Firebase sendPasswordResetEmail）
+    - BR-13：系統管理員不得降低自己的角色
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: ../../components/schemas/iam/UpdateUserRequest.yaml
+        examples:
+          change_role:
+            summary: 變更角色
+            value:
+              role: organizer
+          update_name:
+            summary: 更新名稱
+            value:
+              name: 王大明
+  responses:
+    '200':
+      description: 更新成功
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/iam/UserResponse.yaml
+          examples:
+            success:
+              value:
+                id: 00000000-0000-0000-0000-000000000001
+                name: 王大明
+                role: organizer
+                updated_at: '2026-04-15T11:00:00Z'
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '403':
+      description: 權限不足
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: 權限不足
+    '404':
+      description: 使用者不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: USER_NOT_FOUND
+                message: 使用者不存在
+    '422':
+      description: Business Rule 拒絕
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            admin_cannot_downgrade_self:
+              summary: BR-13 系統管理員不得降低自己的角色
+              value:
+                error_code: ADMIN_CANNOT_DOWNGRADE_SELF
+                message: 系統管理員不得降低自己的角色

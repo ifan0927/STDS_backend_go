@@ -1,0 +1,22 @@
+type: object
+required:
+  - firebase_uid
+  - email
+  - name
+  - role
+properties:
+  firebase_uid:
+    type: string
+    description: Firebase Auth 中的使用者 UID
+  email:
+    type: string
+    format: email
+  name:
+    type: string
+  role:
+    type: string
+    enum:
+      - admin
+      - organizer
+      - staff
+      - owner

@@ -1,0 +1,143 @@
+openapi: 3.0.3
+info:
+  title: STDS API
+  version: 1.0.0
+  license:
+    name: Proprietary
+    url: https://example.com/licenses/proprietary
+  description: >
+    STDS（物業代管系統）API 規格
+
+    產出依據：docs/design/domain-model.md v3.0
+
+    授權模型：混合型（RBAC + Resource-based）
+
+    - x-required-role：列出可呼叫的角色（RBAC）
+
+    - x-ownership-required：物業層級存取控制（resource-based），透過 Firebase ID token 內
+    Custom Claims 的 assigned_property_ids 驗證
+
+    - 優先順序：先驗 RBAC role，再驗 property ownership（兩者皆須通過）
+
+
+    認證機制（v3.0）：系統使用 Firebase Auth 管理使用者認證。
+
+    - 登入流程：由前端 Firebase SDK 處理，後端不接受 email/password 登入
+
+    - 後端驗證：每個 request 以 Firebase ID token（Bearer token）呼叫後端
+
+    - 後端 middleware 以 Firebase Admin SDK 驗證 token，從 Custom Claims 讀取 role 與
+    assigned_property_ids
+
+    - 密碼重設：由 Firebase SDK 處理，後端不提供密碼重設 API
+
+    - users table 透過 firebase_uid 與 Firebase 帳號對應
+
+
+    ## Notification 機制
+
+
+    Email 通知由後端 event handler 統一處理，不提供 REST endpoint：
+
+    - RentBillsGenerated → 寄送帳單通知給租客
+
+    - LeaseExpiringSoon → 寄送到期提醒給 organizer/staff
+
+    - OverdueBillReminder → 寄送催收通知（最多 3 次）
+
+    - FinancialReportSend → 寄送財報 Email
+
+
+    通知服務由後端訂閱 Domain Event 後透過 SendGrid 發送，前端無需呼叫任何 notification API。
+servers:
+  - url: /api/v1
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        Firebase ID token。前端以 Firebase SDK 登入後取得，每個 request 帶入 Authorization
+        header。
+
+        後端以 Firebase Admin SDK 驗證，Custom Claims 包含 role 與 assigned_property_ids。
+security:
+  - BearerAuth: []
+paths:
+  /auth/sync:
+    $ref: paths/iam/auth_sync.yaml
+  /users:
+    $ref: paths/iam/users.yaml
+  /users/me:
+    $ref: paths/iam/users_me.yaml
+  /users/{id}:
+    $ref: paths/iam/users_{id}.yaml
+  /users/{id}/property-assignments:
+    $ref: paths/iam/users_{id}_property-assignments.yaml
+  /properties:
+    $ref: paths/property/properties.yaml
+  /properties/{id}:
+    $ref: paths/property/properties_{id}.yaml
+  /properties/{id}/rooms:
+    $ref: paths/property/properties_{id}_rooms.yaml
+  /rooms/{id}:
+    $ref: paths/property/rooms_{id}.yaml
+  /rooms/{id}/maintenance:
+    $ref: paths/property/rooms_{id}_maintenance.yaml
+  /properties/{id}/dashboard:
+    $ref: paths/property/properties_{id}_dashboard.yaml
+  /tenants:
+    $ref: paths/tenancy/tenants.yaml
+  /tenants/{id}:
+    $ref: paths/tenancy/tenants_{id}.yaml
+  /tenants/{id}/leases:
+    $ref: paths/tenancy/tenants_{id}_leases.yaml
+  /leases:
+    $ref: paths/tenancy/leases.yaml
+  /leases/{id}:
+    $ref: paths/tenancy/leases_{id}.yaml
+  /leases/{id}/terminate:
+    $ref: paths/tenancy/leases_{id}_terminate.yaml
+  /leases/{id}/force-terminate:
+    $ref: paths/tenancy/leases_{id}_force-terminate.yaml
+  /force-terminations/{id}:
+    $ref: paths/tenancy/force-terminations_{id}.yaml
+  /leases/{id}/deposit:
+    $ref: paths/tenancy/leases_{id}_deposit.yaml
+  /bills:
+    $ref: paths/billing/bills.yaml
+  /bills/{id}:
+    $ref: paths/billing/bills_{id}.yaml
+  /bills/{id}/meter:
+    $ref: paths/billing/bills_{id}_meter.yaml
+  /bills/{id}/payment:
+    $ref: paths/billing/bills_{id}_payment.yaml
+  /properties/{id}/pending-meter:
+    $ref: paths/billing/properties_{id}_pending-meter.yaml
+  /properties/{id}/meter-history:
+    $ref: paths/billing/properties_{id}_meter-history.yaml
+  /rooms/{id}/meter-history:
+    $ref: paths/billing/rooms_{id}_meter-history.yaml
+  /properties/{id}/financial-report:
+    $ref: paths/billing/properties_{id}_financial-report.yaml
+  /properties/{id}/financial-report/{year}/{month}:
+    $ref: paths/billing/properties_{id}_financial-report_{year}_{month}.yaml
+  /properties/{id}/financial-report/{year}/{month}/send:
+    $ref: paths/billing/properties_{id}_financial-report_{year}_{month}_send.yaml
+  /journal-logs:
+    $ref: paths/journal/journal-logs.yaml
+  /journal-logs/{id}:
+    $ref: paths/journal/journal-logs_{id}.yaml
+  /repair-requests:
+    $ref: paths/repair/repair-requests.yaml
+  /repair-requests/{id}:
+    $ref: paths/repair/repair-requests_{id}.yaml
+  /repair-requests/{id}/assign:
+    $ref: paths/repair/repair-requests_{id}_assign.yaml
+  /repair-requests/{id}/progress:
+    $ref: paths/repair/repair-requests_{id}_progress.yaml
+  /repair-requests/{id}/complete:
+    $ref: paths/repair/repair-requests_{id}_complete.yaml
+  /repair-requests/{id}/cancel:
+    $ref: paths/repair/repair-requests_{id}_cancel.yaml

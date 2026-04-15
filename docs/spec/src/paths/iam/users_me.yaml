@@ -1,0 +1,41 @@
+get:
+  operationId: getCurrentUser
+  summary: 查看自己的帳號資料
+  tags:
+    - Identity & Access
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+    - owner
+  responses:
+    '200':
+      description: 自己的帳號資料
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/iam/UserResponse.yaml
+          examples:
+            success:
+              summary: 帳號資料
+              value:
+                id: 00000000-0000-0000-0000-000000000001
+                firebase_uid: uid_abc123xyz
+                name: 王小明
+                email: organizer@studio.com
+                role: organizer
+                assigned_property_ids:
+                  - 10000000-0000-0000-0000-000000000001
+                  - 10000000-0000-0000-0000-000000000002
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              summary: 未提供 token
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入

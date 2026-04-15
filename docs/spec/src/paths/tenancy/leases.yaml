@@ -1,0 +1,208 @@
+get:
+  operationId: listLeases
+  summary: 租約列表
+  description: |
+    x-ownership-required: organizer/staff 只能查詢指派物業的租約
+  tags:
+    - Leasing
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+  x-ownership-required: true
+  parameters:
+    - name: property_id
+      in: query
+      schema:
+        type: string
+    - name: room_id
+      in: query
+      schema:
+        type: string
+    - name: tenant_id
+      in: query
+      schema:
+        type: string
+    - name: status
+      in: query
+      schema:
+        type: string
+        enum:
+          - active
+          - expired
+          - terminated
+          - force_terminated
+    - name: page
+      in: query
+      schema:
+        type: integer
+        default: 1
+    - name: limit
+      in: query
+      schema:
+        type: integer
+        default: 20
+        maximum: 100
+  responses:
+    '200':
+      description: 租約列表
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/tenancy/LeaseListResponse.yaml
+          examples:
+            success:
+              value:
+                data:
+                  - id: 40000000-0000-0000-0000-000000000002
+                    tenant_id: 30000000-0000-0000-0000-000000000001
+                    room_id: 20000000-0000-0000-0000-000000000002
+                    rent_amount: 18000
+                    start_date: '2026-01-01'
+                    end_date: '2026-12-31'
+                    status: active
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+post:
+  operationId: createLease
+  summary: 建立租約（觸發 LeaseCreated event）
+  description: |
+    x-required-role: admin, organizer, staff
+    觸發 LeaseCreated event → Property BC（Room 改 occupied）+ Billing BC（預產帳單）
+    BR-01：起始日不得晚於終止日
+    BR-02：租金不得為零
+    BR-03：押金不得為負
+    BR-12：目標房間必須為 vacant（取悲觀鎖後檢查）
+  tags:
+    - Leasing
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+  x-ownership-required: true
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: ../../components/schemas/tenancy/CreateLeaseRequest.yaml
+        examples:
+          default:
+            value:
+              tenant_id: 30000000-0000-0000-0000-000000000001
+              room_id: 20000000-0000-0000-0000-000000000002
+              rent_amount: 18000
+              start_date: '2026-05-01'
+              end_date: '2027-04-30'
+              deposit_amount: 36000
+  responses:
+    '201':
+      description: 租約建立成功（LeaseCreated event 已發出，帳單已預產）
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/tenancy/LeaseResponse.yaml
+          examples:
+            success:
+              value:
+                id: 40000000-0000-0000-0000-000000000003
+                tenant_id: 30000000-0000-0000-0000-000000000001
+                room_id: 20000000-0000-0000-0000-000000000002
+                rent_amount: 18000
+                start_date: '2026-05-01'
+                end_date: '2027-04-30'
+                deposit_amount: 36000
+                deposit_status: held
+                status: active
+                created_at: '2026-04-15T10:00:00Z'
+    '400':
+      description: 欄位驗證錯誤
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            missing_tenant:
+              value:
+                error_code: VALIDATION_TENANT_ID_REQUIRED
+                message: tenant_id 為必填欄位
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '403':
+      description: 權限不足
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: 業主無法建立租約
+    '404':
+      description: 資源不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            room_not_found:
+              value:
+                error_code: ROOM_NOT_FOUND
+                message: 房間不存在
+    '409':
+      description: 樂觀鎖衝突
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            conflict:
+              value:
+                error_code: CONCURRENT_UPDATE_CONFLICT
+                message: 資料已被其他操作更新，請重試
+    '422':
+      description: Business Rule 拒絕
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            invalid_date_range:
+              summary: BR-01 起始日不得晚於終止日
+              value:
+                error_code: LEASE_INVALID_DATE_RANGE
+                message: 租約起始日不得晚於終止日
+            rent_amount_zero:
+              summary: BR-02 租金不得為零
+              value:
+                error_code: LEASE_RENT_AMOUNT_ZERO
+                message: 租金不得為零
+            deposit_negative:
+              summary: BR-03 押金不得為負
+              value:
+                error_code: LEASE_DEPOSIT_NEGATIVE
+                message: 押金金額不得為負數
+            room_not_vacant:
+              summary: BR-12 房間非 vacant 狀態
+              value:
+                error_code: ROOM_NOT_VACANT
+                message: 目標房間目前不是空置狀態，無法建立租約

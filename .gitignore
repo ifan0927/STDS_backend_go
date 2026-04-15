@@ -1,0 +1,12 @@
+.DS_Store
+.env
+/bin
+/dist
+/tmp
+/coverage.out
+/vendor
+/node_modules
+/.secrets/*
+!/.secrets/.gitkeep
+*firebase-adminsdk*.json
+*service-account*.json

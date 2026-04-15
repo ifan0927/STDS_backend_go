@@ -1,0 +1,12 @@
+{
+  "name": "stds_backend",
+  "private": true,
+  "scripts": {
+    "openapi:bundle": "redocly bundle docs/spec/src/openapi.yaml -o docs/spec/openapi.yaml",
+    "openapi:lint": "redocly lint docs/spec/src/openapi.yaml",
+    "openapi:generate": "npm run openapi:bundle && ./scripts/openapi_codegen.sh"
+  },
+  "devDependencies": {
+    "@redocly/cli": "^2.11.1"
+  }
+}

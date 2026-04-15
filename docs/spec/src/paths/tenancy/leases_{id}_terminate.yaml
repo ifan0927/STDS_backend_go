@@ -1,0 +1,120 @@
+post:
+  operationId: terminateLease
+  summary: 正常終止租約（觸發 LeaseTerminated event，forced=false）
+  description: >
+    x-required-role: admin, organizer, staff
+
+    BR-04：所有帳單必須結清才能終止。
+
+    押金退還/扣款須在呼叫此 API 之前或同時確認（deposit_action 參數）。
+
+    觸發 LeaseTerminated（forced: false）→ Property BC（Room 改 vacant）+ Notification
+    BC（寄退租確認）
+  tags:
+    - Leasing
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+  x-ownership-required: true
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: ../../components/schemas/tenancy/TerminateLeaseRequest.yaml
+        examples:
+          refund_deposit:
+            summary: 退還押金
+            value:
+              deposit_action: refund
+          deduct_deposit:
+            summary: 扣押金
+            value:
+              deposit_action: deduct
+              deposit_deduction_reason: 牆壁毀損修繕費用
+  responses:
+    '200':
+      description: 租約正常終止成功（LeaseTerminated forced=false event 已發出）
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/tenancy/LeaseResponse.yaml
+          examples:
+            success:
+              value:
+                id: 40000000-0000-0000-0000-000000000003
+                status: terminated
+                deposit_status: refunded
+                updated_at: '2026-04-15T16:00:00Z'
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '403':
+      description: 權限不足
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: 業主無法執行租約終止
+    '404':
+      description: 租約不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: LEASE_NOT_FOUND
+                message: 租約不存在
+    '409':
+      description: 樂觀鎖衝突
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            conflict:
+              value:
+                error_code: CONCURRENT_UPDATE_CONFLICT
+                message: 資料已被其他操作更新，請重試
+    '422':
+      description: Business Rule 拒絕
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unpaid_bills:
+              summary: BR-04 有未清帳單不得終止
+              value:
+                error_code: LEASE_HAS_UNPAID_BILLS
+                message: 尚有未結清帳單，無法執行正常終止
+                details:
+                  unpaid_bill_ids:
+                    - 50000000-0000-0000-0000-000000000010
+                    - 50000000-0000-0000-0000-000000000011
+            deduction_reason_required:
+              summary: BR-10 押金扣款須填寫原因
+              value:
+                error_code: DEPOSIT_DEDUCTION_REASON_REQUIRED
+                message: 押金扣款須填寫扣款原因

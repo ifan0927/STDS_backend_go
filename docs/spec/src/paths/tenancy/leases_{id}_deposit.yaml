@@ -1,0 +1,106 @@
+patch:
+  operationId: updateLeaseDeposit
+  summary: 處理押金（退還或扣款，觸發 DepositRefunded / DepositDeducted event）
+  description: >
+    x-required-role: admin, organizer, staff
+
+    觸發 DepositRefunded 或 DepositDeducted → Billing BC（PropertyAccount 新增
+    AccountingEntry）
+
+    BR-10：押金扣款須填寫扣款原因。
+
+    注意：此 endpoint 用於獨立處理押金；正常終止流程可透過 /leases/{id}/terminate 的 deposit_action
+    一併處理。
+  tags:
+    - Leasing
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+  x-ownership-required: true
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: ../../components/schemas/tenancy/UpdateDepositRequest.yaml
+        examples:
+          refund:
+            summary: 退還押金
+            value:
+              action: refund
+          deduct:
+            summary: 扣押金
+            value:
+              action: deduct
+              reason: 牆壁毀損修繕費用 NT$5,000
+  responses:
+    '200':
+      description: 押金處理成功（DepositRefunded 或 DepositDeducted event 已發出）
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/tenancy/LeaseResponse.yaml
+          examples:
+            refunded:
+              summary: 押金已退還
+              value:
+                id: 40000000-0000-0000-0000-000000000003
+                deposit_status: refunded
+            deducted:
+              summary: 押金已扣款
+              value:
+                id: 40000000-0000-0000-0000-000000000003
+                deposit_status: deducted
+                deposit_deduction_reason: 牆壁毀損修繕費用 NT$5,000
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '403':
+      description: 權限不足
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: 業主無法操作押金
+    '404':
+      description: 租約不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: LEASE_NOT_FOUND
+                message: 租約不存在
+    '422':
+      description: Business Rule 拒絕
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            deduction_reason_required:
+              summary: BR-10 押金扣款須填寫原因
+              value:
+                error_code: DEPOSIT_DEDUCTION_REASON_REQUIRED
+                message: 押金扣款須填寫扣款原因

@@ -1,0 +1,80 @@
+get:
+  operationId: getPropertyDashboard
+  summary: PropertyOwnerView Dashboard（跨 BC 組合查詢）
+  description: |
+    房間狀態 + 本月收支 + 逾期帳單數 + 最近 5 筆 Journal。
+    x-ownership-required: 依角色過濾。
+  tags:
+    - Property
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+    - owner
+  x-ownership-required: true
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    '200':
+      description: Dashboard 資料
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/property/DashboardResponse.yaml
+          examples:
+            success:
+              value:
+                property_id: 10000000-0000-0000-0000-000000000001
+                rooms:
+                  - id: 20000000-0000-0000-0000-000000000001
+                    name: 101 室
+                    status: occupied
+                  - id: 20000000-0000-0000-0000-000000000002
+                    name: 102 室
+                    status: vacant
+                monthly_summary:
+                  expected_rent: 50000
+                  collected_rent: 40000
+                  overdue_bill_count: 2
+                recent_journals:
+                  - id: 60000000-0000-0000-0000-000000000001
+                    type: journal_log
+                    content: 更換大廳燈泡
+                    created_at: '2026-04-10T09:00:00Z'
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '403':
+      description: 無此物業存取權限
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: 無此物業的存取權限
+    '404':
+      description: 物業不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: PROPERTY_NOT_FOUND
+                message: 物業不存在

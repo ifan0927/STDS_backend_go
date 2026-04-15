@@ -1,0 +1,139 @@
+get:
+  operationId: getTenant
+  summary: 租客詳情
+  tags:
+    - Leasing
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    '200':
+      description: 租客詳情
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/tenancy/TenantResponse.yaml
+          examples:
+            success:
+              value:
+                id: 30000000-0000-0000-0000-000000000001
+                name: 黃小芳
+                email: huang@example.com
+                phone: 0912-345-678
+                status: active
+                contacts: []
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '403':
+      description: 權限不足
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: 業主無法查看租客資料
+    '404':
+      description: 租客不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: TENANT_NOT_FOUND
+                message: 租客不存在
+patch:
+  operationId: updateTenant
+  summary: 更新租客資料（觸發 TenantInfoUpdated event）
+  description: |
+    x-required-role: admin, organizer, staff
+    觸發 TenantInfoUpdated event（預留，審計用）。
+  tags:
+    - Leasing
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: ../../components/schemas/tenancy/UpdateTenantRequest.yaml
+        examples:
+          default:
+            value:
+              phone: 0987-654-321
+  responses:
+    '200':
+      description: 更新成功（TenantInfoUpdated event 已發出）
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/tenancy/TenantResponse.yaml
+          examples:
+            success:
+              value:
+                id: 30000000-0000-0000-0000-000000000001
+                name: 黃小芳
+                phone: 0987-654-321
+                updated_at: '2026-04-15T11:00:00Z'
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '403':
+      description: 權限不足
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: 業主無法修改租客資料
+    '404':
+      description: 租客不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: TENANT_NOT_FOUND
+                message: 租客不存在

@@ -1,0 +1,23 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: stds-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-stds_backend}
+      POSTGRES_USER: ${POSTGRES_USER:-stds}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stds}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init/001_extensions.sql:/docker-entrypoint-initdb.d/001_extensions.sql:ro
+      - ./docs/spec/schema.sql:/docker-entrypoint-initdb.d/002_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-stds} -d ${POSTGRES_DB:-stds_backend}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:

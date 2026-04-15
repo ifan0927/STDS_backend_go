@@ -1,0 +1,8 @@
+type: object
+properties:
+  name:
+    type: string
+  address:
+    type: string
+  electricity_unit_price:
+    type: integer

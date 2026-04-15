@@ -1,0 +1,80 @@
+get:
+  operationId: getBill
+  summary: 帳單詳情（電費帳單自動帶入 previousReading）
+  description: >
+    電費帳單回傳時，系統自動查詢同 room_id 最近一張有 meter_reading 的電費帳單的 currentReading 作為
+    previousReading。
+  tags:
+    - Billing
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+    - owner
+  x-ownership-required: true
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    '200':
+      description: 帳單詳情
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/billing/BillResponse.yaml
+          examples:
+            rent_bill:
+              summary: 租金帳單
+              value:
+                id: 50000000-0000-0000-0000-000000000001
+                type: rent
+                amount: 18000
+                due_date: '2026-05-01'
+                status: pending_payment
+            electricity_bill_pending_meter:
+              summary: 電費帳單（待抄表，帶入 previousReading）
+              value:
+                id: 50000000-0000-0000-0000-000000000002
+                type: electricity
+                amount: null
+                due_date: '2026-05-01'
+                status: pending_meter
+                meter_previous_reading: 1250
+                meter_current_reading: null
+                meter_unit_price: 5
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '403':
+      description: 無存取權限
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: 無此物業的存取權限
+    '404':
+      description: 帳單不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: BILL_NOT_FOUND
+                message: 帳單不存在

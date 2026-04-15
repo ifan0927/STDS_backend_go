@@ -1,0 +1,155 @@
+get:
+  operationId: listJournalLogs
+  summary: 日誌列表
+  description: |
+    x-ownership-required: organizer/staff 查詢指派物業
+  tags:
+    - Journal
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+  x-ownership-required: true
+  parameters:
+    - name: property_id
+      in: query
+      schema:
+        type: string
+    - name: room_id
+      in: query
+      schema:
+        type: string
+    - name: date_from
+      in: query
+      schema:
+        type: string
+        format: date
+        description: 格式：YYYY-MM-DD，對應 created_at
+    - name: date_to
+      in: query
+      schema:
+        type: string
+        format: date
+        description: 格式：YYYY-MM-DD，對應 created_at
+    - name: page
+      in: query
+      schema:
+        type: integer
+        default: 1
+    - name: limit
+      in: query
+      schema:
+        type: integer
+        default: 20
+        maximum: 100
+  responses:
+    '200':
+      description: 日誌列表
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/journal/JournalLogListResponse.yaml
+          examples:
+            success:
+              value:
+                data:
+                  - id: 60000000-0000-0000-0000-000000000001
+                    property_id: 10000000-0000-0000-0000-000000000001
+                    room_id: null
+                    content: 更換大廳燈泡
+                    expense_amount: null
+                    created_at: '2026-04-10T09:00:00Z'
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+post:
+  operationId: createJournalLog
+  summary: 建立日誌（含費用時觸發 JournalExpenseRecorded event）
+  description: >
+    x-required-role: admin, organizer, staff
+
+    若有 expense_amount，觸發 JournalExpenseRecorded event → PropertyAccount 新增
+    AccountingEntry
+  tags:
+    - Journal
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+  x-ownership-required: true
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: ../../components/schemas/journal/CreateJournalLogRequest.yaml
+        examples:
+          with_expense:
+            summary: 含費用的日誌
+            value:
+              property_id: 10000000-0000-0000-0000-000000000001
+              room_id: 20000000-0000-0000-0000-000000000001
+              content: 浴室漏水修繕
+              expense_amount: 3500
+              expense_description: 水管更換費用
+          without_expense:
+            summary: 一般日誌
+            value:
+              property_id: 10000000-0000-0000-0000-000000000001
+              content: 定期巡視物業
+  responses:
+    '201':
+      description: 日誌建立成功（有費用時 JournalExpenseRecorded event 已發出）
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/journal/JournalLogResponse.yaml
+          examples:
+            success:
+              value:
+                id: 60000000-0000-0000-0000-000000000002
+                property_id: 10000000-0000-0000-0000-000000000001
+                content: 浴室漏水修繕
+                expense_amount: 3500
+                created_at: '2026-04-15T11:00:00Z'
+    '400':
+      description: 欄位驗證錯誤
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            missing_content:
+              value:
+                error_code: VALIDATION_JOURNAL_CONTENT_REQUIRED
+                message: 日誌內容為必填欄位
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '403':
+      description: 權限不足
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: 業主無法建立日誌

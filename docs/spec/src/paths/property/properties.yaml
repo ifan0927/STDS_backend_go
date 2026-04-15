@@ -1,0 +1,121 @@
+get:
+  operationId: listProperties
+  summary: 物業列表（含房間數、出租率）
+  description: |
+    x-ownership-required: 依角色過濾：
+    - admin：全部物業
+    - organizer/staff：Firebase Custom Claims 內 assigned_property_ids
+    - owner：自己名下（properties.owner_id = JWT.sub）
+  tags:
+    - Property
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+    - owner
+  x-ownership-required: true
+  responses:
+    '200':
+      description: 物業列表
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/property/PropertyListResponse.yaml
+          examples:
+            success:
+              value:
+                data:
+                  - id: 10000000-0000-0000-0000-000000000001
+                    name: 台北大安物業
+                    address: 台北市大安區復興南路一段100號
+                    electricity_unit_price: 5
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+post:
+  operationId: createProperty
+  summary: 建立物業（觸發 PropertyCreated event）
+  description: |
+    x-required-role: admin, organizer, staff
+    觸發 PropertyCreated event → Billing BC 建立 PropertyAccount
+  tags:
+    - Property
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: ../../components/schemas/property/CreatePropertyRequest.yaml
+        examples:
+          default:
+            summary: 建立物業
+            value:
+              name: 台北大安物業
+              address: 台北市大安區復興南路一段100號
+              electricity_unit_price: 5
+              owner_id: 00000000-0000-0000-0000-000000000010
+  responses:
+    '201':
+      description: 物業建立成功（PropertyCreated event 已發出）
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/property/PropertyResponse.yaml
+          examples:
+            success:
+              value:
+                id: 10000000-0000-0000-0000-000000000001
+                name: 台北大安物業
+                address: 台北市大安區復興南路一段100號
+                electricity_unit_price: 5
+                owner_id: 00000000-0000-0000-0000-000000000010
+                created_at: '2026-04-15T10:00:00Z'
+    '400':
+      description: 欄位驗證錯誤
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            missing_name:
+              value:
+                error_code: VALIDATION_NAME_REQUIRED
+                message: 物業名稱為必填欄位
+            invalid_electricity_price:
+              value:
+                error_code: VALIDATION_ELECTRICITY_PRICE_INVALID
+                message: 電價必須為正整數
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '403':
+      description: 權限不足
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: 業主無法建立物業

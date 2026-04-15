@@ -1,0 +1,13 @@
+type: object
+required:
+  - action
+properties:
+  action:
+    type: string
+    enum:
+      - refund
+      - deduct
+      - write_off
+  reason:
+    type: string
+    description: 扣款或 write_off 時必填

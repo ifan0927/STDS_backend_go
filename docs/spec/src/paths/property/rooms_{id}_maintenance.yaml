@@ -1,0 +1,87 @@
+post:
+  operationId: createRoomMaintenance
+  summary: 設定房間進入維修狀態（觸發 RoomSetToMaintenance event）
+  description: |
+    x-required-role: admin, organizer, staff
+    觸發 RoomSetToMaintenance event。
+  tags:
+    - Property
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+  x-ownership-required: true
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: ../../components/schemas/property/SetMaintenanceRequest.yaml
+        examples:
+          default:
+            value:
+              reason: 浴室漏水維修
+  responses:
+    '200':
+      description: 房間已進入維修狀態（RoomSetToMaintenance event 已發出）
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/property/RoomResponse.yaml
+          examples:
+            success:
+              value:
+                id: 20000000-0000-0000-0000-000000000002
+                status: maintenance
+                updated_at: '2026-04-15T14:00:00Z'
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '403':
+      description: 權限不足
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: 業主無法設定房間維修狀態
+    '404':
+      description: 房間不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: ROOM_NOT_FOUND
+                message: 房間不存在
+    '422':
+      description: Business Rule 拒絕（房間已在維修或出租中）
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            room_already_occupied:
+              summary: 出租中的房間無法設為維修
+              value:
+                error_code: ROOM_IS_OCCUPIED
+                message: 出租中的房間無法設定維修狀態

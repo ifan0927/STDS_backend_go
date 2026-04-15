@@ -1,0 +1,123 @@
+post:
+  operationId: submitBillMeter
+  summary: 電表抄錄（觸發 MeterRecorded event）
+  description: |
+    x-required-role: admin, organizer, staff
+    BR-06：電表度數不得小於上月度數
+    BR-16：金額由系統計算（usage × unitPrice），不由員工輸入
+    MeterRecorded event → 帳單金額更新，狀態從 pending_meter 改為 pending_payment
+  tags:
+    - Billing
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+  x-ownership-required: true
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: ../../components/schemas/billing/RecordMeterRequest.yaml
+        examples:
+          default:
+            value:
+              current_reading: 1380
+  responses:
+    '200':
+      description: 電表抄錄成功（MeterRecorded event 已發出，帳單金額已更新）
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/billing/BillResponse.yaml
+          examples:
+            success:
+              value:
+                id: 50000000-0000-0000-0000-000000000002
+                status: pending_payment
+                meter_previous_reading: 1250
+                meter_current_reading: 1380
+                meter_unit_price: 5
+                amount: 650
+                meter_recorded_at: '2026-04-15T10:00:00Z'
+    '400':
+      description: 欄位驗證錯誤
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            missing_reading:
+              value:
+                error_code: VALIDATION_CURRENT_READING_REQUIRED
+                message: current_reading 為必填欄位
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '403':
+      description: 權限不足
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: 業主無法執行電表抄錄
+    '404':
+      description: 帳單不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: BILL_NOT_FOUND
+                message: 帳單不存在
+    '409':
+      description: 樂觀鎖衝突
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            conflict:
+              value:
+                error_code: CONCURRENT_UPDATE_CONFLICT
+                message: 資料已被其他操作更新，請重試
+    '422':
+      description: Business Rule 拒絕
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            reading_less_than_previous:
+              summary: BR-06 電表度數不得小於上月
+              value:
+                error_code: METER_READING_LESS_THAN_PREVIOUS
+                message: 電表度數不得小於上月度數
+                details:
+                  previous_reading: 1250
+                  submitted_reading: 1200
+            wrong_bill_type:
+              summary: 非電費帳單無法抄錄
+              value:
+                error_code: BILL_NOT_ELECTRICITY_TYPE
+                message: 此帳單非電費帳單，無法執行抄錄

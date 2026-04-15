@@ -1,0 +1,13 @@
+type: object
+properties:
+  id:
+    type: string
+    format: uuid
+  name:
+    type: string
+  status:
+    type: string
+    enum:
+      - vacant
+      - occupied
+      - maintenance

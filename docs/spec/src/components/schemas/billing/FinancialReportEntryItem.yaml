@@ -1,0 +1,14 @@
+type: object
+properties:
+  category:
+    type: string
+    enum:
+      - rent_payment
+      - electricity_payment
+      - deposit_refund
+      - deposit_deduction
+      - journal_expense
+  description:
+    type: string
+  amount:
+    type: integer

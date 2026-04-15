@@ -1,0 +1,36 @@
+get:
+  operationId: getForceTermination
+  summary: 查詢強制終止進度
+  tags:
+    - Leasing
+  security:
+    - BearerAuth: []
+  x-required-role:
+    - admin
+    - organizer
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  responses:
+    '200':
+      description: 強制終止進度
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/tenancy/ForceTerminationResponse.yaml
+    '403':
+      description: 權限不足
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+    '404':
+      description: 找不到強制終止記錄
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml

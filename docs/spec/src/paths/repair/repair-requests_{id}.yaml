@@ -1,0 +1,194 @@
+get:
+  operationId: getRepairRequest
+  summary: 維修詳情
+  tags:
+    - Journal
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+  x-ownership-required: true
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    '200':
+      description: 維修詳情
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/repair/RepairRequestResponse.yaml
+          examples:
+            success:
+              value:
+                id: 70000000-0000-0000-0000-000000000001
+                property_id: 10000000-0000-0000-0000-000000000001
+                room_id: 20000000-0000-0000-0000-000000000002
+                title: 浴室漏水
+                description: 浴室天花板持續漏水
+                status: in_progress
+                assigned_to: 00000000-0000-0000-0000-000000000002
+                submitted_at: '2026-04-10T10:00:00Z'
+                assigned_at: '2026-04-11T09:00:00Z'
+                completed_at: null
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '403':
+      description: 無存取權限
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: 無此物業的存取權限
+    '404':
+      description: 維修請求不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: REPAIR_REQUEST_NOT_FOUND
+                message: 維修請求不存在
+patch:
+  operationId: updateRepairRequest
+  summary: 編輯維修請求
+  description: 'x-required-role: admin, organizer, staff'
+  tags:
+    - Journal
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+  x-ownership-required: true
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: ../../components/schemas/repair/UpdateRepairRequestRequest.yaml
+        examples:
+          default:
+            value:
+              description: 浴室天花板持續漏水，已通知上層住戶
+  responses:
+    '200':
+      description: 更新成功
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/repair/RepairRequestResponse.yaml
+          examples:
+            success:
+              value:
+                id: 70000000-0000-0000-0000-000000000001
+                description: 浴室天花板持續漏水，已通知上層住戶
+                updated_at: '2026-04-15T10:00:00Z'
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '403':
+      description: 權限不足
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: 業主無法編輯維修請求
+    '404':
+      description: 維修請求不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: REPAIR_REQUEST_NOT_FOUND
+                message: 維修請求不存在
+delete:
+  operationId: deleteRepairRequest
+  summary: 刪除維修請求（軟刪除）
+  description: 'x-required-role: admin, organizer'
+  tags:
+    - Journal
+  x-required-role:
+    - admin
+    - organizer
+  x-ownership-required: true
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    '204':
+      description: 刪除成功
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '403':
+      description: 員工無法刪除維修請求
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: 員工無法刪除維修請求
+    '404':
+      description: 維修請求不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: REPAIR_REQUEST_NOT_FOUND
+                message: 維修請求不存在

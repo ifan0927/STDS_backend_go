@@ -1,0 +1,17 @@
+type: object
+required:
+  - property_id
+  - room_id
+  - title
+  - description
+properties:
+  property_id:
+    type: string
+    format: uuid
+  room_id:
+    type: string
+    format: uuid
+  title:
+    type: string
+  description:
+    type: string

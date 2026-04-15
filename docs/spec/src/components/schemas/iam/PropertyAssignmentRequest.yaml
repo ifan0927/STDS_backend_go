@@ -1,0 +1,9 @@
+type: object
+required:
+  - property_ids
+properties:
+  property_ids:
+    type: array
+    items:
+      type: string
+      format: uuid

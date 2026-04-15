@@ -1,0 +1,11 @@
+type: object
+properties:
+  name:
+    type: string
+  role:
+    type: string
+    enum:
+      - admin
+      - organizer
+      - staff
+      - owner

@@ -1,0 +1,8 @@
+type: object
+properties:
+  content:
+    type: string
+  expense_amount:
+    type: integer
+  expense_description:
+    type: string

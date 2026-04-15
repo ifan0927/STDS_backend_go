@@ -1,0 +1,88 @@
+post:
+  operationId: assignRepairRequest
+  summary: 派工（指派員工，觸發狀態機流轉）
+  description: |
+    x-required-role: admin, organizer, staff
+    狀態：submitted → assigned
+  tags:
+    - Journal
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+  x-ownership-required: true
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: ../../components/schemas/repair/AssignRepairRequest.yaml
+        examples:
+          default:
+            value:
+              assigned_to: 00000000-0000-0000-0000-000000000002
+  responses:
+    '200':
+      description: 派工成功
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/repair/RepairRequestResponse.yaml
+          examples:
+            success:
+              value:
+                id: 70000000-0000-0000-0000-000000000001
+                status: assigned
+                assigned_to: 00000000-0000-0000-0000-000000000002
+                assigned_at: '2026-04-15T10:00:00Z'
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '403':
+      description: 權限不足
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: 業主無法執行派工
+    '404':
+      description: 維修請求不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: REPAIR_REQUEST_NOT_FOUND
+                message: 維修請求不存在
+    '422':
+      description: 狀態機不允許此操作
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            invalid_status:
+              summary: 非 submitted 狀態無法派工
+              value:
+                error_code: REPAIR_INVALID_STATUS_FOR_ASSIGN
+                message: 只有 submitted 狀態的維修請求可以派工

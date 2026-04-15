@@ -1,0 +1,79 @@
+get:
+  operationId: getPropertyFinancialReportSummary
+  summary: 財報摘要列表（歷史月份）
+  description: |
+    x-required-role: admin, organizer, staff（指派物業）; owner（自己名下，唯讀）
+    x-ownership-required: true
+  tags:
+    - Billing
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+    - owner
+  x-ownership-required: true
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    - name: year
+      in: query
+      schema:
+        type: integer
+        example: 2026
+  responses:
+    '200':
+      description: 財報摘要列表
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/billing/FinancialReportListResponse.yaml
+          examples:
+            success:
+              value:
+                data:
+                  - year: 2026
+                    month: 3
+                    total_income: 185000
+                    total_expense: 12000
+                    net: 173000
+                  - year: 2026
+                    month: 4
+                    total_income: 185000
+                    total_expense: 8000
+                    net: 177000
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '403':
+      description: 無存取權限
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: 無此物業的存取權限
+    '404':
+      description: 物業不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: PROPERTY_NOT_FOUND
+                message: 物業不存在

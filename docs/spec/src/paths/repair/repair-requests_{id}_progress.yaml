@@ -1,0 +1,63 @@
+post:
+  operationId: progressRepairRequest
+  summary: 更新維修進度（assigned → in_progress）
+  description: 'x-required-role: admin, organizer, staff'
+  tags:
+    - Journal
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+  x-ownership-required: true
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    '200':
+      description: 狀態更新成功
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/repair/RepairRequestResponse.yaml
+          examples:
+            success:
+              value:
+                id: 70000000-0000-0000-0000-000000000001
+                status: in_progress
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '404':
+      description: 維修請求不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: REPAIR_REQUEST_NOT_FOUND
+                message: 維修請求不存在
+    '422':
+      description: 狀態機不允許此操作
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            invalid_status:
+              summary: 非 assigned 狀態無法進入 in_progress
+              value:
+                error_code: REPAIR_INVALID_STATUS_FOR_PROGRESS
+                message: 只有 assigned 狀態的維修請求可以更新進度

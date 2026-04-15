@@ -1,0 +1,86 @@
+get:
+  operationId: getPropertyFinancialReport
+  summary: 特定月份財報詳情
+  description: |
+    x-required-role: admin, organizer, staff（指派）; owner（自己名下，唯讀）
+  tags:
+    - Billing
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+    - owner
+  x-ownership-required: true
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    - name: year
+      in: path
+      required: true
+      schema:
+        type: integer
+    - name: month
+      in: path
+      required: true
+      schema:
+        type: integer
+  responses:
+    '200':
+      description: 特定月份財報
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/billing/FinancialReportResponse.yaml
+          examples:
+            success:
+              value:
+                property_id: 10000000-0000-0000-0000-000000000001
+                year: 2026
+                month: 3
+                total_income: 185000
+                total_expense: 12000
+                net: 173000
+                is_finalized: true
+                entries:
+                  - category: rent_payment
+                    description: 101室 3月租金
+                    amount: 18000
+                  - category: electricity_payment
+                    description: 101室 3月電費
+                    amount: 650
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '403':
+      description: 無存取權限
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: 無此物業的存取權限
+    '404':
+      description: 物業或該月財報不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: FINANCIAL_REPORT_NOT_FOUND
+                message: 該月份財報不存在

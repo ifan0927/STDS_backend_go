@@ -1,0 +1,223 @@
+get:
+  operationId: getLease
+  summary: 租約詳情（含帳單預產狀況、押金狀態）
+  tags:
+    - Leasing
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+  x-ownership-required: true
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    '200':
+      description: 租約詳情
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/tenancy/LeaseResponse.yaml
+          examples:
+            success:
+              value:
+                id: 40000000-0000-0000-0000-000000000003
+                tenant_id: 30000000-0000-0000-0000-000000000001
+                room_id: 20000000-0000-0000-0000-000000000002
+                rent_amount: 18000
+                start_date: '2026-05-01'
+                end_date: '2027-04-30'
+                status: active
+                deposit_amount: 36000
+                deposit_status: held
+                deposit_deduction_reason: null
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '403':
+      description: 無存取權限
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: 無此物業的存取權限
+    '404':
+      description: 租約不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: LEASE_NOT_FOUND
+                message: 租約不存在
+patch:
+  operationId: updateLease
+  summary: 編輯租約（租金調整，觸發 LeaseConditionChanged event）
+  description: >
+    x-required-role: admin, organizer（BR 限制員工不可調整租金）
+
+    LeaseConditionChanged：void due_date >= nextPaymentDate 且
+    pending_payment/pending_meter 的帳單，重產新帳單。
+
+    BR-01、BR-02 適用。
+  tags:
+    - Leasing
+  x-required-role:
+    - admin
+    - organizer
+  x-ownership-required: true
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: ../../components/schemas/tenancy/UpdateLeaseRequest.yaml
+        examples:
+          adjust_rent:
+            summary: 租金調整
+            value:
+              rent_amount: 20000
+  responses:
+    '200':
+      description: 租約條件更新成功（LeaseConditionChanged event 已發出，帳單已 void 並重產）
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/tenancy/LeaseResponse.yaml
+          examples:
+            success:
+              value:
+                id: 40000000-0000-0000-0000-000000000003
+                rent_amount: 20000
+                updated_at: '2026-04-15T14:00:00Z'
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '403':
+      description: 權限不足（員工不可調整租金）
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: 員工角色無法調整租金條件
+    '404':
+      description: 租約不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: LEASE_NOT_FOUND
+                message: 租約不存在
+    '409':
+      description: 樂觀鎖衝突
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            conflict:
+              value:
+                error_code: CONCURRENT_UPDATE_CONFLICT
+                message: 資料已被其他操作更新，請重試
+    '422':
+      description: Business Rule 拒絕
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            rent_amount_zero:
+              summary: BR-02 租金不得為零
+              value:
+                error_code: LEASE_RENT_AMOUNT_ZERO
+                message: 租金不得為零
+delete:
+  operationId: deleteLease
+  summary: 刪除租約（軟刪除）
+  description: 'x-required-role: admin, organizer'
+  tags:
+    - Leasing
+  x-required-role:
+    - admin
+    - organizer
+  x-ownership-required: true
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    '204':
+      description: 刪除成功
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '403':
+      description: 權限不足
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: 員工無法刪除租約
+    '404':
+      description: 租約不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: LEASE_NOT_FOUND
+                message: 租約不存在

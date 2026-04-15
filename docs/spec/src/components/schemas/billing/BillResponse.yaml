@@ -1,0 +1,77 @@
+type: object
+properties:
+  id:
+    type: string
+    format: uuid
+  lease_id:
+    type: string
+    format: uuid
+  tenant_id:
+    type: string
+    format: uuid
+  room_id:
+    type: string
+    format: uuid
+  property_id:
+    type: string
+    format: uuid
+  type:
+    type: string
+    enum:
+      - rent
+      - electricity
+  amount:
+    type: integer
+    nullable: true
+  due_date:
+    type: string
+    format: date
+  status:
+    type: string
+    enum:
+      - pending_meter
+      - pending_payment
+      - paid
+      - overdue
+      - voided
+      - written_off
+  payment_method:
+    type: string
+    enum:
+      - cash
+      - transfer
+      - other
+    nullable: true
+  paid_at:
+    type: string
+    format: date-time
+    nullable: true
+  paid_amount:
+    type: integer
+    nullable: true
+  meter_previous_reading:
+    type: integer
+    nullable: true
+  meter_current_reading:
+    type: integer
+    nullable: true
+  meter_unit_price:
+    type: integer
+    nullable: true
+  meter_recorded_at:
+    type: string
+    format: date-time
+    nullable: true
+  written_off_reason:
+    type: string
+    nullable: true
+  overdue_notice_count:
+    type: integer
+  created_at:
+    type: string
+    format: date-time
+  updated_at:
+    type: string
+    format: date-time
+  version:
+    type: integer

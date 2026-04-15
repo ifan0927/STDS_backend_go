@@ -1,0 +1,90 @@
+post:
+  operationId: cancelRepairRequest
+  summary: 取消維修（觸發 RepairCancelled event）
+  description: >
+    x-required-role: admin, organizer, staff
+
+    狀態：submitted | assigned | in_progress → cancelled
+
+    觸發 RepairCancelled event → Property BC 檢查 Room 所有 RepairRequest，若全完成/取消則
+    Room 改 vacant
+  tags:
+    - Journal
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+  x-ownership-required: true
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  requestBody:
+    required: false
+    content:
+      application/json:
+        schema:
+          $ref: ../../components/schemas/repair/CancelRepairRequest.yaml
+        examples:
+          default:
+            value:
+              reason: 業主決定不維修
+  responses:
+    '200':
+      description: 維修取消（RepairCancelled event 已發出）
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/repair/RepairRequestResponse.yaml
+          examples:
+            success:
+              value:
+                id: 70000000-0000-0000-0000-000000000001
+                status: cancelled
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '403':
+      description: 權限不足
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: 業主無法取消維修請求
+    '404':
+      description: 維修請求不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: REPAIR_REQUEST_NOT_FOUND
+                message: 維修請求不存在
+    '422':
+      description: 狀態機不允許此操作
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            already_completed:
+              summary: 已完成的維修無法取消
+              value:
+                error_code: REPAIR_ALREADY_COMPLETED
+                message: 已完成的維修請求無法取消

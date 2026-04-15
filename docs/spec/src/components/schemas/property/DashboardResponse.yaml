@@ -1,0 +1,15 @@
+type: object
+properties:
+  property_id:
+    type: string
+    format: uuid
+  rooms:
+    type: array
+    items:
+      $ref: ./DashboardRoomItem.yaml
+  monthly_summary:
+    $ref: ./DashboardMonthlySummary.yaml
+  recent_journals:
+    type: array
+    items:
+      $ref: ./DashboardRecentJournalItem.yaml

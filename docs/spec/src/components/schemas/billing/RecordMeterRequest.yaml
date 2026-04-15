@@ -1,0 +1,7 @@
+type: object
+required:
+  - current_reading
+properties:
+  current_reading:
+    type: integer
+    description: 本月電表度數（員工輸入）

@@ -1,0 +1,37 @@
+type: object
+properties:
+  id:
+    type: string
+    format: uuid
+  lease_id:
+    type: string
+    format: uuid
+  status:
+    type: string
+    enum:
+      - in_progress
+      - completed
+  initiated_by:
+    type: string
+    format: uuid
+  reason:
+    type: string
+  bills:
+    type: array
+    items:
+      type: object
+      properties:
+        bill_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+            - pending
+            - done
+  created_at:
+    type: string
+    format: date-time
+  updated_at:
+    type: string
+    format: date-time

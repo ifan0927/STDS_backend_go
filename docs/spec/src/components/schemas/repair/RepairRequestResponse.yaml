@@ -1,0 +1,47 @@
+type: object
+properties:
+  id:
+    type: string
+    format: uuid
+  property_id:
+    type: string
+    format: uuid
+  room_id:
+    type: string
+    format: uuid
+  submitted_by:
+    type: string
+    format: uuid
+  assigned_to:
+    type: string
+    format: uuid
+    nullable: true
+  title:
+    type: string
+  description:
+    type: string
+  status:
+    type: string
+    enum:
+      - submitted
+      - assigned
+      - in_progress
+      - completed
+      - cancelled
+  submitted_at:
+    type: string
+    format: date-time
+  assigned_at:
+    type: string
+    format: date-time
+    nullable: true
+  completed_at:
+    type: string
+    format: date-time
+    nullable: true
+  created_at:
+    type: string
+    format: date-time
+  updated_at:
+    type: string
+    format: date-time

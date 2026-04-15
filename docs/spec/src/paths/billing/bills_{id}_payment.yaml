@@ -1,0 +1,114 @@
+post:
+  operationId: recordBillPayment
+  summary: 收款確認（觸發 BillPaid event）
+  description: |
+    x-required-role: admin, organizer, staff
+    BR-05：帳單不得重複收款（已 paid 狀態拒絕）
+    觸發 BillPaid event → PropertyAccount 新增 AccountingEntry
+    允許 overdue → paid 轉換
+  tags:
+    - Billing
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+  x-ownership-required: true
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: ../../components/schemas/billing/RecordPaymentRequest.yaml
+        examples:
+          default:
+            value:
+              payment_method: transfer
+              paid_amount: 18000
+  responses:
+    '200':
+      description: 收款確認成功（BillPaid event 已發出）
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/billing/BillResponse.yaml
+          examples:
+            success:
+              value:
+                id: 50000000-0000-0000-0000-000000000001
+                status: paid
+                payment_method: transfer
+                paid_amount: 18000
+                paid_at: '2026-04-15T10:30:00Z'
+    '400':
+      description: 欄位驗證錯誤
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            missing_amount:
+              value:
+                error_code: VALIDATION_PAID_AMOUNT_REQUIRED
+                message: paid_amount 為必填欄位
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '403':
+      description: 權限不足
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: 業主無法執行收款確認
+    '404':
+      description: 帳單不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: BILL_NOT_FOUND
+                message: 帳單不存在
+    '409':
+      description: 樂觀鎖衝突
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            conflict:
+              value:
+                error_code: CONCURRENT_UPDATE_CONFLICT
+                message: 資料已被其他操作更新，請重試
+    '422':
+      description: Business Rule 拒絕
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            already_paid:
+              summary: BR-05 帳單已收款不得重複
+              value:
+                error_code: BILL_ALREADY_PAID
+                message: 此帳單已完成收款，不得重複收款

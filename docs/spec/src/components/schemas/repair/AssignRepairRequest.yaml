@@ -1,0 +1,8 @@
+type: object
+required:
+  - assigned_to
+properties:
+  assigned_to:
+    type: string
+    format: uuid
+    description: 被指派的員工 user ID
