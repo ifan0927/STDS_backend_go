@@ -1,0 +1,40 @@
+package middleware
+
+import (
+	"fmt"
+	"log/slog"
+	"net/http"
+	"runtime/debug"
+
+	"github.com/gin-gonic/gin"
+
+	"stds_backend/internal/http/requestctx"
+	"stds_backend/internal/shared/apperr"
+)
+
+func Recovery(logger *slog.Logger) gin.HandlerFunc {
+	return gin.CustomRecovery(func(c *gin.Context, recovered any) {
+		logger.Error("panic recovered",
+			slog.String("request_id", requestctx.GetRequestID(c)),
+			slog.String("method", c.Request.Method),
+			slog.String("path", c.FullPath()),
+			slog.Any("panic", recovered),
+			slog.String("stack", string(debug.Stack())),
+		)
+
+		appErr := apperr.ErrInternalServerError.WithDetails(map[string]interface{}{
+			"request_id": requestctx.GetRequestID(c),
+		}).WithCause(fmt.Errorf("panic: %v", recovered))
+		requestctx.SetErrorCode(c, appErr.Code)
+
+		errorCode := appErr.Code
+		message := appErr.Message
+		details := normalizeDetails(appErr.Details)
+
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+			"error_code": errorCode,
+			"message":    message,
+			"details":    details,
+		})
+	})
+}

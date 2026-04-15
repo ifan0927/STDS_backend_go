@@ -42,19 +42,20 @@ T-14~T-19 ── T-20（整合測試）
 - **輸入**: 無
 - **產出**: 可執行的 migration 工具、資料庫連線設定、軟刪除 filter 機制、Firebase Admin SDK 整合、Gin middleware 鏈（request ID、logging、auth、authorization、error handling、recovery）
 - **完成條件**:
-  - [ ] migration 工具可執行 up/down
-  - [ ] 資料庫連線可正常建立並通過健康檢查
-  - [ ] 所有查詢可自動加上 `deleted_at IS NULL` filter（middleware 或 ORM scope）
-  - [ ] `gen_random_uuid()` 可用（PostgreSQL uuid-ossp 或 pgcrypto extension 啟用）
-  - [ ] Firebase Admin SDK 初始化成功，可驗證 Firebase ID token
-  - [ ] Auth middleware 完成：驗證 Firebase ID token、解析 Custom Claims、載入對應 DB user，並將 `user_id`、`firebase_uid`、`role`、`assigned_property_ids` 注入 request context
-  - [ ] Authorization middleware 拆分完成：RBAC（`x-required-role`）與 property ownership（`x-ownership-required`）分離實作，先驗 role 再驗 property access
-  - [ ] Property ownership 檢查以 Firebase Custom Claims 的 `assigned_property_ids` 為主；設計上保留必要時 fallback DB 查詢的擴充點
-  - [ ] 統一 error handling middleware 完成：handler / application service 回傳 domain/app error 時，可統一轉為 OpenAPI `ErrorResponse` 格式（`error_code`、`message`、`details`）
-  - [ ] `401` 與 `403` 錯誤可分別穩定回傳 `UNAUTHORIZED` 與 `FORBIDDEN` 類型 error code；`500` 由 recovery middleware 處理，回應內 `details` 含 `request_id`
-  - [ ] Request logging middleware 完成：使用 structured logging，至少記錄 `request_id`、`method`、`path`、`status`、`latency_ms`、`user_id`、`firebase_uid`、`role`、`property_id`、`error_code`
-  - [ ] Logging 不記錄 Authorization header，且不完整記錄 request body；validation / domain error 僅記錄必要摘要
-  - [ ] Middleware 順序固定並有測試覆蓋：`RequestID -> Recovery -> Logging -> Auth -> RoleAuthorization -> PropertyAuthorization -> Handler`
+  - [x] migration 工具可執行 up/down
+  - [x] 資料庫連線可正常建立並通過健康檢查
+  - [x] 所有查詢可自動加上 `deleted_at IS NULL` filter（middleware 或 ORM scope）
+  - [x] `gen_random_uuid()` 可用（PostgreSQL uuid-ossp 或 pgcrypto extension 啟用）
+  - [x] Firebase Admin SDK 初始化成功，可驗證 Firebase ID token
+  - [x] Auth middleware 完成：驗證 Firebase ID token、解析 Custom Claims、載入對應 DB user，並將 `user_id`、`firebase_uid`、`role`、`assigned_property_ids` 注入 request context
+  - [x] Authorization middleware 拆分完成：RBAC（`x-required-role`）與 property ownership（`x-ownership-required`）分離實作，先驗 role 再驗 property access
+  - [x] Property ownership 檢查以 Firebase Custom Claims 的 `assigned_property_ids` 為主；設計上保留必要時 fallback DB 查詢的擴充點
+  - [x] 統一 error handling middleware 完成：handler / application service 回傳 domain/app error 時，可統一轉為 OpenAPI `ErrorResponse` 格式（`error_code`、`message`、`details`）
+  - [x] `401` 與 `403` 錯誤可分別穩定回傳 `UNAUTHORIZED` 與 `FORBIDDEN` 類型 error code；`500` 由 recovery middleware 處理，回應內 `details` 含 `request_id`
+  - [x] Request logging middleware 完成：使用 structured logging，至少記錄 `request_id`、`method`、`path`、`status`、`latency_ms`、`user_id`、`firebase_uid`、`role`、`property_id`、`error_code`
+  - [x] Logging 不記錄 Authorization header，且不完整記錄 request body；validation / domain error 僅記錄必要摘要
+  - [x] Middleware 順序固定並有測試覆蓋：`RequestID -> Recovery -> Logging -> Auth -> RoleAuthorization -> PropertyAuthorization -> Handler`
+
 
 ---
 
@@ -64,11 +65,11 @@ T-14~T-19 ── T-20（整合測試）
 - **輸入**: T-01 migration 工具就緒
 - **產出**: `users` 表 DDL，含 index
 - **完成條件**:
-  - [ ] `users` 表建立成功，含 `id, firebase_uid, email, name, role, permission_overrides, assigned_property_ids, deleted_at, created_at, updated_at, version` 欄位（無 `password_hash`，v3.0 已移除）
-  - [ ] `role` CHECK 約束生效（只允許 admin/organizer/staff/owner）
-  - [ ] `firebase_uid` UNIQUE index 建立（`idx_users_firebase_uid`），軟刪除記錄不受 unique 限制
-  - [ ] `idx_users_email` unique index 建立，軟刪除記錄不受 unique 限制
-  - [ ] `idx_users_role` index 建立
+  - [x] `users` 表建立成功，含 `id, firebase_uid, email, name, role, permission_overrides, assigned_property_ids, deleted_at, created_at, updated_at, version` 欄位（無 `password_hash`，v3.0 已移除）
+  - [x] `role` CHECK 約束生效（只允許 admin/organizer/staff/owner）
+  - [x] `firebase_uid` UNIQUE index 建立（`idx_users_firebase_uid`），軟刪除記錄不受 unique 限制
+  - [x] `idx_users_email` unique index 建立，軟刪除記錄不受 unique 限制
+  - [x] `idx_users_role` index 建立
 
 ---
 

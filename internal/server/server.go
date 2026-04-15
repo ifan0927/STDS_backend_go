@@ -4,16 +4,21 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"net/http"
 
 	"stds_backend/internal/config"
 	"stds_backend/internal/http/router"
 	"stds_backend/internal/platform/database"
+	dbusers "stds_backend/internal/platform/database/users"
+	platformfirebase "stds_backend/internal/platform/firebase"
+	"stds_backend/internal/platform/logging"
 )
 
 type Server struct {
 	httpServer *http.Server
 	db         *sql.DB
+	logger     *slog.Logger
 }
 
 func New(cfg *config.Config) (*Server, error) {
@@ -22,7 +27,17 @@ func New(cfg *config.Config) (*Server, error) {
 		return nil, err
 	}
 
-	engine := router.New(cfg.App)
+	logger := logging.New(cfg.App)
+
+	authenticator, err := platformfirebase.New(context.Background(), cfg.Firebase)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+
+	userRepo := dbusers.NewRepository(db)
+
+	engine := router.New(cfg.App, logger, db, authenticator, userRepo)
 
 	return &Server{
 		httpServer: &http.Server{
@@ -31,7 +46,8 @@ func New(cfg *config.Config) (*Server, error) {
 			ReadTimeout:  cfg.App.ReadTimeout,
 			WriteTimeout: cfg.App.WriteTimeout,
 		},
-		db: db,
+		db:     db,
+		logger: logger,
 	}, nil
 }
 

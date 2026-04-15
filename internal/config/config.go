@@ -10,8 +10,9 @@ import (
 )
 
 type Config struct {
-	App AppConfig
-	DB  DatabaseConfig
+	App      AppConfig
+	DB       DatabaseConfig
+	Firebase FirebaseConfig
 }
 
 type AppConfig struct {
@@ -26,6 +27,17 @@ type AppConfig struct {
 
 type DatabaseConfig struct {
 	URL string
+}
+
+type FirebaseConfig struct {
+	ProjectID        string
+	CredentialsFile  string
+	AuthEmulatorHost string
+	TestUID          string
+}
+
+func (c FirebaseConfig) UsesAuthEmulator() bool {
+	return c.AuthEmulatorHost != ""
 }
 
 func Load() (*Config, error) {
@@ -43,6 +55,12 @@ func Load() (*Config, error) {
 		},
 		DB: DatabaseConfig{
 			URL: os.Getenv("DATABASE_URL"),
+		},
+		Firebase: FirebaseConfig{
+			ProjectID:        os.Getenv("FIREBASE_PROJECT_ID"),
+			CredentialsFile:  os.Getenv("FIREBASE_CREDENTIALS_FILE"),
+			AuthEmulatorHost: os.Getenv("FIREBASE_AUTH_EMULATOR_HOST"),
+			TestUID:          os.Getenv("FIREBASE_TEST_UID"),
 		},
 	}
 
