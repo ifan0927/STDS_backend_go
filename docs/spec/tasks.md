@@ -4,7 +4,140 @@
 
 ---
 
-## 依賴關係圖
+## 文件目的
+
+本文件分成兩個用途：
+
+1. 作為整體專案 roadmap，保留 schema / domain / API / scheduler 的依賴關係。
+2. 作為日常實作指引，提供一套可重複套用的垂直切片流程。
+
+本專案採用務實版 DDD，而不是教科書式 full DDD。
+
+- Read API：不走 Aggregate，直接查詢 SQL / GORM 組合 DTO。
+- Write API：走 Application Service + Aggregate + Repository。
+- OpenAPI schema 服務 HTTP contract，不直接當 domain model。
+- Aggregate 服務 business rule，不直接當 API response model。
+
+---
+
+## 目前開發策略
+
+### 目標
+
+建立一套可以持續複用的單支 API 實作流程，而不是先把整個 BC 一次鋪完。
+
+### 實作原則
+
+- 以單支 API / 單個 use case 為最小工作單位。
+- 優先完成一條從 handler 到 DB 的完整路徑，再複製到下一支 API。
+- Read 與 Write 分開思考，不強迫所有 API 都先經過 Aggregate。
+- Repository 只實作當前 use case 需要的方法，不先做全表 CRUD。
+- 先求固定套路，再求抽象完整度。
+
+### 測試策略
+
+本專案目前不採 TDD。
+
+- 預設流程為：先實作，再補測試。
+- 不要求在介面未穩定前先寫大量 stub / mock。
+- 單人開發優先避免為測試而測試，重點放在關鍵規則與核心流程驗證。
+
+建議測試優先順序：
+
+1. 寫完 API 後，先補最小 happy path 測試。
+2. 再補最重要的 business rule / error path 測試。
+3. 最後再補跨 BC 或整體流程的整合測試。
+
+建議測試重點：
+
+- Read API：handler test、query repository test、必要時整合測試。
+- Write API：aggregate rule test、application service test、必要時 handler test。
+- 排程 / 跨 BC 流程：以整合測試為主，不追求每層都 mock。
+
+---
+
+## 單支 API 垂直切片流程
+
+### A. Read API 流程
+
+適用：純查詢，不改變狀態，不執行核心 business rule。
+
+1. 確認 API response 與 filter 條件。
+2. 定義 query DTO / response mapping。
+3. 實作 query repository，直接用 SQL / GORM 查詢。
+4. 接回 handler 與 router。
+5. 完成後補 handler test / repo test。
+
+常見例子：
+
+- `GET /users/me`
+- `GET /properties`
+- `GET /properties/{id}`
+- `GET /bills`
+- `GET /properties/{id}/dashboard`
+
+### B. Write API 流程
+
+適用：建立、修改、狀態轉換、需要套用 business rule。
+
+1. 確認 use case、角色限制、business rule 與 error code。
+2. 定義 application input / output。
+3. 定義或補齊 Aggregate 與必要 method。
+4. 只實作本 use case 需要的 repository 方法。
+5. 在 application service 中編排 transaction、aggregate 操作、event 發送。
+6. 接回 handler 與 router。
+7. 完成後補 aggregate rule test、application service test、必要的 handler test。
+
+常見例子：
+
+- `POST /properties`
+- `POST /leases`
+- `POST /bills/{id}/meter`
+- `POST /bills/{id}/payment`
+- `POST /leases/{id}/terminate`
+
+---
+
+## 建議開發順序
+
+以下順序用來建立可重複的開發模板，不代表要完整做完一整個 BC 才能往下。
+
+### 第一階段：建立 Query Slice 模板
+
+1. `GET /users/me`
+2. `GET /properties/{id}`
+3. `GET /properties`
+
+目標：
+
+- 建立 handler -> query repository -> response 的固定套路
+- 確認 auth / property access middleware 與 read model 的整合方式
+
+### 第二階段：建立 Command Slice 模板
+
+1. `POST /properties`
+2. `POST /properties/{id}/rooms`
+
+目標：
+
+- 建立 handler -> application service -> repository 的固定套路
+- 開始區分 transport model、application input、domain model
+
+### 第三階段：進入真正有規則的 Aggregate
+
+1. `POST /leases`
+2. `POST /bills/{id}/meter`
+3. `POST /bills/{id}/payment`
+4. `POST /leases/{id}/terminate`
+
+目標：
+
+- 實際落地 Aggregate + business rule + event flow
+- 建立日後複製到 Leasing / Billing / Journal 的核心模板
+
+---
+
+## 依賴關係圖（Roadmap）
 
 ```
 T-01（基礎建設）
@@ -34,7 +167,7 @@ T-14~T-19 ── T-20（整合測試）
 
 ---
 
-## Tasks
+## Tasks（Roadmap）
 
 ### [T-01] 基礎建設：專案結構、DB migration 工具與 API Runtime Middleware
 
@@ -79,10 +212,10 @@ T-14~T-19 ── T-20（整合測試）
 - **輸入**: T-02 users 表就緒（properties.owner_id FK）
 - **產出**: `properties`、`rooms` 表 DDL，含 index
 - **完成條件**:
-  - [ ] `properties` 表建立成功，含 `owner_id FK`、`electricity_unit_price CHECK > 0`、`version` 欄位
-  - [ ] `rooms` 表建立成功，`status CHECK` 約束限制為 vacant/occupied/maintenance
-  - [ ] `idx_properties_owner_id`、`idx_rooms_property_id`、`idx_rooms_property_status` index 建立
-  - [ ] `rooms.property_id` FK 指向 `properties.id`
+  - [x] `properties` 表建立成功，含 `owner_id FK`、`electricity_unit_price CHECK > 0`、`version` 欄位
+  - [x] `rooms` 表建立成功，`status CHECK` 約束限制為 vacant/occupied/maintenance
+  - [x] `idx_properties_owner_id`、`idx_rooms_property_id`、`idx_rooms_property_status` index 建立
+  - [x] `rooms.property_id` FK 指向 `properties.id`
 
 ---
 
@@ -92,10 +225,10 @@ T-14~T-19 ── T-20（整合測試）
 - **輸入**: T-03 properties/rooms 表就緒
 - **產出**: `tenants`、`leases` 表 DDL，含 index
 - **完成條件**:
-  - [ ] `tenants` 表建立成功，含 `status CHECK`（active/inactive）、`version` 欄位
-  - [ ] `leases` 表建立成功，含 `deposit_amount CHECK >= 0`、`deposit_status CHECK`、`status CHECK`、`version` 欄位
-  - [ ] `leases.tenant_id`、`leases.room_id`、`leases.property_id` FK 正確指向
-  - [ ] `idx_leases_property_status`、`idx_leases_tenant_id`、`idx_leases_room_id`、`idx_leases_end_date_status`、`idx_tenants_status` index 建立
+  - [x] `tenants` 表建立成功，含 `status CHECK`（active/inactive）、`version` 欄位
+  - [x] `leases` 表建立成功，含 `deposit_amount CHECK >= 0`、`deposit_status CHECK`、`status CHECK`、`version` 欄位
+  - [x] `leases.tenant_id`、`leases.room_id`、`leases.property_id` FK 正確指向
+  - [x] `idx_leases_property_status`、`idx_leases_tenant_id`、`idx_leases_room_id`、`idx_leases_end_date_status`、`idx_tenants_status` index 建立
 
 ---
 
@@ -105,10 +238,10 @@ T-14~T-19 ── T-20（整合測試）
 - **輸入**: T-04 leases/rooms 表就緒
 - **產出**: `bills` 表 DDL，含 index
 - **完成條件**:
-  - [ ] `bills` 表建立成功，含所有欄位（type/status CHECK、payment_method CHECK、version）
-  - [ ] `meter_previous_reading`、`meter_current_reading`、`meter_unit_price`、`meter_recorded_at` 欄位建立（nullable）
-  - [ ] `overdue_notice_count` 欄位預設值為 0
-  - [ ] `idx_bills_property_status_due_date`、`idx_bills_lease_id`、`idx_bills_status_due_date`、`idx_bills_property_type_due_date`、`idx_bills_room_type_due_date`、`idx_bills_status_overdue_notice_count` 共 6 個 index 建立
+  - [x] `bills` 表建立成功，含所有欄位（type/status CHECK、payment_method CHECK、version）
+  - [x] `meter_previous_reading`、`meter_current_reading`、`meter_unit_price`、`meter_recorded_at` 欄位建立（nullable）
+  - [x] `overdue_notice_count` 欄位預設值為 0
+  - [x] `idx_bills_property_status_due_date`、`idx_bills_lease_id`、`idx_bills_status_due_date`、`idx_bills_property_type_due_date`、`idx_bills_room_type_due_date`、`idx_bills_status_overdue_notice_count` 共 6 個 index 建立
 
 ---
 
@@ -118,11 +251,11 @@ T-14~T-19 ── T-20（整合測試）
 - **輸入**: T-03 properties 表就緒
 - **產出**: PropertyAccount 相關 4 張表 DDL，含 index
 - **完成條件**:
-  - [ ] `property_accounts` 表建立，`property_id` UNIQUE constraint 生效
-  - [ ] `accounting_entries` 表建立，`category CHECK` 約束限制 5 種類別，含 `year/month` 欄位
-  - [ ] `monthly_snapshots` 表建立，`(property_id, year, month)` UNIQUE constraint 生效
-  - [ ] `monthly_snapshot_entries` 表建立，`snapshot_id FK` 正確
-  - [ ] `idx_accounting_entries_account_year_month`、`idx_monthly_snapshots_property_year_month`、`idx_monthly_snapshot_entries_snapshot_category` index 建立
+  - [x] `property_accounts` 表建立，`property_id` UNIQUE constraint 生效
+  - [x] `accounting_entries` 表建立，`category CHECK` 約束限制 5 種類別，含 `year/month` 欄位
+  - [x] `monthly_snapshots` 表建立，`(property_id, year, month)` UNIQUE constraint 生效
+  - [x] `monthly_snapshot_entries` 表建立，`snapshot_id FK` 正確
+  - [x] `idx_accounting_entries_account_year_month`、`idx_monthly_snapshots_property_year_month`、`idx_monthly_snapshot_entries_snapshot_category` index 建立
 
 ---
 
@@ -132,9 +265,9 @@ T-14~T-19 ── T-20（整合測試）
 - **輸入**: T-03 properties/rooms 表就緒，T-02 users 表就緒
 - **產出**: `journal_logs`、`repair_requests` 表 DDL，含 index
 - **完成條件**:
-  - [ ] `journal_logs` 表建立，`author_id FK` 指向 users，`room_id` nullable FK 指向 rooms
-  - [ ] `repair_requests` 表建立，`status CHECK` 約束限制 5 種狀態，`assigned_to` nullable FK 指向 users
-  - [ ] `idx_journal_logs_property_created_at`（含 DESC 排序）、`idx_repair_requests_property_status`、`idx_repair_requests_room_id` index 建立
+  - [x] `journal_logs` 表建立，`author_id FK` 指向 users，`room_id` nullable FK 指向 rooms
+  - [x] `repair_requests` 表建立，`status CHECK` 約束限制 5 種狀態，`assigned_to` nullable FK 指向 users
+  - [x] `idx_journal_logs_property_created_at`（含 DESC 排序）、`idx_repair_requests_property_status`、`idx_repair_requests_room_id` index 建立
 
 ---
 
@@ -144,9 +277,9 @@ T-14~T-19 ── T-20（整合測試）
 - **輸入**: T-04 leases 表就緒，T-05 bills 表就緒，T-02 users 表就緒
 - **產出**: `force_terminations`、`force_termination_bills` 表 DDL，含 index
 - **完成條件**:
-  - [ ] `force_terminations` 表建立，`status CHECK`（in_progress/completed）、`initiated_by FK` 指向 users
-  - [ ] `force_termination_bills` 表建立，`status CHECK`（pending/done）
-  - [ ] `idx_force_terminations_status`、`idx_force_termination_bills_ft_status`、`idx_force_termination_bills_bill_id` index 建立
+  - [x] `force_terminations` 表建立，`status CHECK`（in_progress/completed）、`initiated_by FK` 指向 users
+  - [x] `force_termination_bills` 表建立，`status CHECK`（pending/done）
+  - [x] `idx_force_terminations_status`、`idx_force_termination_bills_ft_status`、`idx_force_termination_bills_bill_id` index 建立
 
 ---
 

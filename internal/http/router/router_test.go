@@ -54,12 +54,33 @@ func TestGetPropertyRejectsUnauthorizedPropertyAccess(t *testing.T) {
 	}
 }
 
+func TestListUsersRejectsOwnerRole(t *testing.T) {
+	engine := New(
+		config.AppConfig{Name: "test", Env: "test", ReadTimeout: time.Second, WriteTimeout: time.Second},
+		testLogger(),
+		nil,
+		fakeAuthenticator{role: "owner"},
+		fakeUserRepo{role: "owner"},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
 func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
 type fakeAuthenticator struct {
 	err                 error
+	role                string
 	assignedPropertyIDs []string
 }
 
@@ -70,12 +91,13 @@ func (f fakeAuthenticator) VerifyIDToken(_ context.Context, token string) (*plat
 
 	return &platformfirebase.Claims{
 		UID:                 "uid-1",
-		Role:                "organizer",
+		Role:                firstRole(f.role),
 		AssignedPropertyIDs: firstAssignedPropertyIDs(f.assignedPropertyIDs),
 	}, nil
 }
 
 type fakeUserRepo struct {
+	role                string
 	assignedPropertyIDs []string
 }
 
@@ -92,7 +114,7 @@ func (f fakeUserRepo) FindByFirebaseUID(_ context.Context, firebaseUID string) (
 	return &users.User{
 		ID:                  "user-1",
 		FirebaseUID:         "uid-1",
-		Role:                "organizer",
+		Role:                firstRole(f.role),
 		AssignedPropertyIDs: assigned,
 	}, nil
 }
@@ -103,4 +125,12 @@ func firstAssignedPropertyIDs(assigned []string) []string {
 	}
 
 	return []string{"property-1"}
+}
+
+func firstRole(role string) string {
+	if role != "" {
+		return role
+	}
+
+	return "organizer"
 }
