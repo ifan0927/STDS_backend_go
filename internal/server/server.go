@@ -8,10 +8,17 @@ import (
 	"net/http"
 
 	appiam "stds_backend/internal/application/iam"
+	appjobs "stds_backend/internal/application/jobs"
+	appproperty "stds_backend/internal/application/property"
 	"stds_backend/internal/config"
+	domainevents "stds_backend/internal/domain/events"
 	"stds_backend/internal/http/router"
 	"stds_backend/internal/platform/database"
+	dbjobruns "stds_backend/internal/platform/database/jobruns"
 	dbproperties "stds_backend/internal/platform/database/properties"
+	dbpropertyquery "stds_backend/internal/platform/database/propertyquery"
+	dbresourceownership "stds_backend/internal/platform/database/resourceownership"
+	dbtxrunner "stds_backend/internal/platform/database/txrunner"
 	dbusers "stds_backend/internal/platform/database/users"
 	platformfirebase "stds_backend/internal/platform/firebase"
 	"stds_backend/internal/platform/logging"
@@ -42,9 +49,18 @@ func New(cfg *config.Config) (*Server, error) {
 
 	userRepo := dbusers.NewRepository(db)
 	propertyRepo := dbproperties.NewRepository(db)
+	propertyQueryRepo := dbpropertyquery.NewRepository(db)
+	resourceOwnershipRepo := dbresourceownership.NewRepository(db)
+	jobRunsRepo := dbjobruns.NewRepository(db)
 	createUserService := appiam.NewCreateUserService(userRepo)
+	txRunner := dbtxrunner.New(db, domainevents.NoopPublisher{})
+	createPropertyService := appproperty.NewCreatePropertyService(propertyRepo, txRunner)
+	jobTriggerService := appjobs.NewTriggerService(jobRunsRepo, nil, cfg.App.SchedulerJobTimeout, cfg.App.SchedulerMaxRetries)
 
-	engine := router.New(cfg.App, logger, db, authenticator, userRepo, propertyRepo, createUserService)
+	engine := router.New(cfg.App, logger, db, authenticator, userRepo, router.AuthorizationRepositories{
+		Properties:        propertyRepo,
+		ResourceOwnership: resourceOwnershipRepo,
+	}, createUserService, jobTriggerService, propertyQueryRepo, createPropertyService)
 
 	return &Server{
 		httpServer: &http.Server{

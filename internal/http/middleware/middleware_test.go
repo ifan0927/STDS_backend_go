@@ -17,6 +17,7 @@ import (
 	dbproperties "stds_backend/internal/platform/database/properties"
 	"stds_backend/internal/platform/database/users"
 	platformfirebase "stds_backend/internal/platform/firebase"
+	"stds_backend/internal/shared/apperr"
 )
 
 func TestProtectedMiddlewareChain(t *testing.T) {
@@ -26,7 +27,7 @@ func TestProtectedMiddlewareChain(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(buffer, nil))
 
 	engine := gin.New()
-	engine.Use(RequestID(), Recovery(logger), Logging(logger), ErrorHandler())
+	engine.Use(RequestID(), Recovery(logger), Logging(logger), ErrorHandler(logger))
 	engine.GET(
 		"/properties/:id",
 		Auth(fakeAuthenticator{}, fakeUserRepo{}),
@@ -64,11 +65,54 @@ func TestProtectedMiddlewareChain(t *testing.T) {
 	}
 }
 
+func TestProtectedMiddlewareLogsResolvedPropertyIDForResourceRoute(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	buffer := bytes.NewBuffer(nil)
+	logger := testLoggerBuffer(buffer)
+
+	engine := gin.New()
+	engine.Use(RequestID(), Recovery(logger), Logging(logger), ErrorHandler(logger))
+	engine.GET(
+		"/bills/:id",
+		Auth(fakeAuthenticator{}, fakeUserRepo{}),
+		RequireRoles("admin", "organizer", "staff"),
+		RequirePropertyAccess(ResourcePropertyID("id", func(_ context.Context, resourceID string) (string, error) {
+			if resourceID != "bill-1" {
+				return "", errors.New("unexpected bill id")
+			}
+
+			return "property-1", nil
+		}), fakePropertyRepo{}),
+		func(c *gin.Context) {
+			c.JSON(http.StatusOK, gin.H{"ok": true})
+		},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/bills/bill-1", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	logOutput := buffer.String()
+	if !bytes.Contains([]byte(logOutput), []byte(`"property_id":"property-1"`)) {
+		t.Fatalf("expected log output to contain resolved property id, got %s", logOutput)
+	}
+	if bytes.Contains([]byte(logOutput), []byte(`"property_id":"bill-1"`)) {
+		t.Fatalf("expected log output not to contain resource id as property id, got %s", logOutput)
+	}
+}
+
 func TestAuthReturnsUnauthorizedWithoutBearerToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	engine := gin.New()
-	engine.Use(RequestID(), ErrorHandler())
+	engine.Use(RequestID(), ErrorHandler(testLoggerBuffer(nil)))
 	engine.GET("/secure", Auth(fakeAuthenticator{}, fakeUserRepo{}), func(c *gin.Context) {
 		c.Status(http.StatusOK)
 	})
@@ -84,7 +128,7 @@ func TestAuthReturnsUnauthorizedForInvalidFirebaseToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	engine := gin.New()
-	engine.Use(RequestID(), ErrorHandler())
+	engine.Use(RequestID(), ErrorHandler(testLoggerBuffer(nil)))
 	engine.GET("/secure", Auth(fakeAuthenticator{err: errors.New("invalid token")}, fakeUserRepo{}), func(c *gin.Context) {
 		c.Status(http.StatusOK)
 	})
@@ -101,7 +145,7 @@ func TestRequireRolesReturnsForbidden(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	engine := gin.New()
-	engine.Use(RequestID(), ErrorHandler())
+	engine.Use(RequestID(), ErrorHandler(testLoggerBuffer(nil)))
 	engine.GET("/secure", func(c *gin.Context) {
 		requestctx.SetPrincipal(c, requestctx.Principal{Role: "staff"})
 		c.Next()
@@ -120,7 +164,7 @@ func TestRequirePropertyAccessReturnsForbidden(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	engine := gin.New()
-	engine.Use(RequestID(), ErrorHandler())
+	engine.Use(RequestID(), ErrorHandler(testLoggerBuffer(nil)))
 	engine.GET("/properties/:id", func(c *gin.Context) {
 		requestctx.SetPrincipal(c, requestctx.Principal{
 			Role:                "organizer",
@@ -142,7 +186,7 @@ func TestRequirePropertyAccessAllowsOwnerForOwnedProperty(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	engine := gin.New()
-	engine.Use(RequestID(), ErrorHandler())
+	engine.Use(RequestID(), ErrorHandler(testLoggerBuffer(nil)))
 	engine.GET("/properties/:id", func(c *gin.Context) {
 		requestctx.SetPrincipal(c, requestctx.Principal{
 			UserID: "owner-1",
@@ -170,7 +214,7 @@ func TestRequirePropertyAccessRejectsOwnerForOtherProperty(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	engine := gin.New()
-	engine.Use(RequestID(), ErrorHandler())
+	engine.Use(RequestID(), ErrorHandler(testLoggerBuffer(nil)))
 	engine.GET("/properties/:id", func(c *gin.Context) {
 		requestctx.SetPrincipal(c, requestctx.Principal{
 			UserID: "owner-1",
@@ -190,6 +234,39 @@ func TestRequirePropertyAccessRejectsOwnerForOtherProperty(t *testing.T) {
 	engine.ServeHTTP(resp, req)
 
 	assertErrorCode(t, resp, http.StatusForbidden, "FORBIDDEN")
+}
+
+func TestErrorHandlerLogsStructuredServerError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	buffer := bytes.NewBuffer(nil)
+	logger := testLoggerBuffer(buffer)
+
+	engine := gin.New()
+	engine.Use(RequestID(), Logging(logger), ErrorHandler(logger))
+	engine.GET("/fail", func(c *gin.Context) {
+		c.Error(apperr.ErrInternalServerError.WithCause(errors.New("db down")))
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/fail", nil)
+	resp := httptest.NewRecorder()
+	engine.ServeHTTP(resp, req)
+
+	assertErrorCode(t, resp, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR")
+
+	logOutput := buffer.String()
+	for _, fragment := range []string{
+		`"msg":"http request failed"`,
+		`"method":"GET"`,
+		`"path":"/fail"`,
+		`"error_code":"INTERNAL_SERVER_ERROR"`,
+		`"cause":"db down"`,
+		`"request_id":`,
+	} {
+		if !bytes.Contains([]byte(logOutput), []byte(fragment)) {
+			t.Fatalf("expected log output to contain %q, got %s", fragment, logOutput)
+		}
+	}
 }
 
 type fakeAuthenticator struct {
@@ -275,4 +352,12 @@ func assertErrorCode(t *testing.T, resp *httptest.ResponseRecorder, expectedStat
 	if payload["error_code"] != expectedCode {
 		t.Fatalf("expected error_code %q, got %v", expectedCode, payload["error_code"])
 	}
+}
+
+func testLoggerBuffer(buffer io.Writer) *slog.Logger {
+	if buffer == nil {
+		buffer = io.Discard
+	}
+
+	return slog.New(slog.NewJSONHandler(buffer, nil))
 }

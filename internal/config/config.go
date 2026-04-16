@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -18,13 +19,16 @@ type Config struct {
 
 // AppConfig contains HTTP service settings and process metadata.
 type AppConfig struct {
-	Name         string
-	Env          string
-	Host         string
-	Port         string
-	BaseURL      string
-	ReadTimeout  time.Duration
-	WriteTimeout time.Duration
+	Name                string
+	Env                 string
+	Host                string
+	Port                string
+	BaseURL             string
+	SchedulerKey        string
+	SchedulerJobTimeout time.Duration
+	SchedulerMaxRetries int
+	ReadTimeout         time.Duration
+	WriteTimeout        time.Duration
 }
 
 // DatabaseConfig contains database connection settings.
@@ -52,13 +56,16 @@ func Load() (*Config, error) {
 
 	cfg := &Config{
 		App: AppConfig{
-			Name:         getEnv("APP_NAME", "stds-backend"),
-			Env:          getEnv("APP_ENV", "local"),
-			Host:         getEnv("APP_HOST", "0.0.0.0"),
-			Port:         getEnv("APP_PORT", "8080"),
-			BaseURL:      getEnv("APP_BASE_URL", "http://localhost:8080"),
-			ReadTimeout:  getDurationEnv("APP_READ_TIMEOUT", 5*time.Second),
-			WriteTimeout: getDurationEnv("APP_WRITE_TIMEOUT", 10*time.Second),
+			Name:                getEnv("APP_NAME", "stds-backend"),
+			Env:                 getEnv("APP_ENV", "local"),
+			Host:                getEnv("APP_HOST", "0.0.0.0"),
+			Port:                getEnv("APP_PORT", "8080"),
+			BaseURL:             getEnv("APP_BASE_URL", "http://localhost:8080"),
+			SchedulerKey:        os.Getenv("APP_SCHEDULER_KEY"),
+			SchedulerJobTimeout: getDurationEnv("APP_SCHEDULER_JOB_TIMEOUT", 2*time.Minute),
+			SchedulerMaxRetries: getIntEnv("APP_SCHEDULER_MAX_RETRIES", 3),
+			ReadTimeout:         getDurationEnv("APP_READ_TIMEOUT", 5*time.Second),
+			WriteTimeout:        getDurationEnv("APP_WRITE_TIMEOUT", 10*time.Second),
 		},
 		DB: DatabaseConfig{
 			URL: os.Getenv("DATABASE_URL"),
@@ -103,4 +110,18 @@ func getDurationEnv(key string, fallback time.Duration) time.Duration {
 	}
 
 	return duration
+}
+
+func getIntEnv(key string, fallback int) int {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+
+	return parsed
 }

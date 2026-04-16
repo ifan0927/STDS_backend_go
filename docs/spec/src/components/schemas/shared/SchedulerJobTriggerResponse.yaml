@@ -1,0 +1,33 @@
+type: object
+required:
+  - job_key
+  - status
+  - window_key
+  - requested_at
+properties:
+  job_key:
+    type: string
+  status:
+    type: string
+    enum:
+      - accepted
+      - skipped
+  window_key:
+    type: string
+  requested_at:
+    type: string
+    format: date-time
+  request_id:
+    type: string
+    nullable: true
+  message:
+    type: string
+    nullable: true
+  retry_count:
+    type: integer
+    nullable: true
+  duration_ms:
+    type: integer
+    nullable: true
+  summary:
+    $ref: ./SchedulerJobExecutionSummary.yaml

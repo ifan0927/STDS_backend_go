@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"errors"
+	"log/slog"
 
 	"github.com/gin-gonic/gin"
 
@@ -12,7 +13,7 @@ import (
 
 // ErrorHandler converts request-scoped errors into the standardized API error
 // response format.
-func ErrorHandler() gin.HandlerFunc {
+func ErrorHandler(logger *slog.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Next()
 
@@ -21,6 +22,7 @@ func ErrorHandler() gin.HandlerFunc {
 		}
 
 		appErr := toAppError(c.Errors.Last().Err)
+		logServerError(c, logger, appErr)
 		writeError(c, appErr)
 	}
 }
@@ -50,6 +52,39 @@ func writeError(c *gin.Context, appErr *apperr.Error) {
 		Message:   &message,
 		Details:   &details,
 	})
+}
+
+func logServerError(c *gin.Context, logger *slog.Logger, appErr *apperr.Error) {
+	if logger == nil || appErr == nil || appErr.HTTPStatus < 500 {
+		return
+	}
+
+	path := c.FullPath()
+	if path == "" {
+		path = c.Request.URL.Path
+	}
+
+	attrs := []slog.Attr{
+		slog.String("request_id", requestctx.GetRequestID(c)),
+		slog.String("method", c.Request.Method),
+		slog.String("path", path),
+		slog.String("error_code", appErr.Code),
+	}
+
+	if cause := appErr.Cause; cause != nil {
+		attrs = append(attrs, slog.String("cause", cause.Error()))
+	}
+
+	logger.Error("http request failed", attrsToAny(attrs)...)
+}
+
+func attrsToAny(attrs []slog.Attr) []any {
+	values := make([]any, 0, len(attrs))
+	for _, attr := range attrs {
+		values = append(values, attr)
+	}
+
+	return values
 }
 
 func normalizeDetails(details any) map[string]interface{} {

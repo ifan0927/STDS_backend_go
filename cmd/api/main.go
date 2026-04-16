@@ -1,24 +1,32 @@
 package main
 
 import (
-	"log"
+	"log/slog"
+	"os"
 
 	"stds_backend/internal/config"
+	"stds_backend/internal/platform/logging"
 	"stds_backend/internal/server"
 )
 
 func main() {
+	bootstrapLogger := logging.NewBootstrap()
+
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("load config: %v", err)
+		bootstrapLogger.Error("startup failed", slog.String("stage", "load_config"), slog.String("cause", err.Error()))
+		os.Exit(1)
 	}
 
+	logger := logging.New(cfg.App)
 	app, err := server.New(cfg)
 	if err != nil {
-		log.Fatalf("create server: %v", err)
+		logger.Error("startup failed", slog.String("stage", "create_server"), slog.String("cause", err.Error()))
+		os.Exit(1)
 	}
 
 	if err := app.Run(); err != nil {
-		log.Fatalf("run server: %v", err)
+		logger.Error("server stopped with error", slog.String("stage", "run_server"), slog.String("cause", err.Error()))
+		os.Exit(1)
 	}
 }

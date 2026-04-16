@@ -62,6 +62,12 @@ components:
         header。
 
         後端以 Firebase Admin SDK 驗證，Custom Claims 包含 role 與 assigned_property_ids。
+    SchedulerKey:
+      type: apiKey
+      in: header
+      name: X-Scheduler-Key
+      description: >
+        外部排程系統呼叫 backend job endpoint 時使用的共享密鑰。
 security:
   - BearerAuth: []
 paths:
@@ -141,3 +147,15 @@ paths:
     $ref: paths/repair/repair-requests_{id}_complete.yaml
   /repair-requests/{id}/cancel:
     $ref: paths/repair/repair-requests_{id}_cancel.yaml
+  /internal/jobs/overdue-bills/scan:
+    $ref: paths/scheduler/internal_jobs_overdue-bills_scan.yaml
+  /internal/jobs/overdue-bills/reminders:
+    $ref: paths/scheduler/internal_jobs_overdue-bills_reminders.yaml
+  /internal/jobs/leases/expire:
+    $ref: paths/scheduler/internal_jobs_leases_expire.yaml
+  /internal/jobs/leases/expiring-soon:
+    $ref: paths/scheduler/internal_jobs_leases_expiring-soon.yaml
+  /internal/jobs/monthly-snapshots/run:
+    $ref: paths/scheduler/internal_jobs_monthly-snapshots_run.yaml
+  /internal/jobs/force-terminations/compensate:
+    $ref: paths/scheduler/internal_jobs_force-terminations_compensate.yaml

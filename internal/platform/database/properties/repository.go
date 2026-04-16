@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 )
 
 // ErrNotFound indicates that no active property matched the requested lookup.
@@ -13,6 +14,31 @@ var ErrNotFound = errors.New("property not found")
 // Repository defines the property ownership lookup required by authorization.
 type Repository interface {
 	FindOwnerIDByPropertyID(ctx context.Context, propertyID string) (string, error)
+}
+
+// CommandRepository defines property writes used by application services.
+type CommandRepository interface {
+	Create(ctx context.Context, tx *sql.Tx, params CreatePropertyParams) (*Property, error)
+}
+
+// Property is the persisted property aggregate state used by write flows.
+type Property struct {
+	ID                   string
+	Name                 string
+	Address              string
+	ElectricityUnitPrice int
+	OwnerID              string
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	Version              int
+}
+
+// CreatePropertyParams contains the writable fields required to persist a property.
+type CreatePropertyParams struct {
+	Name                 string
+	Address              string
+	ElectricityUnitPrice int
+	OwnerID              string
 }
 
 // SQLRepository loads property ownership data from PostgreSQL.
@@ -45,4 +71,54 @@ LIMIT 1
 	}
 
 	return ownerID, nil
+}
+
+// Create persists a new property row within the provided transaction.
+func (r *SQLRepository) Create(ctx context.Context, tx *sql.Tx, params CreatePropertyParams) (*Property, error) {
+	const query = `
+INSERT INTO properties (
+	name,
+	address,
+	electricity_unit_price,
+	owner_id
+) VALUES ($1, $2, $3, $4)
+RETURNING
+	id,
+	name,
+	address,
+	electricity_unit_price,
+	owner_id,
+	created_at,
+	updated_at,
+	version
+`
+
+	property, err := scanProperty(tx.QueryRowContext(ctx, query, params.Name, params.Address, params.ElectricityUnitPrice, params.OwnerID))
+	if err != nil {
+		return nil, fmt.Errorf("create property: %w", err)
+	}
+
+	return property, nil
+}
+
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanProperty(row rowScanner) (*Property, error) {
+	var property Property
+	if err := row.Scan(
+		&property.ID,
+		&property.Name,
+		&property.Address,
+		&property.ElectricityUnitPrice,
+		&property.OwnerID,
+		&property.CreatedAt,
+		&property.UpdatedAt,
+		&property.Version,
+	); err != nil {
+		return nil, err
+	}
+
+	return &property, nil
 }

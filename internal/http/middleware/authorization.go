@@ -1,7 +1,9 @@
 package middleware
 
 import (
+	"context"
 	"errors"
+	"fmt"
 
 	"github.com/gin-gonic/gin"
 
@@ -13,6 +15,9 @@ import (
 // PropertyIDResolver extracts the property ID that should be authorized for
 // the current request.
 type PropertyIDResolver func(*gin.Context) (string, error)
+
+// PropertyLookup resolves a resource id to its owning property id.
+type PropertyLookup func(context.Context, string) (string, error)
 
 // RequireRoles rejects requests whose authenticated principal does not match
 // one of the allowed roles.
@@ -70,6 +75,8 @@ func RequirePropertyAccess(resolvePropertyID PropertyIDResolver, propertyRepo db
 			return
 		}
 
+		requestctx.SetPropertyID(c, propertyID)
+
 		if principal.Role == "owner" {
 			ownerID, err := propertyRepo.FindOwnerIDByPropertyID(c.Request.Context(), propertyID)
 			if err != nil {
@@ -113,5 +120,25 @@ func ParamPropertyID(param string) PropertyIDResolver {
 		}
 
 		return c.Param(param), nil
+	}
+}
+
+// ResourcePropertyID returns a resolver that first extracts a route parameter
+// and then maps it back to a property id through a repository lookup.
+func ResourcePropertyID(param string, lookup PropertyLookup) PropertyIDResolver {
+	return func(c *gin.Context) (string, error) {
+		if param == "" {
+			return "", errors.New("resource param is required")
+		}
+		if lookup == nil {
+			return "", errors.New("property lookup is required")
+		}
+
+		resourceID := c.Param(param)
+		if resourceID == "" {
+			return "", fmt.Errorf("resource param %q is empty", param)
+		}
+
+		return lookup(c.Request.Context(), resourceID)
 	}
 }

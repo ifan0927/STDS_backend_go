@@ -1,0 +1,11 @@
+type: object
+properties:
+  processed_count:
+    type: integer
+  skipped_count:
+    type: integer
+  failed_count:
+    type: integer
+  note:
+    type: string
+    nullable: true

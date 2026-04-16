@@ -4447,6 +4447,306 @@ paths:
                   value:
                     error_code: REPAIR_ALREADY_COMPLETED
                     message: 已完成的維修請求無法取消
+  /internal/jobs/overdue-bills/scan:
+    post:
+      operationId: runOverdueBillsScanJob
+      summary: 觸發逾期帳單掃描 job
+      description: |
+        由外部 scheduler 呼叫。此 endpoint 不使用 Firebase Bearer token，而是使用 `X-Scheduler-Key`。
+      tags:
+        - Scheduler
+      security:
+        - SchedulerKey: []
+      parameters:
+        - name: window_key
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '202':
+          description: 已接受 job 觸發請求
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchedulerJobTriggerResponse'
+              examples:
+                accepted:
+                  value:
+                    job_key: overdue_bills_scan
+                    status: accepted
+                    window_key: '2026-04-16'
+                    requested_at: '2026-04-16T00:00:00Z'
+                    request_id: req_123
+                    retry_count: 0
+                    duration_ms: 15
+                    summary:
+                      processed_count: 0
+                      skipped_count: 0
+                      failed_count: 0
+                      note: job completed
+        '400':
+          description: 缺少 window_key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 缺少或提供了錯誤的 scheduler key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /internal/jobs/overdue-bills/reminders:
+    post:
+      operationId: runOverdueBillReminderJob
+      summary: 觸發逾期催收通知 job
+      description: |
+        由外部 scheduler 呼叫。此 endpoint 不使用 Firebase Bearer token，而是使用 `X-Scheduler-Key`。
+      tags:
+        - Scheduler
+      security:
+        - SchedulerKey: []
+      parameters:
+        - name: window_key
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '202':
+          description: 已接受 job 觸發請求
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchedulerJobTriggerResponse'
+              examples:
+                accepted:
+                  value:
+                    job_key: overdue_bill_reminders
+                    status: accepted
+                    window_key: '2026-04-16'
+                    requested_at: '2026-04-16T00:00:00Z'
+                    request_id: req_123
+                    retry_count: 0
+                    duration_ms: 15
+                    summary:
+                      processed_count: 0
+                      skipped_count: 0
+                      failed_count: 0
+                      note: job completed
+        '400':
+          description: 缺少 window_key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 缺少或提供了錯誤的 scheduler key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /internal/jobs/leases/expire:
+    post:
+      operationId: runLeaseExpiryJob
+      summary: 觸發租約到期掃描 job
+      description: |
+        由外部 scheduler 呼叫。此 endpoint 不使用 Firebase Bearer token，而是使用 `X-Scheduler-Key`。
+      tags:
+        - Scheduler
+      security:
+        - SchedulerKey: []
+      parameters:
+        - name: window_key
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '202':
+          description: 已接受 job 觸發請求
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchedulerJobTriggerResponse'
+              examples:
+                accepted:
+                  value:
+                    job_key: lease_expiry_scan
+                    status: accepted
+                    window_key: '2026-04-16'
+                    requested_at: '2026-04-16T00:00:00Z'
+                    request_id: req_123
+                    retry_count: 0
+                    duration_ms: 15
+                    summary:
+                      processed_count: 0
+                      skipped_count: 0
+                      failed_count: 0
+                      note: job completed
+        '400':
+          description: 缺少 window_key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 缺少或提供了錯誤的 scheduler key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /internal/jobs/leases/expiring-soon:
+    post:
+      operationId: runLeaseExpiringSoonReminderJob
+      summary: 觸發租約到期提醒 job
+      description: |
+        由外部 scheduler 呼叫。此 endpoint 不使用 Firebase Bearer token，而是使用 `X-Scheduler-Key`。
+      tags:
+        - Scheduler
+      security:
+        - SchedulerKey: []
+      parameters:
+        - name: window_key
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '202':
+          description: 已接受 job 觸發請求
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchedulerJobTriggerResponse'
+              examples:
+                accepted:
+                  value:
+                    job_key: lease_expiring_soon_reminder
+                    status: accepted
+                    window_key: '2026-04-16'
+                    requested_at: '2026-04-16T00:00:00Z'
+                    request_id: req_123
+                    retry_count: 0
+                    duration_ms: 15
+                    summary:
+                      processed_count: 0
+                      skipped_count: 0
+                      failed_count: 0
+                      note: job completed
+        '400':
+          description: 缺少 window_key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 缺少或提供了錯誤的 scheduler key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /internal/jobs/monthly-snapshots/run:
+    post:
+      operationId: runMonthlySnapshotJob
+      summary: 觸發月結快照 job
+      description: |
+        由外部 scheduler 呼叫。此 endpoint 不使用 Firebase Bearer token，而是使用 `X-Scheduler-Key`。
+      tags:
+        - Scheduler
+      security:
+        - SchedulerKey: []
+      parameters:
+        - name: window_key
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '202':
+          description: 已接受 job 觸發請求
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchedulerJobTriggerResponse'
+              examples:
+                accepted:
+                  value:
+                    job_key: monthly_snapshot
+                    status: accepted
+                    window_key: 2026-04
+                    requested_at: '2026-04-16T00:00:00Z'
+                    request_id: req_123
+                    retry_count: 0
+                    duration_ms: 15
+                    summary:
+                      processed_count: 0
+                      skipped_count: 0
+                      failed_count: 0
+                      note: job completed
+        '400':
+          description: 缺少 window_key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 缺少或提供了錯誤的 scheduler key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /internal/jobs/force-terminations/compensate:
+    post:
+      operationId: runForceTerminationCompensationJob
+      summary: 觸發強制終止補償 job
+      description: |
+        由外部 scheduler 呼叫。此 endpoint 不使用 Firebase Bearer token，而是使用 `X-Scheduler-Key`。
+      tags:
+        - Scheduler
+      security:
+        - SchedulerKey: []
+      parameters:
+        - name: window_key
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '202':
+          description: 已接受 job 觸發請求
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchedulerJobTriggerResponse'
+              examples:
+                accepted:
+                  value:
+                    job_key: force_termination_compensation
+                    status: accepted
+                    window_key: '2026-04-16'
+                    requested_at: '2026-04-16T00:00:00Z'
+                    request_id: req_123
+                    retry_count: 0
+                    duration_ms: 15
+                    summary:
+                      processed_count: 0
+                      skipped_count: 0
+                      failed_count: 0
+                      note: job completed
+        '400':
+          description: 缺少 window_key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 缺少或提供了錯誤的 scheduler key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 components:
   securitySchemes:
     BearerAuth:
@@ -4456,6 +4756,12 @@ components:
       description: |
         Firebase ID token。前端以 Firebase SDK 登入後取得，每個 request 帶入 Authorization header。
         後端以 Firebase Admin SDK 驗證，Custom Claims 包含 role 與 assigned_property_ids。
+    SchedulerKey:
+      type: apiKey
+      in: header
+      name: X-Scheduler-Key
+      description: |
+        外部排程系統呼叫 backend job endpoint 時使用的共享密鑰。
   schemas:
     UserResponse:
       type: object
@@ -5273,3 +5579,49 @@ components:
       properties:
         reason:
           type: string
+    SchedulerJobExecutionSummary:
+      type: object
+      properties:
+        processed_count:
+          type: integer
+        skipped_count:
+          type: integer
+        failed_count:
+          type: integer
+        note:
+          type: string
+          nullable: true
+    SchedulerJobTriggerResponse:
+      type: object
+      required:
+        - job_key
+        - status
+        - window_key
+        - requested_at
+      properties:
+        job_key:
+          type: string
+        status:
+          type: string
+          enum:
+            - accepted
+            - skipped
+        window_key:
+          type: string
+        requested_at:
+          type: string
+          format: date-time
+        request_id:
+          type: string
+          nullable: true
+        message:
+          type: string
+          nullable: true
+        retry_count:
+          type: integer
+          nullable: true
+        duration_ms:
+          type: integer
+          nullable: true
+        summary:
+          $ref: '#/components/schemas/SchedulerJobExecutionSummary'

@@ -25,6 +25,11 @@ type Authenticator interface {
 	VerifyIDToken(ctx context.Context, token string) (*Claims, error)
 }
 
+// ClaimsWriter updates Firebase custom claims for a user.
+type ClaimsWriter interface {
+	SetCustomClaims(ctx context.Context, firebaseUID string, role string, assignedPropertyIDs []string) error
+}
+
 // Client is the Firebase-backed implementation of Authenticator.
 type Client struct {
 	auth *firebaseauth.Client
@@ -82,6 +87,20 @@ func (c *Client) VerifyIDToken(ctx context.Context, token string) (*Claims, erro
 		Role:                getStringClaim(verified.Claims, "role"),
 		AssignedPropertyIDs: getStringSliceClaim(verified.Claims, "assigned_property_ids"),
 	}, nil
+}
+
+// SetCustomClaims writes role and assigned property IDs to Firebase custom claims.
+func (c *Client) SetCustomClaims(ctx context.Context, firebaseUID string, role string, assignedPropertyIDs []string) error {
+	claims := map[string]interface{}{
+		"role":                  role,
+		"assigned_property_ids": assignedPropertyIDs,
+	}
+
+	if err := c.auth.SetCustomUserClaims(ctx, firebaseUID, claims); err != nil {
+		return fmt.Errorf("set custom user claims: %w", err)
+	}
+
+	return nil
 }
 
 func getStringClaim(claims map[string]interface{}, key string) string {

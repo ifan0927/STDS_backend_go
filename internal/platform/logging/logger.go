@@ -7,6 +7,14 @@ import (
 	"stds_backend/internal/config"
 )
 
+// NewBootstrap builds a JSON logger for startup and bootstrap failures before
+// application config has been fully loaded.
+func NewBootstrap() *slog.Logger {
+	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+}
+
 // New builds the application logger with environment-specific log level
 // defaults.
 func New(appCfg config.AppConfig) *slog.Logger {

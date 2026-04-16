@@ -27,10 +27,20 @@ const (
 	CodeValidationFirebaseUIDRequired = "VALIDATION_FIREBASE_UID_REQUIRED"
 	// CodeValidationNameRequired identifies missing required name input.
 	CodeValidationNameRequired = "VALIDATION_NAME_REQUIRED"
+	// CodeValidationAddressRequired identifies missing required address input.
+	CodeValidationAddressRequired = "VALIDATION_ADDRESS_REQUIRED"
+	// CodeValidationOwnerIDRequired identifies missing required owner id input.
+	CodeValidationOwnerIDRequired = "VALIDATION_OWNER_ID_REQUIRED"
 	// CodeValidationRoleRequired identifies missing required role input.
 	CodeValidationRoleRequired = "VALIDATION_ROLE_REQUIRED"
 	// CodeValidationRoleInvalid identifies unsupported role input.
 	CodeValidationRoleInvalid = "VALIDATION_ROLE_INVALID"
+	// CodePropertyNotFound identifies requests that reference a missing property.
+	CodePropertyNotFound = "PROPERTY_NOT_FOUND"
+	// CodeValidationElectricityPriceInvalid identifies invalid electricity price input.
+	CodeValidationElectricityPriceInvalid = "VALIDATION_ELECTRICITY_PRICE_INVALID"
+	// CodeValidationWindowKeyRequired identifies missing scheduler window keys.
+	CodeValidationWindowKeyRequired = "VALIDATION_WINDOW_KEY_REQUIRED"
 )
 
 var (
@@ -106,6 +116,18 @@ var (
 		http.StatusBadRequest,
 		"Name is required.",
 	)
+	// ErrValidationAddressRequired is returned when address is missing from input.
+	ErrValidationAddressRequired = New(
+		CodeValidationAddressRequired,
+		http.StatusBadRequest,
+		"Address is required.",
+	)
+	// ErrValidationOwnerIDRequired is returned when owner id is missing from input.
+	ErrValidationOwnerIDRequired = New(
+		CodeValidationOwnerIDRequired,
+		http.StatusBadRequest,
+		"Owner ID is required.",
+	)
 	// ErrValidationRoleRequired is returned when role is missing from input.
 	ErrValidationRoleRequired = New(
 		CodeValidationRoleRequired,
@@ -117,5 +139,23 @@ var (
 		CodeValidationRoleInvalid,
 		http.StatusBadRequest,
 		"Role is invalid.",
+	)
+	// ErrPropertyNotFound is returned when a requested property record does not exist.
+	ErrPropertyNotFound = New(
+		CodePropertyNotFound,
+		http.StatusNotFound,
+		"Property not found.",
+	)
+	// ErrValidationElectricityPriceInvalid is returned when electricity price is not positive.
+	ErrValidationElectricityPriceInvalid = New(
+		CodeValidationElectricityPriceInvalid,
+		http.StatusBadRequest,
+		"Electricity unit price is invalid.",
+	)
+	// ErrValidationWindowKeyRequired is returned when a scheduler request omits window_key.
+	ErrValidationWindowKeyRequired = New(
+		CodeValidationWindowKeyRequired,
+		http.StatusBadRequest,
+		"window_key is required.",
 	)
 )

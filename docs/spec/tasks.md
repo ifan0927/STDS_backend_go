@@ -17,6 +17,20 @@
 - Write API：走 Application Service + Aggregate + Repository。
 - OpenAPI schema 服務 HTTP contract，不直接當 domain model。
 - Aggregate 服務 business rule，不直接當 API response model。
+- Migration、schema、index、constraint 採 SQL-first，不以 ORM migration 為主。
+- GORM 可作為 persistence helper，但不作為架構中心；複雜查詢、報表、scheduler scan、locking query 可直接使用 raw SQL。
+
+### Data Access 分層
+
+- `model`：大致對應 table，負責 persistence mapping。
+- `repository`：對應 use case / aggregate / bounded context，只提供當前業務切片真正需要的方法。
+- `query`：服務 read model、報表、scheduler scan，直接回 DTO 或輕量 query object。
+
+補充原則：
+
+- 不採「每個 table 先建完整 CRUD repo」策略。
+- persistence model、domain model、API model 不混用。
+- Read 與 scheduler 查詢可直接走 query repository，不強迫經過 aggregate repository。
 
 ---
 
@@ -32,6 +46,7 @@
 - 優先完成一條從 handler 到 DB 的完整路徑，再複製到下一支 API。
 - Read 與 Write 分開思考，不強迫所有 API 都先經過 Aggregate。
 - Repository 只實作當前 use case 需要的方法，不先做全表 CRUD。
+- 排程採外部 scheduler 呼叫 backend endpoint；排程邏輯仍放在本 repo 的 application / repository 層。
 - 先求固定套路，再求抽象完整度。
 
 ### 測試策略
@@ -95,6 +110,24 @@
 - `POST /bills/{id}/meter`
 - `POST /bills/{id}/payment`
 - `POST /leases/{id}/terminate`
+
+### C. Scheduler Job 流程
+
+適用：由外部 scheduler 定時呼叫的批次任務。
+
+1. 確認 job 觸發頻率、操作範圍、角色/驗證方式。
+2. 定義 job endpoint request / response 與 idempotency 規則。
+3. 在 application service 中編排批次流程、locking、逐筆失敗策略。
+4. 將掃描與批次查詢實作在 query repository 或 job repository。
+5. 必要時於 transaction commit 後發送 domain event。
+6. 完成後補整合測試或最小 job handler test。
+
+常見例子：
+
+- 逾期帳單掃描
+- 租約到期掃描
+- 月結快照
+- 強制終止補償
 
 ---
 
@@ -173,7 +206,7 @@ T-14~T-19 ── T-20（整合測試）
 
 - **依賴**: 無
 - **輸入**: 無
-- **產出**: 可執行的 migration 工具、資料庫連線設定、軟刪除 filter 機制、Firebase Admin SDK 整合、Gin middleware 鏈（request ID、logging、auth、authorization、error handling、recovery）
+- **產出**: 可執行的 migration 工具、資料庫連線設定、軟刪除 filter 機制、Firebase Admin SDK 整合、Gin middleware 鏈（request ID、logging、auth、authorization、error handling、recovery）、data access 分層原則、排程 endpoint 執行骨架
 - **完成條件**:
   - [x] migration 工具可執行 up/down
   - [x] 資料庫連線可正常建立並通過健康檢查
@@ -188,6 +221,10 @@ T-14~T-19 ── T-20（整合測試）
   - [x] Request logging middleware 完成：使用 structured logging，至少記錄 `request_id`、`method`、`path`、`status`、`latency_ms`、`user_id`、`firebase_uid`、`role`、`property_id`、`error_code`
   - [x] Logging 不記錄 Authorization header，且不完整記錄 request body；validation / domain error 僅記錄必要摘要
   - [x] Middleware 順序固定並有測試覆蓋：`RequestID -> Recovery -> Logging -> Auth -> RoleAuthorization -> PropertyAuthorization -> Handler`
+  - [x] Data access 邊界明確：`model / repository / query` 分層與 SQL-first + GORM 使用邊界已固定
+  - [x] Resource ownership resolver 基礎到位：可逐步補上 room / lease / bill / journal / repair -> property_id 查詢能力
+  - [x] 排程執行框架到位：外部 scheduler 可呼叫受保護 endpoint，job handler 可進入 application service
+  - [x] 排程共通策略固定：idempotency、locking、失敗重跑與 logging 格式有一致做法
 
 
 ---
@@ -432,7 +469,7 @@ T-14~T-19 ── T-20（整合測試）
 
 - **依賴**: T-11, T-12
 - **輸入**: leases、bills、force_terminations 表與 Domain Service 就緒
-- **產出**: 6 個排程任務
+- **產出**: 6 個排程任務（由外部 scheduler 呼叫 backend endpoint 觸發）
 - **完成條件**:
   - [ ] 逾期帳單掃描（每日凌晨）：掃描 `due_date < today AND status = pending_payment AND deleted_at IS NULL`，樂觀鎖衝突時跳過該筆帳單（不拋錯）
   - [ ] 逾期催收通知（每週）：掃描 `status = overdue AND overdue_notice_count < 3 AND deleted_at IS NULL`，寄送 Email 後 overdue_notice_count + 1；超過 3 次的帳單不再寄送
@@ -440,6 +477,8 @@ T-14~T-19 ── T-20（整合測試）
   - [ ] 租約到期提醒（每日凌晨）：掃描 `end_date = today + 30 days AND status = active`，寄送提醒 Email 給主辦和員工（role IN (organizer, staff)）
   - [ ] 月結快照（每月最後一天 23:59）：將 PropertyAccount 當月 AccountingEntry 封存至 monthly_snapshots + monthly_snapshot_entries，清空 accounting_entries，排除 `deleted_at IS NOT NULL` 的物業
   - [ ] 強制終止補償（每日凌晨）：掃描 `force_terminations WHERE status = in_progress`，查詢 force_termination_bills WHERE status = pending，逐一執行 written_off，完成後更新 bill.status = written_off 並更新 force_termination_bills.status = done；所有 bill 完成後 force_terminations.status 改為 completed，發出 LeaseTerminated（forced:true）event
+  - [x] 所有 job 皆透過受保護 endpoint 觸發，不依賴 app 內建 cron 或 CLI job
+  - [x] 所有 job 皆具 idempotency 與重跑安全性；同一個排程視窗重送不造成重複副作用
 
 ---
 

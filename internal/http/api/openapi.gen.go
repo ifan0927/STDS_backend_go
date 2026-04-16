@@ -14,7 +14,8 @@ import (
 )
 
 const (
-	BearerAuthScopes = "BearerAuth.Scopes"
+	BearerAuthScopes   = "BearerAuth.Scopes"
+	SchedulerKeyScopes = "SchedulerKey.Scopes"
 )
 
 // Defines values for BillResponsePaymentMethod.
@@ -113,6 +114,12 @@ const (
 	RoomResponseStatusMaintenance RoomResponseStatus = "maintenance"
 	RoomResponseStatusOccupied    RoomResponseStatus = "occupied"
 	RoomResponseStatusVacant      RoomResponseStatus = "vacant"
+)
+
+// Defines values for SchedulerJobTriggerResponseStatus.
+const (
+	Accepted SchedulerJobTriggerResponseStatus = "accepted"
+	Skipped  SchedulerJobTriggerResponseStatus = "skipped"
 )
 
 // Defines values for TenantResponseStatus.
@@ -552,6 +559,30 @@ type RoomResponse struct {
 // RoomResponseStatus defines model for RoomResponse.Status.
 type RoomResponseStatus string
 
+// SchedulerJobExecutionSummary defines model for SchedulerJobExecutionSummary.
+type SchedulerJobExecutionSummary struct {
+	FailedCount    *int    `json:"failed_count,omitempty"`
+	Note           *string `json:"note"`
+	ProcessedCount *int    `json:"processed_count,omitempty"`
+	SkippedCount   *int    `json:"skipped_count,omitempty"`
+}
+
+// SchedulerJobTriggerResponse defines model for SchedulerJobTriggerResponse.
+type SchedulerJobTriggerResponse struct {
+	DurationMs  *int                              `json:"duration_ms"`
+	JobKey      string                            `json:"job_key"`
+	Message     *string                           `json:"message"`
+	RequestId   *string                           `json:"request_id"`
+	RequestedAt time.Time                         `json:"requested_at"`
+	RetryCount  *int                              `json:"retry_count"`
+	Status      SchedulerJobTriggerResponseStatus `json:"status"`
+	Summary     *SchedulerJobExecutionSummary     `json:"summary,omitempty"`
+	WindowKey   string                            `json:"window_key"`
+}
+
+// SchedulerJobTriggerResponseStatus defines model for SchedulerJobTriggerResponse.Status.
+type SchedulerJobTriggerResponseStatus string
+
 // SetMaintenanceRequest defines model for SetMaintenanceRequest.
 type SetMaintenanceRequest struct {
 	Reason *string `json:"reason,omitempty"`
@@ -685,6 +716,36 @@ type ListBillsParams struct {
 
 // ListBillsParamsStatus defines parameters for ListBills.
 type ListBillsParamsStatus string
+
+// RunForceTerminationCompensationJobParams defines parameters for RunForceTerminationCompensationJob.
+type RunForceTerminationCompensationJobParams struct {
+	WindowKey string `form:"window_key" json:"window_key"`
+}
+
+// RunLeaseExpiryJobParams defines parameters for RunLeaseExpiryJob.
+type RunLeaseExpiryJobParams struct {
+	WindowKey string `form:"window_key" json:"window_key"`
+}
+
+// RunLeaseExpiringSoonReminderJobParams defines parameters for RunLeaseExpiringSoonReminderJob.
+type RunLeaseExpiringSoonReminderJobParams struct {
+	WindowKey string `form:"window_key" json:"window_key"`
+}
+
+// RunMonthlySnapshotJobParams defines parameters for RunMonthlySnapshotJob.
+type RunMonthlySnapshotJobParams struct {
+	WindowKey string `form:"window_key" json:"window_key"`
+}
+
+// RunOverdueBillReminderJobParams defines parameters for RunOverdueBillReminderJob.
+type RunOverdueBillReminderJobParams struct {
+	WindowKey string `form:"window_key" json:"window_key"`
+}
+
+// RunOverdueBillsScanJobParams defines parameters for RunOverdueBillsScanJob.
+type RunOverdueBillsScanJobParams struct {
+	WindowKey string `form:"window_key" json:"window_key"`
+}
 
 // ListJournalLogsParams defines parameters for ListJournalLogs.
 type ListJournalLogsParams struct {
@@ -869,6 +930,24 @@ type ServerInterface interface {
 	// 查詢強制終止進度
 	// (GET /force-terminations/{id})
 	GetForceTermination(c *gin.Context, id openapi_types.UUID)
+	// 觸發強制終止補償 job
+	// (POST /internal/jobs/force-terminations/compensate)
+	RunForceTerminationCompensationJob(c *gin.Context, params RunForceTerminationCompensationJobParams)
+	// 觸發租約到期掃描 job
+	// (POST /internal/jobs/leases/expire)
+	RunLeaseExpiryJob(c *gin.Context, params RunLeaseExpiryJobParams)
+	// 觸發租約到期提醒 job
+	// (POST /internal/jobs/leases/expiring-soon)
+	RunLeaseExpiringSoonReminderJob(c *gin.Context, params RunLeaseExpiringSoonReminderJobParams)
+	// 觸發月結快照 job
+	// (POST /internal/jobs/monthly-snapshots/run)
+	RunMonthlySnapshotJob(c *gin.Context, params RunMonthlySnapshotJobParams)
+	// 觸發逾期催收通知 job
+	// (POST /internal/jobs/overdue-bills/reminders)
+	RunOverdueBillReminderJob(c *gin.Context, params RunOverdueBillReminderJobParams)
+	// 觸發逾期帳單掃描 job
+	// (POST /internal/jobs/overdue-bills/scan)
+	RunOverdueBillsScanJob(c *gin.Context, params RunOverdueBillsScanJobParams)
 	// 日誌列表
 	// (GET /journal-logs)
 	ListJournalLogs(c *gin.Context, params ListJournalLogsParams)
@@ -1226,6 +1305,216 @@ func (siw *ServerInterfaceWrapper) GetForceTermination(c *gin.Context) {
 	}
 
 	siw.Handler.GetForceTermination(c, id)
+}
+
+// RunForceTerminationCompensationJob operation middleware
+func (siw *ServerInterfaceWrapper) RunForceTerminationCompensationJob(c *gin.Context) {
+
+	var err error
+
+	c.Set(SchedulerKeyScopes, []string{})
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RunForceTerminationCompensationJobParams
+
+	// ------------- Required query parameter "window_key" -------------
+
+	if paramValue := c.Query("window_key"); paramValue != "" {
+
+	} else {
+		siw.ErrorHandler(c, fmt.Errorf("Query argument window_key is required, but not found"), http.StatusBadRequest)
+		return
+	}
+
+	err = runtime.BindQueryParameter("form", true, true, "window_key", c.Request.URL.Query(), &params.WindowKey)
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter window_key: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.RunForceTerminationCompensationJob(c, params)
+}
+
+// RunLeaseExpiryJob operation middleware
+func (siw *ServerInterfaceWrapper) RunLeaseExpiryJob(c *gin.Context) {
+
+	var err error
+
+	c.Set(SchedulerKeyScopes, []string{})
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RunLeaseExpiryJobParams
+
+	// ------------- Required query parameter "window_key" -------------
+
+	if paramValue := c.Query("window_key"); paramValue != "" {
+
+	} else {
+		siw.ErrorHandler(c, fmt.Errorf("Query argument window_key is required, but not found"), http.StatusBadRequest)
+		return
+	}
+
+	err = runtime.BindQueryParameter("form", true, true, "window_key", c.Request.URL.Query(), &params.WindowKey)
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter window_key: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.RunLeaseExpiryJob(c, params)
+}
+
+// RunLeaseExpiringSoonReminderJob operation middleware
+func (siw *ServerInterfaceWrapper) RunLeaseExpiringSoonReminderJob(c *gin.Context) {
+
+	var err error
+
+	c.Set(SchedulerKeyScopes, []string{})
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RunLeaseExpiringSoonReminderJobParams
+
+	// ------------- Required query parameter "window_key" -------------
+
+	if paramValue := c.Query("window_key"); paramValue != "" {
+
+	} else {
+		siw.ErrorHandler(c, fmt.Errorf("Query argument window_key is required, but not found"), http.StatusBadRequest)
+		return
+	}
+
+	err = runtime.BindQueryParameter("form", true, true, "window_key", c.Request.URL.Query(), &params.WindowKey)
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter window_key: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.RunLeaseExpiringSoonReminderJob(c, params)
+}
+
+// RunMonthlySnapshotJob operation middleware
+func (siw *ServerInterfaceWrapper) RunMonthlySnapshotJob(c *gin.Context) {
+
+	var err error
+
+	c.Set(SchedulerKeyScopes, []string{})
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RunMonthlySnapshotJobParams
+
+	// ------------- Required query parameter "window_key" -------------
+
+	if paramValue := c.Query("window_key"); paramValue != "" {
+
+	} else {
+		siw.ErrorHandler(c, fmt.Errorf("Query argument window_key is required, but not found"), http.StatusBadRequest)
+		return
+	}
+
+	err = runtime.BindQueryParameter("form", true, true, "window_key", c.Request.URL.Query(), &params.WindowKey)
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter window_key: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.RunMonthlySnapshotJob(c, params)
+}
+
+// RunOverdueBillReminderJob operation middleware
+func (siw *ServerInterfaceWrapper) RunOverdueBillReminderJob(c *gin.Context) {
+
+	var err error
+
+	c.Set(SchedulerKeyScopes, []string{})
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RunOverdueBillReminderJobParams
+
+	// ------------- Required query parameter "window_key" -------------
+
+	if paramValue := c.Query("window_key"); paramValue != "" {
+
+	} else {
+		siw.ErrorHandler(c, fmt.Errorf("Query argument window_key is required, but not found"), http.StatusBadRequest)
+		return
+	}
+
+	err = runtime.BindQueryParameter("form", true, true, "window_key", c.Request.URL.Query(), &params.WindowKey)
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter window_key: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.RunOverdueBillReminderJob(c, params)
+}
+
+// RunOverdueBillsScanJob operation middleware
+func (siw *ServerInterfaceWrapper) RunOverdueBillsScanJob(c *gin.Context) {
+
+	var err error
+
+	c.Set(SchedulerKeyScopes, []string{})
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RunOverdueBillsScanJobParams
+
+	// ------------- Required query parameter "window_key" -------------
+
+	if paramValue := c.Query("window_key"); paramValue != "" {
+
+	} else {
+		siw.ErrorHandler(c, fmt.Errorf("Query argument window_key is required, but not found"), http.StatusBadRequest)
+		return
+	}
+
+	err = runtime.BindQueryParameter("form", true, true, "window_key", c.Request.URL.Query(), &params.WindowKey)
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter window_key: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.RunOverdueBillsScanJob(c, params)
 }
 
 // ListJournalLogs operation middleware
@@ -2784,6 +3073,12 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.POST(options.BaseURL+"/bills/:id/meter", wrapper.SubmitBillMeter)
 	router.POST(options.BaseURL+"/bills/:id/payment", wrapper.RecordBillPayment)
 	router.GET(options.BaseURL+"/force-terminations/:id", wrapper.GetForceTermination)
+	router.POST(options.BaseURL+"/internal/jobs/force-terminations/compensate", wrapper.RunForceTerminationCompensationJob)
+	router.POST(options.BaseURL+"/internal/jobs/leases/expire", wrapper.RunLeaseExpiryJob)
+	router.POST(options.BaseURL+"/internal/jobs/leases/expiring-soon", wrapper.RunLeaseExpiringSoonReminderJob)
+	router.POST(options.BaseURL+"/internal/jobs/monthly-snapshots/run", wrapper.RunMonthlySnapshotJob)
+	router.POST(options.BaseURL+"/internal/jobs/overdue-bills/reminders", wrapper.RunOverdueBillReminderJob)
+	router.POST(options.BaseURL+"/internal/jobs/overdue-bills/scan", wrapper.RunOverdueBillsScanJob)
 	router.GET(options.BaseURL+"/journal-logs", wrapper.ListJournalLogs)
 	router.POST(options.BaseURL+"/journal-logs", wrapper.CreateJournalLog)
 	router.DELETE(options.BaseURL+"/journal-logs/:id", wrapper.DeleteJournalLog)

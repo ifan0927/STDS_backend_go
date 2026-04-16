@@ -39,6 +39,23 @@
   - db-g1-small（$25/month，超預算且超出需求）
   - Neon/Supabase（非 GCP 全套）
 
+### Persistence / Data Access
+
+- **整體策略**：SQL-first；migration、schema、index、constraint 以 SQL 為準，business rule 不下沉至 DB trigger / stored procedure
+- **GORM 使用邊界**：
+  - 可用於簡單 insert/update/select 與 persistence mapping
+  - 不作為架構中心，不依賴 hook、auto preload、隱式 transaction
+  - 複雜查詢、報表、scheduler scan、locking query（如 `SELECT ... FOR UPDATE`）可直接使用 raw SQL
+- **分層方式**：
+  - `model`：大致對應 table，負責 persistence mapping
+  - `repository`：對應 use case / aggregate / bounded context，只提供當前業務切片真正需要的方法
+  - `query`：服務 read model、報表、scheduler scan，直接回 DTO 或輕量 query object
+- **實作原則**：
+  - 不採「每個 table 先建完整 CRUD repo」策略
+  - persistence model、domain model、API model 明確分離
+  - Read API 可直接走 query repository；Write API 走 application service + repository
+- **理由**：符合目前 vertical slice 開發方式，也保留 PostgreSQL 在鎖定、聚合查詢、批次處理上的優勢
+
 ---
 
 ### Auth（認證與授權）
@@ -84,6 +101,9 @@
   - 觸發條件：push to `main` branch
   - Pipeline：test → build image → push to Artifact Registry → deploy to Cloud Run
 - **排程任務**：Cloud Scheduler（前 3 個 job 免費，第 4–6 個約 $0.30/月）→ 呼叫 Cloud Run HTTP endpoints
+  - 排程邏輯仍實作於本 backend repo，由 application service / repository 負責執行
+  - 觸發方式採外部 scheduler 呼叫受保護 endpoint，不在 app 內維護常駐 cron，也不以 CLI job 為主要模式
+  - job endpoint 必須支援 idempotency、鎖定策略與失敗重跑
 
 **預估月費（asia-east1）**
 

@@ -8,8 +8,12 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	appiam "stds_backend/internal/application/iam"
+	appjobs "stds_backend/internal/application/jobs"
+	appproperty "stds_backend/internal/application/property"
 	"stds_backend/internal/http/api"
 	"stds_backend/internal/http/requestctx"
+	dbproperties "stds_backend/internal/platform/database/properties"
+	dbpropertyquery "stds_backend/internal/platform/database/propertyquery"
 	"stds_backend/internal/platform/database/users"
 	"stds_backend/internal/shared/apperr"
 )
@@ -21,14 +25,26 @@ var _ api.ServerInterface = (*APIServer)(nil)
 type APIServer struct {
 	userRepo          users.Repository
 	createUserService *appiam.CreateUserService
+	jobTriggerService *appjobs.TriggerService
+	propertyQueryRepo dbpropertyquery.Repository
+	createPropertySvc *appproperty.CreatePropertyService
 }
 
 // NewAPIServer returns an API server with only the currently implemented
 // vertical slices wired in.
-func NewAPIServer(userRepo users.Repository, createUserService *appiam.CreateUserService) *APIServer {
+func NewAPIServer(
+	userRepo users.Repository,
+	createUserService *appiam.CreateUserService,
+	jobTriggerService *appjobs.TriggerService,
+	propertyQueryRepo dbpropertyquery.Repository,
+	createPropertySvc *appproperty.CreatePropertyService,
+) *APIServer {
 	return &APIServer{
 		userRepo:          userRepo,
 		createUserService: createUserService,
+		jobTriggerService: jobTriggerService,
+		propertyQueryRepo: propertyQueryRepo,
+		createPropertySvc: createPropertySvc,
 	}
 }
 
@@ -57,6 +73,36 @@ func (s *APIServer) RecordBillPayment(c *gin.Context, id string) { writeNotImple
 // GetForceTermination handles force-termination detail retrieval.
 func (s *APIServer) GetForceTermination(c *gin.Context, id openapi_types.UUID) {
 	writeNotImplemented(c)
+}
+
+// RunForceTerminationCompensationJob handles the force-termination compensation job trigger.
+func (s *APIServer) RunForceTerminationCompensationJob(c *gin.Context, params api.RunForceTerminationCompensationJobParams) {
+	s.runJob(c, appjobs.JobForceTerminationCompensation, params.WindowKey)
+}
+
+// RunLeaseExpiryJob handles the lease expiry scan job trigger.
+func (s *APIServer) RunLeaseExpiryJob(c *gin.Context, params api.RunLeaseExpiryJobParams) {
+	s.runJob(c, appjobs.JobLeaseExpiryScan, params.WindowKey)
+}
+
+// RunLeaseExpiringSoonReminderJob handles the lease expiring soon reminder job trigger.
+func (s *APIServer) RunLeaseExpiringSoonReminderJob(c *gin.Context, params api.RunLeaseExpiringSoonReminderJobParams) {
+	s.runJob(c, appjobs.JobLeaseExpiringSoonReminder, params.WindowKey)
+}
+
+// RunMonthlySnapshotJob handles the monthly snapshot job trigger.
+func (s *APIServer) RunMonthlySnapshotJob(c *gin.Context, params api.RunMonthlySnapshotJobParams) {
+	s.runJob(c, appjobs.JobMonthlySnapshot, params.WindowKey)
+}
+
+// RunOverdueBillReminderJob handles the overdue bill reminder job trigger.
+func (s *APIServer) RunOverdueBillReminderJob(c *gin.Context, params api.RunOverdueBillReminderJobParams) {
+	s.runJob(c, appjobs.JobOverdueBillReminders, params.WindowKey)
+}
+
+// RunOverdueBillsScanJob handles the overdue bills scan job trigger.
+func (s *APIServer) RunOverdueBillsScanJob(c *gin.Context, params api.RunOverdueBillsScanJobParams) {
+	s.runJob(c, appjobs.JobOverdueBillsScan, params.WindowKey)
 }
 
 // ListJournalLogs handles the journal log listing endpoint.
@@ -101,16 +147,67 @@ func (s *APIServer) ForceTerminateLease(c *gin.Context, id string) { writeNotImp
 func (s *APIServer) TerminateLease(c *gin.Context, id string) { writeNotImplemented(c) }
 
 // ListProperties handles the property listing endpoint.
-func (s *APIServer) ListProperties(c *gin.Context) { writeNotImplemented(c) }
+func (s *APIServer) ListProperties(c *gin.Context) {
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	properties, err := s.propertyQueryRepo.ListAccessible(c.Request.Context(), principal.Role, principal.UserID, principal.AssignedPropertyIDs)
+	if err != nil {
+		c.Error(apperr.ErrInternalServerError.WithCause(err))
+		return
+	}
+
+	items := make([]api.PropertyResponse, 0, len(properties))
+	for _, property := range properties {
+		items = append(items, toPropertyResponse(&property))
+	}
+
+	c.JSON(http.StatusOK, api.PropertyListResponse{Data: &items})
+}
 
 // CreateProperty handles property creation.
-func (s *APIServer) CreateProperty(c *gin.Context) { writeNotImplemented(c) }
+func (s *APIServer) CreateProperty(c *gin.Context) {
+	var request api.CreatePropertyRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.Error(apperr.ErrValidationElectricityPriceInvalid.WithCause(err))
+		return
+	}
+
+	property, err := s.createPropertySvc.Execute(c.Request.Context(), appproperty.CreatePropertyInput{
+		Name:                 request.Name,
+		Address:              request.Address,
+		ElectricityUnitPrice: request.ElectricityUnitPrice,
+		OwnerID:              request.OwnerId.String(),
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusCreated, toCreatedPropertyResponse(property))
+}
 
 // DeleteProperty handles property deletion.
 func (s *APIServer) DeleteProperty(c *gin.Context, id string) { writeNotImplemented(c) }
 
 // GetProperty handles property detail retrieval.
-func (s *APIServer) GetProperty(c *gin.Context, id string) { writeNotImplemented(c) }
+func (s *APIServer) GetProperty(c *gin.Context, id string) {
+	property, err := s.propertyQueryRepo.FindByID(c.Request.Context(), id)
+	if err != nil {
+		switch err {
+		case dbpropertyquery.ErrNotFound:
+			c.Error(apperr.ErrPropertyNotFound)
+		default:
+			c.Error(apperr.ErrInternalServerError.WithCause(err))
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, toPropertyResponse(property))
+}
 
 // UpdateProperty handles property updates.
 func (s *APIServer) UpdateProperty(c *gin.Context, id string) { writeNotImplemented(c) }
@@ -323,4 +420,96 @@ func parseUUID(value string) (openapi_types.UUID, bool) {
 	}
 
 	return parsed, true
+}
+
+func (s *APIServer) runJob(c *gin.Context, jobKey appjobs.JobKey, windowKey string) {
+	if windowKey == "" {
+		c.Error(apperr.ErrValidationWindowKeyRequired)
+		return
+	}
+
+	result, err := s.jobTriggerService.Execute(c.Request.Context(), jobKey, windowKey, requestctx.GetRequestID(c))
+	if err != nil {
+		c.Error(apperr.ErrInternalServerError.WithCause(err))
+		return
+	}
+
+	requestID := requestctx.GetRequestID(c)
+	response := api.SchedulerJobTriggerResponse{
+		JobKey:      result.JobKey,
+		RequestedAt: result.RequestedAt,
+		Status:      api.SchedulerJobTriggerResponseStatus(result.Status),
+		WindowKey:   result.WindowKey,
+	}
+	if requestID != "" {
+		response.RequestId = &requestID
+	}
+	if result.Message != "" {
+		response.Message = &result.Message
+	}
+	response.RetryCount = &result.RetryCount
+	durationMs := int(result.DurationMs)
+	response.DurationMs = &durationMs
+	if result.Summary != nil {
+		note := result.Summary.Note
+		response.Summary = &api.SchedulerJobExecutionSummary{
+			FailedCount:    &result.Summary.FailedCount,
+			ProcessedCount: &result.Summary.ProcessedCount,
+			SkippedCount:   &result.Summary.SkippedCount,
+			Note:           &note,
+		}
+	}
+
+	requestctx.SetJobMeta(c, requestctx.JobMeta{
+		JobKey:     result.JobKey,
+		WindowKey:  result.WindowKey,
+		Status:     result.Status,
+		RetryCount: result.RetryCount,
+		DurationMs: result.DurationMs,
+	})
+
+	c.JSON(http.StatusAccepted, response)
+}
+
+func toPropertyResponse(property *dbpropertyquery.Property) api.PropertyResponse {
+	id, ok := parseUUID(property.ID)
+	ownerID, ownerOK := parseUUID(property.OwnerID)
+	name := property.Name
+	address := property.Address
+	electricityUnitPrice := property.ElectricityUnitPrice
+	createdAt := property.CreatedAt
+	updatedAt := property.UpdatedAt
+	version := property.Version
+
+	response := api.PropertyResponse{
+		Address:              &address,
+		CreatedAt:            &createdAt,
+		ElectricityUnitPrice: &electricityUnitPrice,
+		Name:                 &name,
+		UpdatedAt:            &updatedAt,
+		Version:              &version,
+	}
+	if ok {
+		response.Id = &id
+	}
+	if ownerOK {
+		response.OwnerId = &ownerID
+	}
+
+	return response
+}
+
+func toCreatedPropertyResponse(property *dbproperties.Property) api.PropertyResponse {
+	queryShape := &dbpropertyquery.Property{
+		ID:                   property.ID,
+		Name:                 property.Name,
+		Address:              property.Address,
+		ElectricityUnitPrice: property.ElectricityUnitPrice,
+		OwnerID:              property.OwnerID,
+		CreatedAt:            property.CreatedAt,
+		UpdatedAt:            property.UpdatedAt,
+		Version:              property.Version,
+	}
+
+	return toPropertyResponse(queryShape)
 }
