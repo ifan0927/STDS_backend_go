@@ -10,6 +10,8 @@ import (
 	"stds_backend/internal/shared/apperr"
 )
 
+// ErrorHandler converts request-scoped errors into the standardized API error
+// response format.
 func ErrorHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Next()

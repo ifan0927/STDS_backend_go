@@ -9,6 +9,8 @@ import (
 	"stds_backend/internal/http/requestctx"
 )
 
+// Logging writes a structured access log entry after each HTTP request
+// completes.
 func Logging(logger *slog.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()

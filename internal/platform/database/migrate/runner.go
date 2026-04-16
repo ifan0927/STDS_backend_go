@@ -14,6 +14,7 @@ import (
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
+// Runner applies embedded SQL migrations to the configured database.
 type Runner struct {
 	db *sql.DB
 }
@@ -25,10 +26,12 @@ type migration struct {
 	SQL       string
 }
 
+// NewRunner returns a migration runner for the provided database handle.
 func NewRunner(db *sql.DB) *Runner {
 	return &Runner{db: db}
 }
 
+// Up applies unapplied upward migrations in ascending version order.
 func (r *Runner) Up(ctx context.Context) error {
 	migrations, err := loadMigrations("up")
 	if err != nil {
@@ -38,6 +41,7 @@ func (r *Runner) Up(ctx context.Context) error {
 	return r.apply(ctx, migrations, true)
 }
 
+// Down rolls back applied downward migrations in descending version order.
 func (r *Runner) Down(ctx context.Context) error {
 	migrations, err := loadMigrations("down")
 	if err != nil {

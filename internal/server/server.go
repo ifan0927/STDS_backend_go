@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	appiam "stds_backend/internal/application/iam"
 	"stds_backend/internal/config"
 	"stds_backend/internal/http/router"
 	"stds_backend/internal/platform/database"
@@ -15,12 +16,15 @@ import (
 	"stds_backend/internal/platform/logging"
 )
 
+// Server owns the application's HTTP server and process-level dependencies.
 type Server struct {
 	httpServer *http.Server
 	db         *sql.DB
 	logger     *slog.Logger
 }
 
+// New wires configuration, infrastructure clients, and the HTTP router into a
+// runnable server instance.
 func New(cfg *config.Config) (*Server, error) {
 	db, err := database.Open(context.Background(), cfg.DB.URL)
 	if err != nil {
@@ -36,8 +40,9 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 
 	userRepo := dbusers.NewRepository(db)
+	createUserService := appiam.NewCreateUserService(userRepo)
 
-	engine := router.New(cfg.App, logger, db, authenticator, userRepo)
+	engine := router.New(cfg.App, logger, db, authenticator, userRepo, createUserService)
 
 	return &Server{
 		httpServer: &http.Server{
@@ -51,6 +56,7 @@ func New(cfg *config.Config) (*Server, error) {
 	}, nil
 }
 
+// Run starts the HTTP server and blocks until it exits.
 func (s *Server) Run() error {
 	defer s.db.Close()
 

@@ -11,6 +11,8 @@ import (
 
 const pingTimeout = 3 * time.Second
 
+// Open creates a PostgreSQL connection pool and verifies connectivity with a
+// bounded ping.
 func Open(ctx context.Context, databaseURL string) (*sql.DB, error) {
 	db, err := sql.Open("pgx", databaseURL)
 	if err != nil {

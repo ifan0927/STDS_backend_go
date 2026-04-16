@@ -7,6 +7,8 @@ import (
 	"stds_backend/internal/config"
 )
 
+// New builds the application logger with environment-specific log level
+// defaults.
 func New(appCfg config.AppConfig) *slog.Logger {
 	level := slog.LevelInfo
 	if appCfg.Env == "local" {

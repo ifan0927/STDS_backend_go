@@ -11,6 +11,8 @@ import (
 	"stds_backend/internal/shared/apperr"
 )
 
+// Auth authenticates the Firebase bearer token and stores the resolved user
+// principal in the request context.
 func Auth(authenticator platformfirebase.Authenticator, userRepo users.Repository) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token, err := bearerToken(c.GetHeader("Authorization"))

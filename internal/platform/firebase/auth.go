@@ -13,20 +13,24 @@ import (
 	"stds_backend/internal/config"
 )
 
+// Claims contains the authenticated identity fields consumed by the API.
 type Claims struct {
 	UID                 string
 	Role                string
 	AssignedPropertyIDs []string
 }
 
+// Authenticator verifies Firebase ID tokens and returns normalized claims.
 type Authenticator interface {
 	VerifyIDToken(ctx context.Context, token string) (*Claims, error)
 }
 
+// Client is the Firebase-backed implementation of Authenticator.
 type Client struct {
 	auth *firebaseauth.Client
 }
 
+// New creates a Firebase auth client from the provided configuration.
 func New(ctx context.Context, cfg config.FirebaseConfig) (*Client, error) {
 	if cfg.ProjectID == "" {
 		return nil, errors.New("FIREBASE_PROJECT_ID is required")
@@ -65,6 +69,8 @@ func shouldLoadCredentials(cfg config.FirebaseConfig) bool {
 	return cfg.CredentialsFile != "" && !cfg.UsesAuthEmulator()
 }
 
+// VerifyIDToken verifies the bearer token with Firebase and maps selected
+// custom claims into the local Claims shape.
 func (c *Client) VerifyIDToken(ctx context.Context, token string) (*Claims, error) {
 	verified, err := c.auth.VerifyIDToken(ctx, token)
 	if err != nil {

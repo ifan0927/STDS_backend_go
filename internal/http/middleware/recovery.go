@@ -12,6 +12,8 @@ import (
 	"stds_backend/internal/shared/apperr"
 )
 
+// Recovery captures panics, logs diagnostic context, and returns a standard
+// internal server error response.
 func Recovery(logger *slog.Logger) gin.HandlerFunc {
 	return gin.CustomRecovery(func(c *gin.Context, recovered any) {
 		logger.Error("panic recovered",

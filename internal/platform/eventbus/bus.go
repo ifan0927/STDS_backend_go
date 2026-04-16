@@ -19,12 +19,15 @@ type Bus struct {
 	handlers map[reflect.Type][]handlerFunc
 }
 
+// New returns an empty in-process event bus.
 func New() *Bus {
 	return &Bus{
 		handlers: make(map[reflect.Type][]handlerFunc),
 	}
 }
 
+// Publish dispatches the given event to all subscribers registered for its
+// concrete type.
 func (b *Bus) Publish(ctx context.Context, event any) error {
 	if event == nil {
 		return fmt.Errorf("publish event: nil event")
@@ -45,6 +48,8 @@ func (b *Bus) Publish(ctx context.Context, event any) error {
 	return nil
 }
 
+// Subscribe registers a typed handler that will be called synchronously when
+// the bus publishes matching events.
 func Subscribe[T any](bus *Bus, handler func(context.Context, T) error) {
 	eventType := reflect.TypeFor[T]()
 	wrapped := func(ctx context.Context, event any) error {

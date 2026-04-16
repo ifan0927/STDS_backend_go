@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	appiam "stds_backend/internal/application/iam"
 	"stds_backend/internal/config"
 	"stds_backend/internal/http/api"
 	"stds_backend/internal/http/handler"
@@ -15,7 +16,9 @@ import (
 	"stds_backend/internal/shared/apperr"
 )
 
-func New(appCfg config.AppConfig, logger *slog.Logger, db *sql.DB, authenticator platformfirebase.Authenticator, userRepo users.Repository) *gin.Engine {
+// New builds the application's HTTP router with shared middleware, public
+// endpoints, and authenticated API routes.
+func New(appCfg config.AppConfig, logger *slog.Logger, db *sql.DB, authenticator platformfirebase.Authenticator, userRepo users.Repository, createUserService *appiam.CreateUserService) *gin.Engine {
 	engine := gin.New()
 	engine.Use(
 		middleware.RequestID(),
@@ -33,7 +36,7 @@ func New(appCfg config.AppConfig, logger *slog.Logger, db *sql.DB, authenticator
 
 	engine.GET("/api/v1/healthz", healthHandler.Live)
 
-	api.RegisterHandlersWithOptions(engine, handler.NewAPIServer(), api.GinServerOptions{
+	api.RegisterHandlersWithOptions(engine, handler.NewAPIServer(userRepo, createUserService), api.GinServerOptions{
 		BaseURL: "/api/v1",
 		Middlewares: []api.MiddlewareFunc{
 			protectedAPIMiddleware(authenticator, userRepo),

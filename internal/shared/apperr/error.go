@@ -10,6 +10,8 @@ type Error struct {
 	Cause      error
 }
 
+// Error returns the public error message, falling back to the error code when
+// no message has been set.
 func (e *Error) Error() string {
 	if e == nil {
 		return ""
@@ -22,6 +24,8 @@ func (e *Error) Error() string {
 	return e.Code
 }
 
+// Unwrap exposes the wrapped cause so Error integrates with errors.Is and
+// errors.As.
 func (e *Error) Unwrap() error {
 	if e == nil {
 		return nil

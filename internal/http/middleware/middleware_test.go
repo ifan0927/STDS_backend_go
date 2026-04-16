@@ -168,6 +168,26 @@ func (fakeUserRepo) FindByFirebaseUID(_ context.Context, firebaseUID string) (*u
 	}, nil
 }
 
+func (fakeUserRepo) FindByID(_ context.Context, id string) (*users.User, error) {
+	return &users.User{
+		ID:                  id,
+		FirebaseUID:         "uid-1",
+		Role:                "organizer",
+		AssignedPropertyIDs: []string{"property-1"},
+	}, nil
+}
+
+func (fakeUserRepo) Create(_ context.Context, params users.CreateUserParams) (*users.User, error) {
+	return &users.User{
+		ID:                  "user-1",
+		FirebaseUID:         params.FirebaseUID,
+		Email:               params.Email,
+		Name:                params.Name,
+		Role:                params.Role,
+		AssignedPropertyIDs: []string{},
+	}, nil
+}
+
 func assertErrorCode(t *testing.T, resp *httptest.ResponseRecorder, expectedStatus int, expectedCode string) {
 	t.Helper()
 

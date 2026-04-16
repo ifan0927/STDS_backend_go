@@ -9,8 +9,12 @@ import (
 	"stds_backend/internal/shared/apperr"
 )
 
+// PropertyIDResolver extracts the property ID that should be authorized for
+// the current request.
 type PropertyIDResolver func(*gin.Context) (string, error)
 
+// RequireRoles rejects requests whose authenticated principal does not match
+// one of the allowed roles.
 func RequireRoles(allowedRoles ...string) gin.HandlerFunc {
 	allowed := map[string]struct{}{}
 	for _, role := range allowedRoles {
@@ -37,6 +41,8 @@ func RequireRoles(allowedRoles ...string) gin.HandlerFunc {
 	}
 }
 
+// RequirePropertyAccess rejects requests for properties that the authenticated
+// principal is not allowed to access.
 func RequirePropertyAccess(resolvePropertyID PropertyIDResolver) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		principal, ok := requestctx.GetPrincipal(c)
@@ -77,6 +83,8 @@ func RequirePropertyAccess(resolvePropertyID PropertyIDResolver) gin.HandlerFunc
 	}
 }
 
+// ParamPropertyID returns a resolver that reads the property ID from the given
+// route parameter.
 func ParamPropertyID(param string) PropertyIDResolver {
 	return func(c *gin.Context) (string, error) {
 		if param == "" {

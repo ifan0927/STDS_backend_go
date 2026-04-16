@@ -9,12 +9,14 @@ import (
 	"github.com/joho/godotenv"
 )
 
+// Config groups all runtime configuration consumed by the application.
 type Config struct {
 	App      AppConfig
 	DB       DatabaseConfig
 	Firebase FirebaseConfig
 }
 
+// AppConfig contains HTTP service settings and process metadata.
 type AppConfig struct {
 	Name         string
 	Env          string
@@ -25,10 +27,12 @@ type AppConfig struct {
 	WriteTimeout time.Duration
 }
 
+// DatabaseConfig contains database connection settings.
 type DatabaseConfig struct {
 	URL string
 }
 
+// FirebaseConfig contains Firebase authentication client settings.
 type FirebaseConfig struct {
 	ProjectID        string
 	CredentialsFile  string
@@ -36,10 +40,13 @@ type FirebaseConfig struct {
 	TestUID          string
 }
 
+// UsesAuthEmulator reports whether Firebase auth calls should target the local
+// emulator.
 func (c FirebaseConfig) UsesAuthEmulator() bool {
 	return c.AuthEmulatorHost != ""
 }
 
+// Load reads environment-backed configuration and validates required values.
 func Load() (*Config, error) {
 	_ = godotenv.Load()
 
@@ -71,6 +78,7 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
+// Address returns the host:port pair used by the HTTP server.
 func (a AppConfig) Address() string {
 	return fmt.Sprintf("%s:%s", a.Host, a.Port)
 }
