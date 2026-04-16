@@ -8,7 +8,7 @@ info:
   description: >
     STDS（物業代管系統）API 規格
 
-    產出依據：docs/design/domain-model.md v3.0
+    產出依據：docs/design/domain-model.md v3.1
 
     授權模型：混合型（RBAC + Resource-based）
 
@@ -20,7 +20,7 @@ info:
     - 優先順序：先驗 RBAC role，再驗 property ownership（兩者皆須通過）
 
 
-    認證機制（v3.0）：系統使用 Firebase Auth 管理使用者認證。
+    認證機制（v3.1）：系統使用 Firebase Auth 管理使用者認證。
 
     - 登入流程：由前端 Firebase SDK 處理，後端不接受 email/password 登入
 

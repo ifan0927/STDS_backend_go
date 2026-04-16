@@ -7,13 +7,13 @@ info:
     url: https://example.com/licenses/proprietary
   description: |
     STDS（物業代管系統）API 規格
-    產出依據：docs/design/domain-model.md v3.0
+    產出依據：docs/design/domain-model.md v3.1
     授權模型：混合型（RBAC + Resource-based）
     - x-required-role：列出可呼叫的角色（RBAC）
     - x-ownership-required：物業層級存取控制（resource-based），透過 Firebase ID token 內 Custom Claims 的 assigned_property_ids 驗證
     - 優先順序：先驗 RBAC role，再驗 property ownership（兩者皆須通過）
 
-    認證機制（v3.0）：系統使用 Firebase Auth 管理使用者認證。
+    認證機制（v3.1）：系統使用 Firebase Auth 管理使用者認證。
     - 登入流程：由前端 Firebase SDK 處理，後端不接受 email/password 登入
     - 後端驗證：每個 request 以 Firebase ID token（Bearer token）呼叫後端
     - 後端 middleware 以 Firebase Admin SDK 驗證 token，從 Custom Claims 讀取 role 與 assigned_property_ids
@@ -40,7 +40,7 @@ paths:
       summary: 同步 Firebase 使用者至後端 DB（首次登入或 token 更新時呼叫）
       description: |
         前端以 Firebase SDK 完成登入後，帶 Firebase ID token 呼叫此 endpoint。
-        後端以 firebase_uid 查詢或建立 users table 記錄，並將最新 role 與 assigned_property_ids
+        後端以 firebase_uid 查詢既有 users table 記錄，並將最新 role 與 assigned_property_ids
         寫入 Firebase Custom Claims（若與 DB 不一致時更新）。
         此 endpoint 取代原本的 POST /auth/login（v2.9），登入由 Firebase SDK 處理。
       tags:
@@ -584,7 +584,7 @@ paths:
         x-ownership-required: 依角色過濾：
         - admin：全部物業
         - organizer/staff：Firebase Custom Claims 內 assigned_property_ids
-        - owner：自己名下（properties.owner_id = JWT.sub）
+        - owner：自己名下（properties.owner_id = authenticated user id）
       tags:
         - Property
       x-required-role:

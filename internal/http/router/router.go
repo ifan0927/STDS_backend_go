@@ -11,6 +11,7 @@ import (
 	"stds_backend/internal/http/api"
 	"stds_backend/internal/http/handler"
 	"stds_backend/internal/http/middleware"
+	dbproperties "stds_backend/internal/platform/database/properties"
 	"stds_backend/internal/platform/database/users"
 	platformfirebase "stds_backend/internal/platform/firebase"
 	"stds_backend/internal/shared/apperr"
@@ -18,7 +19,7 @@ import (
 
 // New builds the application's HTTP router with shared middleware, public
 // endpoints, and authenticated API routes.
-func New(appCfg config.AppConfig, logger *slog.Logger, db *sql.DB, authenticator platformfirebase.Authenticator, userRepo users.Repository, createUserService *appiam.CreateUserService) *gin.Engine {
+func New(appCfg config.AppConfig, logger *slog.Logger, db *sql.DB, authenticator platformfirebase.Authenticator, userRepo users.Repository, propertyRepo dbproperties.Repository, createUserService *appiam.CreateUserService) *gin.Engine {
 	engine := gin.New()
 	engine.Use(
 		middleware.RequestID(),
@@ -39,7 +40,7 @@ func New(appCfg config.AppConfig, logger *slog.Logger, db *sql.DB, authenticator
 	api.RegisterHandlersWithOptions(engine, handler.NewAPIServer(userRepo, createUserService), api.GinServerOptions{
 		BaseURL: "/api/v1",
 		Middlewares: []api.MiddlewareFunc{
-			protectedAPIMiddleware(authenticator, userRepo),
+			protectedAPIMiddleware(authenticator, userRepo, propertyRepo),
 		},
 	})
 
@@ -58,9 +59,9 @@ type compiledRoutePolicy struct {
 	requirePropertyAccess gin.HandlerFunc
 }
 
-func protectedAPIMiddleware(authenticator platformfirebase.Authenticator, userRepo users.Repository) api.MiddlewareFunc {
+func protectedAPIMiddleware(authenticator platformfirebase.Authenticator, userRepo users.Repository, propertyRepo dbproperties.Repository) api.MiddlewareFunc {
 	auth := middleware.Auth(authenticator, userRepo)
-	policies := compileRoutePolicies(routePolicies())
+	policies := compileRoutePolicies(routePolicies(), propertyRepo)
 
 	return func(c *gin.Context) {
 		policy, ok := policies[routePolicyKey(c.Request.Method, c.FullPath())]
@@ -89,14 +90,14 @@ func protectedAPIMiddleware(authenticator platformfirebase.Authenticator, userRe
 	}
 }
 
-func compileRoutePolicies(rawPolicies []routePolicy) map[string]compiledRoutePolicy {
+func compileRoutePolicies(rawPolicies []routePolicy, propertyRepo dbproperties.Repository) map[string]compiledRoutePolicy {
 	policies := make(map[string]compiledRoutePolicy, len(rawPolicies))
 	for _, policy := range rawPolicies {
 		compiled := compiledRoutePolicy{
 			requireRoles: middleware.RequireRoles(policy.allowedRoles...),
 		}
 		if policy.propertyParam != "" {
-			compiled.requirePropertyAccess = middleware.RequirePropertyAccess(middleware.ParamPropertyID(policy.propertyParam))
+			compiled.requirePropertyAccess = middleware.RequirePropertyAccess(middleware.ParamPropertyID(policy.propertyParam), propertyRepo)
 		}
 
 		policies[routePolicyKey(policy.method, policy.path)] = compiled

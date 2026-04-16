@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"stds_backend/internal/http/requestctx"
+	dbproperties "stds_backend/internal/platform/database/properties"
 	"stds_backend/internal/shared/apperr"
 )
 
@@ -43,7 +44,7 @@ func RequireRoles(allowedRoles ...string) gin.HandlerFunc {
 
 // RequirePropertyAccess rejects requests for properties that the authenticated
 // principal is not allowed to access.
-func RequirePropertyAccess(resolvePropertyID PropertyIDResolver) gin.HandlerFunc {
+func RequirePropertyAccess(resolvePropertyID PropertyIDResolver, propertyRepo dbproperties.Repository) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		principal, ok := requestctx.GetPrincipal(c)
 		if !ok {
@@ -66,6 +67,26 @@ func RequirePropertyAccess(resolvePropertyID PropertyIDResolver) gin.HandlerFunc
 
 		if propertyID == "" {
 			c.Next()
+			return
+		}
+
+		if principal.Role == "owner" {
+			ownerID, err := propertyRepo.FindOwnerIDByPropertyID(c.Request.Context(), propertyID)
+			if err != nil {
+				c.Error(apperr.ErrForbidden.WithCause(err))
+				c.Abort()
+				return
+			}
+
+			if ownerID == principal.UserID {
+				c.Next()
+				return
+			}
+
+			c.Error(apperr.ErrForbidden.WithDetails(map[string]interface{}{
+				"property_id": propertyID,
+			}))
+			c.Abort()
 			return
 		}
 

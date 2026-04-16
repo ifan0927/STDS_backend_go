@@ -11,6 +11,7 @@ import (
 	"stds_backend/internal/config"
 	"stds_backend/internal/http/router"
 	"stds_backend/internal/platform/database"
+	dbproperties "stds_backend/internal/platform/database/properties"
 	dbusers "stds_backend/internal/platform/database/users"
 	platformfirebase "stds_backend/internal/platform/firebase"
 	"stds_backend/internal/platform/logging"
@@ -40,9 +41,10 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 
 	userRepo := dbusers.NewRepository(db)
+	propertyRepo := dbproperties.NewRepository(db)
 	createUserService := appiam.NewCreateUserService(userRepo)
 
-	engine := router.New(cfg.App, logger, db, authenticator, userRepo, createUserService)
+	engine := router.New(cfg.App, logger, db, authenticator, userRepo, propertyRepo, createUserService)
 
 	return &Server{
 		httpServer: &http.Server{

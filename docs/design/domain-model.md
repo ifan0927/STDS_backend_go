@@ -1,12 +1,12 @@
 # Domain Model
 
-> 版本：v3.0
+> 版本：v3.1
 > 更新說明：
 > - v2.0：經四輪多角色設計評審產出
 > - v2.1-v2.8：歷次 Validation 修正
 > - v2.9：補 paymentMethod 欄位、expired → terminated 狀態轉換、Tenant status 轉換邏輯、monthly_snapshots 拆兩層 table、force_termination_bills 拆表移除 bill_ids[]、補 overdue_notice_count Index、Notification event payload 要求
 > - v3.0：認證機制改為 Firebase Auth + Custom Claims，移除自建 JWT 與 password_hash，users table 改存 firebase_uid
-
+> - v3.1: 修改部分邏輯
 ---
 
 ## Bounded Contexts

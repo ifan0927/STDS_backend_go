@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"stds_backend/internal/http/requestctx"
+	dbproperties "stds_backend/internal/platform/database/properties"
 	"stds_backend/internal/platform/database/users"
 	platformfirebase "stds_backend/internal/platform/firebase"
 )
@@ -30,7 +31,7 @@ func TestProtectedMiddlewareChain(t *testing.T) {
 		"/properties/:id",
 		Auth(fakeAuthenticator{}, fakeUserRepo{}),
 		RequireRoles("admin", "organizer", "staff"),
-		RequirePropertyAccess(ParamPropertyID("id")),
+		RequirePropertyAccess(ParamPropertyID("id"), fakePropertyRepo{}),
 		func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"ok": true})
 		},
@@ -126,7 +127,61 @@ func TestRequirePropertyAccessReturnsForbidden(t *testing.T) {
 			AssignedPropertyIDs: []string{"property-2"},
 		})
 		c.Next()
-	}, RequirePropertyAccess(ParamPropertyID("id")), func(c *gin.Context) {
+	}, RequirePropertyAccess(ParamPropertyID("id"), fakePropertyRepo{}), func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/properties/property-1", nil)
+	resp := httptest.NewRecorder()
+	engine.ServeHTTP(resp, req)
+
+	assertErrorCode(t, resp, http.StatusForbidden, "FORBIDDEN")
+}
+
+func TestRequirePropertyAccessAllowsOwnerForOwnedProperty(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	engine := gin.New()
+	engine.Use(RequestID(), ErrorHandler())
+	engine.GET("/properties/:id", func(c *gin.Context) {
+		requestctx.SetPrincipal(c, requestctx.Principal{
+			UserID: "owner-1",
+			Role:   "owner",
+		})
+		c.Next()
+	}, RequirePropertyAccess(ParamPropertyID("id"), fakePropertyRepo{
+		ownerByPropertyID: map[string]string{
+			"property-1": "owner-1",
+		},
+	}), func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/properties/property-1", nil)
+	resp := httptest.NewRecorder()
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestRequirePropertyAccessRejectsOwnerForOtherProperty(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	engine := gin.New()
+	engine.Use(RequestID(), ErrorHandler())
+	engine.GET("/properties/:id", func(c *gin.Context) {
+		requestctx.SetPrincipal(c, requestctx.Principal{
+			UserID: "owner-1",
+			Role:   "owner",
+		})
+		c.Next()
+	}, RequirePropertyAccess(ParamPropertyID("id"), fakePropertyRepo{
+		ownerByPropertyID: map[string]string{
+			"property-1": "owner-2",
+		},
+	}), func(c *gin.Context) {
 		c.Status(http.StatusOK)
 	})
 
@@ -154,6 +209,10 @@ func (f fakeAuthenticator) VerifyIDToken(_ context.Context, token string) (*plat
 }
 
 type fakeUserRepo struct{}
+
+type fakePropertyRepo struct {
+	ownerByPropertyID map[string]string
+}
 
 func (fakeUserRepo) FindByFirebaseUID(_ context.Context, firebaseUID string) (*users.User, error) {
 	if firebaseUID == "missing" {
@@ -186,6 +245,14 @@ func (fakeUserRepo) Create(_ context.Context, params users.CreateUserParams) (*u
 		Role:                params.Role,
 		AssignedPropertyIDs: []string{},
 	}, nil
+}
+
+func (f fakePropertyRepo) FindOwnerIDByPropertyID(_ context.Context, propertyID string) (string, error) {
+	if ownerID, ok := f.ownerByPropertyID[propertyID]; ok {
+		return ownerID, nil
+	}
+
+	return "", dbproperties.ErrNotFound
 }
 
 func assertErrorCode(t *testing.T, resp *httptest.ResponseRecorder, expectedStatus int, expectedCode string) {

@@ -13,6 +13,7 @@ import (
 
 	appiam "stds_backend/internal/application/iam"
 	"stds_backend/internal/config"
+	dbproperties "stds_backend/internal/platform/database/properties"
 	"stds_backend/internal/platform/database/users"
 	platformfirebase "stds_backend/internal/platform/firebase"
 )
@@ -25,6 +26,7 @@ func TestGetPropertyUsesFormalAPIWiring(t *testing.T) {
 		nil,
 		fakeAuthenticator{},
 		repo,
+		fakePropertyRepo{},
 		appiam.NewCreateUserService(repo),
 	)
 
@@ -47,6 +49,7 @@ func TestGetPropertyRejectsUnauthorizedPropertyAccess(t *testing.T) {
 		nil,
 		fakeAuthenticator{assignedPropertyIDs: []string{"property-2"}},
 		repo,
+		fakePropertyRepo{},
 		appiam.NewCreateUserService(repo),
 	)
 
@@ -69,6 +72,7 @@ func TestListUsersRejectsOwnerRole(t *testing.T) {
 		nil,
 		fakeAuthenticator{role: "owner"},
 		repo,
+		fakePropertyRepo{},
 		appiam.NewCreateUserService(repo),
 	)
 
@@ -91,6 +95,7 @@ func TestGetCurrentUserReturnsProfile(t *testing.T) {
 		nil,
 		fakeAuthenticator{},
 		repo,
+		fakePropertyRepo{},
 		appiam.NewCreateUserService(repo),
 	)
 
@@ -122,6 +127,7 @@ func TestCreateUserReturnsCreatedUser(t *testing.T) {
 		nil,
 		fakeAuthenticator{},
 		repo,
+		fakePropertyRepo{},
 		appiam.NewCreateUserService(repo),
 	)
 
@@ -159,6 +165,7 @@ func TestCreateUserRejectsDuplicateEmail(t *testing.T) {
 		nil,
 		fakeAuthenticator{},
 		repo,
+		fakePropertyRepo{},
 		appiam.NewCreateUserService(repo),
 	)
 
@@ -176,6 +183,33 @@ func TestCreateUserRejectsDuplicateEmail(t *testing.T) {
 
 	if resp.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestGetPropertyAllowsOwnerAccessToOwnedProperty(t *testing.T) {
+	repo := fakeUserRepo{role: "owner", assignedPropertyIDs: []string{"property-2"}}
+	engine := New(
+		config.AppConfig{Name: "test", Env: "test", ReadTimeout: time.Second, WriteTimeout: time.Second},
+		testLogger(),
+		nil,
+		fakeAuthenticator{role: "owner", assignedPropertyIDs: []string{"property-2"}},
+		repo,
+		fakePropertyRepo{
+			ownerByPropertyID: map[string]string{
+				"property-1": "user-1",
+			},
+		},
+		appiam.NewCreateUserService(repo),
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/properties/property-1", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusNotImplemented {
+		t.Fatalf("expected 501, got %d: %s", resp.Code, resp.Body.String())
 	}
 }
 
@@ -206,6 +240,10 @@ type fakeUserRepo struct {
 	assignedPropertyIDs []string
 	findByIDErr         error
 	createErr           error
+}
+
+type fakePropertyRepo struct {
+	ownerByPropertyID map[string]string
 }
 
 func (f fakeUserRepo) FindByFirebaseUID(_ context.Context, firebaseUID string) (*users.User, error) {
@@ -265,6 +303,14 @@ func (f fakeUserRepo) Create(_ context.Context, params users.CreateUserParams) (
 		UpdatedAt:           time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
 		Version:             1,
 	}, nil
+}
+
+func (f fakePropertyRepo) FindOwnerIDByPropertyID(_ context.Context, propertyID string) (string, error) {
+	if ownerID, ok := f.ownerByPropertyID[propertyID]; ok {
+		return ownerID, nil
+	}
+
+	return "", dbproperties.ErrNotFound
 }
 
 func firstAssignedPropertyIDs(assigned []string) []string {
