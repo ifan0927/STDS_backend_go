@@ -25,8 +25,6 @@ const (
 	CodeValidationEmailRequired = "VALIDATION_EMAIL_REQUIRED"
 	// CodeValidationEmailInvalid identifies invalid email input.
 	CodeValidationEmailInvalid = "VALIDATION_EMAIL_INVALID"
-	// CodeValidationFirebaseUIDRequired identifies missing required Firebase UID input.
-	CodeValidationFirebaseUIDRequired = "VALIDATION_FIREBASE_UID_REQUIRED"
 	// CodeValidationNameRequired identifies missing required name input.
 	CodeValidationNameRequired = "VALIDATION_NAME_REQUIRED"
 	// CodeValidationAddressRequired identifies missing required address input.
@@ -111,12 +109,6 @@ var (
 		CodeValidationEmailInvalid,
 		http.StatusBadRequest,
 		"Email format is invalid.",
-	)
-	// ErrValidationFirebaseUIDRequired is returned when Firebase UID is missing from input.
-	ErrValidationFirebaseUIDRequired = New(
-		CodeValidationFirebaseUIDRequired,
-		http.StatusBadRequest,
-		"Firebase UID is required.",
 	)
 	// ErrValidationNameRequired is returned when name is missing from input.
 	ErrValidationNameRequired = New(

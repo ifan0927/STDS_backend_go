@@ -6,7 +6,7 @@ post:
 
     BR-04：所有帳單必須結清才能終止。
 
-    押金退還/扣款須在呼叫此 API 之前或同時確認（deposit_action 參數）。
+    押金退還/扣款須在呼叫此 API 之前或同時確認（refund_amount / deduction_amount 參數）。
 
     觸發 LeaseTerminated（forced: false）→ Property BC（Room 改 vacant）+ Notification
     BC（寄退租確認）
@@ -33,11 +33,12 @@ post:
           refund_deposit:
             summary: 退還押金
             value:
-              deposit_action: refund
-          deduct_deposit:
-            summary: 扣押金
+              refund_amount: 20000
+          partial_settlement:
+            summary: 部分扣款後退還餘額
             value:
-              deposit_action: deduct
+              refund_amount: 15000
+              deduction_amount: 5000
               deposit_deduction_reason: 牆壁毀損修繕費用
   responses:
     '200':
@@ -51,7 +52,9 @@ post:
               value:
                 id: 40000000-0000-0000-0000-000000000003
                 status: terminated
-                deposit_status: refunded
+                deposit_status: settled
+                deposit_refund_amount: 15000
+                deposit_deduction_amount: 5000
                 updated_at: '2026-04-15T16:00:00Z'
     '401':
       description: 未認證

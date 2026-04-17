@@ -1,6 +1,6 @@
 -- ============================================================
 -- STDS Database Schema
--- 產出依據：docs/design/domain-model.md v3.0
+-- 產出依據：docs/design/domain-model.md v3.2
 -- 設計原則：
 --   - 全部軟刪除，加 deleted_at 欄位
 --   - 金額用整數儲存（台幣，無小數）
@@ -150,9 +150,11 @@ CREATE TABLE leases (
     status          VARCHAR(30)  NOT NULL CHECK (status IN ('active', 'expired', 'terminated', 'force_terminated'))
                                  DEFAULT 'active',
     -- deposit 為 Value Object，展開為欄位
-    -- 選擇展開原因：欄位數量少（4 個），查詢 deposit status 為常見操作
+    -- v3.2：支援部分扣款後退餘額，status 改為 held | settled | written_off
     deposit_amount  INTEGER      NOT NULL CHECK (deposit_amount >= 0),  -- BR-03
-    deposit_status  VARCHAR(20)  NOT NULL CHECK (deposit_status IN ('held', 'refunded', 'deducted', 'written_off'))
+    deposit_refund_amount INTEGER CHECK (deposit_refund_amount >= 0),
+    deposit_deduction_amount INTEGER CHECK (deposit_deduction_amount >= 0),
+    deposit_status  VARCHAR(20)  NOT NULL CHECK (deposit_status IN ('held', 'settled', 'written_off'))
                                  DEFAULT 'held',
     deposit_deduction_reason TEXT,  -- BR-10 押金扣款須填寫原因
     deleted_at      TIMESTAMPTZ,
@@ -445,6 +447,122 @@ CREATE TABLE force_termination_bills (
 CREATE INDEX idx_force_termination_bills_ft_status ON force_termination_bills (force_termination_id, status);
 -- idx_force_termination_bills_bill_id: 外鍵關聯
 CREATE INDEX idx_force_termination_bills_bill_id ON force_termination_bills (bill_id);
+
+
+-- ============================================================
+-- Table: attachment_upload_tokens
+-- 說明: Signed URL 上傳流程的暫存 token
+-- ============================================================
+
+CREATE TABLE attachment_upload_tokens (
+    id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    nonce           VARCHAR(255) NOT NULL UNIQUE,
+    object_path     TEXT         NOT NULL,
+    issued_to       UUID         NOT NULL REFERENCES users(id),
+    resource_type   VARCHAR(50)  NOT NULL,
+    resource_id     UUID         NOT NULL,
+    expires_at      TIMESTAMPTZ  NOT NULL,
+    created_at      TIMESTAMPTZ  NOT NULL DEFAULT now()
+);
+
+-- Index 說明:
+-- idx_attachment_upload_tokens_expires_at: Upload token 清理排程
+CREATE INDEX idx_attachment_upload_tokens_expires_at ON attachment_upload_tokens (expires_at);
+-- idx_attachment_upload_tokens_resource: nonce 驗證後比對 issued resource
+CREATE INDEX idx_attachment_upload_tokens_resource ON attachment_upload_tokens (resource_type, resource_id);
+
+
+-- ============================================================
+-- Attachment tables
+-- 說明: 各資源獨立附件表，維持真實 FK 約束
+-- ============================================================
+
+CREATE TABLE property_attachments (
+    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    property_id UUID        NOT NULL REFERENCES properties(id),
+    object_path TEXT        NOT NULL,
+    file_name   TEXT        NOT NULL,
+    uploaded_by UUID        REFERENCES users(id),
+    deleted_at  TIMESTAMPTZ,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_property_attachments_property_id ON property_attachments (property_id) WHERE deleted_at IS NULL;
+
+CREATE TABLE room_attachments (
+    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    room_id     UUID        NOT NULL REFERENCES rooms(id),
+    object_path TEXT        NOT NULL,
+    file_name   TEXT        NOT NULL,
+    uploaded_by UUID        REFERENCES users(id),
+    deleted_at  TIMESTAMPTZ,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_room_attachments_room_id ON room_attachments (room_id) WHERE deleted_at IS NULL;
+
+CREATE TABLE tenant_attachments (
+    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id   UUID        NOT NULL REFERENCES tenants(id),
+    object_path TEXT        NOT NULL,
+    file_name   TEXT        NOT NULL,
+    uploaded_by UUID        REFERENCES users(id),
+    deleted_at  TIMESTAMPTZ,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_tenant_attachments_tenant_id ON tenant_attachments (tenant_id) WHERE deleted_at IS NULL;
+
+CREATE TABLE lease_attachments (
+    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    lease_id    UUID        NOT NULL REFERENCES leases(id),
+    object_path TEXT        NOT NULL,
+    file_name   TEXT        NOT NULL,
+    uploaded_by UUID        REFERENCES users(id),
+    deleted_at  TIMESTAMPTZ,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_lease_attachments_lease_id ON lease_attachments (lease_id) WHERE deleted_at IS NULL;
+
+CREATE TABLE journal_log_attachments (
+    id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    journal_log_id UUID        NOT NULL REFERENCES journal_logs(id),
+    object_path    TEXT        NOT NULL,
+    file_name      TEXT        NOT NULL,
+    uploaded_by    UUID        REFERENCES users(id),
+    deleted_at     TIMESTAMPTZ,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_journal_log_attachments_journal_log_id ON journal_log_attachments (journal_log_id) WHERE deleted_at IS NULL;
+
+CREATE TABLE repair_request_attachments (
+    id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    repair_request_id UUID        NOT NULL REFERENCES repair_requests(id),
+    object_path       TEXT        NOT NULL,
+    file_name         TEXT        NOT NULL,
+    uploaded_by       UUID        REFERENCES users(id),
+    sort_order        INTEGER     NOT NULL DEFAULT 0,
+    photo_stage       VARCHAR(20) CHECK (photo_stage IN ('before', 'after', 'other')),
+    deleted_at        TIMESTAMPTZ,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_repair_request_attachments_repair_request_id ON repair_request_attachments (repair_request_id) WHERE deleted_at IS NULL;
+CREATE INDEX idx_repair_request_attachments_repair_request_sort_order ON repair_request_attachments (repair_request_id, sort_order) WHERE deleted_at IS NULL;
+
+CREATE TABLE bill_attachments (
+    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    bill_id     UUID        NOT NULL REFERENCES bills(id),
+    object_path TEXT        NOT NULL,
+    file_name   TEXT        NOT NULL,
+    uploaded_by UUID        REFERENCES users(id),
+    deleted_at  TIMESTAMPTZ,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_bill_attachments_bill_id ON bill_attachments (bill_id) WHERE deleted_at IS NULL;
 
 
 -- ============================================================

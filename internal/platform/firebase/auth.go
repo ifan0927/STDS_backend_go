@@ -2,6 +2,8 @@ package firebase
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -12,6 +14,9 @@ import (
 
 	"stds_backend/internal/config"
 )
+
+// ErrEmailAlreadyExists indicates the Firebase Auth email is already in use.
+var ErrEmailAlreadyExists = errors.New("firebase auth email already exists")
 
 // Claims contains the authenticated identity fields consumed by the API.
 type Claims struct {
@@ -28,6 +33,12 @@ type Authenticator interface {
 // ClaimsWriter updates Firebase custom claims for a user.
 type ClaimsWriter interface {
 	SetCustomClaims(ctx context.Context, firebaseUID string, role string, assignedPropertyIDs []string) error
+}
+
+// UserProvisioner creates and deletes Firebase Auth users for backend-managed onboarding.
+type UserProvisioner interface {
+	CreateEmailPasswordUser(ctx context.Context, email string, name string) (string, error)
+	DeleteUser(ctx context.Context, firebaseUID string) error
 }
 
 // Client is the Firebase-backed implementation of Authenticator.
@@ -101,6 +112,47 @@ func (c *Client) SetCustomClaims(ctx context.Context, firebaseUID string, role s
 	}
 
 	return nil
+}
+
+// CreateEmailPasswordUser provisions a Firebase Auth user with a temporary password.
+func (c *Client) CreateEmailPasswordUser(ctx context.Context, email string, name string) (string, error) {
+	temporaryPassword, err := generateTemporaryPassword()
+	if err != nil {
+		return "", fmt.Errorf("generate temporary password: %w", err)
+	}
+
+	record, err := c.auth.CreateUser(ctx, (&firebaseauth.UserToCreate{}).
+		Email(email).
+		DisplayName(name).
+		EmailVerified(false).
+		Password(temporaryPassword))
+	if err != nil {
+		if firebaseauth.IsEmailAlreadyExists(err) {
+			return "", ErrEmailAlreadyExists
+		}
+
+		return "", fmt.Errorf("create firebase auth user: %w", err)
+	}
+
+	return record.UID, nil
+}
+
+// DeleteUser removes a Firebase Auth user by UID.
+func (c *Client) DeleteUser(ctx context.Context, firebaseUID string) error {
+	if err := c.auth.DeleteUser(ctx, firebaseUID); err != nil {
+		return fmt.Errorf("delete firebase auth user: %w", err)
+	}
+
+	return nil
+}
+
+func generateTemporaryPassword() (string, error) {
+	buffer := make([]byte, 24)
+	if _, err := rand.Read(buffer); err != nil {
+		return "", err
+	}
+
+	return base64.RawURLEncoding.EncodeToString(buffer), nil
 }
 
 func getStringClaim(claims map[string]interface{}, key string) string {

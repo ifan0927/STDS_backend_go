@@ -8,7 +8,7 @@ info:
   description: >
     STDS（物業代管系統）API 規格
 
-    產出依據：docs/design/domain-model.md v3.1
+    產出依據：docs/design/domain-model.md v3.2
 
     授權模型：混合型（RBAC + Resource-based）
 
@@ -20,7 +20,7 @@ info:
     - 優先順序：先驗 RBAC role，再驗 property ownership（兩者皆須通過）
 
 
-    認證機制（v3.1）：系統使用 Firebase Auth 管理使用者認證。
+    認證機制（v3.2）：系統使用 Firebase Auth 管理使用者認證。
 
     - 登入流程：由前端 Firebase SDK 處理，後端不接受 email/password 登入
 
@@ -40,6 +40,8 @@ info:
     Email 通知由後端 event handler 統一處理，不提供 REST endpoint：
 
     - RentBillsGenerated → 寄送帳單通知給租客
+
+    - BillPaid → 寄送收款收據給租客
 
     - LeaseExpiringSoon → 寄送到期提醒給 organizer/staff
 
@@ -85,10 +87,14 @@ paths:
     $ref: paths/property/properties.yaml
   /properties/{id}:
     $ref: paths/property/properties_{id}.yaml
+  /properties/{id}/attachments:
+    $ref: paths/property/properties_{id}_attachments.yaml
   /properties/{id}/rooms:
     $ref: paths/property/properties_{id}_rooms.yaml
   /rooms/{id}:
     $ref: paths/property/rooms_{id}.yaml
+  /rooms/{id}/attachments:
+    $ref: paths/property/rooms_{id}_attachments.yaml
   /rooms/{id}/maintenance:
     $ref: paths/property/rooms_{id}_maintenance.yaml
   /properties/{id}/dashboard:
@@ -97,12 +103,16 @@ paths:
     $ref: paths/tenancy/tenants.yaml
   /tenants/{id}:
     $ref: paths/tenancy/tenants_{id}.yaml
+  /tenants/{id}/attachments:
+    $ref: paths/tenancy/tenants_{id}_attachments.yaml
   /tenants/{id}/leases:
     $ref: paths/tenancy/tenants_{id}_leases.yaml
   /leases:
     $ref: paths/tenancy/leases.yaml
   /leases/{id}:
     $ref: paths/tenancy/leases_{id}.yaml
+  /leases/{id}/attachments:
+    $ref: paths/tenancy/leases_{id}_attachments.yaml
   /leases/{id}/terminate:
     $ref: paths/tenancy/leases_{id}_terminate.yaml
   /leases/{id}/force-terminate:
@@ -115,6 +125,8 @@ paths:
     $ref: paths/billing/bills.yaml
   /bills/{id}:
     $ref: paths/billing/bills_{id}.yaml
+  /bills/{id}/attachments:
+    $ref: paths/billing/bills_{id}_attachments.yaml
   /bills/{id}/meter:
     $ref: paths/billing/bills_{id}_meter.yaml
   /bills/{id}/payment:
@@ -135,10 +147,14 @@ paths:
     $ref: paths/journal/journal-logs.yaml
   /journal-logs/{id}:
     $ref: paths/journal/journal-logs_{id}.yaml
+  /journal-logs/{id}/attachments:
+    $ref: paths/journal/journal-logs_{id}_attachments.yaml
   /repair-requests:
     $ref: paths/repair/repair-requests.yaml
   /repair-requests/{id}:
     $ref: paths/repair/repair-requests_{id}.yaml
+  /repair-requests/{id}/attachments:
+    $ref: paths/repair/repair-requests_{id}_attachments.yaml
   /repair-requests/{id}/assign:
     $ref: paths/repair/repair-requests_{id}_assign.yaml
   /repair-requests/{id}/progress:
@@ -159,3 +175,7 @@ paths:
     $ref: paths/scheduler/internal_jobs_monthly-snapshots_run.yaml
   /internal/jobs/force-terminations/compensate:
     $ref: paths/scheduler/internal_jobs_force-terminations_compensate.yaml
+  /attachments/upload-url:
+    $ref: paths/shared/attachments_upload-url.yaml
+  /attachments/{id}:
+    $ref: paths/shared/attachments_{id}.yaml

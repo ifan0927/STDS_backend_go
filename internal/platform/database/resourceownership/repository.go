@@ -19,6 +19,7 @@ type Repository interface {
 	FindPropertyIDByJournalLogID(ctx context.Context, journalLogID string) (string, error)
 	FindPropertyIDByRepairRequestID(ctx context.Context, repairRequestID string) (string, error)
 	FindPropertyIDByForceTerminationID(ctx context.Context, forceTerminationID string) (string, error)
+	FindPropertyIDByAttachmentID(ctx context.Context, attachmentID string) (string, error)
 }
 
 // SQLRepository resolves property ids from PostgreSQL.
@@ -102,6 +103,73 @@ LIMIT 1
 `
 
 	return r.findPropertyID(ctx, query, forceTerminationID, "query force termination property by id")
+}
+
+func (r *SQLRepository) FindPropertyIDByAttachmentID(ctx context.Context, attachmentID string) (string, error) {
+	const query = `
+SELECT property_id
+FROM (
+    SELECT property_id AS property_id
+    FROM property_attachments
+    WHERE id = $1
+      AND deleted_at IS NULL
+
+    UNION ALL
+
+    SELECT rooms.property_id AS property_id
+    FROM room_attachments
+    JOIN rooms ON rooms.id = room_attachments.room_id
+    WHERE room_attachments.id = $1
+      AND room_attachments.deleted_at IS NULL
+      AND rooms.deleted_at IS NULL
+
+    UNION ALL
+
+    SELECT '' AS property_id
+    FROM tenant_attachments
+    WHERE id = $1
+      AND deleted_at IS NULL
+
+    UNION ALL
+
+    SELECT leases.property_id AS property_id
+    FROM lease_attachments
+    JOIN leases ON leases.id = lease_attachments.lease_id
+    WHERE lease_attachments.id = $1
+      AND lease_attachments.deleted_at IS NULL
+      AND leases.deleted_at IS NULL
+
+    UNION ALL
+
+    SELECT journal_logs.property_id AS property_id
+    FROM journal_log_attachments
+    JOIN journal_logs ON journal_logs.id = journal_log_attachments.journal_log_id
+    WHERE journal_log_attachments.id = $1
+      AND journal_log_attachments.deleted_at IS NULL
+      AND journal_logs.deleted_at IS NULL
+
+    UNION ALL
+
+    SELECT repair_requests.property_id AS property_id
+    FROM repair_request_attachments
+    JOIN repair_requests ON repair_requests.id = repair_request_attachments.repair_request_id
+    WHERE repair_request_attachments.id = $1
+      AND repair_request_attachments.deleted_at IS NULL
+      AND repair_requests.deleted_at IS NULL
+
+    UNION ALL
+
+    SELECT bills.property_id AS property_id
+    FROM bill_attachments
+    JOIN bills ON bills.id = bill_attachments.bill_id
+    WHERE bill_attachments.id = $1
+      AND bill_attachments.deleted_at IS NULL
+      AND bills.deleted_at IS NULL
+) AS attachment_properties
+LIMIT 1
+`
+
+	return r.findPropertyID(ctx, query, attachmentID, "query attachment property by id")
 }
 
 func (r *SQLRepository) findPropertyID(ctx context.Context, query string, id string, op string) (string, error) {

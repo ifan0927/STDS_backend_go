@@ -2,29 +2,34 @@ package iam
 
 import (
 	"context"
+	"errors"
 	"net/mail"
 	"strings"
 
 	"stds_backend/internal/platform/database/users"
+	platformfirebase "stds_backend/internal/platform/firebase"
 	"stds_backend/internal/shared/apperr"
 )
 
 // CreateUserInput is the command payload for creating a backend user record.
 type CreateUserInput struct {
-	FirebaseUID string
-	Email       string
-	Name        string
-	Role        string
+	Email string
+	Name  string
+	Role  string
 }
 
 // CreateUserService creates users after validating the command input.
 type CreateUserService struct {
-	userRepo users.Repository
+	userRepo        users.Repository
+	userProvisioner platformfirebase.UserProvisioner
 }
 
 // NewCreateUserService returns a CreateUserService with the required dependencies.
-func NewCreateUserService(userRepo users.Repository) *CreateUserService {
-	return &CreateUserService{userRepo: userRepo}
+func NewCreateUserService(userRepo users.Repository, userProvisioner platformfirebase.UserProvisioner) *CreateUserService {
+	return &CreateUserService{
+		userRepo:        userRepo,
+		userProvisioner: userProvisioner,
+	}
 }
 
 // Execute validates the command and persists a new user record.
@@ -33,13 +38,35 @@ func (s *CreateUserService) Execute(ctx context.Context, input CreateUserInput) 
 		return nil, err
 	}
 
+	if s.userProvisioner == nil {
+		return nil, apperr.ErrInternalServerError
+	}
+
+	email := strings.TrimSpace(input.Email)
+	name := strings.TrimSpace(input.Name)
+	role := strings.TrimSpace(input.Role)
+
+	firebaseUID, err := s.userProvisioner.CreateEmailPasswordUser(ctx, email, name)
+	if err != nil {
+		if errors.Is(err, platformfirebase.ErrEmailAlreadyExists) {
+			return nil, apperr.ErrEmailAlreadyExists
+		}
+
+		return nil, apperr.ErrInternalServerError.WithCause(err)
+	}
+
 	user, err := s.userRepo.Create(ctx, users.CreateUserParams{
-		FirebaseUID: strings.TrimSpace(input.FirebaseUID),
-		Email:       strings.TrimSpace(input.Email),
-		Name:        strings.TrimSpace(input.Name),
-		Role:        strings.TrimSpace(input.Role),
+		FirebaseUID: firebaseUID,
+		Email:       email,
+		Name:        name,
+		Role:        role,
 	})
 	if err != nil {
+		cleanupErr := s.userProvisioner.DeleteUser(ctx, firebaseUID)
+		if cleanupErr != nil {
+			return nil, apperr.ErrInternalServerError.WithCause(errors.Join(err, cleanupErr))
+		}
+
 		switch err {
 		case users.ErrEmailAlreadyExists:
 			return nil, apperr.ErrEmailAlreadyExists
@@ -54,14 +81,11 @@ func (s *CreateUserService) Execute(ctx context.Context, input CreateUserInput) 
 }
 
 func validateCreateUserInput(input CreateUserInput) error {
-	firebaseUID := strings.TrimSpace(input.FirebaseUID)
 	email := strings.TrimSpace(input.Email)
 	name := strings.TrimSpace(input.Name)
 	role := strings.TrimSpace(input.Role)
 
 	switch {
-	case firebaseUID == "":
-		return apperr.ErrValidationFirebaseUIDRequired
 	case email == "":
 		return apperr.ErrValidationEmailRequired
 	case !isValidEmail(email):

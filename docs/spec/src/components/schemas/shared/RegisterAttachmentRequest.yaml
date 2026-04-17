@@ -1,0 +1,9 @@
+type: object
+required:
+  - nonce
+  - file_name
+properties:
+  nonce:
+    type: string
+  file_name:
+    type: string

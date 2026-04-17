@@ -9,7 +9,7 @@ patch:
 
     BR-10：押金扣款須填寫扣款原因。
 
-    注意：此 endpoint 用於獨立處理押金；正常終止流程可透過 /leases/{id}/terminate 的 deposit_action
+    注意：此 endpoint 用於獨立處理押金；正常終止流程可透過 /leases/{id}/terminate
     一併處理。
   tags:
     - Leasing
@@ -34,12 +34,13 @@ patch:
           refund:
             summary: 退還押金
             value:
-              action: refund
-          deduct:
-            summary: 扣押金
+              refund_amount: 20000
+          partial_settlement:
+            summary: 部分扣款後退還餘額
             value:
-              action: deduct
-              reason: 牆壁毀損修繕費用 NT$5,000
+              refund_amount: 15000
+              deduction_amount: 5000
+              deduction_reason: 牆壁毀損修繕費用 NT$5,000
   responses:
     '200':
       description: 押金處理成功（DepositRefunded 或 DepositDeducted event 已發出）
@@ -48,16 +49,13 @@ patch:
           schema:
             $ref: ../../components/schemas/tenancy/LeaseResponse.yaml
           examples:
-            refunded:
-              summary: 押金已退還
+            settled:
+              summary: 押金已結算
               value:
                 id: 40000000-0000-0000-0000-000000000003
-                deposit_status: refunded
-            deducted:
-              summary: 押金已扣款
-              value:
-                id: 40000000-0000-0000-0000-000000000003
-                deposit_status: deducted
+                deposit_status: settled
+                deposit_refund_amount: 15000
+                deposit_deduction_amount: 5000
                 deposit_deduction_reason: 牆壁毀損修繕費用 NT$5,000
     '401':
       description: 未認證

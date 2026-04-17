@@ -314,12 +314,9 @@ type CreateTenantRequest struct {
 
 // CreateUserRequest defines model for CreateUserRequest.
 type CreateUserRequest struct {
-	Email openapi_types.Email `json:"email"`
-
-	// FirebaseUid Firebase Auth 中的使用者 UID
-	FirebaseUid string                `json:"firebase_uid"`
-	Name        string                `json:"name"`
-	Role        CreateUserRequestRole `json:"role"`
+	Email openapi_types.Email   `json:"email"`
+	Name  string                `json:"name"`
+	Role  CreateUserRequestRole `json:"role"`
 }
 
 // CreateUserRequestRole defines model for CreateUserRequest.Role.

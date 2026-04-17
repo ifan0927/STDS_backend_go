@@ -1,12 +1,11 @@
 type: object
-required:
-  - deposit_action
 properties:
-  deposit_action:
-    type: string
-    enum:
-      - refund
-      - deduct
+  refund_amount:
+    type: integer
+    minimum: 0
+  deduction_amount:
+    type: integer
+    minimum: 0
   deposit_deduction_reason:
     type: string
-    description: 扣款時必填（BR-10）
+    description: deduction_amount 大於 0 時必填（BR-10）

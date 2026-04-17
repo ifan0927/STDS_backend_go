@@ -1,0 +1,29 @@
+type: object
+required:
+  - resource_type
+  - resource_id
+  - file_name
+  - content_type
+properties:
+  resource_type:
+    type: string
+    enum:
+      - property
+      - room
+      - tenant
+      - lease
+      - journal_log
+      - repair_request
+      - bill
+  resource_id:
+    type: string
+    format: uuid
+  file_name:
+    type: string
+  content_type:
+    type: string
+    enum:
+      - image/jpeg
+      - image/png
+      - image/heic
+      - application/pdf

@@ -78,6 +78,22 @@ func (s *APIServer) SyncAuth(c *gin.Context) {
 // ListBills handles the bill listing endpoint.
 func (s *APIServer) ListBills(c *gin.Context, params api.ListBillsParams) { writeNotImplemented(c) }
 
+// CreateAttachmentUploadURL handles attachment upload URL creation.
+func (s *APIServer) CreateAttachmentUploadURL(c *gin.Context) { writeNotImplemented(c) }
+
+// DeleteAttachment handles attachment deletion.
+func (s *APIServer) DeleteAttachment(c *gin.Context, id openapi_types.UUID) { writeNotImplemented(c) }
+
+// ListBillAttachments handles bill attachment listing.
+func (s *APIServer) ListBillAttachments(c *gin.Context, id openapi_types.UUID) {
+	writeNotImplemented(c)
+}
+
+// CreateBillAttachment handles bill attachment registration.
+func (s *APIServer) CreateBillAttachment(c *gin.Context, id openapi_types.UUID) {
+	writeNotImplemented(c)
+}
+
 // GetBill handles the bill detail endpoint.
 func (s *APIServer) GetBill(c *gin.Context, id string) { writeNotImplemented(c) }
 
@@ -130,6 +146,16 @@ func (s *APIServer) ListJournalLogs(c *gin.Context, params api.ListJournalLogsPa
 // CreateJournalLog handles journal log creation.
 func (s *APIServer) CreateJournalLog(c *gin.Context) { writeNotImplemented(c) }
 
+// ListJournalLogAttachments handles journal log attachment listing.
+func (s *APIServer) ListJournalLogAttachments(c *gin.Context, id openapi_types.UUID) {
+	writeNotImplemented(c)
+}
+
+// CreateJournalLogAttachment handles journal log attachment registration.
+func (s *APIServer) CreateJournalLogAttachment(c *gin.Context, id openapi_types.UUID) {
+	writeNotImplemented(c)
+}
+
 // DeleteJournalLog handles journal log deletion.
 func (s *APIServer) DeleteJournalLog(c *gin.Context, id string) { writeNotImplemented(c) }
 
@@ -144,6 +170,16 @@ func (s *APIServer) ListLeases(c *gin.Context, params api.ListLeasesParams) { wr
 
 // CreateLease handles lease creation.
 func (s *APIServer) CreateLease(c *gin.Context) { writeNotImplemented(c) }
+
+// ListLeaseAttachments handles lease attachment listing.
+func (s *APIServer) ListLeaseAttachments(c *gin.Context, id openapi_types.UUID) {
+	writeNotImplemented(c)
+}
+
+// CreateLeaseAttachment handles lease attachment registration.
+func (s *APIServer) CreateLeaseAttachment(c *gin.Context, id openapi_types.UUID) {
+	writeNotImplemented(c)
+}
 
 // DeleteLease handles lease deletion.
 func (s *APIServer) DeleteLease(c *gin.Context, id string) { writeNotImplemented(c) }
@@ -205,6 +241,16 @@ func (s *APIServer) CreateProperty(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, toCreatedPropertyResponse(property))
+}
+
+// ListPropertyAttachments handles property attachment listing.
+func (s *APIServer) ListPropertyAttachments(c *gin.Context, id openapi_types.UUID) {
+	writeNotImplemented(c)
+}
+
+// CreatePropertyAttachment handles property attachment registration.
+func (s *APIServer) CreatePropertyAttachment(c *gin.Context, id openapi_types.UUID) {
+	writeNotImplemented(c)
 }
 
 // DeleteProperty handles property deletion.
@@ -273,6 +319,16 @@ func (s *APIServer) ListRepairRequests(c *gin.Context, params api.ListRepairRequ
 // CreateRepairRequest handles repair request creation.
 func (s *APIServer) CreateRepairRequest(c *gin.Context) { writeNotImplemented(c) }
 
+// ListRepairRequestAttachments handles repair request attachment listing.
+func (s *APIServer) ListRepairRequestAttachments(c *gin.Context, id openapi_types.UUID) {
+	writeNotImplemented(c)
+}
+
+// CreateRepairRequestAttachment handles repair request attachment registration.
+func (s *APIServer) CreateRepairRequestAttachment(c *gin.Context, id openapi_types.UUID) {
+	writeNotImplemented(c)
+}
+
 // DeleteRepairRequest handles repair request deletion.
 func (s *APIServer) DeleteRepairRequest(c *gin.Context, id string) { writeNotImplemented(c) }
 
@@ -300,6 +356,16 @@ func (s *APIServer) DeleteRoom(c *gin.Context, id string) { writeNotImplemented(
 // GetRoom handles room detail retrieval.
 func (s *APIServer) GetRoom(c *gin.Context, id string) { writeNotImplemented(c) }
 
+// ListRoomAttachments handles room attachment listing.
+func (s *APIServer) ListRoomAttachments(c *gin.Context, id openapi_types.UUID) {
+	writeNotImplemented(c)
+}
+
+// CreateRoomAttachment handles room attachment registration.
+func (s *APIServer) CreateRoomAttachment(c *gin.Context, id openapi_types.UUID) {
+	writeNotImplemented(c)
+}
+
 // UpdateRoom handles room updates.
 func (s *APIServer) UpdateRoom(c *gin.Context, id string) { writeNotImplemented(c) }
 
@@ -316,6 +382,16 @@ func (s *APIServer) ListTenants(c *gin.Context, params api.ListTenantsParams) { 
 
 // CreateTenant handles tenant creation.
 func (s *APIServer) CreateTenant(c *gin.Context) { writeNotImplemented(c) }
+
+// ListTenantAttachments handles tenant attachment listing.
+func (s *APIServer) ListTenantAttachments(c *gin.Context, id openapi_types.UUID) {
+	writeNotImplemented(c)
+}
+
+// CreateTenantAttachment handles tenant attachment registration.
+func (s *APIServer) CreateTenantAttachment(c *gin.Context, id openapi_types.UUID) {
+	writeNotImplemented(c)
+}
 
 // GetTenant handles tenant detail retrieval.
 func (s *APIServer) GetTenant(c *gin.Context, id string) { writeNotImplemented(c) }
@@ -340,10 +416,9 @@ func (s *APIServer) CreateUser(c *gin.Context) {
 	}
 
 	user, err := s.createUserService.Execute(c.Request.Context(), appiam.CreateUserInput{
-		FirebaseUID: request.FirebaseUid,
-		Email:       string(request.Email),
-		Name:        request.Name,
-		Role:        string(request.Role),
+		Email: string(request.Email),
+		Name:  request.Name,
+		Role:  string(request.Role),
 	})
 	if err != nil {
 		c.Error(err)

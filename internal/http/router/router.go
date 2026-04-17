@@ -156,8 +156,12 @@ func routePolicies(authzRepos AuthorizationRepositories) []routePolicy {
 
 	return []routePolicy{
 		{method: "POST", path: "/api/v1/auth/sync", authStrategy: authStrategyFirebaseTokenOnly},
+		{method: "POST", path: "/api/v1/attachments/upload-url", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
+		{method: "DELETE", path: "/api/v1/attachments/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByAttachmentID)},
 
 		{method: "GET", path: "/api/v1/bills", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff", "owner"}},
+		{method: "GET", path: "/api/v1/bills/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff", "owner"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByBillID)},
+		{method: "POST", path: "/api/v1/bills/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByBillID)},
 		{method: "GET", path: "/api/v1/bills/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff", "owner"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByBillID)},
 		{method: "POST", path: "/api/v1/bills/:id/meter", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByBillID)},
 		{method: "POST", path: "/api/v1/bills/:id/payment", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByBillID)},
@@ -172,12 +176,16 @@ func routePolicies(authzRepos AuthorizationRepositories) []routePolicy {
 
 		{method: "GET", path: "/api/v1/journal-logs", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
 		{method: "POST", path: "/api/v1/journal-logs", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
+		{method: "GET", path: "/api/v1/journal-logs/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByJournalLogID)},
+		{method: "POST", path: "/api/v1/journal-logs/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByJournalLogID)},
 		{method: "DELETE", path: "/api/v1/journal-logs/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByJournalLogID)},
 		{method: "GET", path: "/api/v1/journal-logs/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByJournalLogID)},
 		{method: "PATCH", path: "/api/v1/journal-logs/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByJournalLogID)},
 
 		{method: "GET", path: "/api/v1/leases", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
 		{method: "POST", path: "/api/v1/leases", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
+		{method: "GET", path: "/api/v1/leases/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByLeaseID)},
+		{method: "POST", path: "/api/v1/leases/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByLeaseID)},
 		{method: "DELETE", path: "/api/v1/leases/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByLeaseID)},
 		{method: "GET", path: "/api/v1/leases/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByLeaseID)},
 		{method: "PATCH", path: "/api/v1/leases/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByLeaseID)},
@@ -187,6 +195,8 @@ func routePolicies(authzRepos AuthorizationRepositories) []routePolicy {
 
 		{method: "GET", path: "/api/v1/properties", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff", "owner"}},
 		{method: "POST", path: "/api/v1/properties", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
+		{method: "GET", path: "/api/v1/properties/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff", "owner"}, propertyResolver: middleware.ParamPropertyID("id")},
+		{method: "POST", path: "/api/v1/properties/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ParamPropertyID("id")},
 		{method: "DELETE", path: "/api/v1/properties/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer"}, propertyResolver: middleware.ParamPropertyID("id")},
 		{method: "GET", path: "/api/v1/properties/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff", "owner"}, propertyResolver: middleware.ParamPropertyID("id")},
 		{method: "PATCH", path: "/api/v1/properties/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ParamPropertyID("id")},
@@ -201,6 +211,8 @@ func routePolicies(authzRepos AuthorizationRepositories) []routePolicy {
 
 		{method: "GET", path: "/api/v1/repair-requests", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
 		{method: "POST", path: "/api/v1/repair-requests", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
+		{method: "GET", path: "/api/v1/repair-requests/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByRepairRequestID)},
+		{method: "POST", path: "/api/v1/repair-requests/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByRepairRequestID)},
 		{method: "DELETE", path: "/api/v1/repair-requests/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByRepairRequestID)},
 		{method: "GET", path: "/api/v1/repair-requests/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByRepairRequestID)},
 		{method: "PATCH", path: "/api/v1/repair-requests/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByRepairRequestID)},
@@ -209,6 +221,8 @@ func routePolicies(authzRepos AuthorizationRepositories) []routePolicy {
 		{method: "POST", path: "/api/v1/repair-requests/:id/complete", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByRepairRequestID)},
 		{method: "POST", path: "/api/v1/repair-requests/:id/progress", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByRepairRequestID)},
 
+		{method: "GET", path: "/api/v1/rooms/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff", "owner"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByRoomID)},
+		{method: "POST", path: "/api/v1/rooms/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByRoomID)},
 		{method: "DELETE", path: "/api/v1/rooms/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByRoomID)},
 		{method: "GET", path: "/api/v1/rooms/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff", "owner"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByRoomID)},
 		{method: "PATCH", path: "/api/v1/rooms/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByRoomID)},
@@ -217,6 +231,8 @@ func routePolicies(authzRepos AuthorizationRepositories) []routePolicy {
 
 		{method: "GET", path: "/api/v1/tenants", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
 		{method: "POST", path: "/api/v1/tenants", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
+		{method: "GET", path: "/api/v1/tenants/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
+		{method: "POST", path: "/api/v1/tenants/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
 		{method: "GET", path: "/api/v1/tenants/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
 		{method: "PATCH", path: "/api/v1/tenants/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
 		{method: "GET", path: "/api/v1/tenants/:id/leases", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},

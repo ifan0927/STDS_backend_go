@@ -1,0 +1,10 @@
+type: object
+properties:
+  upload_url:
+    type: string
+    format: uri
+  nonce:
+    type: string
+  expires_at:
+    type: string
+    format: date-time

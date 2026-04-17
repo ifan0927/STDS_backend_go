@@ -52,7 +52,7 @@ func New(cfg *config.Config) (*Server, error) {
 	propertyQueryRepo := dbpropertyquery.NewRepository(db)
 	resourceOwnershipRepo := dbresourceownership.NewRepository(db)
 	jobRunsRepo := dbjobruns.NewRepository(db)
-	createUserService := appiam.NewCreateUserService(userRepo)
+	createUserService := appiam.NewCreateUserService(userRepo, authenticator)
 	customClaimsService := appiam.NewCustomClaimsService(authenticator)
 	syncAuthService := appiam.NewSyncAuthService(userRepo, customClaimsService)
 	txRunner := dbtxrunner.New(db, domainevents.NoopPublisher{})

@@ -169,10 +169,10 @@ paths:
       operationId: createUser
       summary: 建立使用者帳號
       description: |
-        在後端 DB 建立使用者記錄（對應 Firebase 帳號已在 Firebase Console 或由 Firebase Admin SDK 建立）。
+        由後端建立 Firebase Auth email/password 帳號，並同步建立後端 DB 使用者記錄。
         - 建立工作室成員：x-required-role: admin
         - 建立業主帳號：x-required-role: admin, organizer
-        注意：帳號建立後需另行在 Firebase 建立對應帳號（或由 admin SDK 呼叫），密碼由 Firebase 管理，此 API 不接受 password 欄位。
+        注意：Firebase UID 由後端建立 Firebase Auth 使用者後自動產生，client 不需提供 `firebase_uid`；密碼由 Firebase 管理，此 API 不接受 `password` 欄位。
       tags:
         - Identity & Access
       x-required-role:
@@ -188,14 +188,12 @@ paths:
               create_staff:
                 summary: 建立員工帳號
                 value:
-                  firebase_uid: uid_staff_def456
                   email: newstaff@studio.com
                   name: 張大維
                   role: staff
               create_owner:
                 summary: 建立業主帳號
                 value:
-                  firebase_uid: uid_owner_ghi789
                   email: owner@example.com
                   name: 陳老闆
                   role: owner
@@ -233,11 +231,6 @@ paths:
                   value:
                     error_code: VALIDATION_EMAIL_INVALID
                     message: email 格式不正確
-                missing_firebase_uid:
-                  summary: firebase_uid 未填
-                  value:
-                    error_code: VALIDATION_FIREBASE_UID_REQUIRED
-                    message: firebase_uid 為必填欄位
         '401':
           description: 未認證
           content:
@@ -4820,14 +4813,10 @@ components:
     CreateUserRequest:
       type: object
       required:
-        - firebase_uid
         - email
         - name
         - role
       properties:
-        firebase_uid:
-          type: string
-          description: Firebase Auth 中的使用者 UID
         email:
           type: string
           format: email

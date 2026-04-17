@@ -1,0 +1,26 @@
+type: object
+properties:
+  id:
+    type: string
+    format: uuid
+  object_path:
+    type: string
+  file_name:
+    type: string
+  uploaded_by:
+    type: string
+    format: uuid
+    nullable: true
+  created_at:
+    type: string
+    format: date-time
+  sort_order:
+    type: integer
+    nullable: true
+  photo_stage:
+    type: string
+    nullable: true
+    enum:
+      - before
+      - after
+      - other

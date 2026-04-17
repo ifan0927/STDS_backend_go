@@ -298,6 +298,76 @@ func TestGetBillResolvesPropertyAccessThroughOwnershipQuery(t *testing.T) {
 	}
 }
 
+func TestGetPropertyAttachmentsUsesPropertyAccessPolicy(t *testing.T) {
+	propertyID := "10000000-0000-0000-0000-000000000001"
+	repo := fakeUserRepo{assignedPropertyIDs: []string{propertyID}}
+	engine := newTestEngine(repo, fakeAuthenticator{assignedPropertyIDs: []string{propertyID}}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/properties/"+propertyID+"/attachments", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusNotImplemented {
+		t.Fatalf("expected 501, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestCreateAttachmentUploadURLRejectsOwnerRole(t *testing.T) {
+	repo := fakeUserRepo{role: "owner"}
+	engine := newTestEngine(repo, fakeAuthenticator{role: "owner"}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/attachments/upload-url", strings.NewReader(`{}`))
+	req.Header.Set("Authorization", "Bearer valid-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestDeleteAttachmentResolvesPropertyAccessThroughOwnershipQuery(t *testing.T) {
+	repo := fakeUserRepo{assignedPropertyIDs: []string{"property-1"}}
+	engine := newTestEngine(repo, fakeAuthenticator{assignedPropertyIDs: []string{"property-1"}}, fakePropertyRepo{}, fakeResourceOwnershipRepo{
+		propertyByAttachmentID: map[string]string{
+			"10000000-0000-0000-0000-000000000099": "property-1",
+		},
+	}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/attachments/10000000-0000-0000-0000-000000000099", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusNotImplemented {
+		t.Fatalf("expected 501, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestDeleteAttachmentRejectsUnauthorizedPropertyAccess(t *testing.T) {
+	repo := fakeUserRepo{assignedPropertyIDs: []string{"property-2"}}
+	engine := newTestEngine(repo, fakeAuthenticator{assignedPropertyIDs: []string{"property-2"}}, fakePropertyRepo{}, fakeResourceOwnershipRepo{
+		propertyByAttachmentID: map[string]string{
+			"10000000-0000-0000-0000-000000000099": "property-1",
+		},
+	}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/attachments/10000000-0000-0000-0000-000000000099", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
 func TestSchedulerEndpointRequiresSchedulerKey(t *testing.T) {
 	repo := fakeUserRepo{}
 	engine := newTestEngine(repo, fakeAuthenticator{}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "scheduler-secret", fakeJobRunsRepo{})
@@ -376,6 +446,8 @@ type fakeAuthenticator struct {
 	role                string
 	assignedPropertyIDs []string
 	setCustomClaimsErr  error
+	createUserErr       error
+	deleteUserErr       error
 }
 
 func (f fakeAuthenticator) VerifyIDToken(_ context.Context, token string) (*platformfirebase.Claims, error) {
@@ -399,6 +471,22 @@ func (f fakeAuthenticator) SetCustomClaims(_ context.Context, _ string, _ string
 	return f.setCustomClaimsErr
 }
 
+func (f fakeAuthenticator) CreateEmailPasswordUser(_ context.Context, _ string, _ string) (string, error) {
+	if f.createUserErr != nil {
+		return "", f.createUserErr
+	}
+
+	if f.uid != "" {
+		return f.uid, nil
+	}
+
+	return "uid-1", nil
+}
+
+func (f fakeAuthenticator) DeleteUser(_ context.Context, _ string) error {
+	return f.deleteUserErr
+}
+
 type fakeUserRepo struct {
 	role                string
 	assignedPropertyIDs []string
@@ -419,6 +507,7 @@ type fakeResourceOwnershipRepo struct {
 	propertyByJournalLogID       map[string]string
 	propertyByRepairRequestID    map[string]string
 	propertyByForceTerminationID map[string]string
+	propertyByAttachmentID       map[string]string
 }
 
 type fakeJobRunsRepo struct {
@@ -558,6 +647,10 @@ func (f fakeResourceOwnershipRepo) FindPropertyIDByForceTerminationID(_ context.
 	return lookupPropertyID(f.propertyByForceTerminationID, forceTerminationID)
 }
 
+func (f fakeResourceOwnershipRepo) FindPropertyIDByAttachmentID(_ context.Context, attachmentID string) (string, error) {
+	return lookupPropertyID(f.propertyByAttachmentID, attachmentID)
+}
+
 func lookupPropertyID(values map[string]string, id string) (string, error) {
 	if propertyID, ok := values[id]; ok {
 		return propertyID, nil
@@ -599,7 +692,7 @@ func newTestEngine(userRepo fakeUserRepo, authenticator fakeAuthenticator, prope
 			Properties:        propertyRepo,
 			ResourceOwnership: ownershipRepo,
 		},
-		appiam.NewCreateUserService(userRepo),
+		appiam.NewCreateUserService(userRepo, authenticator),
 		appiam.NewSyncAuthService(userRepo, appiam.NewCustomClaimsService(authenticator)),
 		appjobs.NewTriggerService(jobRunsRepo, nil, time.Minute, 3),
 		fakePropertyQueryRepo{},

@@ -33,9 +33,14 @@ properties:
     type: string
     enum:
       - held
-      - refunded
-      - deducted
+      - settled
       - written_off
+  deposit_refund_amount:
+    type: integer
+    nullable: true
+  deposit_deduction_amount:
+    type: integer
+    nullable: true
   deposit_deduction_reason:
     type: string
     nullable: true

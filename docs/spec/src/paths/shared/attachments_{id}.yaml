@@ -1,0 +1,39 @@
+delete:
+  operationId: deleteAttachment
+  summary: 軟刪除附件
+  description: >
+    依附件 id 軟刪除附件記錄。後續由排程任務清理 GCS 物件並硬刪除 DB 記錄。
+  tags:
+    - Attachments
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  responses:
+    '204':
+      description: 刪除成功
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+    '403':
+      description: 權限不足
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+    '404':
+      description: 附件不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml

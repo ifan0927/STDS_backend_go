@@ -1,0 +1,18 @@
+type: object
+required:
+  - nonce
+  - file_name
+properties:
+  nonce:
+    type: string
+  file_name:
+    type: string
+  sort_order:
+    type: integer
+    default: 0
+  photo_stage:
+    type: string
+    enum:
+      - before
+      - after
+      - other

@@ -1,12 +1,13 @@
-# Domain Model
+Domain Model
 
-> 版本：v3.1
+> 版本：v3.2
 > 更新說明：
 > - v2.0：經四輪多角色設計評審產出
 > - v2.1-v2.8：歷次 Validation 修正
 > - v2.9：補 paymentMethod 欄位、expired → terminated 狀態轉換、Tenant status 轉換邏輯、monthly_snapshots 拆兩層 table、force_termination_bills 拆表移除 bill_ids[]、補 overdue_notice_count Index、Notification event payload 要求
 > - v3.0：認證機制改為 Firebase Auth + Custom Claims，移除自建 JWT 與 password_hash，users table 改存 firebase_uid
-> - v3.1: 修改部分邏輯
+> - v3.2：新增共用附件機制（GCS Signed URL + nonce 綁定 + 各資源獨立附件表），補 BR-18、附件相關 Read Models、排程任務、ADR
+
 ---
 
 ## Bounded Contexts
@@ -78,8 +79,9 @@
 | 通知類型 | 觸發時機 | 收件人 | 觸發來源 |
 |---------|---------|-------|---------|
 | 帳單通知 | 帳單預產完成（`RentBillsGenerated`） | 租客 | Event（payload 需含：tenantEmail, tenantName, roomName, bills[]{amount, dueDate, type}） |
+| 收款收據 | 帳單收款確認（`BillPaid`） | 租客 | Event（payload 需含：tenantEmail, tenantName, roomName, amount, paidAt, billType） |
 | 逾期催收通知 | 每週排程，最多 3 次 | 租客 | 排程任務 |
-| 退租確認 | `LeaseTerminated`（forced: false） | 租客 | Event（payload 需含：tenantEmail, tenantName, roomName） |
+| 退租確認 | `LeaseTerminated`（forced: false **且** isRenewal: false） | 租客 | Event（payload 需含：tenantEmail, tenantName, roomName） |
 | 強制終止通知 | `LeaseTerminated`（forced: true） | 租客 | Event（payload 需含：tenantEmail, tenantName, roomName） |
 | 租約到期提醒 | 到期前 30 天排程 | 主辦、員工 | 排程任務 |
 | 財報寄送 | 主辦手動審核後觸發 | 業主 | 人工操作 |
@@ -108,9 +110,13 @@
 - **包含**：
   - 租約條件（租金、起訖日）
   - `deposit: Deposit`（Value Object）
-    - `amount`
-    - `status: held | refunded | deducted | written_off`（初始狀態為 `held`，租約建立時自動設定）
+    - `amount`（原始押金金額）
+    - `deductionAmount`（optional，扣款金額）
     - `deductionReason`（optional）
+    - `refundAmount`（optional，退還金額）
+    - `status: held | settled | written_off`（初始狀態為 `held`，租約建立時自動設定）
+      - `settled`：押金處理完畢，涵蓋全額退還（refundAmount = amount）、全額扣款（deductionAmount = amount）、部分扣款後退餘額（deductionAmount + refundAmount = amount）三種情境
+      - `written_off`：強制終止時標記
 - **一致性邊界**：
   - 帳單隨租約刪除而刪除
   - 正常終止：需所有帳單結清（含押金狀態確認）才能執行
@@ -215,12 +221,12 @@
 | Event | 發出 BC | 說明 | 主要 Payload | 訂閱者 |
 |-------|---------|------|-------------|-------|
 | LeaseCreated | Leasing | 租約建立 | leaseId, roomId, tenantId, startDate, endDate | Property, Billing |
-| LeaseTerminated | Leasing | 租約終止（含強制終止） | leaseId, roomId, forced: bool | Property, Billing, Notification |
+| LeaseTerminated | Leasing | 租約終止（含強制終止） | leaseId, roomId, forced: bool, isRenewal: bool | Property, Billing, Notification |
 | LeaseConditionChanged | Leasing | 租金金額調整 | leaseId, newRentAmount | Billing |
-| DepositRefunded | Leasing | 押金退還 | leaseId, amount, propertyId | Billing |
-| DepositDeducted | Leasing | 押金扣款 | leaseId, amount, reason, propertyId | Billing |
+| DepositRefunded | Leasing | 押金退還（含部分退還） | leaseId, refundAmount, propertyId | Billing |
+| DepositDeducted | Leasing | 押金扣款（含部分扣款） | leaseId, deductionAmount, reason, propertyId | Billing |
 | TenantInfoUpdated | Leasing | 租客資料變更 | tenantId | —（預留，審計用） |
-| RentBillsGenerated | Billing | 租約建立時預產帳單 | leaseId, bills[] | —（預留，未來可接通知） |
+| RentBillsGenerated | Billing | 租約建立時預產帳單 | leaseId, tenantEmail, tenantName, roomName, bills[]{amount, dueDate, type} | Notification |
 | BillPaid | Billing | 帳單收款確認 | billId, amount, propertyId | PropertyAccount |
 | MeterRecorded | Billing | 電表抄錄完成，電費帳單金額更新 | billId, meterReading | — |
 | JournalExpenseRecorded | Journal | 日誌費用記錄 | journalLogId, amount, propertyId | Billing |
@@ -259,6 +265,7 @@
 | BR-15 | 付款日固定為租約起始日，特殊月份（無該日）順延至月底 | 帳單預產時 | 自動計算，無需拒絕 | 無 |
 | BR-16 | 電費帳單金額由系統計算：usage = currentReading - previousReading，amount = usage × MeterReading.unitPrice，不由員工輸入金額 | 抄表送出時 | 系統自動計算，拒絕員工直接輸入金額 | 無 |
 | BR-17 | 修改物業電價（electricityUnitPrice）需主辦以上角色 | 修改電價時 | 員工角色拒絕 | 無 |
+| BR-18 | 附件允許的 MIME type：`image/jpeg`、`image/png`、`image/heic`、`application/pdf`；單檔上限 20MB | 上傳附件時（Step 3 登記） | 拒絕登記，回傳 422 | 無 |
 
 ---
 
@@ -378,6 +385,19 @@
 
 > **previousReading 填入機制**：`GET /bills/{id}` 回傳時，系統自動查詢同一 `room_id` 最近一張 `meter_reading IS NOT NULL` 的電費帳單的 `currentReading`，作為 `previousReading` 帶入 response。員工送出抄表時只傳 `currentReading`。
 
+### 附件查詢
+
+| 查詢路徑 | 說明 |
+|---------|------|
+| `GET /properties/{id}/attachments` | 物業附件列表 |
+| `GET /rooms/{id}/attachments` | 房間附件列表 |
+| `GET /tenants/{id}/attachments` | 租客附件列表 |
+| `GET /leases/{id}/attachments` | 租約附件列表 |
+| `GET /journal-logs/{id}/attachments` | 日誌附件列表 |
+| `GET /repair-requests/{id}/attachments` | 維修單附件列表（依 sort_order 排序） |
+| `GET /bills/{id}/attachments` | 帳單附件列表 |
+| `DELETE /attachments/{id}` | 軟刪除附件 |
+
 ### 跨 BC 組合查詢
 
 | 查詢路徑 | 說明 | 資料來源 |
@@ -450,7 +470,7 @@ PropertyOwnerView
   → 記錄 ForceTerminationStarted（leaseId, billIds[], reason）
   → 逐一將未結清帳單標記為 written_off，每筆成功記錄進度
   → 若中途失敗 → 排程任務掃描未完成的 ForceTermination，繼續補償
-  → 全部 written_off 完成 → 押金標記 deducted 或 written_off（人工決定）
+  → 全部 written_off 完成 → 押金標記 settled 或 written_off（人工決定）
   → LeaseTerminated event（forced: true）
   → Property BC 訂閱 → Room 狀態改為 vacant
   → Notification BC 訂閱 → 寄送強制終止通知
@@ -458,6 +478,83 @@ PropertyOwnerView
 
 > 最後一個月帳單按整月計算，不按天拆分。
 > 空窗期（vacant 期間）不產生任何帳單，超出系統範圍。
+
+---
+
+## 附件設計
+
+### 設計原則
+
+附件為純 CRUD 輔助資料，不參與任何 BC 的業務規則或 Aggregate 狀態機。生命週期跟隨宿主資源（宿主軟刪除時，應用層於同一 DB transaction 內同步軟刪除其附件）。
+
+### 支援附件的資源
+
+| 資源 | 附件表 | 備註 |
+|------|--------|------|
+| Property | `property_attachments` | 物業照片 |
+| Room | `room_attachments` | 房間照片 |
+| Tenant | `tenant_attachments` | 身份文件等 |
+| Lease | `lease_attachments` | 合約掃描等 |
+| JournalLog | `journal_log_attachments` | 日誌附件、費用憑證等 |
+| RepairRequest | `repair_request_attachments` | 維修照片 |
+| Bill | `bill_attachments` | 電表照片等 |
+
+### 附件表 Schema
+
+**共用欄位**（所有附件表均包含）：
+
+```
+id UUID PRIMARY KEY
+object_path TEXT NOT NULL          -- GCS object path（非完整 URL），如 attachments/properties/{id}/{uuid}.jpg
+file_name TEXT NOT NULL            -- 原始檔名（顯示用）
+uploaded_by UUID REFERENCES users(id)
+created_at TIMESTAMPTZ NOT NULL
+deleted_at TIMESTAMPTZ
+```
+
+**`repair_request_attachments` 額外欄位**：
+
+```
+sort_order INT NOT NULL DEFAULT 0
+photo_stage VARCHAR(20) CHECK (photo_stage IN ('before', 'after', 'other'))
+```
+
+**Index**：各附件表的 FK 欄位均加 Index（`property_id`、`room_id`、`tenant_id`、`lease_id`、`journal_log_id`、`repair_request_id`、`bill_id`）。`repair_request_attachments` 加 `(repair_request_id, sort_order)`。
+
+### 上傳流程（Signed URL + nonce 綁定）
+
+```
+Step 1：POST /attachments/upload-url
+  Body: { resource_type, resource_id, file_name, content_type }
+  → 後端驗證呼叫者對 resource 有寫入權限
+  → 後端建立暫存 token（nonce, object_path, issued_to, resource_type, resource_id, expires_at）
+  → 回傳 { upload_url, nonce, expires_at }（Signed URL 含鎖定 content_type）
+
+Step 2：Client 直接 PUT 到 GCS（不經後端）
+
+Step 3：POST /{resource}/{id}/attachments
+  Body: { nonce, file_name }
+  → 後端以 nonce 驗證合法性（issued_to、resource_id 需一致）
+  → 後端呼叫 GCS HEAD 確認物件存在（BR-18 MIME type 驗證）
+  → 寫入對應 attachment table，刪除已用 nonce
+```
+
+**upload_tokens 暫存表**：
+
+```
+attachment_upload_tokens(
+  id UUID PRIMARY KEY,
+  nonce VARCHAR UNIQUE NOT NULL,
+  object_path TEXT NOT NULL,
+  issued_to UUID NOT NULL,
+  resource_type VARCHAR NOT NULL,
+  resource_id UUID NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL
+)
+```
+
+**部署前置條件**：GCS bucket 需設定 CORS policy（允許前端 origin，methods: PUT，headers: Content-Type）；後端 Service Account 需具備 `storage.objects.create`、`storage.objects.get` 權限。
 
 ---
 
@@ -471,6 +568,8 @@ PropertyOwnerView
 | 租約到期提醒 | 每日凌晨 | 掃描 `end_date = today + 30 days AND status = active`，寄送提醒 Email 給主辦和員工。 |
 | 月結快照產出 | 每月最後一天 23:59 | 將 PropertyAccount 當月 AccountingEntry 封存為 `monthly_snapshot_entries`，排除軟刪除物業（`deleted_at IS NULL`），清空當月暫存資料。 |
 | 強制終止補償 | 每日凌晨 | 掃描 `force_terminations WHERE status = in_progress`，續行未完成的 written_off 操作。 |
+| Upload token 清理 | 每日凌晨 | 清除 `attachment_upload_tokens WHERE expires_at < now`。 |
+| GCS 附件清理 | 每日凌晨 | 掃描 `*_attachments WHERE deleted_at < now - INTERVAL '90 days'`，刪除對應 GCS 物件後硬刪除 DB 記錄。 |
 
 ---
 
@@ -497,4 +596,10 @@ PropertyOwnerView
 | BR-08 維修中刪除 | 移除例外，維修中房間不得刪除 | 刪除維修中 Room 導致 RepairRequest 狀態機孤立 |
 | 逾期競態 | 樂觀鎖，付款優先，批次跳過衝突 | 帳單已付款則批次自然不再掃到，無需額外處理 |
 | overdue → paid | 允許 | 逾期帳單仍應可收款，不因逾期狀態阻斷收款流程 |
+| 押金部分扣款 | Deposit VO 拆分 deductionAmount + refundAmount，status 改為 settled 取代 refunded/deducted | 台灣退租最常見情境是「扣一部分、退餘額」，原 refunded/deducted 二選一無法表達；DepositDeducted + DepositRefunded 兩事件可依序發出，PropertyAccount 分別記入 deposit_deduction 與 deposit_refund 分錄 |
+| 續約誤發退租通知 | LeaseTerminated 加 isRenewal: bool，Notification BC 僅在 isRenewal: false 時寄退租確認 | 續約操作（舊租約終止 + 新租約建立）會觸發 LeaseTerminated，若不加識別欄位，租客會收到錯誤的退租確認 Email |
 | 認證機制 | Firebase Auth + Custom Claims | 降低自建 JWT 與密碼管理複雜度；Custom Claims 支援 server-side 更新，可在物業指派變更後立即同步 role 與 assigned_property_ids 至 token；users table 改存 firebase_uid 取代 password_hash |
+| 附件業務定位 | 純 CRUD，不參與業務規則 | 附件為輔助資訊，不影響任何 Aggregate 狀態機或業務決策；保持模型簡潔，避免過度設計 |
+| 附件表架構 | 方案 B：各資源獨立附件表 | 維持真實 FK 約束，符合現有 BC 邊界設計風格；軟刪除 cascade 由應用層 transaction 保證 |
+| 附件上傳機制 | Signed URL + nonce 綁定 | Client 直傳 GCS 減少後端 I/O；nonce 機制防止任意 object_path 注入；Step 3 GCS HEAD 確認物件存在 |
+| GCS 部署依賴 | CORS 與 IAM 為部署前置條件（accepted risk） | Signed URL 直傳需要瀏覽器 CORS 支援；Service Account 權限不足會導致 URL 產生失敗；兩者屬基礎設施設定，在首次部署前完成 |
