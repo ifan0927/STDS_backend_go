@@ -34,7 +34,7 @@ func NewService(sender Sender) *Service {
 // SendUserPasswordResetEmail sends the password setup/reset email immediately.
 func (s *Service) SendUserPasswordResetEmail(ctx context.Context, input UserPasswordResetEmailInput) error {
 	if s == nil || s.sender == nil {
-		return fmt.Errorf("notification sender is not configured")
+		return ErrNotificationSenderNotConfigured
 	}
 
 	email := strings.TrimSpace(input.Email)
@@ -53,7 +53,7 @@ func (s *Service) SendUserPasswordResetEmail(ctx context.Context, input UserPass
 		resetURL,
 	)
 
-	return s.sender.Send(ctx, platformnotification.SendCommand{
+	if err := s.sender.Send(ctx, platformnotification.SendCommand{
 		Channel: platformnotification.ChannelEmail,
 		Email: &platformnotification.EmailMessage{
 			To:      []string{email},
@@ -61,7 +61,11 @@ func (s *Service) SendUserPasswordResetEmail(ctx context.Context, input UserPass
 			HTML:    html,
 			Text:    text,
 		},
-	})
+	}); err != nil {
+		return ErrNotificationSendFailed.WithCause(err)
+	}
+
+	return nil
 }
 
 // HandleUserPasswordResetRequested handles the event-driven notification scenario.

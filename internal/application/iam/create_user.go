@@ -102,7 +102,7 @@ func (s *CreateUserService) Execute(ctx context.Context, input CreateUserInput) 
 				return nil, apperr.ErrInternalServerError.WithCause(errors.Join(err, cleanupErr))
 			}
 
-			return nil, apperr.ErrInternalServerError.WithCause(err)
+			return nil, err
 		}
 	}
 

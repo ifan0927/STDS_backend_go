@@ -2,10 +2,12 @@ package notification
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	domainevents "stds_backend/internal/domain/events"
 	platformnotification "stds_backend/internal/platform/notification"
+	"stds_backend/internal/shared/apperr"
 )
 
 func TestServiceSendUserPasswordResetEmail(t *testing.T) {
@@ -47,11 +49,33 @@ func TestServiceHandleUserPasswordResetRequested(t *testing.T) {
 	}
 }
 
+func TestServiceSendUserPasswordResetEmailReturnsNotificationErrorCode(t *testing.T) {
+	service := NewService(&fakeSender{sendErr: errors.New("resend down")})
+
+	err := service.SendUserPasswordResetEmail(context.Background(), UserPasswordResetEmailInput{
+		Email:    "user@example.com",
+		Name:     "Test User",
+		ResetURL: "https://reset.example.com",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	var appErr *apperr.Error
+	if !errors.As(err, &appErr) {
+		t.Fatalf("expected app error, got %T", err)
+	}
+	if appErr.Code != CodeNotificationSendFailed {
+		t.Fatalf("expected %s, got %s", CodeNotificationSendFailed, appErr.Code)
+	}
+}
+
 type fakeSender struct {
 	command platformnotification.SendCommand
+	sendErr error
 }
 
 func (f *fakeSender) Send(_ context.Context, command platformnotification.SendCommand) error {
 	f.command = command
-	return nil
+	return f.sendErr
 }

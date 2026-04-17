@@ -69,5 +69,15 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - Use GoLang
 - Use Gin
 - All the coding style follow the idiomatic GoLang style
+- Gin Error handling should follow these rules:
+  - Check `internal/shared/apperr/common.go` first for reusable cross-cutting
+    errors.
+  - If no common error matches, define and return a domain-specific or use-
+    case-specific `apperr.Error` in the owning package.
+  - Do not let raw `error` values flow into Gin error middleware unless they
+    are intended to become `INTERNAL_SERVER_ERROR`.
+  - Use `INTERNAL_SERVER_ERROR` only as the final fallback for unmapped
+    unexpected failures.
+
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.

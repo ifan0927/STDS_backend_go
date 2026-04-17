@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -232,6 +233,43 @@ func TestCreateUserRejectsMalformedJSONAsBadRequest(t *testing.T) {
 
 	if payload["error_code"] != "BAD_REQUEST" {
 		t.Fatalf("expected error_code BAD_REQUEST, got %v", payload["error_code"])
+	}
+}
+
+func TestCreateUserReturnsNotificationErrorCodeWhenDispatchFails(t *testing.T) {
+	repo := fakeUserRepo{}
+	engine := newTestEngineWithNotificationSender(
+		repo,
+		fakeAuthenticator{},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{},
+		"",
+		fakeJobRunsRepo{},
+		&testNotificationSender{sendErr: errors.New("resend down")},
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users", strings.NewReader(`{
+		"email":"newstaff@studio.com",
+		"name":"New Staff",
+		"role":"staff"
+	}`))
+	req.Header.Set("Authorization", "Bearer valid-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if payload["error_code"] != appnotification.CodeNotificationSendFailed {
+		t.Fatalf("expected error_code %s, got %v", appnotification.CodeNotificationSendFailed, payload["error_code"])
 	}
 }
 
@@ -723,6 +761,18 @@ func (fakeJobRunsRepo) Fail(_ context.Context, _ string, _ string) error     { r
 func (fakeJobRunsRepo) Skip(_ context.Context, _ string, _ string) error     { return nil }
 
 func newTestEngine(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo) *gin.Engine {
+	return newTestEngineWithNotificationSender(
+		userRepo,
+		authenticator,
+		propertyRepo,
+		ownershipRepo,
+		schedulerKey,
+		jobRunsRepo,
+		&testNotificationSender{},
+	)
+}
+
+func newTestEngineWithNotificationSender(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo, notificationSender *testNotificationSender) *gin.Engine {
 	return New(
 		config.AppConfig{Name: "test", Env: "test", SchedulerKey: schedulerKey, ReadTimeout: time.Second, WriteTimeout: time.Second},
 		testLogger(),
@@ -733,7 +783,7 @@ func newTestEngine(userRepo fakeUserRepo, authenticator fakeAuthenticator, prope
 			Properties:        propertyRepo,
 			ResourceOwnership: ownershipRepo,
 		},
-		appiam.NewCreateUserService(userRepo, authenticator, appnotification.NewService(&testNotificationSender{})),
+		appiam.NewCreateUserService(userRepo, authenticator, appnotification.NewService(notificationSender)),
 		appiam.NewSyncAuthService(userRepo, appiam.NewCustomClaimsService(authenticator)),
 		appjobs.NewTriggerService(jobRunsRepo, nil, time.Minute, 3),
 		fakePropertyQueryRepo{},
@@ -741,10 +791,12 @@ func newTestEngine(userRepo fakeUserRepo, authenticator fakeAuthenticator, prope
 	)
 }
 
-type testNotificationSender struct{}
+type testNotificationSender struct {
+	sendErr error
+}
 
-func (*testNotificationSender) Send(_ context.Context, _ platformnotification.SendCommand) error {
-	return nil
+func (s *testNotificationSender) Send(_ context.Context, _ platformnotification.SendCommand) error {
+	return s.sendErr
 }
 
 func firstAssignedPropertyIDs(assigned []string) []string {

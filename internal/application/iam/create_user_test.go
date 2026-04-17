@@ -10,6 +10,7 @@ import (
 	"stds_backend/internal/platform/database/users"
 	platformfirebase "stds_backend/internal/platform/firebase"
 	platformnotification "stds_backend/internal/platform/notification"
+	"stds_backend/internal/shared/apperr"
 )
 
 func TestCreateUserServiceExecute(t *testing.T) {
@@ -142,8 +143,16 @@ func TestCreateUserServiceExecute(t *testing.T) {
 			Name:  "New Staff",
 			Role:  "staff",
 		})
-		if err == nil || err.Error() != "Internal server error." {
-			t.Fatalf("expected internal error, got %v", err)
+		if err == nil {
+			t.Fatal("expected error")
+		}
+
+		var appErr *apperr.Error
+		if !errors.As(err, &appErr) {
+			t.Fatalf("expected app error, got %T", err)
+		}
+		if appErr.Code != appnotification.CodeNotificationSendFailed {
+			t.Fatalf("expected %s, got %s", appnotification.CodeNotificationSendFailed, appErr.Code)
 		}
 
 		if provisioner.deletedUID != "uid-new" {
