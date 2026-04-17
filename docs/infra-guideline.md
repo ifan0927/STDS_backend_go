@@ -1030,3 +1030,239 @@ func (r *RepairRequest) Assign(assigneeID string, now time.Time) error {
 - 過度抽象的 base aggregate
 
 先把一條 command slice 做乾淨，比先做 framework 更重要。
+
+---
+
+## In-Process PubSub / Domain Events
+
+### 先講結論
+
+目前專案提供的是 **in-process event bus**，不是 external message broker。
+
+也就是說，這裡的「pubsub」目前指的是：
+
+- 同一個 Go process 內發 event
+- 同步呼叫 subscriber
+- 主要用來承接 transaction commit 後的 follow-up action
+
+它**不是**：
+
+- GCP Pub/Sub
+- Kafka
+- RabbitMQ
+- 跨服務非同步訊息系統
+
+如果未來真的要做跨服務事件傳遞，再另外設計 message broker adapter；不要把目前這個 in-process bus 誤認成外部基礎設施。
+
+### 目前提供了哪些元件
+
+#### 1. Domain contract
+
+位置：
+
+- `internal/domain/events/publisher.go`
+
+這層只定義 contract：
+
+```go
+type Publisher interface {
+	Publish(ctx context.Context, event any) error
+}
+```
+
+這個設計是刻意的：
+
+- domain / application 只依賴 `Publisher` 介面
+- 不直接依賴 infra 的 concrete implementation
+- infra 可以提供真正的 event bus，也可以提供 noop fallback
+
+另外目前也有：
+
+- `domainevents.NoopPublisher{}`
+
+用途是：
+
+- 在 event wiring 尚未啟用時，提供安全預設
+- 避免 transaction runner 因為 nil publisher 爆掉
+
+#### 2. Infra implementation
+
+位置：
+
+- `internal/platform/eventbus/bus.go`
+
+目前 infra 提供的是 `eventbus.Bus`：
+
+- 實作 `domainevents.Publisher`
+- 以 event concrete type 做 subscriber match
+- 同步、依註冊順序呼叫 handlers
+- 任一 handler error，會中止並回傳 error
+
+這代表它適合：
+
+- 同 process 的 follow-up logic
+- 輕量、可預期的 post-commit side effect
+
+這代表它目前不適合：
+
+- 長時間背景工作
+- 需要 retry queue 的工作
+- 跨服務整合
+
+#### 3. Transaction publication point
+
+位置：
+
+- `internal/platform/database/txrunner/runner.go`
+
+目前事件發布時機是：
+
+1. use case 在 transaction 中呼叫 `recorder.Record(event)`
+2. DB commit 成功
+3. `txRunner` 逐筆呼叫 `publisher.Publish(ctx, event)`
+
+這個順序很重要，因為它保證：
+
+- transaction rollback 時不會發 event
+- 只有 commit 成功後才會觸發 subscriber
+
+### 目前正式 wiring 狀態
+
+目前 `server.New()` 仍然是：
+
+```go
+txRunner := dbtxrunner.New(db, domainevents.NoopPublisher{})
+```
+
+位置：
+
+- `internal/server/server.go`
+
+這代表現在正式 runtime 的行為是：
+
+- application 可以 record domain event
+- 但 event 不會真的 dispatch 到任何 subscriber
+
+這不是 bug，這是目前系統尚未啟用 event subscriber wiring 的現況。
+
+### 現在要不要修成 infra bus
+
+目前判斷：**不需要急著修**。
+
+原因：
+
+- repo 內目前沒有任何正式 runtime subscriber
+- `eventbus.Subscribe(...)` 只出現在 `eventbus` 自己的測試
+- 現在把 `NoopPublisher` 換成 `eventbus.Bus`，行為上沒有可見收益
+
+只有在以下條件成立時，才值得現在接上：
+
+- 已經有明確的 post-commit subscriber 要執行
+- 該 subscriber 的行為屬於 in-process 同步 side effect
+- 你準備好在 bootstrap 明確註冊 subscriber
+
+如果這三件事都還沒成立，就維持 `NoopPublisher` 即可。
+
+### 標準使用方式
+
+#### 1. Domain event 定義在 `internal/domain/events`
+
+例如：
+
+```go
+type PropertyCreated struct {
+	PropertyID string
+	OccurredAt time.Time
+}
+```
+
+原則：
+
+- event 是過去式，描述已經發生的事
+- event payload 只放後續處理真的需要的欄位
+- 不要把整個 aggregate 或 request body 丟進 event
+
+#### 2. Application service 在 transaction 內 record event
+
+例如：
+
+```go
+err := s.txRunner.WithinTransaction(ctx, func(ctx context.Context, tx *sql.Tx, recorder *txrunner.EventRecorder) error {
+	property, err := s.propertyRepo.Create(ctx, tx, params)
+	if err != nil {
+		return err
+	}
+
+	recorder.Record(domainevents.PropertyCreated{
+		PropertyID: property.ID,
+		OccurredAt: s.now().UTC(),
+	})
+
+	return nil
+})
+```
+
+規則：
+
+- 不要在 repository 裡直接 publish
+- 不要在 transaction commit 前直接 publish
+- 一律透過 `EventRecorder` 交給 `txRunner`
+
+#### 3. Infra 用 `eventbus.Subscribe` 註冊 subscriber
+
+例如：
+
+```go
+bus := eventbus.New()
+
+eventbus.Subscribe(bus, func(ctx context.Context, event domainevents.PropertyCreated) error {
+	// call follow-up service or adapter
+	return nil
+})
+```
+
+規則：
+
+- subscriber 註冊屬於 bootstrap / wiring 責任
+- 不要在 handler 或 use case 執行途中動態註冊
+- subscriber 應該做明確、單一責任的 follow-up action
+
+#### 4. `txRunner` 注入真正的 publisher
+
+啟用時的 wiring 會長這樣：
+
+```go
+bus := eventbus.New()
+
+eventbus.Subscribe(bus, func(ctx context.Context, event domainevents.PropertyCreated) error {
+	return nil
+})
+
+txRunner := dbtxrunner.New(db, bus)
+```
+
+這樣 application 層仍然只知道 `domainevents.Publisher`，不需要知道 `eventbus.Bus` 的存在。
+
+### 使用上的限制
+
+這個 in-process bus 目前是同步模型，所以要明確接受以下限制：
+
+- subscriber 變慢，原請求也會跟著變慢
+- subscriber 回 error，整個 publish 會回 error
+- 沒有內建 retry / dead-letter / backoff
+- process crash 後不保證事件重送
+
+所以這套機制適合：
+
+- 更新本地 read model
+- 寫 audit trail
+- 觸發輕量內部流程
+
+不適合：
+
+- 寄信
+- 長時間第三方 API 呼叫
+- 關鍵非同步整合
+- 需要 delivery guarantee 的工作
+
+這些需求應該交給明確的 job / queue / external messaging 設計，不要硬塞在目前的 event bus 上。

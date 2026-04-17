@@ -46,10 +46,34 @@ func Auth(authenticator platformfirebase.Authenticator, userRepo users.Repositor
 		requestctx.SetPrincipal(c, requestctx.Principal{
 			UserID:              user.ID,
 			FirebaseUID:         user.FirebaseUID,
-			Role:                firstNonEmpty(claims.Role, user.Role),
-			AssignedPropertyIDs: firstNonEmptySlice(claims.AssignedPropertyIDs, user.AssignedPropertyIDs),
+			Role:                user.Role,
+			AssignedPropertyIDs: user.AssignedPropertyIDs,
 		})
+		requestctx.SetFirebaseUID(c, claims.UID)
 
+		c.Next()
+	}
+}
+
+// FirebaseTokenOnly authenticates the Firebase bearer token and stores the
+// resolved Firebase UID in the request context without requiring a DB user.
+func FirebaseTokenOnly(authenticator platformfirebase.Authenticator) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		token, err := bearerToken(c.GetHeader("Authorization"))
+		if err != nil {
+			c.Error(err)
+			c.Abort()
+			return
+		}
+
+		claims, err := authenticator.VerifyIDToken(c.Request.Context(), token)
+		if err != nil {
+			c.Error(apperr.ErrInvalidFirebaseToken.WithCause(err))
+			c.Abort()
+			return
+		}
+
+		requestctx.SetFirebaseUID(c, claims.UID)
 		c.Next()
 	}
 }
@@ -65,20 +89,4 @@ func bearerToken(header string) (string, error) {
 	}
 
 	return strings.TrimSpace(parts[1]), nil
-}
-
-func firstNonEmpty(primary, fallback string) string {
-	if primary != "" {
-		return primary
-	}
-
-	return fallback
-}
-
-func firstNonEmptySlice(primary, fallback []string) []string {
-	if len(primary) > 0 {
-		return primary
-	}
-
-	return fallback
 }

@@ -25,6 +25,7 @@ var _ api.ServerInterface = (*APIServer)(nil)
 type APIServer struct {
 	userRepo          users.Repository
 	createUserService *appiam.CreateUserService
+	syncAuthService   *appiam.SyncAuthService
 	jobTriggerService *appjobs.TriggerService
 	propertyQueryRepo dbpropertyquery.Repository
 	createPropertySvc *appproperty.CreatePropertyService
@@ -35,6 +36,7 @@ type APIServer struct {
 func NewAPIServer(
 	userRepo users.Repository,
 	createUserService *appiam.CreateUserService,
+	syncAuthService *appiam.SyncAuthService,
 	jobTriggerService *appjobs.TriggerService,
 	propertyQueryRepo dbpropertyquery.Repository,
 	createPropertySvc *appproperty.CreatePropertyService,
@@ -42,6 +44,7 @@ func NewAPIServer(
 	return &APIServer{
 		userRepo:          userRepo,
 		createUserService: createUserService,
+		syncAuthService:   syncAuthService,
 		jobTriggerService: jobTriggerService,
 		propertyQueryRepo: propertyQueryRepo,
 		createPropertySvc: createPropertySvc,
@@ -56,7 +59,21 @@ func writeNotImplemented(c *gin.Context) {
 }
 
 // SyncAuth handles the auth sync endpoint.
-func (s *APIServer) SyncAuth(c *gin.Context) { writeNotImplemented(c) }
+func (s *APIServer) SyncAuth(c *gin.Context) {
+	firebaseUID, ok := requestctx.GetFirebaseUID(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	user, err := s.syncAuthService.Execute(c.Request.Context(), firebaseUID)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toUserResponse(user))
+}
 
 // ListBills handles the bill listing endpoint.
 func (s *APIServer) ListBills(c *gin.Context, params api.ListBillsParams) { writeNotImplemented(c) }

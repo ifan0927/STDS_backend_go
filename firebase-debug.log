@@ -1,0 +1,33 @@
+[debug] [2026-04-17T02:37:51.436Z] ----------------------------------------------------------------------
+[debug] [2026-04-17T02:37:51.437Z] Command:       /opt/homebrew/Cellar/node/25.8.1_1/bin/node /opt/homebrew/bin/firebase emulators:start --only auth
+[debug] [2026-04-17T02:37:51.437Z] CLI Version:   15.14.0
+[debug] [2026-04-17T02:37:51.437Z] Platform:      darwin
+[debug] [2026-04-17T02:37:51.438Z] Node Version:  v25.8.1
+[debug] [2026-04-17T02:37:51.438Z] Time:          Fri Apr 17 2026 10:37:51 GMT+0800 (台北標準時間)
+[debug] [2026-04-17T02:37:51.438Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-04-17T02:37:51.438Z] >>> [apiv2][query] GET https://firebase-public.firebaseio.com/cli.json [none]
+[info] i  emulators: Starting emulators: auth {"metadata":{"emulator":{"name":"hub"},"message":"Starting emulators: auth"}}
+[info] i  emulators: Detected demo project ID "demo-stds-backend", emulated services will use a demo configuration and attempts to access non-emulated services for this project will fail. {"metadata":{"emulator":{"name":"hub"},"message":"Detected demo project ID \"demo-stds-backend\", emulated services will use a demo configuration and attempts to access non-emulated services for this project will fail."}}
+[debug] [2026-04-17T02:37:52.165Z] [logging] Logging Emulator only supports listening on one address (127.0.0.1). Not listening on ::1
+[debug] [2026-04-17T02:37:52.165Z] assigned listening specs for emulators {"user":{"auth":[{"address":"127.0.0.1","family":"IPv4","port":9099}],"hub":[{"address":"127.0.0.1","family":"IPv4","port":4400},{"address":"::1","family":"IPv6","port":4400}],"ui":[{"address":"127.0.0.1","family":"IPv4","port":4000},{"address":"::1","family":"IPv6","port":4000}],"logging":[{"address":"127.0.0.1","family":"IPv4","port":4500}]},"metadata":{"message":"assigned listening specs for emulators"}}
+[debug] [2026-04-17T02:37:52.166Z] Write emulator hub locator at /var/folders/p8/nrgm36bd6p9_mfc9_sr9vm6h0000gn/T/hub-demo-stds-backend.json
+[debug] [2026-04-17T02:37:53.651Z] Could not find VSCode notification endpoint: FetchError: request to http://localhost:40001/vscode/notify failed, reason: . If you are not running the Firebase Data Connect VSCode extension, this is expected and not an issue.
+[info] 
+┌─────────────────────────────────────────────────────────────┐
+│ ✔  All emulators ready! It is now safe to connect your app. │
+│ i  View Emulator UI at http://127.0.0.1:4000/               │
+└─────────────────────────────────────────────────────────────┘
+
+┌────────────────┬────────────────┬────────────────────────────┐
+│ Emulator       │ Host:Port      │ View in Emulator UI        │
+├────────────────┼────────────────┼────────────────────────────┤
+│ Authentication │ 127.0.0.1:9099 │ http://127.0.0.1:4000/auth │
+└────────────────┴────────────────┴────────────────────────────┘
+  Emulator Hub host: 127.0.0.1 port: 4400
+  Other reserved ports: 4500
+
+Issues? Report them at https://github.com/firebase/firebase-tools/issues and attach the *-debug.log files.
+ 
+[debug] [2026-04-17T02:37:54.053Z] <<< [apiv2][status] GET https://firebase-public.firebaseio.com/cli.json 200
+[debug] [2026-04-17T02:37:54.053Z] <<< [apiv2][body] GET https://firebase-public.firebaseio.com/cli.json {"cloudBuildErrorAfter":1594252800000,"cloudBuildWarnAfter":1590019200000,"defaultNode10After":1594252800000,"minVersion":"3.0.5","node8DeploysDisabledAfter":1613390400000,"node8RuntimeDisabledAfter":1615809600000,"node8WarnAfter":1600128000000}

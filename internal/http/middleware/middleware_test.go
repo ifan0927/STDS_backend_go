@@ -141,6 +141,69 @@ func TestAuthReturnsUnauthorizedForInvalidFirebaseToken(t *testing.T) {
 	assertErrorCode(t, resp, http.StatusUnauthorized, "INVALID_FIREBASE_TOKEN")
 }
 
+func TestAuthUsesDBPrincipalInsteadOfClaims(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	engine := gin.New()
+	engine.Use(RequestID(), ErrorHandler(testLoggerBuffer(nil)))
+	engine.GET("/secure", Auth(fakeAuthenticator{
+		role:                "owner",
+		assignedPropertyIDs: []string{"property-9"},
+	}, fakeUserRepo{}), func(c *gin.Context) {
+		principal, ok := requestctx.GetPrincipal(c)
+		if !ok {
+			t.Fatal("expected principal in context")
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"role":                  principal.Role,
+			"assigned_property_ids": principal.AssignedPropertyIDs,
+		})
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/secure", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if payload["role"] != "organizer" {
+		t.Fatalf("expected DB role organizer, got %v", payload["role"])
+	}
+}
+
+func TestFirebaseTokenOnlyStoresFirebaseUIDWithoutDBLookup(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	engine := gin.New()
+	engine.Use(RequestID(), ErrorHandler(testLoggerBuffer(nil)))
+	engine.GET("/secure", FirebaseTokenOnly(fakeAuthenticator{}), func(c *gin.Context) {
+		firebaseUID, ok := requestctx.GetFirebaseUID(c)
+		if !ok {
+			t.Fatal("expected firebase uid in context")
+		}
+
+		c.JSON(http.StatusOK, gin.H{"firebase_uid": firebaseUID})
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/secure", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
 func TestRequireRolesReturnsForbidden(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -270,7 +333,9 @@ func TestErrorHandlerLogsStructuredServerError(t *testing.T) {
 }
 
 type fakeAuthenticator struct {
-	err error
+	err                 error
+	role                string
+	assignedPropertyIDs []string
 }
 
 func (f fakeAuthenticator) VerifyIDToken(_ context.Context, token string) (*platformfirebase.Claims, error) {
@@ -278,10 +343,20 @@ func (f fakeAuthenticator) VerifyIDToken(_ context.Context, token string) (*plat
 		return nil, f.err
 	}
 
+	role := f.role
+	if role == "" {
+		role = "organizer"
+	}
+
+	assignedPropertyIDs := f.assignedPropertyIDs
+	if len(assignedPropertyIDs) == 0 {
+		assignedPropertyIDs = []string{"property-1"}
+	}
+
 	return &platformfirebase.Claims{
 		UID:                 "uid-1",
-		Role:                "organizer",
-		AssignedPropertyIDs: []string{"property-1"},
+		Role:                role,
+		AssignedPropertyIDs: assignedPropertyIDs,
 	}, nil
 }
 

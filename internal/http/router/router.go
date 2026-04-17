@@ -24,8 +24,9 @@ import (
 type authStrategy string
 
 const (
-	authStrategyFirebase  authStrategy = "firebase"
-	authStrategyScheduler authStrategy = "scheduler"
+	authStrategyFirebase          authStrategy = "firebase"
+	authStrategyFirebaseTokenOnly authStrategy = "firebase_token_only"
+	authStrategyScheduler         authStrategy = "scheduler"
 )
 
 // AuthorizationRepositories groups repository-backed resolvers used by
@@ -45,6 +46,7 @@ func New(
 	userRepo users.Repository,
 	authzRepos AuthorizationRepositories,
 	createUserService *appiam.CreateUserService,
+	syncAuthService *appiam.SyncAuthService,
 	jobTriggerService *appjobs.TriggerService,
 	propertyQueryRepo dbpropertyquery.Repository,
 	createPropertyService *appproperty.CreatePropertyService,
@@ -64,7 +66,7 @@ func New(
 	engine.GET("/openapi.yaml", docsHandler.OpenAPI)
 	engine.GET("/scalar", docsHandler.Scalar)
 
-	api.RegisterHandlersWithOptions(engine, handler.NewAPIServer(userRepo, createUserService, jobTriggerService, propertyQueryRepo, createPropertyService), api.GinServerOptions{
+	api.RegisterHandlersWithOptions(engine, handler.NewAPIServer(userRepo, createUserService, syncAuthService, jobTriggerService, propertyQueryRepo, createPropertyService), api.GinServerOptions{
 		BaseURL: "/api/v1",
 		Middlewares: []api.MiddlewareFunc{
 			protectedAPIMiddleware(appCfg, authenticator, userRepo, authzRepos),
@@ -125,6 +127,8 @@ func compileRoutePolicies(appCfg config.AppConfig, authenticator platformfirebas
 	for _, policy := range rawPolicies {
 		compiled := compiledRoutePolicy{}
 		switch policy.authStrategy {
+		case authStrategyFirebaseTokenOnly:
+			compiled.authenticate = middleware.FirebaseTokenOnly(authenticator)
 		case authStrategyScheduler:
 			compiled.authenticate = middleware.RequireSchedulerKey(appCfg.SchedulerKey)
 		default:
@@ -151,7 +155,7 @@ func routePolicies(authzRepos AuthorizationRepositories) []routePolicy {
 	ownership := authzRepos.ResourceOwnership
 
 	return []routePolicy{
-		{method: "POST", path: "/api/v1/auth/sync", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff", "owner"}},
+		{method: "POST", path: "/api/v1/auth/sync", authStrategy: authStrategyFirebaseTokenOnly},
 
 		{method: "GET", path: "/api/v1/bills", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff", "owner"}},
 		{method: "GET", path: "/api/v1/bills/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff", "owner"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByBillID)},

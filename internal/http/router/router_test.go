@@ -57,6 +57,21 @@ func TestGetPropertyRejectsUnauthorizedPropertyAccess(t *testing.T) {
 	}
 }
 
+func TestGetPropertyUsesDBPrincipalInsteadOfClaims(t *testing.T) {
+	repo := fakeUserRepo{assignedPropertyIDs: []string{"property-2"}}
+	engine := newTestEngine(repo, fakeAuthenticator{assignedPropertyIDs: []string{"property-1"}}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/properties/property-1", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 because DB principal should win, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
 func TestListUsersRejectsOwnerRole(t *testing.T) {
 	repo := fakeUserRepo{role: "owner"}
 	engine := newTestEngine(repo, fakeAuthenticator{role: "owner"}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
@@ -93,6 +108,54 @@ func TestGetCurrentUserReturnsProfile(t *testing.T) {
 
 	if payload["firebase_uid"] != "uid-1" {
 		t.Fatalf("expected firebase_uid uid-1, got %v", payload["firebase_uid"])
+	}
+}
+
+func TestSyncAuthReturnsProfileForExistingUser(t *testing.T) {
+	repo := fakeUserRepo{}
+	engine := newTestEngine(repo, fakeAuthenticator{}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/sync", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if payload["firebase_uid"] != "uid-1" {
+		t.Fatalf("expected firebase_uid uid-1, got %v", payload["firebase_uid"])
+	}
+}
+
+func TestSyncAuthReturnsNotFoundForMissingUser(t *testing.T) {
+	repo := fakeUserRepo{}
+	engine := newTestEngine(repo, fakeAuthenticator{uid: "missing"}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/sync", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if payload["error_code"] != "USER_NOT_FOUND" {
+		t.Fatalf("expected USER_NOT_FOUND, got %v", payload["error_code"])
 	}
 }
 
@@ -309,8 +372,10 @@ func testLogger() *slog.Logger {
 
 type fakeAuthenticator struct {
 	err                 error
+	uid                 string
 	role                string
 	assignedPropertyIDs []string
+	setCustomClaimsErr  error
 }
 
 func (f fakeAuthenticator) VerifyIDToken(_ context.Context, token string) (*platformfirebase.Claims, error) {
@@ -318,11 +383,20 @@ func (f fakeAuthenticator) VerifyIDToken(_ context.Context, token string) (*plat
 		return nil, f.err
 	}
 
+	uid := f.uid
+	if uid == "" {
+		uid = "uid-1"
+	}
+
 	return &platformfirebase.Claims{
-		UID:                 "uid-1",
+		UID:                 uid,
 		Role:                firstRole(f.role),
 		AssignedPropertyIDs: firstAssignedPropertyIDs(f.assignedPropertyIDs),
 	}, nil
+}
+
+func (f fakeAuthenticator) SetCustomClaims(_ context.Context, _ string, _ string, _ []string) error {
+	return f.setCustomClaimsErr
 }
 
 type fakeUserRepo struct {
@@ -526,6 +600,7 @@ func newTestEngine(userRepo fakeUserRepo, authenticator fakeAuthenticator, prope
 			ResourceOwnership: ownershipRepo,
 		},
 		appiam.NewCreateUserService(userRepo),
+		appiam.NewSyncAuthService(userRepo, appiam.NewCustomClaimsService(authenticator)),
 		appjobs.NewTriggerService(jobRunsRepo, nil, time.Minute, 3),
 		fakePropertyQueryRepo{},
 		appproperty.NewCreatePropertyService(propertyRepo, dbtxrunner.New(nil, nil)),

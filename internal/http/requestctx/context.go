@@ -3,11 +3,12 @@ package requestctx
 import "github.com/gin-gonic/gin"
 
 const (
-	requestIDKey  = "request_id"
-	principalKey  = "principal"
-	errorCodeKey  = "error_code"
-	propertyIDKey = "property_id"
-	jobMetaKey    = "job_meta"
+	requestIDKey   = "request_id"
+	principalKey   = "principal"
+	errorCodeKey   = "error_code"
+	propertyIDKey  = "property_id"
+	jobMetaKey     = "job_meta"
+	firebaseUIDKey = "firebase_uid"
 )
 
 // Principal carries the authenticated user identity attached to a request.
@@ -101,4 +102,20 @@ func GetJobMeta(c *gin.Context) (JobMeta, bool) {
 
 	meta, ok := value.(JobMeta)
 	return meta, ok
+}
+
+// SetFirebaseUID stores the authenticated Firebase UID in the Gin context.
+func SetFirebaseUID(c *gin.Context, firebaseUID string) {
+	c.Set(firebaseUIDKey, firebaseUID)
+}
+
+// GetFirebaseUID returns the authenticated Firebase UID from the Gin context.
+func GetFirebaseUID(c *gin.Context) (string, bool) {
+	value, ok := c.Get(firebaseUIDKey)
+	if !ok {
+		return "", false
+	}
+
+	firebaseUID, ok := value.(string)
+	return firebaseUID, ok
 }

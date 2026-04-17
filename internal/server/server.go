@@ -53,6 +53,8 @@ func New(cfg *config.Config) (*Server, error) {
 	resourceOwnershipRepo := dbresourceownership.NewRepository(db)
 	jobRunsRepo := dbjobruns.NewRepository(db)
 	createUserService := appiam.NewCreateUserService(userRepo)
+	customClaimsService := appiam.NewCustomClaimsService(authenticator)
+	syncAuthService := appiam.NewSyncAuthService(userRepo, customClaimsService)
 	txRunner := dbtxrunner.New(db, domainevents.NoopPublisher{})
 	createPropertyService := appproperty.NewCreatePropertyService(propertyRepo, txRunner)
 	jobTriggerService := appjobs.NewTriggerService(jobRunsRepo, nil, cfg.App.SchedulerJobTimeout, cfg.App.SchedulerMaxRetries)
@@ -60,7 +62,7 @@ func New(cfg *config.Config) (*Server, error) {
 	engine := router.New(cfg.App, logger, db, authenticator, userRepo, router.AuthorizationRepositories{
 		Properties:        propertyRepo,
 		ResourceOwnership: resourceOwnershipRepo,
-	}, createUserService, jobTriggerService, propertyQueryRepo, createPropertyService)
+	}, createUserService, syncAuthService, jobTriggerService, propertyQueryRepo, createPropertyService)
 
 	return &Server{
 		httpServer: &http.Server{
