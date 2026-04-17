@@ -5,6 +5,8 @@ import "net/http"
 const (
 	// CodeInternalServerError identifies unexpected server failures.
 	CodeInternalServerError = "INTERNAL_SERVER_ERROR"
+	// CodeBadRequest identifies malformed client requests.
+	CodeBadRequest = "BAD_REQUEST"
 	// CodeUnauthorized identifies requests without valid authentication.
 	CodeUnauthorized = "UNAUTHORIZED"
 	// CodeInvalidFirebaseToken identifies requests with an invalid Firebase ID token.
@@ -49,6 +51,12 @@ var (
 		CodeInternalServerError,
 		http.StatusInternalServerError,
 		"Internal server error.",
+	)
+	// ErrBadRequest is returned when the request payload is malformed.
+	ErrBadRequest = New(
+		CodeBadRequest,
+		http.StatusBadRequest,
+		"Bad request.",
 	)
 	// ErrUnauthorized is the default application error for authentication failures.
 	ErrUnauthorized = New(

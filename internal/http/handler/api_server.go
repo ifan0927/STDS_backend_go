@@ -172,7 +172,7 @@ func (s *APIServer) ListProperties(c *gin.Context) {
 func (s *APIServer) CreateProperty(c *gin.Context) {
 	var request api.CreatePropertyRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
-		c.Error(apperr.ErrValidationElectricityPriceInvalid.WithCause(err))
+		c.Error(apperr.ErrBadRequest.WithCause(err))
 		return
 	}
 
@@ -318,7 +318,7 @@ func (s *APIServer) ListUsers(c *gin.Context, params api.ListUsersParams) { writ
 func (s *APIServer) CreateUser(c *gin.Context) {
 	var request api.CreateUserRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
-		c.Error(apperr.ErrValidationEmailInvalid.WithCause(err))
+		c.Error(apperr.ErrBadRequest.WithCause(err))
 		return
 	}
 

@@ -64,8 +64,6 @@ func New(
 	engine.GET("/openapi.yaml", docsHandler.OpenAPI)
 	engine.GET("/scalar", docsHandler.Scalar)
 
-	engine.GET("/api/v1/healthz", healthHandler.Live)
-
 	api.RegisterHandlersWithOptions(engine, handler.NewAPIServer(userRepo, createUserService, jobTriggerService, propertyQueryRepo, createPropertyService), api.GinServerOptions{
 		BaseURL: "/api/v1",
 		Middlewares: []api.MiddlewareFunc{

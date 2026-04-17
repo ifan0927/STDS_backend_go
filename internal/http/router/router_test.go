@@ -147,6 +147,31 @@ func TestCreateUserRejectsDuplicateEmail(t *testing.T) {
 	}
 }
 
+func TestCreateUserRejectsMalformedJSONAsBadRequest(t *testing.T) {
+	repo := fakeUserRepo{}
+	engine := newTestEngine(repo, fakeAuthenticator{}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users", strings.NewReader(`{"email":`))
+	req.Header.Set("Authorization", "Bearer valid-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if payload["error_code"] != "BAD_REQUEST" {
+		t.Fatalf("expected error_code BAD_REQUEST, got %v", payload["error_code"])
+	}
+}
+
 func TestGetPropertyAllowsOwnerAccessToOwnedProperty(t *testing.T) {
 	repo := fakeUserRepo{role: "owner", assignedPropertyIDs: []string{"property-2"}}
 	engine := newTestEngine(repo, fakeAuthenticator{role: "owner", assignedPropertyIDs: []string{"property-2"}}, fakePropertyRepo{
@@ -163,6 +188,31 @@ func TestGetPropertyAllowsOwnerAccessToOwnedProperty(t *testing.T) {
 
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestCreatePropertyRejectsMalformedJSONAsBadRequest(t *testing.T) {
+	repo := fakeUserRepo{}
+	engine := newTestEngine(repo, fakeAuthenticator{}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/properties", strings.NewReader(`{"name":`))
+	req.Header.Set("Authorization", "Bearer valid-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if payload["error_code"] != "BAD_REQUEST" {
+		t.Fatalf("expected error_code BAD_REQUEST, got %v", payload["error_code"])
 	}
 }
 
