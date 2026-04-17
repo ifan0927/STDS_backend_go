@@ -16,6 +16,7 @@ import (
 
 	appiam "stds_backend/internal/application/iam"
 	appjobs "stds_backend/internal/application/jobs"
+	appnotification "stds_backend/internal/application/notification"
 	appproperty "stds_backend/internal/application/property"
 	"stds_backend/internal/config"
 	dbjobruns "stds_backend/internal/platform/database/jobruns"
@@ -25,6 +26,7 @@ import (
 	dbtxrunner "stds_backend/internal/platform/database/txrunner"
 	"stds_backend/internal/platform/database/users"
 	platformfirebase "stds_backend/internal/platform/firebase"
+	platformnotification "stds_backend/internal/platform/notification"
 )
 
 func TestGetPropertyUsesFormalAPIWiring(t *testing.T) {
@@ -164,7 +166,6 @@ func TestCreateUserReturnsCreatedUser(t *testing.T) {
 	engine := newTestEngine(repo, fakeAuthenticator{}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/users", strings.NewReader(`{
-		"firebase_uid":"uid-new",
 		"email":"newstaff@studio.com",
 		"name":"New Staff",
 		"role":"staff"
@@ -194,7 +195,6 @@ func TestCreateUserRejectsDuplicateEmail(t *testing.T) {
 	engine := newTestEngine(repo, fakeAuthenticator{}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/users", strings.NewReader(`{
-		"firebase_uid":"uid-new",
 		"email":"existing@studio.com",
 		"name":"Existing",
 		"role":"staff"
@@ -447,6 +447,8 @@ type fakeAuthenticator struct {
 	assignedPropertyIDs []string
 	setCustomClaimsErr  error
 	createUserErr       error
+	resetLink           string
+	resetLinkErr        error
 	deleteUserErr       error
 }
 
@@ -481,6 +483,17 @@ func (f fakeAuthenticator) CreateEmailPasswordUser(_ context.Context, _ string, 
 	}
 
 	return "uid-1", nil
+}
+
+func (f fakeAuthenticator) GeneratePasswordResetLink(_ context.Context, _ string) (string, error) {
+	if f.resetLinkErr != nil {
+		return "", f.resetLinkErr
+	}
+	if f.resetLink != "" {
+		return f.resetLink, nil
+	}
+
+	return "https://reset.example.com", nil
 }
 
 func (f fakeAuthenticator) DeleteUser(_ context.Context, _ string) error {
@@ -572,6 +585,10 @@ func (f fakeUserRepo) Create(_ context.Context, params users.CreateUserParams) (
 		UpdatedAt:           time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
 		Version:             1,
 	}, nil
+}
+
+func (fakeUserRepo) DeleteByID(_ context.Context, _ string) error {
+	return nil
 }
 
 func (f fakePropertyRepo) FindOwnerIDByPropertyID(_ context.Context, propertyID string) (string, error) {
@@ -692,12 +709,18 @@ func newTestEngine(userRepo fakeUserRepo, authenticator fakeAuthenticator, prope
 			Properties:        propertyRepo,
 			ResourceOwnership: ownershipRepo,
 		},
-		appiam.NewCreateUserService(userRepo, authenticator),
+		appiam.NewCreateUserService(userRepo, authenticator, appnotification.NewService(&testNotificationSender{})),
 		appiam.NewSyncAuthService(userRepo, appiam.NewCustomClaimsService(authenticator)),
 		appjobs.NewTriggerService(jobRunsRepo, nil, time.Minute, 3),
 		fakePropertyQueryRepo{},
 		appproperty.NewCreatePropertyService(propertyRepo, dbtxrunner.New(nil, nil)),
 	)
+}
+
+type testNotificationSender struct{}
+
+func (*testNotificationSender) Send(_ context.Context, _ platformnotification.SendCommand) error {
+	return nil
 }
 
 func firstAssignedPropertyIDs(assigned []string) []string {

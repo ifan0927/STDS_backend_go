@@ -80,6 +80,7 @@ post:
   summary: 建立使用者帳號
   description: >
     由後端建立 Firebase Auth email/password 帳號，並同步建立後端 DB 使用者記錄。
+    建立成功後，後端會向 Firebase 產生 password reset URL，並透過 Resend 寄出設定密碼信。
 
     - 建立工作室成員：x-required-role: admin
 
@@ -170,7 +171,7 @@ post:
                 error_code: FORBIDDEN
                 message: 權限不足
     '409':
-      description: Email 或 firebase_uid 已存在
+      description: Email 已存在
       content:
         application/json:
           schema:
@@ -181,8 +182,3 @@ post:
               value:
                 error_code: EMAIL_ALREADY_EXISTS
                 message: 此 Email 已被使用
-            firebase_uid_exists:
-              summary: firebase_uid 重複
-              value:
-                error_code: FIREBASE_UID_ALREADY_EXISTS
-                message: 此 Firebase UID 已被使用

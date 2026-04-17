@@ -15,6 +15,7 @@ type Config struct {
 	App      AppConfig
 	DB       DatabaseConfig
 	Firebase FirebaseConfig
+	Notify   NotificationConfig
 }
 
 // AppConfig contains HTTP service settings and process metadata.
@@ -38,10 +39,19 @@ type DatabaseConfig struct {
 
 // FirebaseConfig contains Firebase authentication client settings.
 type FirebaseConfig struct {
-	ProjectID        string
-	CredentialsFile  string
-	AuthEmulatorHost string
-	TestUID          string
+	ProjectID                string
+	CredentialsFile          string
+	AuthEmulatorHost         string
+	TestUID                  string
+	PasswordResetRedirectURL string
+}
+
+// NotificationConfig contains outbound notification provider settings.
+type NotificationConfig struct {
+	ResendAPIKey    string
+	ResendFromEmail string
+	ResendFromName  string
+	ResendBaseURL   string
 }
 
 // UsesAuthEmulator reports whether Firebase auth calls should target the local
@@ -71,10 +81,17 @@ func Load() (*Config, error) {
 			URL: os.Getenv("DATABASE_URL"),
 		},
 		Firebase: FirebaseConfig{
-			ProjectID:        os.Getenv("FIREBASE_PROJECT_ID"),
-			CredentialsFile:  os.Getenv("FIREBASE_CREDENTIALS_FILE"),
-			AuthEmulatorHost: os.Getenv("FIREBASE_AUTH_EMULATOR_HOST"),
-			TestUID:          os.Getenv("FIREBASE_TEST_UID"),
+			ProjectID:                os.Getenv("FIREBASE_PROJECT_ID"),
+			CredentialsFile:          os.Getenv("FIREBASE_CREDENTIALS_FILE"),
+			AuthEmulatorHost:         os.Getenv("FIREBASE_AUTH_EMULATOR_HOST"),
+			TestUID:                  os.Getenv("FIREBASE_TEST_UID"),
+			PasswordResetRedirectURL: os.Getenv("FIREBASE_PASSWORD_RESET_REDIRECT_URL"),
+		},
+		Notify: NotificationConfig{
+			ResendAPIKey:    os.Getenv("RESEND_API_KEY"),
+			ResendFromEmail: os.Getenv("RESEND_FROM_EMAIL"),
+			ResendFromName:  getEnv("RESEND_FROM_NAME", "STDS"),
+			ResendBaseURL:   getEnv("RESEND_BASE_URL", "https://api.resend.com"),
 		},
 	}
 

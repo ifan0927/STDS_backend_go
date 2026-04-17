@@ -38,12 +38,14 @@ type ClaimsWriter interface {
 // UserProvisioner creates and deletes Firebase Auth users for backend-managed onboarding.
 type UserProvisioner interface {
 	CreateEmailPasswordUser(ctx context.Context, email string, name string) (string, error)
+	GeneratePasswordResetLink(ctx context.Context, email string) (string, error)
 	DeleteUser(ctx context.Context, firebaseUID string) error
 }
 
 // Client is the Firebase-backed implementation of Authenticator.
 type Client struct {
-	auth *firebaseauth.Client
+	auth                     *firebaseauth.Client
+	passwordResetRedirectURL string
 }
 
 // New creates a Firebase auth client from the provided configuration.
@@ -78,7 +80,10 @@ func New(ctx context.Context, cfg config.FirebaseConfig) (*Client, error) {
 		return nil, fmt.Errorf("create firebase auth client: %w", err)
 	}
 
-	return &Client{auth: authClient}, nil
+	return &Client{
+		auth:                     authClient,
+		passwordResetRedirectURL: cfg.PasswordResetRedirectURL,
+	}, nil
 }
 
 func shouldLoadCredentials(cfg config.FirebaseConfig) bool {
@@ -135,6 +140,27 @@ func (c *Client) CreateEmailPasswordUser(ctx context.Context, email string, name
 	}
 
 	return record.UID, nil
+}
+
+// GeneratePasswordResetLink returns the Firebase-generated password reset URL.
+func (c *Client) GeneratePasswordResetLink(ctx context.Context, email string) (string, error) {
+	if c.passwordResetRedirectURL == "" {
+		link, err := c.auth.PasswordResetLink(ctx, email)
+		if err != nil {
+			return "", fmt.Errorf("generate password reset link: %w", err)
+		}
+
+		return link, nil
+	}
+
+	link, err := c.auth.PasswordResetLinkWithSettings(ctx, email, &firebaseauth.ActionCodeSettings{
+		URL: c.passwordResetRedirectURL,
+	})
+	if err != nil {
+		return "", fmt.Errorf("generate password reset link with settings: %w", err)
+	}
+
+	return link, nil
 }
 
 // DeleteUser removes a Firebase Auth user by UID.

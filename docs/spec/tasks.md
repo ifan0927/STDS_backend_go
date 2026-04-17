@@ -406,7 +406,7 @@ T-14~T-19 ── T-20（整合測試）
 - **產出**: POST /auth/sync、GET/POST /users、GET /users/me、GET/PATCH /users/{id}、POST /users/{id}/property-assignments
 - **完成條件**:
   - [ ] POST /auth/sync：Firebase ID token 有效時回傳使用者資料（id, firebase_uid, role, assigned_property_ids）；token 無效時回傳 401 `INVALID_FIREBASE_TOKEN`；firebase_uid 在 DB 不存在時回傳 404 `USER_NOT_FOUND`
-  - [ ] POST /users：firebase_uid 重複時回傳 409 `FIREBASE_UID_ALREADY_EXISTS`；email 重複時回傳 409 `EMAIL_ALREADY_EXISTS`；staff 嘗試建立成員帳號時回傳 403 `FORBIDDEN`
+  - [ ] POST /users：email 重複時回傳 409 `EMAIL_ALREADY_EXISTS`；staff 嘗試建立成員帳號時回傳 403 `FORBIDDEN`；建立成功後由後端向 Firebase 產生 password reset link，並透過 Resend 寄送設定密碼信
   - [ ] PATCH /users/{id}：admin 降低自己角色時回傳 422 `ADMIN_CANNOT_DOWNGRADE_SELF`；不含 password 欄位（密碼由 Firebase 管理）
   - [ ] POST /users/{id}/property-assignments：指派成功後呼叫 Firebase Admin SDK 更新 Custom Claims；指派給 owner 角色時回傳 422 `CANNOT_ASSIGN_PROPERTY_TO_OWNER`
 

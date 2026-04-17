@@ -6,15 +6,18 @@ import (
 	"testing"
 	"time"
 
+	appnotification "stds_backend/internal/application/notification"
 	"stds_backend/internal/platform/database/users"
 	platformfirebase "stds_backend/internal/platform/firebase"
+	platformnotification "stds_backend/internal/platform/notification"
 )
 
 func TestCreateUserServiceExecute(t *testing.T) {
 	t.Run("creates user", func(t *testing.T) {
-		repo := fakeUserRepo{}
-		provisioner := &fakeUserProvisioner{firebaseUID: "uid-new"}
-		service := NewCreateUserService(repo, provisioner)
+		repo := &fakeUserRepo{}
+		provisioner := &fakeUserProvisioner{firebaseUID: "uid-new", resetLink: "https://reset.example.com"}
+		sender := &fakeNotificationSender{}
+		service := NewCreateUserService(repo, provisioner, appnotification.NewService(sender))
 
 		user, err := service.Execute(context.Background(), CreateUserInput{
 			Email: "newstaff@studio.com",
@@ -32,10 +35,14 @@ func TestCreateUserServiceExecute(t *testing.T) {
 		if user.Email != "newstaff@studio.com" {
 			t.Fatalf("expected email to be persisted, got %q", user.Email)
 		}
+
+		if sender.lastEmail == nil || sender.lastEmail.To[0] != "newstaff@studio.com" {
+			t.Fatal("expected password reset email to be sent")
+		}
 	})
 
 	t.Run("rejects invalid email", func(t *testing.T) {
-		service := NewCreateUserService(fakeUserRepo{}, &fakeUserProvisioner{firebaseUID: "uid-new"})
+		service := NewCreateUserService(&fakeUserRepo{}, &fakeUserProvisioner{firebaseUID: "uid-new"}, nil)
 
 		_, err := service.Execute(context.Background(), CreateUserInput{
 			Email: "invalid-email",
@@ -48,7 +55,7 @@ func TestCreateUserServiceExecute(t *testing.T) {
 	})
 
 	t.Run("maps firebase duplicate email conflict", func(t *testing.T) {
-		service := NewCreateUserService(fakeUserRepo{}, &fakeUserProvisioner{createErr: platformfirebase.ErrEmailAlreadyExists})
+		service := NewCreateUserService(&fakeUserRepo{}, &fakeUserProvisioner{createErr: platformfirebase.ErrEmailAlreadyExists}, nil)
 
 		_, err := service.Execute(context.Background(), CreateUserInput{
 			Email: "existing@studio.com",
@@ -62,7 +69,7 @@ func TestCreateUserServiceExecute(t *testing.T) {
 
 	t.Run("maps duplicate email conflict", func(t *testing.T) {
 		provisioner := &fakeUserProvisioner{firebaseUID: "uid-new"}
-		service := NewCreateUserService(fakeUserRepo{createErr: users.ErrEmailAlreadyExists}, provisioner)
+		service := NewCreateUserService(&fakeUserRepo{createErr: users.ErrEmailAlreadyExists}, provisioner, nil)
 
 		_, err := service.Execute(context.Background(), CreateUserInput{
 			Email: "existing@studio.com",
@@ -83,7 +90,7 @@ func TestCreateUserServiceExecute(t *testing.T) {
 			firebaseUID: "uid-new",
 			deleteErr:   errors.New("delete failed"),
 		}
-		service := NewCreateUserService(fakeUserRepo{createErr: users.ErrEmailAlreadyExists}, provisioner)
+		service := NewCreateUserService(&fakeUserRepo{createErr: users.ErrEmailAlreadyExists}, provisioner, nil)
 
 		_, err := service.Execute(context.Background(), CreateUserInput{
 			Email: "existing@studio.com",
@@ -94,11 +101,65 @@ func TestCreateUserServiceExecute(t *testing.T) {
 			t.Fatalf("expected internal error, got %v", err)
 		}
 	})
+
+	t.Run("rolls back when password reset link generation fails", func(t *testing.T) {
+		repo := &fakeUserRepo{}
+		provisioner := &fakeUserProvisioner{
+			firebaseUID:  "uid-new",
+			resetLinkErr: errors.New("firebase down"),
+		}
+		service := NewCreateUserService(repo, provisioner, nil)
+
+		_, err := service.Execute(context.Background(), CreateUserInput{
+			Email: "newstaff@studio.com",
+			Name:  "New Staff",
+			Role:  "staff",
+		})
+		if err == nil || err.Error() != "Internal server error." {
+			t.Fatalf("expected internal error, got %v", err)
+		}
+
+		if provisioner.deletedUID != "uid-new" {
+			t.Fatalf("expected firebase user cleanup, got %q", provisioner.deletedUID)
+		}
+		if repo.deletedID != "00000000-0000-0000-0000-000000000003" {
+			t.Fatalf("expected user cleanup, got %q", repo.deletedID)
+		}
+	})
+
+	t.Run("rolls back when notification fails", func(t *testing.T) {
+		repo := &fakeUserRepo{}
+		provisioner := &fakeUserProvisioner{
+			firebaseUID: "uid-new",
+			resetLink:   "https://reset.example.com",
+		}
+		service := NewCreateUserService(repo, provisioner, appnotification.NewService(&fakeNotificationSender{
+			sendErr: errors.New("resend down"),
+		}))
+
+		_, err := service.Execute(context.Background(), CreateUserInput{
+			Email: "newstaff@studio.com",
+			Name:  "New Staff",
+			Role:  "staff",
+		})
+		if err == nil || err.Error() != "Internal server error." {
+			t.Fatalf("expected internal error, got %v", err)
+		}
+
+		if provisioner.deletedUID != "uid-new" {
+			t.Fatalf("expected firebase user cleanup, got %q", provisioner.deletedUID)
+		}
+		if repo.deletedID != "00000000-0000-0000-0000-000000000003" {
+			t.Fatalf("expected user cleanup, got %q", repo.deletedID)
+		}
+	})
 }
 
 type fakeUserProvisioner struct {
 	firebaseUID  string
 	createErr    error
+	resetLink    string
+	resetLinkErr error
 	deleteErr    error
 	createdEmail string
 	deletedUID   string
@@ -117,6 +178,17 @@ func (f *fakeUserProvisioner) CreateEmailPasswordUser(_ context.Context, email s
 	return f.firebaseUID, nil
 }
 
+func (f *fakeUserProvisioner) GeneratePasswordResetLink(_ context.Context, _ string) (string, error) {
+	if f.resetLinkErr != nil {
+		return "", f.resetLinkErr
+	}
+	if f.resetLink == "" {
+		f.resetLink = "https://reset.example.com"
+	}
+
+	return f.resetLink, nil
+}
+
 func (f *fakeUserProvisioner) DeleteUser(_ context.Context, firebaseUID string) error {
 	f.deletedUID = firebaseUID
 	return f.deleteErr
@@ -124,6 +196,7 @@ func (f *fakeUserProvisioner) DeleteUser(_ context.Context, firebaseUID string) 
 
 type fakeUserRepo struct {
 	createErr error
+	deletedID string
 }
 
 func (f fakeUserRepo) FindByFirebaseUID(_ context.Context, firebaseUID string) (*users.User, error) {
@@ -151,4 +224,26 @@ func (f fakeUserRepo) Create(_ context.Context, params users.CreateUserParams) (
 		UpdatedAt:           time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
 		Version:             1,
 	}, nil
+}
+
+func (f *fakeUserRepo) DeleteByID(_ context.Context, id string) error {
+	f.deletedID = id
+	return nil
+}
+
+type fakeNotificationSender struct {
+	sendErr   error
+	lastEmail *platformnotification.EmailMessage
+}
+
+func (f *fakeNotificationSender) Send(_ context.Context, command platformnotification.SendCommand) error {
+	if f.sendErr != nil {
+		return f.sendErr
+	}
+	if command.Email != nil {
+		message := *command.Email
+		f.lastEmail = &message
+	}
+
+	return nil
 }

@@ -47,6 +47,7 @@ type Repository interface {
 	FindByFirebaseUID(ctx context.Context, firebaseUID string) (*User, error)
 	FindByID(ctx context.Context, id string) (*User, error)
 	Create(ctx context.Context, params CreateUserParams) (*User, error)
+	DeleteByID(ctx context.Context, id string) error
 }
 
 // SQLRepository loads users from PostgreSQL.
@@ -145,6 +146,33 @@ RETURNING
 	}
 
 	return user, nil
+}
+
+// DeleteByID soft-deletes the user row by id.
+func (r *SQLRepository) DeleteByID(ctx context.Context, id string) error {
+	const query = `
+UPDATE users
+SET deleted_at = now(),
+	updated_at = now(),
+	version = version + 1
+WHERE id = $1
+  AND deleted_at IS NULL
+`
+
+	result, err := r.db.ExecContext(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("delete user by id: %w", err)
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete user rows affected: %w", err)
+	}
+	if affected == 0 {
+		return ErrNotFound
+	}
+
+	return nil
 }
 
 const selectUserColumns = `

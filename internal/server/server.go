@@ -9,9 +9,9 @@ import (
 
 	appiam "stds_backend/internal/application/iam"
 	appjobs "stds_backend/internal/application/jobs"
+	appnotification "stds_backend/internal/application/notification"
 	appproperty "stds_backend/internal/application/property"
 	"stds_backend/internal/config"
-	domainevents "stds_backend/internal/domain/events"
 	"stds_backend/internal/http/router"
 	"stds_backend/internal/platform/database"
 	dbjobruns "stds_backend/internal/platform/database/jobruns"
@@ -20,8 +20,10 @@ import (
 	dbresourceownership "stds_backend/internal/platform/database/resourceownership"
 	dbtxrunner "stds_backend/internal/platform/database/txrunner"
 	dbusers "stds_backend/internal/platform/database/users"
+	"stds_backend/internal/platform/eventbus"
 	platformfirebase "stds_backend/internal/platform/firebase"
 	"stds_backend/internal/platform/logging"
+	platformnotification "stds_backend/internal/platform/notification"
 )
 
 // Server owns the application's HTTP server and process-level dependencies.
@@ -52,10 +54,21 @@ func New(cfg *config.Config) (*Server, error) {
 	propertyQueryRepo := dbpropertyquery.NewRepository(db)
 	resourceOwnershipRepo := dbresourceownership.NewRepository(db)
 	jobRunsRepo := dbjobruns.NewRepository(db)
-	createUserService := appiam.NewCreateUserService(userRepo, authenticator)
+
+	emailSender, err := platformnotification.NewResendSender(cfg.Notify)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	dispatcher := platformnotification.NewDispatcher(emailSender, platformnotification.StubLineSender{})
+	notificationService := appnotification.NewService(dispatcher)
+	bus := eventbus.New()
+	eventbus.Subscribe(bus, notificationService.HandleUserPasswordResetRequested)
+
+	createUserService := appiam.NewCreateUserService(userRepo, authenticator, notificationService)
 	customClaimsService := appiam.NewCustomClaimsService(authenticator)
 	syncAuthService := appiam.NewSyncAuthService(userRepo, customClaimsService)
-	txRunner := dbtxrunner.New(db, domainevents.NoopPublisher{})
+	txRunner := dbtxrunner.New(db, bus)
 	createPropertyService := appproperty.NewCreatePropertyService(propertyRepo, txRunner)
 	jobTriggerService := appjobs.NewTriggerService(jobRunsRepo, nil, cfg.App.SchedulerJobTimeout, cfg.App.SchedulerMaxRetries)
 

@@ -18,6 +18,32 @@ const (
 	SchedulerKeyScopes = "SchedulerKey.Scopes"
 )
 
+// Defines values for AttachmentResponsePhotoStage.
+const (
+	AttachmentResponsePhotoStageAfter  AttachmentResponsePhotoStage = "after"
+	AttachmentResponsePhotoStageBefore AttachmentResponsePhotoStage = "before"
+	AttachmentResponsePhotoStageOther  AttachmentResponsePhotoStage = "other"
+)
+
+// Defines values for AttachmentUploadURLRequestContentType.
+const (
+	Applicationpdf AttachmentUploadURLRequestContentType = "application/pdf"
+	Imageheic      AttachmentUploadURLRequestContentType = "image/heic"
+	Imagejpeg      AttachmentUploadURLRequestContentType = "image/jpeg"
+	Imagepng       AttachmentUploadURLRequestContentType = "image/png"
+)
+
+// Defines values for AttachmentUploadURLRequestResourceType.
+const (
+	Bill          AttachmentUploadURLRequestResourceType = "bill"
+	JournalLog    AttachmentUploadURLRequestResourceType = "journal_log"
+	Lease         AttachmentUploadURLRequestResourceType = "lease"
+	Property      AttachmentUploadURLRequestResourceType = "property"
+	RepairRequest AttachmentUploadURLRequestResourceType = "repair_request"
+	Room          AttachmentUploadURLRequestResourceType = "room"
+	Tenant        AttachmentUploadURLRequestResourceType = "tenant"
+)
+
 // Defines values for BillResponsePaymentMethod.
 const (
 	BillResponsePaymentMethodCash     BillResponsePaymentMethod = "cash"
@@ -79,9 +105,8 @@ const (
 
 // Defines values for LeaseResponseDepositStatus.
 const (
-	LeaseResponseDepositStatusDeducted   LeaseResponseDepositStatus = "deducted"
 	LeaseResponseDepositStatusHeld       LeaseResponseDepositStatus = "held"
-	LeaseResponseDepositStatusRefunded   LeaseResponseDepositStatus = "refunded"
+	LeaseResponseDepositStatusSettled    LeaseResponseDepositStatus = "settled"
 	LeaseResponseDepositStatusWrittenOff LeaseResponseDepositStatus = "written_off"
 )
 
@@ -98,6 +123,13 @@ const (
 	RecordPaymentRequestPaymentMethodCash     RecordPaymentRequestPaymentMethod = "cash"
 	RecordPaymentRequestPaymentMethodOther    RecordPaymentRequestPaymentMethod = "other"
 	RecordPaymentRequestPaymentMethodTransfer RecordPaymentRequestPaymentMethod = "transfer"
+)
+
+// Defines values for RegisterRepairRequestAttachmentRequestPhotoStage.
+const (
+	RegisterRepairRequestAttachmentRequestPhotoStageAfter  RegisterRepairRequestAttachmentRequestPhotoStage = "after"
+	RegisterRepairRequestAttachmentRequestPhotoStageBefore RegisterRepairRequestAttachmentRequestPhotoStage = "before"
+	RegisterRepairRequestAttachmentRequestPhotoStageOther  RegisterRepairRequestAttachmentRequestPhotoStage = "other"
 )
 
 // Defines values for RepairRequestResponseStatus.
@@ -126,19 +158,6 @@ const (
 const (
 	TenantResponseStatusActive   TenantResponseStatus = "active"
 	TenantResponseStatusInactive TenantResponseStatus = "inactive"
-)
-
-// Defines values for TerminateLeaseRequestDepositAction.
-const (
-	TerminateLeaseRequestDepositActionDeduct TerminateLeaseRequestDepositAction = "deduct"
-	TerminateLeaseRequestDepositActionRefund TerminateLeaseRequestDepositAction = "refund"
-)
-
-// Defines values for UpdateDepositRequestAction.
-const (
-	UpdateDepositRequestActionDeduct   UpdateDepositRequestAction = "deduct"
-	UpdateDepositRequestActionRefund   UpdateDepositRequestAction = "refund"
-	UpdateDepositRequestActionWriteOff UpdateDepositRequestAction = "write_off"
 )
 
 // Defines values for UpdateUserRequestRole.
@@ -218,6 +237,46 @@ const (
 type AssignRepairRequest struct {
 	// AssignedTo 被指派的員工 user ID
 	AssignedTo openapi_types.UUID `json:"assigned_to"`
+}
+
+// AttachmentListResponse defines model for AttachmentListResponse.
+type AttachmentListResponse struct {
+	Data *[]AttachmentResponse `json:"data,omitempty"`
+}
+
+// AttachmentResponse defines model for AttachmentResponse.
+type AttachmentResponse struct {
+	CreatedAt  *time.Time                    `json:"created_at,omitempty"`
+	FileName   *string                       `json:"file_name,omitempty"`
+	Id         *openapi_types.UUID           `json:"id,omitempty"`
+	ObjectPath *string                       `json:"object_path,omitempty"`
+	PhotoStage *AttachmentResponsePhotoStage `json:"photo_stage"`
+	SortOrder  *int                          `json:"sort_order"`
+	UploadedBy *openapi_types.UUID           `json:"uploaded_by"`
+}
+
+// AttachmentResponsePhotoStage defines model for AttachmentResponse.PhotoStage.
+type AttachmentResponsePhotoStage string
+
+// AttachmentUploadURLRequest defines model for AttachmentUploadURLRequest.
+type AttachmentUploadURLRequest struct {
+	ContentType  AttachmentUploadURLRequestContentType  `json:"content_type"`
+	FileName     string                                 `json:"file_name"`
+	ResourceId   openapi_types.UUID                     `json:"resource_id"`
+	ResourceType AttachmentUploadURLRequestResourceType `json:"resource_type"`
+}
+
+// AttachmentUploadURLRequestContentType defines model for AttachmentUploadURLRequest.ContentType.
+type AttachmentUploadURLRequestContentType string
+
+// AttachmentUploadURLRequestResourceType defines model for AttachmentUploadURLRequest.ResourceType.
+type AttachmentUploadURLRequestResourceType string
+
+// AttachmentUploadURLResponse defines model for AttachmentUploadURLResponse.
+type AttachmentUploadURLResponse struct {
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	Nonce     *string    `json:"nonce,omitempty"`
+	UploadUrl *string    `json:"upload_url,omitempty"`
 }
 
 // BillListResponse defines model for BillListResponse.
@@ -453,7 +512,9 @@ type LeaseListResponse struct {
 type LeaseResponse struct {
 	CreatedAt              *time.Time                  `json:"created_at,omitempty"`
 	DepositAmount          *int                        `json:"deposit_amount,omitempty"`
+	DepositDeductionAmount *int                        `json:"deposit_deduction_amount"`
 	DepositDeductionReason *string                     `json:"deposit_deduction_reason"`
+	DepositRefundAmount    *int                        `json:"deposit_refund_amount"`
 	DepositStatus          *LeaseResponseDepositStatus `json:"deposit_status,omitempty"`
 	EndDate                *openapi_types.Date         `json:"end_date,omitempty"`
 	Id                     *openapi_types.UUID         `json:"id,omitempty"`
@@ -512,6 +573,23 @@ type RecordPaymentRequest struct {
 
 // RecordPaymentRequestPaymentMethod defines model for RecordPaymentRequest.PaymentMethod.
 type RecordPaymentRequestPaymentMethod string
+
+// RegisterAttachmentRequest defines model for RegisterAttachmentRequest.
+type RegisterAttachmentRequest struct {
+	FileName string `json:"file_name"`
+	Nonce    string `json:"nonce"`
+}
+
+// RegisterRepairRequestAttachmentRequest defines model for RegisterRepairRequestAttachmentRequest.
+type RegisterRepairRequestAttachmentRequest struct {
+	FileName   string                                            `json:"file_name"`
+	Nonce      string                                            `json:"nonce"`
+	PhotoStage *RegisterRepairRequestAttachmentRequestPhotoStage `json:"photo_stage,omitempty"`
+	SortOrder  *int                                              `json:"sort_order,omitempty"`
+}
+
+// RegisterRepairRequestAttachmentRequestPhotoStage defines model for RegisterRepairRequestAttachmentRequest.PhotoStage.
+type RegisterRepairRequestAttachmentRequestPhotoStage string
 
 // RepairRequestListResponse defines model for RepairRequestListResponse.
 type RepairRequestListResponse struct {
@@ -608,25 +686,24 @@ type TenantResponseStatus string
 
 // TerminateLeaseRequest defines model for TerminateLeaseRequest.
 type TerminateLeaseRequest struct {
-	DepositAction TerminateLeaseRequestDepositAction `json:"deposit_action"`
+	DeductionAmount *int `json:"deduction_amount,omitempty"`
 
-	// DepositDeductionReason 扣款時必填（BR-10）
+	// DepositDeductionReason deduction_amount 大於 0 時必填（BR-10）
 	DepositDeductionReason *string `json:"deposit_deduction_reason,omitempty"`
+	RefundAmount           *int    `json:"refund_amount,omitempty"`
 }
-
-// TerminateLeaseRequestDepositAction defines model for TerminateLeaseRequest.DepositAction.
-type TerminateLeaseRequestDepositAction string
 
 // UpdateDepositRequest defines model for UpdateDepositRequest.
 type UpdateDepositRequest struct {
-	Action UpdateDepositRequestAction `json:"action"`
+	// DeductionAmount 扣款金額；有值時須提供 deduction_reason
+	DeductionAmount *int `json:"deduction_amount,omitempty"`
 
-	// Reason 扣款或 write_off 時必填
-	Reason *string `json:"reason,omitempty"`
+	// DeductionReason deduction_amount 大於 0 時必填（BR-10）
+	DeductionReason *string `json:"deduction_reason,omitempty"`
+
+	// RefundAmount 退還金額；可與 deduction_amount 併用以表達部分扣款後退餘額
+	RefundAmount *int `json:"refund_amount,omitempty"`
 }
-
-// UpdateDepositRequestAction defines model for UpdateDepositRequest.Action.
-type UpdateDepositRequestAction string
 
 // UpdateJournalLogRequest defines model for UpdateJournalLogRequest.
 type UpdateJournalLogRequest struct {
@@ -838,6 +915,12 @@ type ListUsersParams struct {
 // ListUsersParamsRole defines parameters for ListUsers.
 type ListUsersParamsRole string
 
+// CreateAttachmentUploadURLJSONRequestBody defines body for CreateAttachmentUploadURL for application/json ContentType.
+type CreateAttachmentUploadURLJSONRequestBody = AttachmentUploadURLRequest
+
+// CreateBillAttachmentJSONRequestBody defines body for CreateBillAttachment for application/json ContentType.
+type CreateBillAttachmentJSONRequestBody = RegisterAttachmentRequest
+
 // SubmitBillMeterJSONRequestBody defines body for SubmitBillMeter for application/json ContentType.
 type SubmitBillMeterJSONRequestBody = RecordMeterRequest
 
@@ -850,11 +933,17 @@ type CreateJournalLogJSONRequestBody = CreateJournalLogRequest
 // UpdateJournalLogJSONRequestBody defines body for UpdateJournalLog for application/json ContentType.
 type UpdateJournalLogJSONRequestBody = UpdateJournalLogRequest
 
+// CreateJournalLogAttachmentJSONRequestBody defines body for CreateJournalLogAttachment for application/json ContentType.
+type CreateJournalLogAttachmentJSONRequestBody = RegisterAttachmentRequest
+
 // CreateLeaseJSONRequestBody defines body for CreateLease for application/json ContentType.
 type CreateLeaseJSONRequestBody = CreateLeaseRequest
 
 // UpdateLeaseJSONRequestBody defines body for UpdateLease for application/json ContentType.
 type UpdateLeaseJSONRequestBody = UpdateLeaseRequest
+
+// CreateLeaseAttachmentJSONRequestBody defines body for CreateLeaseAttachment for application/json ContentType.
+type CreateLeaseAttachmentJSONRequestBody = RegisterAttachmentRequest
 
 // UpdateLeaseDepositJSONRequestBody defines body for UpdateLeaseDeposit for application/json ContentType.
 type UpdateLeaseDepositJSONRequestBody = UpdateDepositRequest
@@ -871,6 +960,9 @@ type CreatePropertyJSONRequestBody = CreatePropertyRequest
 // UpdatePropertyJSONRequestBody defines body for UpdateProperty for application/json ContentType.
 type UpdatePropertyJSONRequestBody = UpdatePropertyRequest
 
+// CreatePropertyAttachmentJSONRequestBody defines body for CreatePropertyAttachment for application/json ContentType.
+type CreatePropertyAttachmentJSONRequestBody = RegisterAttachmentRequest
+
 // CreatePropertyRoomJSONRequestBody defines body for CreatePropertyRoom for application/json ContentType.
 type CreatePropertyRoomJSONRequestBody = CreateRoomRequest
 
@@ -883,11 +975,17 @@ type UpdateRepairRequestJSONRequestBody = UpdateRepairRequestRequest
 // AssignRepairRequestJSONRequestBody defines body for AssignRepairRequest for application/json ContentType.
 type AssignRepairRequestJSONRequestBody = AssignRepairRequest
 
+// CreateRepairRequestAttachmentJSONRequestBody defines body for CreateRepairRequestAttachment for application/json ContentType.
+type CreateRepairRequestAttachmentJSONRequestBody = RegisterRepairRequestAttachmentRequest
+
 // CancelRepairRequestJSONRequestBody defines body for CancelRepairRequest for application/json ContentType.
 type CancelRepairRequestJSONRequestBody = CancelRepairRequest
 
 // UpdateRoomJSONRequestBody defines body for UpdateRoom for application/json ContentType.
 type UpdateRoomJSONRequestBody = UpdateRoomRequest
+
+// CreateRoomAttachmentJSONRequestBody defines body for CreateRoomAttachment for application/json ContentType.
+type CreateRoomAttachmentJSONRequestBody = RegisterAttachmentRequest
 
 // CreateRoomMaintenanceJSONRequestBody defines body for CreateRoomMaintenance for application/json ContentType.
 type CreateRoomMaintenanceJSONRequestBody = SetMaintenanceRequest
@@ -897,6 +995,9 @@ type CreateTenantJSONRequestBody = CreateTenantRequest
 
 // UpdateTenantJSONRequestBody defines body for UpdateTenant for application/json ContentType.
 type UpdateTenantJSONRequestBody = UpdateTenantRequest
+
+// CreateTenantAttachmentJSONRequestBody defines body for CreateTenantAttachment for application/json ContentType.
+type CreateTenantAttachmentJSONRequestBody = RegisterAttachmentRequest
 
 // CreateUserJSONRequestBody defines body for CreateUser for application/json ContentType.
 type CreateUserJSONRequestBody = CreateUserRequest
@@ -909,6 +1010,12 @@ type AssignUserPropertiesJSONRequestBody = PropertyAssignmentRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// 產生附件上傳 Signed URL
+	// (POST /attachments/upload-url)
+	CreateAttachmentUploadURL(c *gin.Context)
+	// 軟刪除附件
+	// (DELETE /attachments/{id})
+	DeleteAttachment(c *gin.Context, id openapi_types.UUID)
 	// 同步 Firebase 使用者至後端 DB（首次登入或 token 更新時呼叫）
 	// (POST /auth/sync)
 	SyncAuth(c *gin.Context)
@@ -918,6 +1025,12 @@ type ServerInterface interface {
 	// 帳單詳情（電費帳單自動帶入 previousReading）
 	// (GET /bills/{id})
 	GetBill(c *gin.Context, id string)
+	// 帳單附件列表
+	// (GET /bills/{id}/attachments)
+	ListBillAttachments(c *gin.Context, id openapi_types.UUID)
+	// 登記帳單附件
+	// (POST /bills/{id}/attachments)
+	CreateBillAttachment(c *gin.Context, id openapi_types.UUID)
 	// 電表抄錄（觸發 MeterRecorded event）
 	// (POST /bills/{id}/meter)
 	SubmitBillMeter(c *gin.Context, id string)
@@ -960,6 +1073,12 @@ type ServerInterface interface {
 	// 編輯日誌
 	// (PATCH /journal-logs/{id})
 	UpdateJournalLog(c *gin.Context, id string)
+	// 日誌附件列表
+	// (GET /journal-logs/{id}/attachments)
+	ListJournalLogAttachments(c *gin.Context, id openapi_types.UUID)
+	// 登記日誌附件
+	// (POST /journal-logs/{id}/attachments)
+	CreateJournalLogAttachment(c *gin.Context, id openapi_types.UUID)
 	// 租約列表
 	// (GET /leases)
 	ListLeases(c *gin.Context, params ListLeasesParams)
@@ -975,6 +1094,12 @@ type ServerInterface interface {
 	// 編輯租約（租金調整，觸發 LeaseConditionChanged event）
 	// (PATCH /leases/{id})
 	UpdateLease(c *gin.Context, id string)
+	// 租約附件列表
+	// (GET /leases/{id}/attachments)
+	ListLeaseAttachments(c *gin.Context, id openapi_types.UUID)
+	// 登記租約附件
+	// (POST /leases/{id}/attachments)
+	CreateLeaseAttachment(c *gin.Context, id openapi_types.UUID)
 	// 處理押金（退還或扣款，觸發 DepositRefunded / DepositDeducted event）
 	// (PATCH /leases/{id}/deposit)
 	UpdateLeaseDeposit(c *gin.Context, id string)
@@ -999,6 +1124,12 @@ type ServerInterface interface {
 	// 編輯物業（含修改電價 BR-17）
 	// (PATCH /properties/{id})
 	UpdateProperty(c *gin.Context, id string)
+	// 物業附件列表
+	// (GET /properties/{id}/attachments)
+	ListPropertyAttachments(c *gin.Context, id openapi_types.UUID)
+	// 登記物業附件
+	// (POST /properties/{id}/attachments)
+	CreatePropertyAttachment(c *gin.Context, id openapi_types.UUID)
 	// PropertyOwnerView Dashboard（跨 BC 組合查詢）
 	// (GET /properties/{id}/dashboard)
 	GetPropertyDashboard(c *gin.Context, id string)
@@ -1041,6 +1172,12 @@ type ServerInterface interface {
 	// 派工（指派員工，觸發狀態機流轉）
 	// (POST /repair-requests/{id}/assign)
 	AssignRepairRequest(c *gin.Context, id string)
+	// 維修單附件列表
+	// (GET /repair-requests/{id}/attachments)
+	ListRepairRequestAttachments(c *gin.Context, id openapi_types.UUID)
+	// 登記維修單附件
+	// (POST /repair-requests/{id}/attachments)
+	CreateRepairRequestAttachment(c *gin.Context, id openapi_types.UUID)
 	// 取消維修（觸發 RepairCancelled event）
 	// (POST /repair-requests/{id}/cancel)
 	CancelRepairRequest(c *gin.Context, id string)
@@ -1059,6 +1196,12 @@ type ServerInterface interface {
 	// 編輯房間
 	// (PATCH /rooms/{id})
 	UpdateRoom(c *gin.Context, id string)
+	// 房間附件列表
+	// (GET /rooms/{id}/attachments)
+	ListRoomAttachments(c *gin.Context, id openapi_types.UUID)
+	// 登記房間附件
+	// (POST /rooms/{id}/attachments)
+	CreateRoomAttachment(c *gin.Context, id openapi_types.UUID)
 	// 設定房間進入維修狀態（觸發 RoomSetToMaintenance event）
 	// (POST /rooms/{id}/maintenance)
 	CreateRoomMaintenance(c *gin.Context, id string)
@@ -1077,6 +1220,12 @@ type ServerInterface interface {
 	// 更新租客資料（觸發 TenantInfoUpdated event）
 	// (PATCH /tenants/{id})
 	UpdateTenant(c *gin.Context, id string)
+	// 租客附件列表
+	// (GET /tenants/{id}/attachments)
+	ListTenantAttachments(c *gin.Context, id openapi_types.UUID)
+	// 登記租客附件
+	// (POST /tenants/{id}/attachments)
+	CreateTenantAttachment(c *gin.Context, id openapi_types.UUID)
 	// 某租客的租約歷史
 	// (GET /tenants/{id}/leases)
 	ListTenantLeases(c *gin.Context, id string, params ListTenantLeasesParams)
@@ -1108,6 +1257,47 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(c *gin.Context)
+
+// CreateAttachmentUploadURL operation middleware
+func (siw *ServerInterfaceWrapper) CreateAttachmentUploadURL(c *gin.Context) {
+
+	c.Set(BearerAuthScopes, []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.CreateAttachmentUploadURL(c)
+}
+
+// DeleteAttachment operation middleware
+func (siw *ServerInterfaceWrapper) DeleteAttachment(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Param("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(BearerAuthScopes, []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.DeleteAttachment(c, id)
+}
 
 // SyncAuth operation middleware
 func (siw *ServerInterfaceWrapper) SyncAuth(c *gin.Context) {
@@ -1224,6 +1414,58 @@ func (siw *ServerInterfaceWrapper) GetBill(c *gin.Context) {
 	}
 
 	siw.Handler.GetBill(c, id)
+}
+
+// ListBillAttachments operation middleware
+func (siw *ServerInterfaceWrapper) ListBillAttachments(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Param("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(BearerAuthScopes, []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ListBillAttachments(c, id)
+}
+
+// CreateBillAttachment operation middleware
+func (siw *ServerInterfaceWrapper) CreateBillAttachment(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Param("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(BearerAuthScopes, []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.CreateBillAttachment(c, id)
 }
 
 // SubmitBillMeter operation middleware
@@ -1675,6 +1917,58 @@ func (siw *ServerInterfaceWrapper) UpdateJournalLog(c *gin.Context) {
 	siw.Handler.UpdateJournalLog(c, id)
 }
 
+// ListJournalLogAttachments operation middleware
+func (siw *ServerInterfaceWrapper) ListJournalLogAttachments(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Param("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(BearerAuthScopes, []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ListJournalLogAttachments(c, id)
+}
+
+// CreateJournalLogAttachment operation middleware
+func (siw *ServerInterfaceWrapper) CreateJournalLogAttachment(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Param("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(BearerAuthScopes, []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.CreateJournalLogAttachment(c, id)
+}
+
 // ListLeases operation middleware
 func (siw *ServerInterfaceWrapper) ListLeases(c *gin.Context) {
 
@@ -1834,6 +2128,58 @@ func (siw *ServerInterfaceWrapper) UpdateLease(c *gin.Context) {
 	}
 
 	siw.Handler.UpdateLease(c, id)
+}
+
+// ListLeaseAttachments operation middleware
+func (siw *ServerInterfaceWrapper) ListLeaseAttachments(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Param("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(BearerAuthScopes, []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ListLeaseAttachments(c, id)
+}
+
+// CreateLeaseAttachment operation middleware
+func (siw *ServerInterfaceWrapper) CreateLeaseAttachment(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Param("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(BearerAuthScopes, []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.CreateLeaseAttachment(c, id)
 }
 
 // UpdateLeaseDeposit operation middleware
@@ -2020,6 +2366,58 @@ func (siw *ServerInterfaceWrapper) UpdateProperty(c *gin.Context) {
 	}
 
 	siw.Handler.UpdateProperty(c, id)
+}
+
+// ListPropertyAttachments operation middleware
+func (siw *ServerInterfaceWrapper) ListPropertyAttachments(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Param("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(BearerAuthScopes, []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ListPropertyAttachments(c, id)
+}
+
+// CreatePropertyAttachment operation middleware
+func (siw *ServerInterfaceWrapper) CreatePropertyAttachment(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Param("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(BearerAuthScopes, []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.CreatePropertyAttachment(c, id)
 }
 
 // GetPropertyDashboard operation middleware
@@ -2502,6 +2900,58 @@ func (siw *ServerInterfaceWrapper) AssignRepairRequest(c *gin.Context) {
 	siw.Handler.AssignRepairRequest(c, id)
 }
 
+// ListRepairRequestAttachments operation middleware
+func (siw *ServerInterfaceWrapper) ListRepairRequestAttachments(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Param("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(BearerAuthScopes, []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ListRepairRequestAttachments(c, id)
+}
+
+// CreateRepairRequestAttachment operation middleware
+func (siw *ServerInterfaceWrapper) CreateRepairRequestAttachment(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Param("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(BearerAuthScopes, []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.CreateRepairRequestAttachment(c, id)
+}
+
 // CancelRepairRequest operation middleware
 func (siw *ServerInterfaceWrapper) CancelRepairRequest(c *gin.Context) {
 
@@ -2656,6 +3106,58 @@ func (siw *ServerInterfaceWrapper) UpdateRoom(c *gin.Context) {
 	}
 
 	siw.Handler.UpdateRoom(c, id)
+}
+
+// ListRoomAttachments operation middleware
+func (siw *ServerInterfaceWrapper) ListRoomAttachments(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Param("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(BearerAuthScopes, []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ListRoomAttachments(c, id)
+}
+
+// CreateRoomAttachment operation middleware
+func (siw *ServerInterfaceWrapper) CreateRoomAttachment(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Param("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(BearerAuthScopes, []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.CreateRoomAttachment(c, id)
 }
 
 // CreateRoomMaintenance operation middleware
@@ -2846,6 +3348,58 @@ func (siw *ServerInterfaceWrapper) UpdateTenant(c *gin.Context) {
 	}
 
 	siw.Handler.UpdateTenant(c, id)
+}
+
+// ListTenantAttachments operation middleware
+func (siw *ServerInterfaceWrapper) ListTenantAttachments(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Param("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(BearerAuthScopes, []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ListTenantAttachments(c, id)
+}
+
+// CreateTenantAttachment operation middleware
+func (siw *ServerInterfaceWrapper) CreateTenantAttachment(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Param("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(BearerAuthScopes, []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.CreateTenantAttachment(c, id)
 }
 
 // ListTenantLeases operation middleware
@@ -3064,9 +3618,13 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 		ErrorHandler:       errorHandler,
 	}
 
+	router.POST(options.BaseURL+"/attachments/upload-url", wrapper.CreateAttachmentUploadURL)
+	router.DELETE(options.BaseURL+"/attachments/:id", wrapper.DeleteAttachment)
 	router.POST(options.BaseURL+"/auth/sync", wrapper.SyncAuth)
 	router.GET(options.BaseURL+"/bills", wrapper.ListBills)
 	router.GET(options.BaseURL+"/bills/:id", wrapper.GetBill)
+	router.GET(options.BaseURL+"/bills/:id/attachments", wrapper.ListBillAttachments)
+	router.POST(options.BaseURL+"/bills/:id/attachments", wrapper.CreateBillAttachment)
 	router.POST(options.BaseURL+"/bills/:id/meter", wrapper.SubmitBillMeter)
 	router.POST(options.BaseURL+"/bills/:id/payment", wrapper.RecordBillPayment)
 	router.GET(options.BaseURL+"/force-terminations/:id", wrapper.GetForceTermination)
@@ -3081,11 +3639,15 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.DELETE(options.BaseURL+"/journal-logs/:id", wrapper.DeleteJournalLog)
 	router.GET(options.BaseURL+"/journal-logs/:id", wrapper.GetJournalLog)
 	router.PATCH(options.BaseURL+"/journal-logs/:id", wrapper.UpdateJournalLog)
+	router.GET(options.BaseURL+"/journal-logs/:id/attachments", wrapper.ListJournalLogAttachments)
+	router.POST(options.BaseURL+"/journal-logs/:id/attachments", wrapper.CreateJournalLogAttachment)
 	router.GET(options.BaseURL+"/leases", wrapper.ListLeases)
 	router.POST(options.BaseURL+"/leases", wrapper.CreateLease)
 	router.DELETE(options.BaseURL+"/leases/:id", wrapper.DeleteLease)
 	router.GET(options.BaseURL+"/leases/:id", wrapper.GetLease)
 	router.PATCH(options.BaseURL+"/leases/:id", wrapper.UpdateLease)
+	router.GET(options.BaseURL+"/leases/:id/attachments", wrapper.ListLeaseAttachments)
+	router.POST(options.BaseURL+"/leases/:id/attachments", wrapper.CreateLeaseAttachment)
 	router.PATCH(options.BaseURL+"/leases/:id/deposit", wrapper.UpdateLeaseDeposit)
 	router.POST(options.BaseURL+"/leases/:id/force-terminate", wrapper.ForceTerminateLease)
 	router.POST(options.BaseURL+"/leases/:id/terminate", wrapper.TerminateLease)
@@ -3094,6 +3656,8 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.DELETE(options.BaseURL+"/properties/:id", wrapper.DeleteProperty)
 	router.GET(options.BaseURL+"/properties/:id", wrapper.GetProperty)
 	router.PATCH(options.BaseURL+"/properties/:id", wrapper.UpdateProperty)
+	router.GET(options.BaseURL+"/properties/:id/attachments", wrapper.ListPropertyAttachments)
+	router.POST(options.BaseURL+"/properties/:id/attachments", wrapper.CreatePropertyAttachment)
 	router.GET(options.BaseURL+"/properties/:id/dashboard", wrapper.GetPropertyDashboard)
 	router.GET(options.BaseURL+"/properties/:id/financial-report", wrapper.GetPropertyFinancialReportSummary)
 	router.GET(options.BaseURL+"/properties/:id/financial-report/:year/:month", wrapper.GetPropertyFinancialReport)
@@ -3108,18 +3672,24 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.GET(options.BaseURL+"/repair-requests/:id", wrapper.GetRepairRequest)
 	router.PATCH(options.BaseURL+"/repair-requests/:id", wrapper.UpdateRepairRequest)
 	router.POST(options.BaseURL+"/repair-requests/:id/assign", wrapper.AssignRepairRequest)
+	router.GET(options.BaseURL+"/repair-requests/:id/attachments", wrapper.ListRepairRequestAttachments)
+	router.POST(options.BaseURL+"/repair-requests/:id/attachments", wrapper.CreateRepairRequestAttachment)
 	router.POST(options.BaseURL+"/repair-requests/:id/cancel", wrapper.CancelRepairRequest)
 	router.POST(options.BaseURL+"/repair-requests/:id/complete", wrapper.CompleteRepairRequest)
 	router.POST(options.BaseURL+"/repair-requests/:id/progress", wrapper.ProgressRepairRequest)
 	router.DELETE(options.BaseURL+"/rooms/:id", wrapper.DeleteRoom)
 	router.GET(options.BaseURL+"/rooms/:id", wrapper.GetRoom)
 	router.PATCH(options.BaseURL+"/rooms/:id", wrapper.UpdateRoom)
+	router.GET(options.BaseURL+"/rooms/:id/attachments", wrapper.ListRoomAttachments)
+	router.POST(options.BaseURL+"/rooms/:id/attachments", wrapper.CreateRoomAttachment)
 	router.POST(options.BaseURL+"/rooms/:id/maintenance", wrapper.CreateRoomMaintenance)
 	router.GET(options.BaseURL+"/rooms/:id/meter-history", wrapper.ListRoomMeterHistory)
 	router.GET(options.BaseURL+"/tenants", wrapper.ListTenants)
 	router.POST(options.BaseURL+"/tenants", wrapper.CreateTenant)
 	router.GET(options.BaseURL+"/tenants/:id", wrapper.GetTenant)
 	router.PATCH(options.BaseURL+"/tenants/:id", wrapper.UpdateTenant)
+	router.GET(options.BaseURL+"/tenants/:id/attachments", wrapper.ListTenantAttachments)
+	router.POST(options.BaseURL+"/tenants/:id/attachments", wrapper.CreateTenantAttachment)
 	router.GET(options.BaseURL+"/tenants/:id/leases", wrapper.ListTenantLeases)
 	router.GET(options.BaseURL+"/users", wrapper.ListUsers)
 	router.POST(options.BaseURL+"/users", wrapper.CreateUser)

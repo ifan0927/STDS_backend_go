@@ -29,7 +29,7 @@ info:
     - 後端 middleware 以 Firebase Admin SDK 驗證 token，從 Custom Claims 讀取 role 與
     assigned_property_ids
 
-    - 密碼重設：由 Firebase SDK 處理，後端不提供密碼重設 API
+    - 密碼重設：`POST /users` 建立帳號後由後端向 Firebase 產生 reset link，再透過 email 寄送；系統不額外提供 password reset REST API
 
     - users table 透過 firebase_uid 與 Firebase 帳號對應
 
@@ -37,7 +37,7 @@ info:
     ## Notification 機制
 
 
-    Email 通知由後端 event handler 統一處理，不提供 REST endpoint：
+    通知由後端統一處理，不提供 REST endpoint：
 
     - RentBillsGenerated → 寄送帳單通知給租客
 
@@ -50,7 +50,10 @@ info:
     - FinancialReportSend → 寄送財報 Email
 
 
-    通知服務由後端訂閱 Domain Event 後透過 SendGrid 發送，前端無需呼叫任何 notification API。
+    - event 觸發：由後端訂閱 Domain Event 後寄送通知
+    - direct trigger：例如 `POST /users` 建立帳號後，後端直接向 Firebase 產生 password reset link 並寄出 onboarding email
+
+    目前正式實作 channel 為 email，使用 Resend 發送；LINE channel 只保留抽象，尚未實作。前端無需呼叫任何 notification API。
 servers:
   - url: /api/v1
 components:

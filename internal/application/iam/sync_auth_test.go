@@ -77,6 +77,10 @@ func (syncAuthUserRepo) Create(_ context.Context, _ users.CreateUserParams) (*us
 	return nil, users.ErrNotFound
 }
 
+func (syncAuthUserRepo) DeleteByID(_ context.Context, _ string) error {
+	return users.ErrNotFound
+}
+
 type fakeClaimsWriter struct {
 	err                 error
 	firebaseUID         string

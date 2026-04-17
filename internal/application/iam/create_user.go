@@ -6,6 +6,7 @@ import (
 	"net/mail"
 	"strings"
 
+	appnotification "stds_backend/internal/application/notification"
 	"stds_backend/internal/platform/database/users"
 	platformfirebase "stds_backend/internal/platform/firebase"
 	"stds_backend/internal/shared/apperr"
@@ -22,13 +23,15 @@ type CreateUserInput struct {
 type CreateUserService struct {
 	userRepo        users.Repository
 	userProvisioner platformfirebase.UserProvisioner
+	notifier        *appnotification.Service
 }
 
 // NewCreateUserService returns a CreateUserService with the required dependencies.
-func NewCreateUserService(userRepo users.Repository, userProvisioner platformfirebase.UserProvisioner) *CreateUserService {
+func NewCreateUserService(userRepo users.Repository, userProvisioner platformfirebase.UserProvisioner, notifier *appnotification.Service) *CreateUserService {
 	return &CreateUserService{
 		userRepo:        userRepo,
 		userProvisioner: userProvisioner,
+		notifier:        notifier,
 	}
 }
 
@@ -77,7 +80,44 @@ func (s *CreateUserService) Execute(ctx context.Context, input CreateUserInput) 
 		}
 	}
 
+	resetLink, err := s.userProvisioner.GeneratePasswordResetLink(ctx, email)
+	if err != nil {
+		cleanupErr := s.cleanupCreatedUser(ctx, user.ID, firebaseUID)
+		if cleanupErr != nil {
+			return nil, apperr.ErrInternalServerError.WithCause(errors.Join(err, cleanupErr))
+		}
+
+		return nil, apperr.ErrInternalServerError.WithCause(err)
+	}
+
+	if s.notifier != nil {
+		err = s.notifier.SendUserPasswordResetEmail(ctx, appnotification.UserPasswordResetEmailInput{
+			Email:    email,
+			Name:     name,
+			ResetURL: resetLink,
+		})
+		if err != nil {
+			cleanupErr := s.cleanupCreatedUser(ctx, user.ID, firebaseUID)
+			if cleanupErr != nil {
+				return nil, apperr.ErrInternalServerError.WithCause(errors.Join(err, cleanupErr))
+			}
+
+			return nil, apperr.ErrInternalServerError.WithCause(err)
+		}
+	}
+
 	return user, nil
+}
+
+func (s *CreateUserService) cleanupCreatedUser(ctx context.Context, userID string, firebaseUID string) error {
+	deleteDBErr := s.userRepo.DeleteByID(ctx, userID)
+	deleteFirebaseErr := s.userProvisioner.DeleteUser(ctx, firebaseUID)
+
+	if deleteDBErr != nil || deleteFirebaseErr != nil {
+		return errors.Join(deleteDBErr, deleteFirebaseErr)
+	}
+
+	return nil
 }
 
 func validateCreateUserInput(input CreateUserInput) error {

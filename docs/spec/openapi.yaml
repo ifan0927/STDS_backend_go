@@ -7,28 +7,30 @@ info:
     url: https://example.com/licenses/proprietary
   description: |
     STDS（物業代管系統）API 規格
-    產出依據：docs/design/domain-model.md v3.1
+    產出依據：docs/design/domain-model.md v3.2
     授權模型：混合型（RBAC + Resource-based）
     - x-required-role：列出可呼叫的角色（RBAC）
     - x-ownership-required：物業層級存取控制（resource-based），透過 Firebase ID token 內 Custom Claims 的 assigned_property_ids 驗證
     - 優先順序：先驗 RBAC role，再驗 property ownership（兩者皆須通過）
 
-    認證機制（v3.1）：系統使用 Firebase Auth 管理使用者認證。
+    認證機制（v3.2）：系統使用 Firebase Auth 管理使用者認證。
     - 登入流程：由前端 Firebase SDK 處理，後端不接受 email/password 登入
     - 後端驗證：每個 request 以 Firebase ID token（Bearer token）呼叫後端
     - 後端 middleware 以 Firebase Admin SDK 驗證 token，從 Custom Claims 讀取 role 與 assigned_property_ids
-    - 密碼重設：由 Firebase SDK 處理，後端不提供密碼重設 API
+    - 密碼重設：`POST /users` 建立帳號後由後端向 Firebase 產生 reset link，再透過 email 寄送；系統不額外提供 password reset REST API
     - users table 透過 firebase_uid 與 Firebase 帳號對應
 
     ## Notification 機制
 
-    Email 通知由後端 event handler 統一處理，不提供 REST endpoint：
+    通知由後端統一處理，不提供 REST endpoint：
     - RentBillsGenerated → 寄送帳單通知給租客
+    - BillPaid → 寄送收款收據給租客
     - LeaseExpiringSoon → 寄送到期提醒給 organizer/staff
     - OverdueBillReminder → 寄送催收通知（最多 3 次）
     - FinancialReportSend → 寄送財報 Email
 
-    通知服務由後端訂閱 Domain Event 後透過 SendGrid 發送，前端無需呼叫任何 notification API。
+    - event 觸發：由後端訂閱 Domain Event 後寄送通知 - direct trigger：例如 `POST /users` 建立帳號後，後端直接向 Firebase 產生 password reset link 並寄出 onboarding email
+    目前正式實作 channel 為 email，使用 Resend 發送；LINE channel 只保留抽象，尚未實作。前端無需呼叫任何 notification API。
 servers:
   - url: /api/v1
 security:
@@ -169,10 +171,10 @@ paths:
       operationId: createUser
       summary: 建立使用者帳號
       description: |
-        由後端建立 Firebase Auth email/password 帳號，並同步建立後端 DB 使用者記錄。
+        由後端建立 Firebase Auth email/password 帳號，並同步建立後端 DB 使用者記錄。 建立成功後，後端會向 Firebase 產生 password reset URL，並透過 Resend 寄出設定密碼信。
         - 建立工作室成員：x-required-role: admin
         - 建立業主帳號：x-required-role: admin, organizer
-        注意：Firebase UID 由後端建立 Firebase Auth 使用者後自動產生，client 不需提供 `firebase_uid`；密碼由 Firebase 管理，此 API 不接受 `password` 欄位。
+        注意：Firebase UID 由後端建立 Firebase Auth 使用者後自動產生，client 不需提供 `firebase_uid`； 密碼由 Firebase 管理，此 API 不接受 `password` 欄位。
       tags:
         - Identity & Access
       x-required-role:
@@ -256,7 +258,7 @@ paths:
                     error_code: FORBIDDEN
                     message: 權限不足
         '409':
-          description: Email 或 firebase_uid 已存在
+          description: Email 已存在
           content:
             application/json:
               schema:
@@ -267,11 +269,6 @@ paths:
                   value:
                     error_code: EMAIL_ALREADY_EXISTS
                     message: 此 Email 已被使用
-                firebase_uid_exists:
-                  summary: firebase_uid 重複
-                  value:
-                    error_code: FIREBASE_UID_ALREADY_EXISTS
-                    message: 此 Firebase UID 已被使用
   /users/me:
     get:
       operationId: getCurrentUser
@@ -916,6 +913,107 @@ paths:
                       occupied_room_ids:
                         - 20000000-0000-0000-0000-000000000001
                         - 20000000-0000-0000-0000-000000000003
+  /properties/{id}/attachments:
+    get:
+      operationId: listPropertyAttachments
+      summary: 物業附件列表
+      tags:
+        - Property
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+        - owner
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: 物業附件列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentListResponse'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 物業不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      operationId: createPropertyAttachment
+      summary: 登記物業附件
+      description: |
+        x-required-role: admin, organizer, staff
+        Step 3：以 nonce 驗證合法性，確認 GCS 物件存在後寫入 property_attachments。
+      tags:
+        - Property
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterAttachmentRequest'
+      responses:
+        '201':
+          description: 物業附件建立成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentResponse'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 物業不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Business Rule 拒絕
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /properties/{id}/rooms:
     get:
       operationId: listPropertyRooms
@@ -1298,6 +1396,104 @@ paths:
                   value:
                     error_code: ROOM_IS_IN_MAINTENANCE
                     message: 維修中的房間不得刪除
+  /rooms/{id}/attachments:
+    get:
+      operationId: listRoomAttachments
+      summary: 房間附件列表
+      tags:
+        - Property
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+        - owner
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: 房間附件列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentListResponse'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 房間不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      operationId: createRoomAttachment
+      summary: 登記房間附件
+      tags:
+        - Property
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterAttachmentRequest'
+      responses:
+        '201':
+          description: 房間附件建立成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentResponse'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 房間不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Business Rule 拒絕
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /rooms/{id}/maintenance:
     post:
       operationId: createRoomMaintenance
@@ -1751,6 +1947,103 @@ paths:
                   value:
                     error_code: TENANT_NOT_FOUND
                     message: 租客不存在
+  /tenants/{id}/attachments:
+    get:
+      operationId: listTenantAttachments
+      summary: 租客附件列表
+      tags:
+        - Leasing
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: 租客附件列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentListResponse'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 租客不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      operationId: createTenantAttachment
+      summary: 登記租客附件
+      tags:
+        - Leasing
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterAttachmentRequest'
+      responses:
+        '201':
+          description: 租客附件建立成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentResponse'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 租客不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Business Rule 拒絕
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /tenants/{id}/leases:
     get:
       operationId: listTenantLeases
@@ -2249,6 +2542,103 @@ paths:
                   value:
                     error_code: LEASE_NOT_FOUND
                     message: 租約不存在
+  /leases/{id}/attachments:
+    get:
+      operationId: listLeaseAttachments
+      summary: 租約附件列表
+      tags:
+        - Leasing
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: 租約附件列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentListResponse'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 租約不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      operationId: createLeaseAttachment
+      summary: 登記租約附件
+      tags:
+        - Leasing
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterAttachmentRequest'
+      responses:
+        '201':
+          description: 租約附件建立成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentResponse'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 租約不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Business Rule 拒絕
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /leases/{id}/terminate:
     post:
       operationId: terminateLease
@@ -2256,7 +2646,7 @@ paths:
       description: |
         x-required-role: admin, organizer, staff
         BR-04：所有帳單必須結清才能終止。
-        押金退還/扣款須在呼叫此 API 之前或同時確認（deposit_action 參數）。
+        押金退還/扣款須在呼叫此 API 之前或同時確認（refund_amount / deduction_amount 參數）。
         觸發 LeaseTerminated（forced: false）→ Property BC（Room 改 vacant）+ Notification BC（寄退租確認）
       tags:
         - Leasing
@@ -2281,11 +2671,12 @@ paths:
               refund_deposit:
                 summary: 退還押金
                 value:
-                  deposit_action: refund
-              deduct_deposit:
-                summary: 扣押金
+                  refund_amount: 20000
+              partial_settlement:
+                summary: 部分扣款後退還餘額
                 value:
-                  deposit_action: deduct
+                  refund_amount: 15000
+                  deduction_amount: 5000
                   deposit_deduction_reason: 牆壁毀損修繕費用
       responses:
         '200':
@@ -2299,7 +2690,9 @@ paths:
                   value:
                     id: 40000000-0000-0000-0000-000000000003
                     status: terminated
-                    deposit_status: refunded
+                    deposit_status: settled
+                    deposit_refund_amount: 15000
+                    deposit_deduction_amount: 5000
                     updated_at: '2026-04-15T16:00:00Z'
         '401':
           description: 未認證
@@ -2502,7 +2895,7 @@ paths:
         x-required-role: admin, organizer, staff
         觸發 DepositRefunded 或 DepositDeducted → Billing BC（PropertyAccount 新增 AccountingEntry）
         BR-10：押金扣款須填寫扣款原因。
-        注意：此 endpoint 用於獨立處理押金；正常終止流程可透過 /leases/{id}/terminate 的 deposit_action 一併處理。
+        注意：此 endpoint 用於獨立處理押金；正常終止流程可透過 /leases/{id}/terminate 一併處理。
       tags:
         - Leasing
       x-required-role:
@@ -2526,12 +2919,13 @@ paths:
               refund:
                 summary: 退還押金
                 value:
-                  action: refund
-              deduct:
-                summary: 扣押金
+                  refund_amount: 20000
+              partial_settlement:
+                summary: 部分扣款後退還餘額
                 value:
-                  action: deduct
-                  reason: 牆壁毀損修繕費用 NT$5,000
+                  refund_amount: 15000
+                  deduction_amount: 5000
+                  deduction_reason: 牆壁毀損修繕費用 NT$5,000
       responses:
         '200':
           description: 押金處理成功（DepositRefunded 或 DepositDeducted event 已發出）
@@ -2540,16 +2934,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/LeaseResponse'
               examples:
-                refunded:
-                  summary: 押金已退還
+                settled:
+                  summary: 押金已結算
                   value:
                     id: 40000000-0000-0000-0000-000000000003
-                    deposit_status: refunded
-                deducted:
-                  summary: 押金已扣款
-                  value:
-                    id: 40000000-0000-0000-0000-000000000003
-                    deposit_status: deducted
+                    deposit_status: settled
+                    deposit_refund_amount: 15000
+                    deposit_deduction_amount: 5000
                     deposit_deduction_reason: 牆壁毀損修繕費用 NT$5,000
         '401':
           description: 未認證
@@ -2769,6 +3160,104 @@ paths:
                   value:
                     error_code: BILL_NOT_FOUND
                     message: 帳單不存在
+  /bills/{id}/attachments:
+    get:
+      operationId: listBillAttachments
+      summary: 帳單附件列表
+      tags:
+        - Billing
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+        - owner
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: 帳單附件列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentListResponse'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 帳單不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      operationId: createBillAttachment
+      summary: 登記帳單附件
+      tags:
+        - Billing
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterAttachmentRequest'
+      responses:
+        '201':
+          description: 帳單附件建立成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentResponse'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 帳單不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Business Rule 拒絕
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /bills/{id}/meter:
     post:
       operationId: submitBillMeter
@@ -3777,6 +4266,103 @@ paths:
                   value:
                     error_code: JOURNAL_LOG_NOT_FOUND
                     message: 日誌不存在
+  /journal-logs/{id}/attachments:
+    get:
+      operationId: listJournalLogAttachments
+      summary: 日誌附件列表
+      tags:
+        - Journal
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: 日誌附件列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentListResponse'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 日誌不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      operationId: createJournalLogAttachment
+      summary: 登記日誌附件
+      tags:
+        - Journal
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterAttachmentRequest'
+      responses:
+        '201':
+          description: 日誌附件建立成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentResponse'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 日誌不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Business Rule 拒絕
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /repair-requests:
     get:
       operationId: listRepairRequests
@@ -4120,6 +4706,114 @@ paths:
                   value:
                     error_code: REPAIR_REQUEST_NOT_FOUND
                     message: 維修請求不存在
+  /repair-requests/{id}/attachments:
+    get:
+      operationId: listRepairRequestAttachments
+      summary: 維修單附件列表
+      description: 依 sort_order 升冪排序回傳。
+      tags:
+        - Journal
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: 維修單附件列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentListResponse'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 維修單不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      operationId: createRepairRequestAttachment
+      summary: 登記維修單附件
+      description: |
+        x-required-role: admin, organizer, staff
+        repair_request_attachments 額外支援 sort_order 與 photo_stage。
+      tags:
+        - Journal
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRepairRequestAttachmentRequest'
+            examples:
+              before_photo:
+                value:
+                  nonce: upload_nonce_123
+                  file_name: bathroom-before.jpg
+                  sort_order: 1
+                  photo_stage: before
+      responses:
+        '201':
+          description: 維修單附件建立成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentResponse'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 維修單不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Business Rule 拒絕
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /repair-requests/{id}/assign:
     post:
       operationId: assignRepairRequest
@@ -4740,6 +5434,123 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /attachments/upload-url:
+    post:
+      operationId: createAttachmentUploadURL
+      summary: 產生附件上傳 Signed URL
+      description: |
+        x-required-role: admin, organizer, staff
+        Step 1：後端驗證呼叫者對資源的寫入權限，建立 nonce 與 object_path，回傳 GCS Signed URL。
+        BR-18：僅允許 image/jpeg、image/png、image/heic、application/pdf，單檔上限 20MB。
+        注意：取得 upload_url 不代表附件已生效，必須完成 Step 3 登記。
+      tags:
+        - Attachments
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttachmentUploadURLRequest'
+            examples:
+              property_photo:
+                value:
+                  resource_type: property
+                  resource_id: 10000000-0000-0000-0000-000000000001
+                  file_name: front-door.jpg
+                  content_type: image/jpeg
+      responses:
+        '200':
+          description: Signed URL 建立成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentUploadURLResponse'
+              examples:
+                success:
+                  value:
+                    upload_url: https://storage.googleapis.com/example-bucket/attachments/properties/10000000-0000-0000-0000-000000000001/abcd.jpg?signature=masked
+                    nonce: upload_nonce_123
+                    expires_at: '2026-04-17T10:15:00Z'
+        '400':
+          description: 欄位驗證錯誤
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 目標資源不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Business Rule 拒絕
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unsupported_mime:
+                  summary: BR-18 不支援的 MIME type
+                  value:
+                    error_code: ATTACHMENT_CONTENT_TYPE_NOT_ALLOWED
+                    message: 不支援的附件 MIME type
+  /attachments/{id}:
+    delete:
+      operationId: deleteAttachment
+      summary: 軟刪除附件
+      description: |
+        依附件 id 軟刪除附件記錄。後續由排程任務清理 GCS 物件並硬刪除 DB 記錄。
+      tags:
+        - Attachments
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: 刪除成功
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 附件不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 components:
   securitySchemes:
     BearerAuth:
@@ -4907,6 +5718,50 @@ components:
           type: string
         electricity_unit_price:
           type: integer
+    AttachmentResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        object_path:
+          type: string
+        file_name:
+          type: string
+        uploaded_by:
+          type: string
+          format: uuid
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        sort_order:
+          type: integer
+          nullable: true
+        photo_stage:
+          type: string
+          nullable: true
+          enum:
+            - before
+            - after
+            - other
+    AttachmentListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AttachmentResponse'
+    RegisterAttachmentRequest:
+      type: object
+      required:
+        - nonce
+        - file_name
+      properties:
+        nonce:
+          type: string
+        file_name:
+          type: string
     RoomResponse:
       type: object
       properties:
@@ -5110,9 +5965,14 @@ components:
           type: string
           enum:
             - held
-            - refunded
-            - deducted
+            - settled
             - written_off
+        deposit_refund_amount:
+          type: integer
+          nullable: true
+        deposit_deduction_amount:
+          type: integer
+          nullable: true
         deposit_deduction_reason:
           type: string
           nullable: true
@@ -5167,17 +6027,16 @@ components:
           format: date
     TerminateLeaseRequest:
       type: object
-      required:
-        - deposit_action
       properties:
-        deposit_action:
-          type: string
-          enum:
-            - refund
-            - deduct
+        refund_amount:
+          type: integer
+          minimum: 0
+        deduction_amount:
+          type: integer
+          minimum: 0
         deposit_deduction_reason:
           type: string
-          description: 扣款時必填（BR-10）
+          description: deduction_amount 大於 0 時必填（BR-10）
     ForceTerminateRequest:
       type: object
       required:
@@ -5225,18 +6084,18 @@ components:
           format: date-time
     UpdateDepositRequest:
       type: object
-      required:
-        - action
       properties:
-        action:
+        refund_amount:
+          type: integer
+          minimum: 0
+          description: 退還金額；可與 deduction_amount 併用以表達部分扣款後退餘額
+        deduction_amount:
+          type: integer
+          minimum: 0
+          description: 扣款金額；有值時須提供 deduction_reason
+        deduction_reason:
           type: string
-          enum:
-            - refund
-            - deduct
-            - write_off
-        reason:
-          type: string
-          description: 扣款或 write_off 時必填
+          description: deduction_amount 大於 0 時必填（BR-10）
     BillResponse:
       type: object
       properties:
@@ -5554,6 +6413,25 @@ components:
           type: string
         description:
           type: string
+    RegisterRepairRequestAttachmentRequest:
+      type: object
+      required:
+        - nonce
+        - file_name
+      properties:
+        nonce:
+          type: string
+        file_name:
+          type: string
+        sort_order:
+          type: integer
+          default: 0
+        photo_stage:
+          type: string
+          enum:
+            - before
+            - after
+            - other
     AssignRepairRequest:
       type: object
       required:
@@ -5614,3 +6492,44 @@ components:
           nullable: true
         summary:
           $ref: '#/components/schemas/SchedulerJobExecutionSummary'
+    AttachmentUploadURLRequest:
+      type: object
+      required:
+        - resource_type
+        - resource_id
+        - file_name
+        - content_type
+      properties:
+        resource_type:
+          type: string
+          enum:
+            - property
+            - room
+            - tenant
+            - lease
+            - journal_log
+            - repair_request
+            - bill
+        resource_id:
+          type: string
+          format: uuid
+        file_name:
+          type: string
+        content_type:
+          type: string
+          enum:
+            - image/jpeg
+            - image/png
+            - image/heic
+            - application/pdf
+    AttachmentUploadURLResponse:
+      type: object
+      properties:
+        upload_url:
+          type: string
+          format: uri
+        nonce:
+          type: string
+        expires_at:
+          type: string
+          format: date-time

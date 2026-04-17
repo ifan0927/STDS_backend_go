@@ -81,9 +81,10 @@
 
 ### Email 通知
 
-- **選擇**：SendGrid（Free tier：100 emails/day）
-- **理由**：GCP 無原生 Email 服務。系統 email 場景為逾期催收（每週）、到期提醒（每日）、財報寄送（每月），每日量極低，免費方案完全足夠
-- **放棄的選項**：Firebase Extension "Trigger Email"（依賴 Firestore，與 PostgreSQL 架構不搭）、Mailgun（免費方案限制較嚴）
+- **選擇**：Resend
+- **理由**：API 介面簡潔，官方 Go SDK 可直接整合，適合目前後端主導的通知流程。現階段 email 量低，足以支撐 onboarding、催收、到期提醒、財報寄送等場景
+- **補充**：notification infrastructure 先抽象為 `email` / `line` 兩種 channel；本期只落地 email，LINE 只保留抽象介面
+- **放棄的選項**：Firebase Extension "Trigger Email"（依賴 Firestore，與 PostgreSQL 架構不搭）、SendGrid（不再採用）
 
 ---
 
@@ -116,7 +117,7 @@
 | Artifact Registry | ~$0.10 USD |
 | Cloud Scheduler (6 jobs) | ~$0.30 USD |
 | Cloud Logging / Monitoring | 免費 tier |
-| SendGrid | 免費 |
+| Resend | 低量通知可控 |
 | **合計** | **~$9–13 USD（約 270–400 TWD）** |
 
 > 遠低於 1500 TWD 上限，有充裕空間。

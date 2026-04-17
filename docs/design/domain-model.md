@@ -37,7 +37,7 @@ Domain Model
 
 **物業指派為 Identity BC 的唯一來源**，Property BC 及其他 BC 查詢操作權限時，呼叫 Identity BC 的 Application Service 驗證，不另存副本。
 
-**認證機制**：系統使用 Firebase Auth 管理使用者認證。後端不儲存密碼，使用者帳號在 Firebase 建立，DB 的 `users` table 透過 `firebase_uid` 與 Firebase 帳號對應。密碼重設、登入流程由 Firebase SDK 處理。
+**認證機制**：系統使用 Firebase Auth 管理使用者認證。後端不儲存密碼，使用者帳號在 Firebase 建立，DB 的 `users` table 透過 `firebase_uid` 與 Firebase 帳號對應。登入流程由前端 Firebase SDK 處理；建立帳號後的設定密碼信由後端向 Firebase 產生 password reset link，再透過 email 發送。
 
 ### Leasing
 

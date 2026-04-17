@@ -160,7 +160,6 @@
 
 例如這次：
 
-- `firebase_uid` 必填
 - `email` 必填且格式正確
 - `name` 必填
 - `role` 必填且必須是 `admin/organizer/staff/owner`
@@ -204,7 +203,7 @@
 - command orchestration
 - repo error -> app error mapping
 
-目前 `POST /users` 還沒有 transaction/event，所以上面這層保持很薄，這是正常的。
+目前 `POST /users` 已經包含 Firebase user 建立、password reset link 產生與 email 通知協調，所以上面這層比最初版本稍厚，這是正常的。
 
 ### Repository
 
@@ -244,7 +243,6 @@
 - `FIREBASE_UID_ALREADY_EXISTS`
 - `VALIDATION_EMAIL_REQUIRED`
 - `VALIDATION_EMAIL_INVALID`
-- `VALIDATION_FIREBASE_UID_REQUIRED`
 - `VALIDATION_NAME_REQUIRED`
 - `VALIDATION_ROLE_REQUIRED`
 - `VALIDATION_ROLE_INVALID`

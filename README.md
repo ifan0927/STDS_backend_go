@@ -41,6 +41,9 @@ FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099
 ```
 
 2. Start the Auth Emulator with any Firebase project alias you use locally.
+```bash
+firebase emulators:start --only auth
+```
 
 3. Create or update the local emulator user:
 
@@ -68,6 +71,21 @@ curl -i \
 ```
 
 If the `users` table contains the same `firebase_uid`, the request will pass auth and resolve the DB user.
+
+## Email notifications
+
+`POST /api/v1/users` now creates the Firebase Auth user, generates a Firebase password reset URL, and sends the onboarding email through Resend.
+
+Required environment variables:
+
+```bash
+RESEND_API_KEY=
+RESEND_FROM_EMAIL=onboarding@example.com
+RESEND_FROM_NAME=STDS
+FIREBASE_PASSWORD_RESET_REDIRECT_URL=
+```
+
+`FIREBASE_PASSWORD_RESET_REDIRECT_URL` is optional. When set, Firebase will embed it in the generated password reset link as the continue URL.
 
 ## OpenAPI workflow
 

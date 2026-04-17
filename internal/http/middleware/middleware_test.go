@@ -399,6 +399,10 @@ func (fakeUserRepo) Create(_ context.Context, params users.CreateUserParams) (*u
 	}, nil
 }
 
+func (fakeUserRepo) DeleteByID(_ context.Context, _ string) error {
+	return nil
+}
+
 func (f fakePropertyRepo) FindOwnerIDByPropertyID(_ context.Context, propertyID string) (string, error) {
 	if ownerID, ok := f.ownerByPropertyID[propertyID]; ok {
 		return ownerID, nil
