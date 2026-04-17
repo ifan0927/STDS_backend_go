@@ -10,3 +10,4 @@
 !/.secrets/.gitkeep
 *firebase-adminsdk*.json
 *service-account*.json
+/.claude/agent-memory
