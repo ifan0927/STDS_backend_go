@@ -14,6 +14,7 @@ var ErrNotFound = errors.New("resource property ownership not found")
 // authorization checks.
 type Repository interface {
 	FindPropertyIDByRoomID(ctx context.Context, roomID string) (string, error)
+	FindPropertyIDByTenantID(ctx context.Context, tenantID string) (string, error)
 	FindPropertyIDByLeaseID(ctx context.Context, leaseID string) (string, error)
 	FindPropertyIDByBillID(ctx context.Context, billID string) (string, error)
 	FindPropertyIDByJournalLogID(ctx context.Context, journalLogID string) (string, error)
@@ -42,6 +43,18 @@ LIMIT 1
 `
 
 	return r.findPropertyID(ctx, query, roomID, "query room property by id")
+}
+
+func (r *SQLRepository) FindPropertyIDByTenantID(ctx context.Context, tenantID string) (string, error) {
+	const query = `
+SELECT property_id
+FROM leases
+WHERE tenant_id = $1
+  AND deleted_at IS NULL
+LIMIT 1
+`
+
+	return r.findPropertyID(ctx, query, tenantID, "query tenant property by id")
 }
 
 func (r *SQLRepository) FindPropertyIDByLeaseID(ctx context.Context, leaseID string) (string, error) {

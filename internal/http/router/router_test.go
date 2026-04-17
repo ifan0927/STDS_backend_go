@@ -368,6 +368,25 @@ func TestDeleteAttachmentRejectsUnauthorizedPropertyAccess(t *testing.T) {
 	}
 }
 
+func TestGetTenantAttachmentsResolvesPropertyAccessThroughOwnershipQuery(t *testing.T) {
+	repo := fakeUserRepo{assignedPropertyIDs: []string{"property-1"}}
+	engine := newTestEngine(repo, fakeAuthenticator{assignedPropertyIDs: []string{"property-1"}}, fakePropertyRepo{}, fakeResourceOwnershipRepo{
+		propertyByTenantID: map[string]string{
+			"10000000-0000-0000-0000-000000000111": "property-1",
+		},
+	}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants/10000000-0000-0000-0000-000000000111/attachments", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusNotImplemented {
+		t.Fatalf("expected 501, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
 func TestSchedulerEndpointRequiresSchedulerKey(t *testing.T) {
 	repo := fakeUserRepo{}
 	engine := newTestEngine(repo, fakeAuthenticator{}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "scheduler-secret", fakeJobRunsRepo{})
@@ -515,6 +534,7 @@ type fakePropertyQueryRepo struct{}
 
 type fakeResourceOwnershipRepo struct {
 	propertyByRoomID             map[string]string
+	propertyByTenantID           map[string]string
 	propertyByLeaseID            map[string]string
 	propertyByBillID             map[string]string
 	propertyByJournalLogID       map[string]string
@@ -642,6 +662,10 @@ func (fakePropertyQueryRepo) ListAccessible(_ context.Context, _ string, _ strin
 
 func (f fakeResourceOwnershipRepo) FindPropertyIDByRoomID(_ context.Context, roomID string) (string, error) {
 	return lookupPropertyID(f.propertyByRoomID, roomID)
+}
+
+func (f fakeResourceOwnershipRepo) FindPropertyIDByTenantID(_ context.Context, tenantID string) (string, error) {
+	return lookupPropertyID(f.propertyByTenantID, tenantID)
 }
 
 func (f fakeResourceOwnershipRepo) FindPropertyIDByLeaseID(_ context.Context, leaseID string) (string, error) {

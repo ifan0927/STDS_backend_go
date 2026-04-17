@@ -231,8 +231,8 @@ func routePolicies(authzRepos AuthorizationRepositories) []routePolicy {
 
 		{method: "GET", path: "/api/v1/tenants", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
 		{method: "POST", path: "/api/v1/tenants", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
-		{method: "GET", path: "/api/v1/tenants/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
-		{method: "POST", path: "/api/v1/tenants/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
+		{method: "GET", path: "/api/v1/tenants/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByTenantID)},
+		{method: "POST", path: "/api/v1/tenants/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByTenantID)},
 		{method: "GET", path: "/api/v1/tenants/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
 		{method: "PATCH", path: "/api/v1/tenants/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
 		{method: "GET", path: "/api/v1/tenants/:id/leases", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
