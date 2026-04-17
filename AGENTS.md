@@ -3,9 +3,7 @@
 Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 All the conversations with user are in Traditional Chinese, All the coding comment are in English.
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
-**Trivial Task** determine if a task is trivial or not , if it is trivial, ask user for approval , all trivial tasks just need to follow the guidelines rule 3 to 4.
-
-
+**Trivial Task** determine if a task is trivial or not , if it is trivial, ask user for approval , all trivial tasks just need to follow the guidelines rule 3 to 4 and project-specific guidelines.
 
 ## 1. Think Before Coding
 
@@ -78,6 +76,5 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
     are intended to become `INTERNAL_SERVER_ERROR`.
   - Use `INTERNAL_SERVER_ERROR` only as the final fallback for unmapped
     unexpected failures.
-
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
