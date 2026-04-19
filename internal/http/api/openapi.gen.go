@@ -294,7 +294,7 @@ type BillResponse struct {
 	MeterCurrentReading  *int                       `json:"meter_current_reading"`
 	MeterPreviousReading *int                       `json:"meter_previous_reading"`
 	MeterRecordedAt      *time.Time                 `json:"meter_recorded_at"`
-	MeterUnitPrice       *int                       `json:"meter_unit_price"`
+	MeterUnitPrice       *float64                   `json:"meter_unit_price"`
 	OverdueNoticeCount   *int                       `json:"overdue_notice_count,omitempty"`
 	PaidAmount           *int                       `json:"paid_amount"`
 	PaidAt               *time.Time                 `json:"paid_at"`
@@ -344,8 +344,10 @@ type CreateLeaseRequest struct {
 
 // CreatePropertyRequest defines model for CreatePropertyRequest.
 type CreatePropertyRequest struct {
-	Address              string             `json:"address"`
-	ElectricityUnitPrice int                `json:"electricity_unit_price"`
+	Address string `json:"address"`
+
+	// ElectricityUnitPrice 台幣正數/度，可接受小數（例如 4.5）
+	ElectricityUnitPrice float64            `json:"electricity_unit_price"`
 	Name                 string             `json:"name"`
 	OwnerId              openapi_types.UUID `json:"owner_id"`
 }
@@ -518,12 +520,15 @@ type LeaseResponse struct {
 	DepositStatus          *LeaseResponseDepositStatus `json:"deposit_status,omitempty"`
 	EndDate                *openapi_types.Date         `json:"end_date,omitempty"`
 	Id                     *openapi_types.UUID         `json:"id,omitempty"`
+	Notes                  *string                     `json:"notes"`
 	PropertyId             *openapi_types.UUID         `json:"property_id,omitempty"`
 	RentAmount             *int                        `json:"rent_amount,omitempty"`
 	RoomId                 *openapi_types.UUID         `json:"room_id,omitempty"`
+	SettlementDetail       *map[string]interface{}     `json:"settlement_detail"`
 	StartDate              *openapi_types.Date         `json:"start_date,omitempty"`
 	Status                 *LeaseResponseStatus        `json:"status,omitempty"`
 	TenantId               *openapi_types.UUID         `json:"tenant_id,omitempty"`
+	TerminationReason      *string                     `json:"termination_reason"`
 	UpdatedAt              *time.Time                  `json:"updated_at,omitempty"`
 	Version                *int                        `json:"version,omitempty"`
 }
@@ -546,12 +551,19 @@ type PropertyListResponse struct {
 
 // PropertyResponse defines model for PropertyResponse.
 type PropertyResponse struct {
-	Address              *string             `json:"address,omitempty"`
-	CreatedAt            *time.Time          `json:"created_at,omitempty"`
-	ElectricityUnitPrice *int                `json:"electricity_unit_price,omitempty"`
+	Address      *string              `json:"address,omitempty"`
+	ContactEmail *openapi_types.Email `json:"contact_email"`
+	ContactPhone *string              `json:"contact_phone"`
+	CreatedAt    *time.Time           `json:"created_at,omitempty"`
+
+	// ElectricityUnitPrice 台幣正數/度，可接受小數
+	ElectricityUnitPrice *float64            `json:"electricity_unit_price"`
+	Facilities           *[]interface{}      `json:"facilities"`
 	Id                   *openapi_types.UUID `json:"id,omitempty"`
 	Name                 *string             `json:"name,omitempty"`
+	Notes                *string             `json:"notes"`
 	OwnerId              *openapi_types.UUID `json:"owner_id,omitempty"`
+	Subtitle             *string             `json:"subtitle"`
 	UpdatedAt            *time.Time          `json:"updated_at,omitempty"`
 	Version              *int                `json:"version,omitempty"`
 }
@@ -623,12 +635,19 @@ type RoomListResponse struct {
 
 // RoomResponse defines model for RoomResponse.
 type RoomResponse struct {
-	CreatedAt  *time.Time          `json:"created_at,omitempty"`
-	Id         *openapi_types.UUID `json:"id,omitempty"`
-	Name       *string             `json:"name,omitempty"`
-	PropertyId *openapi_types.UUID `json:"property_id,omitempty"`
-	Status     *RoomResponseStatus `json:"status,omitempty"`
-	UpdatedAt  *time.Time          `json:"updated_at,omitempty"`
+	CreatedAt         *time.Time              `json:"created_at,omitempty"`
+	DefaultRentAmount *int                    `json:"default_rent_amount"`
+	Facilities        *map[string]interface{} `json:"facilities"`
+	Floor             *string                 `json:"floor"`
+	Id                *openapi_types.UUID     `json:"id,omitempty"`
+	Name              *string                 `json:"name,omitempty"`
+	Notes             *string                 `json:"notes"`
+	PropertyId        *openapi_types.UUID     `json:"property_id,omitempty"`
+	RoomType          *string                 `json:"room_type"`
+	Size              *float64                `json:"size"`
+	Status            *RoomResponseStatus     `json:"status,omitempty"`
+	UpdatedAt         *time.Time              `json:"updated_at,omitempty"`
+	Zone              *string                 `json:"zone"`
 }
 
 // RoomResponseStatus defines model for RoomResponse.Status.
@@ -670,15 +689,19 @@ type TenantListResponse struct {
 
 // TenantResponse defines model for TenantResponse.
 type TenantResponse struct {
-	Contacts  *[]map[string]interface{} `json:"contacts,omitempty"`
-	CreatedAt *time.Time                `json:"created_at,omitempty"`
-	Email     *openapi_types.Email      `json:"email,omitempty"`
-	Id        *openapi_types.UUID       `json:"id,omitempty"`
-	Name      *string                   `json:"name,omitempty"`
-	Phone     *string                   `json:"phone,omitempty"`
-	Status    *TenantResponseStatus     `json:"status,omitempty"`
-	UpdatedAt *time.Time                `json:"updated_at,omitempty"`
-	Version   *int                      `json:"version,omitempty"`
+	Address    *string                   `json:"address"`
+	BirthDate  *openapi_types.Date       `json:"birth_date"`
+	Contacts   *[]map[string]interface{} `json:"contacts,omitempty"`
+	CreatedAt  *time.Time                `json:"created_at,omitempty"`
+	Email      *openapi_types.Email      `json:"email"`
+	Id         *openapi_types.UUID       `json:"id,omitempty"`
+	Name       *string                   `json:"name,omitempty"`
+	NationalId *string                   `json:"national_id"`
+	Occupation *string                   `json:"occupation"`
+	Phone      *string                   `json:"phone"`
+	Status     *TenantResponseStatus     `json:"status,omitempty"`
+	UpdatedAt  *time.Time                `json:"updated_at,omitempty"`
+	Version    *int                      `json:"version,omitempty"`
 }
 
 // TenantResponseStatus defines model for TenantResponse.Status.
@@ -720,9 +743,11 @@ type UpdateLeaseRequest struct {
 
 // UpdatePropertyRequest defines model for UpdatePropertyRequest.
 type UpdatePropertyRequest struct {
-	Address              *string `json:"address,omitempty"`
-	ElectricityUnitPrice *int    `json:"electricity_unit_price,omitempty"`
-	Name                 *string `json:"name,omitempty"`
+	Address *string `json:"address,omitempty"`
+
+	// ElectricityUnitPrice 台幣正數/度，可接受小數（例如 4.5）
+	ElectricityUnitPrice *float64 `json:"electricity_unit_price,omitempty"`
+	Name                 *string  `json:"name,omitempty"`
 }
 
 // UpdateRepairRequestRequest defines model for UpdateRepairRequestRequest.

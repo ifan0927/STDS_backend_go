@@ -44,6 +44,16 @@ properties:
   deposit_deduction_reason:
     type: string
     nullable: true
+  notes:
+    type: string
+    nullable: true
+  termination_reason:
+    type: string
+    nullable: true
+  settlement_detail:
+    type: object
+    additionalProperties: true
+    nullable: true
   created_at:
     type: string
     format: date-time

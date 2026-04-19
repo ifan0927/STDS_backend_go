@@ -4,7 +4,7 @@ post:
   description: |
     x-required-role: admin, organizer, staff
     BR-06：電表度數不得小於上月度數
-    BR-16：金額由系統計算（usage × unitPrice），不由員工輸入
+    BR-16：金額由系統計算（usage × unitPrice），並四捨五入為整數 amount，不由員工輸入
     MeterRecorded event → 帳單金額更新，狀態從 pending_meter 改為 pending_payment
   tags:
     - Billing
@@ -43,8 +43,8 @@ post:
                 status: pending_payment
                 meter_previous_reading: 1250
                 meter_current_reading: 1380
-                meter_unit_price: 5
-                amount: 650
+                meter_unit_price: 4.5
+                amount: 585
                 meter_recorded_at: '2026-04-15T10:00:00Z'
     '400':
       description: 欄位驗證錯誤

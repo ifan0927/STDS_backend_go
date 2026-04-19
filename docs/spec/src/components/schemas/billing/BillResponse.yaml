@@ -56,7 +56,8 @@ properties:
     type: integer
     nullable: true
   meter_unit_price:
-    type: integer
+    type: number
+    format: double
     nullable: true
   meter_recorded_at:
     type: string

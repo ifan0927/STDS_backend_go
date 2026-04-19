@@ -568,18 +568,20 @@ func toPropertyResponse(property *dbpropertyquery.Property) api.PropertyResponse
 	ownerID, ownerOK := parseUUID(property.OwnerID)
 	name := property.Name
 	address := property.Address
-	electricityUnitPrice := property.ElectricityUnitPrice
 	createdAt := property.CreatedAt
 	updatedAt := property.UpdatedAt
 	version := property.Version
 
 	response := api.PropertyResponse{
-		Address:              &address,
-		CreatedAt:            &createdAt,
-		ElectricityUnitPrice: &electricityUnitPrice,
-		Name:                 &name,
-		UpdatedAt:            &updatedAt,
-		Version:              &version,
+		Address:   &address,
+		CreatedAt: &createdAt,
+		Name:      &name,
+		UpdatedAt: &updatedAt,
+		Version:   &version,
+	}
+	if property.ElectricityUnitPrice != nil {
+		electricityUnitPrice := *property.ElectricityUnitPrice
+		response.ElectricityUnitPrice = &electricityUnitPrice
 	}
 	if ok {
 		response.Id = &id

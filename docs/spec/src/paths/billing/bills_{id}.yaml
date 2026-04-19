@@ -44,7 +44,7 @@ get:
                 status: pending_meter
                 meter_previous_reading: 1250
                 meter_current_reading: null
-                meter_unit_price: 5
+                meter_unit_price: 4.5
     '401':
       description: 未認證
       content:

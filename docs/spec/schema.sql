@@ -1,6 +1,6 @@
 -- ============================================================
 -- STDS Database Schema
--- 產出依據：docs/design/domain-model.md v3.2
+-- 產出依據：docs/design/domain-model.md v3.3
 -- 設計原則：
 --   - 全部軟刪除，加 deleted_at 欄位
 --   - 金額用整數儲存（台幣，無小數）
@@ -59,10 +59,15 @@ CREATE TABLE properties (
     id                      UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     name                    VARCHAR(200) NOT NULL,
     address                 TEXT         NOT NULL,
-    -- electricityUnitPrice：台幣整數/度，物業層級電價
-    electricity_unit_price  INTEGER      NOT NULL CHECK (electricity_unit_price > 0),
+    -- electricityUnitPrice：台幣正數/度，物業層級電價，可接受小數
+    electricity_unit_price  NUMERIC(10,4) CHECK (electricity_unit_price > 0),
     -- owner_id：業主帳號，resource-based 存取控制用
     owner_id                UUID         NOT NULL REFERENCES users(id),
+    subtitle                VARCHAR(200),
+    contact_phone           VARCHAR(50),
+    contact_email           VARCHAR(255),
+    notes                   TEXT,
+    facilities              JSONB,
     deleted_at              TIMESTAMPTZ,
     created_at              TIMESTAMPTZ  NOT NULL DEFAULT now(),
     updated_at              TIMESTAMPTZ  NOT NULL DEFAULT now(),
@@ -81,15 +86,22 @@ CREATE INDEX idx_properties_owner_id ON properties (owner_id) WHERE deleted_at I
 -- ============================================================
 
 CREATE TABLE rooms (
-    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    property_id UUID        NOT NULL REFERENCES properties(id),
-    name        VARCHAR(100) NOT NULL,
+    id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    property_id         UUID        NOT NULL REFERENCES properties(id),
+    name                VARCHAR(100) NOT NULL,
     -- status：vacant | occupied | maintenance
-    status      VARCHAR(20)  NOT NULL CHECK (status IN ('vacant', 'occupied', 'maintenance'))
-                             DEFAULT 'vacant',
-    deleted_at  TIMESTAMPTZ,
-    created_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    updated_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
+    status              VARCHAR(20)  NOT NULL CHECK (status IN ('vacant', 'occupied', 'maintenance'))
+                                     DEFAULT 'vacant',
+    size                NUMERIC(10,2) CHECK (size >= 0),
+    floor               VARCHAR(50),
+    room_type           VARCHAR(50),
+    facilities          JSONB,
+    default_rent_amount INTEGER CHECK (default_rent_amount > 0),
+    notes               TEXT,
+    zone                VARCHAR(100),
+    deleted_at          TIMESTAMPTZ,
+    created_at          TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    updated_at          TIMESTAMPTZ  NOT NULL DEFAULT now()
     -- 注意：Room 無獨立 version 欄位，由 Property Aggregate 樂觀鎖管控整體一致性
     -- BR-12 對 Room 取悲觀鎖（SELECT FOR UPDATE），在應用層執行
 );
@@ -108,20 +120,24 @@ CREATE INDEX idx_rooms_property_status ON rooms (property_id, status) WHERE dele
 -- ============================================================
 
 CREATE TABLE tenants (
-    id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    id              UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
     name            VARCHAR(100) NOT NULL,
-    email           VARCHAR(255) NOT NULL,
+    email           VARCHAR(255),
     phone           VARCHAR(50),
     -- contacts：聯絡方式清單（Value Objects），JSONB
     -- 選擇 JSONB 原因：聯絡方式為 Value Object 清單，無需獨立查詢，隨 Tenant 一起載入
-    contacts        JSONB        NOT NULL DEFAULT '[]',
+    contacts        JSONB         NOT NULL DEFAULT '[]',
+    birth_date      DATE,
+    national_id     VARCHAR(50),
+    address         TEXT,
+    occupation      VARCHAR(100),
     -- status：active | inactive；有效租約時 active
-    status          VARCHAR(20)  NOT NULL CHECK (status IN ('active', 'inactive'))
-                                 DEFAULT 'active',
+    status          VARCHAR(20)   NOT NULL CHECK (status IN ('active', 'inactive'))
+                                  DEFAULT 'active',
     deleted_at      TIMESTAMPTZ,
-    created_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    updated_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    version         INTEGER      NOT NULL DEFAULT 1
+    created_at      TIMESTAMPTZ   NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ   NOT NULL DEFAULT now(),
+    version         INTEGER       NOT NULL DEFAULT 1
 );
 
 -- Index 說明:
@@ -138,29 +154,32 @@ CREATE INDEX idx_tenants_email ON tenants (email) WHERE deleted_at IS NULL;
 -- ============================================================
 
 CREATE TABLE leases (
-    id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id       UUID        NOT NULL REFERENCES tenants(id),
-    room_id         UUID        NOT NULL REFERENCES rooms(id),
-    property_id     UUID        NOT NULL REFERENCES properties(id),
+    id                      UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id               UUID        NOT NULL REFERENCES tenants(id),
+    room_id                 UUID        NOT NULL REFERENCES rooms(id),
+    property_id             UUID        NOT NULL REFERENCES properties(id),
     -- 租約條件
-    rent_amount     INTEGER      NOT NULL CHECK (rent_amount > 0),  -- BR-02
-    start_date      DATE         NOT NULL,
-    end_date        DATE         NOT NULL,
+    rent_amount             INTEGER      NOT NULL CHECK (rent_amount > 0),  -- BR-02
+    start_date              DATE         NOT NULL,
+    end_date                DATE         NOT NULL,
     -- status：active | expired | terminated | force_terminated
-    status          VARCHAR(30)  NOT NULL CHECK (status IN ('active', 'expired', 'terminated', 'force_terminated'))
-                                 DEFAULT 'active',
+    status                  VARCHAR(30)  NOT NULL CHECK (status IN ('active', 'expired', 'terminated', 'force_terminated'))
+                                         DEFAULT 'active',
     -- deposit 為 Value Object，展開為欄位
     -- v3.2：支援部分扣款後退餘額，status 改為 held | settled | written_off
-    deposit_amount  INTEGER      NOT NULL CHECK (deposit_amount >= 0),  -- BR-03
-    deposit_refund_amount INTEGER CHECK (deposit_refund_amount >= 0),
+    deposit_amount          INTEGER      NOT NULL CHECK (deposit_amount >= 0),  -- BR-03
+    deposit_refund_amount   INTEGER CHECK (deposit_refund_amount >= 0),
     deposit_deduction_amount INTEGER CHECK (deposit_deduction_amount >= 0),
-    deposit_status  VARCHAR(20)  NOT NULL CHECK (deposit_status IN ('held', 'settled', 'written_off'))
-                                 DEFAULT 'held',
+    deposit_status          VARCHAR(20)  NOT NULL CHECK (deposit_status IN ('held', 'settled', 'written_off'))
+                                         DEFAULT 'held',
     deposit_deduction_reason TEXT,  -- BR-10 押金扣款須填寫原因
-    deleted_at      TIMESTAMPTZ,
-    created_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    updated_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    version         INTEGER      NOT NULL DEFAULT 1
+    notes                   TEXT,
+    termination_reason      TEXT,
+    settlement_detail       JSONB,
+    deleted_at              TIMESTAMPTZ,
+    created_at              TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    updated_at              TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    version                 INTEGER      NOT NULL DEFAULT 1
 );
 
 -- Index 說明:
@@ -192,7 +211,7 @@ CREATE TABLE bills (
     property_id         UUID        NOT NULL REFERENCES properties(id),
     -- type：rent | electricity
     type                VARCHAR(20)  NOT NULL CHECK (type IN ('rent', 'electricity')),
-    amount              INTEGER,     -- 電費帳單預產時為 null，抄表後填入
+    amount              INTEGER,     -- 電費帳單預產時為 null，抄表後依 usage × unitPrice 四捨五入填入
     due_date            DATE         NOT NULL,
     -- status：
     --   租金帳單：pending_payment → paid | overdue | voided | written_off
@@ -210,7 +229,7 @@ CREATE TABLE bills (
     -- 選擇展開原因：各欄位獨立用於計算與查詢（previousReading 由系統查詢填入）
     meter_previous_reading  INTEGER,
     meter_current_reading   INTEGER,
-    meter_unit_price        INTEGER,    -- 抄表當下從 Property 取得並鎖定
+    meter_unit_price        NUMERIC(10,4), -- 抄表當下從 Property 取得並鎖定，台幣正數，可接受小數
     meter_recorded_at       TIMESTAMPTZ,
     -- written_off 時的原因（強制終止使用）
     written_off_reason  TEXT,

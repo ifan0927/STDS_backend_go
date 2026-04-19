@@ -16,7 +16,7 @@ import (
 type CreatePropertyInput struct {
 	Name                 string
 	Address              string
-	ElectricityUnitPrice int
+	ElectricityUnitPrice float64
 	OwnerID              string
 }
 

@@ -114,6 +114,11 @@ The generated Go bindings live in `internal/http/api/openapi.gen.go`.
 - Run all pending migrations: `go run ./cmd/migrate up`
 - Roll back applied migrations in reverse order: `go run ./cmd/migrate down`
 
+## Legacy migration planning
+
+- Validate the checked-in legacy JSON exports and generate the Task 5 architecture report: `go run ./cmd/migrate_legacy plan`
+- Override source/report directories when needed: `go run ./cmd/migrate_legacy plan --source-dir docs/mirgations --report-dir artifacts/legacy_migration`
+
 ## Project structure
 
 ```text

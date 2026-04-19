@@ -10,7 +10,11 @@ properties:
   address:
     type: string
   electricity_unit_price:
-    type: integer
+    type: number
+    format: double
+    minimum: 0
+    exclusiveMinimum: true
+    description: 台幣正數/度，可接受小數（例如 4.5）
   owner_id:
     type: string
     format: uuid

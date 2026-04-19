@@ -17,7 +17,7 @@ type Property struct {
 	ID                   string
 	Name                 string
 	Address              string
-	ElectricityUnitPrice int
+	ElectricityUnitPrice *float64
 	OwnerID              string
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
@@ -115,17 +115,21 @@ type rowScanner interface {
 
 func scanProperty(row rowScanner) (*Property, error) {
 	var property Property
+	var electricityUnitPrice sql.NullFloat64
 	if err := row.Scan(
 		&property.ID,
 		&property.Name,
 		&property.Address,
-		&property.ElectricityUnitPrice,
+		&electricityUnitPrice,
 		&property.OwnerID,
 		&property.CreatedAt,
 		&property.UpdatedAt,
 		&property.Version,
 	); err != nil {
 		return nil, err
+	}
+	if electricityUnitPrice.Valid {
+		property.ElectricityUnitPrice = &electricityUnitPrice.Float64
 	}
 
 	return &property, nil

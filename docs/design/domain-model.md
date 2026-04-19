@@ -1,12 +1,13 @@
 Domain Model
 
-> 版本：v3.2
+> 版本：v3.3
 > 更新說明：
 > - v2.0：經四輪多角色設計評審產出
 > - v2.1-v2.8：歷次 Validation 修正
 > - v2.9：補 paymentMethod 欄位、expired → terminated 狀態轉換、Tenant status 轉換邏輯、monthly_snapshots 拆兩層 table、force_termination_bills 拆表移除 bill_ids[]、補 overdue_notice_count Index、Notification event payload 要求
 > - v3.0：認證機制改為 Firebase Auth + Custom Claims，移除自建 JWT 與 password_hash，users table 改存 firebase_uid
 > - v3.2：新增共用附件機制（GCS Signed URL + nonce 綁定 + 各資源獨立附件表），補 BR-18、附件相關 Read Models、排程任務、ADR
+> - v3.3：電費單價改為可接受浮點數；電費帳單 amount 維持台幣整數，計算後採四捨五入
 
 ---
 
@@ -129,7 +130,7 @@ Domain Model
 - **Root Entity**：Property
 - **包含**：
   - Room entities（含狀態）
-  - `electricityUnitPrice`（台幣整數/度，物業層級電價）
+  - `electricityUnitPrice`（台幣正數/度，物業層級電價，可接受小數，例：4.5）
 - **Room 狀態**：`vacant | occupied | maintenance`
 - **狀態轉換**：
   - `vacant → occupied`：訂閱 `LeaseCreated`
@@ -154,7 +155,7 @@ Domain Model
   - `meterReading: MeterReading`（optional Value Object，電費帳單專用）
     - `previousReading`（系統查詢填入，不由員工輸入）
     - `currentReading`
-    - `unitPrice`（抄表當下從 Property 取得並鎖定，台幣整數）
+    - `unitPrice`（抄表當下從 Property 取得並鎖定，台幣正數，可接受小數）
     - `recordedAt`
   - `sourceRef`（optional）：`{ type: 'repair', id: RepairRequestId }`（預留，現階段不實作）
   - `writtenOffReason`（optional，強制終止時使用）
@@ -165,6 +166,7 @@ Domain Model
   - 補充轉換：`overdue → paid`（逾期帳單仍可收款）
 - **一致性邊界**：收款確認後產生 `AccountingEntry`，不可重複收款
 - **金額儲存**：台幣整數（無小數）
+- **電費換算規則**：`rawAmount = usage × MeterReading.unitPrice`，`amount = round(rawAmount)`（四捨五入為最終帳單金額）
 - **併發策略**：樂觀鎖（逾期掃描與付款衝突時，樂觀鎖讓一方失敗，付款方優先，批次任務跳過衝突帳單）
 
 ### PropertyAccount Aggregate（Billing BC）
@@ -263,8 +265,8 @@ Domain Model
 | BR-13 | 系統管理員不得降低自己的角色 | 修改自身角色時 | 拒絕操作 | 無 |
 | BR-14 | 強制終止租約需主辦以上角色執行並填寫原因 | 執行強制終止時 | 員工角色拒絕執行 | 無 |
 | BR-15 | 付款日固定為租約起始日，特殊月份（無該日）順延至月底 | 帳單預產時 | 自動計算，無需拒絕 | 無 |
-| BR-16 | 電費帳單金額由系統計算：usage = currentReading - previousReading，amount = usage × MeterReading.unitPrice，不由員工輸入金額 | 抄表送出時 | 系統自動計算，拒絕員工直接輸入金額 | 無 |
-| BR-17 | 修改物業電價（electricityUnitPrice）需主辦以上角色 | 修改電價時 | 員工角色拒絕 | 無 |
+| BR-16 | 電費帳單金額由系統計算：usage = currentReading - previousReading，rawAmount = usage × MeterReading.unitPrice，amount = round(rawAmount)；不由員工輸入金額 | 抄表送出時 | 系統自動計算並四捨五入為整數，拒絕員工直接輸入金額 | 無 |
+| BR-17 | 修改物業電價（electricityUnitPrice）需主辦以上角色，且電價僅接受大於 0 的數值，可接受小數 | 修改電價時 | 員工角色拒絕；零與負數拒絕 | 無 |
 | BR-18 | 附件允許的 MIME type：`image/jpeg`、`image/png`、`image/heic`、`application/pdf`；單檔上限 20MB | 上傳附件時（Step 3 登記） | 拒絕登記，回傳 422 | 無 |
 
 ---

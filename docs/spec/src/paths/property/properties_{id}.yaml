@@ -28,7 +28,7 @@ get:
                 id: 10000000-0000-0000-0000-000000000001
                 name: 台北大安物業
                 address: 台北市大安區復興南路一段100號
-                electricity_unit_price: 5
+                electricity_unit_price: 4.5
                 owner_id: 00000000-0000-0000-0000-000000000010
     '401':
       description: 未認證
@@ -68,6 +68,7 @@ patch:
   summary: 編輯物業（含修改電價 BR-17）
   description: |
     修改電價（electricity_unit_price）：x-required-role: admin, organizer（BR-17）
+    electricity_unit_price 接受大於 0 的台幣數值，可接受小數（例如 4.5）
     其他欄位編輯：x-required-role: admin, organizer, staff
   tags:
     - Property
@@ -92,7 +93,7 @@ patch:
           update_price:
             summary: 修改電價
             value:
-              electricity_unit_price: 6
+              electricity_unit_price: 4.5
   responses:
     '200':
       description: 更新成功
@@ -104,7 +105,7 @@ patch:
             success:
               value:
                 id: 10000000-0000-0000-0000-000000000001
-                electricity_unit_price: 6
+                electricity_unit_price: 4.5
                 updated_at: '2026-04-15T12:00:00Z'
     '401':
       description: 未認證
@@ -148,10 +149,10 @@ patch:
             $ref: ../../components/schemas/shared/ErrorResponse.yaml
           examples:
             invalid_price:
-              summary: 電價不得為零或負
+              summary: 電價不得為零或負數
               value:
                 error_code: ELECTRICITY_PRICE_MUST_BE_POSITIVE
-                message: 電價必須為正整數
+                message: 電價必須大於 0
 delete:
   operationId: deleteProperty
   summary: 刪除物業（軟刪除）

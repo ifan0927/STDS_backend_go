@@ -21,17 +21,17 @@ func TestCreatePropertyServiceCreatesProperty(t *testing.T) {
 
 	mock.ExpectBegin()
 	mock.ExpectQuery("INSERT INTO properties").
-		WithArgs("Property A", "Address A", 5, "owner-1").
+		WithArgs("Property A", "Address A", 4.5, "owner-1").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "name", "address", "electricity_unit_price", "owner_id", "created_at", "updated_at", "version",
-		}).AddRow("property-1", "Property A", "Address A", 5, "owner-1", time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), 1))
+		}).AddRow("property-1", "Property A", "Address A", 4.5, "owner-1", time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), 1))
 	mock.ExpectCommit()
 
 	service := NewCreatePropertyService(dbproperties.NewRepository(db), dbtxrunner.New(db, domainevents.NoopPublisher{}))
 	property, err := service.Execute(context.Background(), CreatePropertyInput{
 		Name:                 "Property A",
 		Address:              "Address A",
-		ElectricityUnitPrice: 5,
+		ElectricityUnitPrice: 4.5,
 		OwnerID:              "owner-1",
 	})
 	if err != nil {
@@ -40,6 +40,9 @@ func TestCreatePropertyServiceCreatesProperty(t *testing.T) {
 
 	if property.ID != "property-1" {
 		t.Fatalf("expected property-1, got %q", property.ID)
+	}
+	if property.ElectricityUnitPrice == nil || *property.ElectricityUnitPrice != 4.5 {
+		t.Fatalf("expected electricity_unit_price 4.5, got %v", property.ElectricityUnitPrice)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {

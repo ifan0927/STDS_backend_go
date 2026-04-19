@@ -28,7 +28,7 @@ get:
                   - id: 10000000-0000-0000-0000-000000000001
                     name: 台北大安物業
                     address: 台北市大安區復興南路一段100號
-                    electricity_unit_price: 5
+                    electricity_unit_price: 4.5
     '401':
       description: 未認證
       content:
@@ -46,6 +46,7 @@ post:
   description: |
     x-required-role: admin, organizer, staff
     觸發 PropertyCreated event → Billing BC 建立 PropertyAccount
+    electricity_unit_price 接受大於 0 的台幣數值，可接受小數（例如 4.5）
   tags:
     - Property
   x-required-role:
@@ -64,7 +65,7 @@ post:
             value:
               name: 台北大安物業
               address: 台北市大安區復興南路一段100號
-              electricity_unit_price: 5
+              electricity_unit_price: 4.5
               owner_id: 00000000-0000-0000-0000-000000000010
   responses:
     '201':
@@ -79,7 +80,7 @@ post:
                 id: 10000000-0000-0000-0000-000000000001
                 name: 台北大安物業
                 address: 台北市大安區復興南路一段100號
-                electricity_unit_price: 5
+                electricity_unit_price: 4.5
                 owner_id: 00000000-0000-0000-0000-000000000010
                 created_at: '2026-04-15T10:00:00Z'
     '400':
@@ -96,7 +97,7 @@ post:
             invalid_electricity_price:
               value:
                 error_code: VALIDATION_ELECTRICITY_PRICE_INVALID
-                message: 電價必須為正整數
+                message: 電價必須大於 0
     '401':
       description: 未認證
       content:

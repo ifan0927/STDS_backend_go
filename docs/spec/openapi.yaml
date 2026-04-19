@@ -1,13 +1,13 @@
 openapi: 3.0.3
 info:
   title: STDS API
-  version: 1.0.0
+  version: 1.0.1
   license:
     name: Proprietary
     url: https://example.com/licenses/proprietary
   description: |
     STDS（物業代管系統）API 規格
-    產出依據：docs/design/domain-model.md v3.2
+    產出依據：docs/design/domain-model.md v3.3
     授權模型：混合型（RBAC + Resource-based）
     - x-required-role：列出可呼叫的角色（RBAC）
     - x-ownership-required：物業層級存取控制（resource-based），透過 Firebase ID token 內 Custom Claims 的 assigned_property_ids 驗證
@@ -597,7 +597,7 @@ paths:
                       - id: 10000000-0000-0000-0000-000000000001
                         name: 台北大安物業
                         address: 台北市大安區復興南路一段100號
-                        electricity_unit_price: 5
+                        electricity_unit_price: 4.5
         '401':
           description: 未認證
           content:
@@ -615,6 +615,7 @@ paths:
       description: |
         x-required-role: admin, organizer, staff
         觸發 PropertyCreated event → Billing BC 建立 PropertyAccount
+        electricity_unit_price 接受大於 0 的台幣數值，可接受小數（例如 4.5）
       tags:
         - Property
       x-required-role:
@@ -633,7 +634,7 @@ paths:
                 value:
                   name: 台北大安物業
                   address: 台北市大安區復興南路一段100號
-                  electricity_unit_price: 5
+                  electricity_unit_price: 4.5
                   owner_id: 00000000-0000-0000-0000-000000000010
       responses:
         '201':
@@ -648,7 +649,7 @@ paths:
                     id: 10000000-0000-0000-0000-000000000001
                     name: 台北大安物業
                     address: 台北市大安區復興南路一段100號
-                    electricity_unit_price: 5
+                    electricity_unit_price: 4.5
                     owner_id: 00000000-0000-0000-0000-000000000010
                     created_at: '2026-04-15T10:00:00Z'
         '400':
@@ -665,7 +666,7 @@ paths:
                 invalid_electricity_price:
                   value:
                     error_code: VALIDATION_ELECTRICITY_PRICE_INVALID
-                    message: 電價必須為正整數
+                    message: 電價必須大於 0
         '401':
           description: 未認證
           content:
@@ -719,7 +720,7 @@ paths:
                     id: 10000000-0000-0000-0000-000000000001
                     name: 台北大安物業
                     address: 台北市大安區復興南路一段100號
-                    electricity_unit_price: 5
+                    electricity_unit_price: 4.5
                     owner_id: 00000000-0000-0000-0000-000000000010
         '401':
           description: 未認證
@@ -759,6 +760,7 @@ paths:
       summary: 編輯物業（含修改電價 BR-17）
       description: |
         修改電價（electricity_unit_price）：x-required-role: admin, organizer（BR-17）
+        electricity_unit_price 接受大於 0 的台幣數值，可接受小數（例如 4.5）
         其他欄位編輯：x-required-role: admin, organizer, staff
       tags:
         - Property
@@ -783,7 +785,7 @@ paths:
               update_price:
                 summary: 修改電價
                 value:
-                  electricity_unit_price: 6
+                  electricity_unit_price: 4.5
       responses:
         '200':
           description: 更新成功
@@ -795,7 +797,7 @@ paths:
                 success:
                   value:
                     id: 10000000-0000-0000-0000-000000000001
-                    electricity_unit_price: 6
+                    electricity_unit_price: 4.5
                     updated_at: '2026-04-15T12:00:00Z'
         '401':
           description: 未認證
@@ -839,10 +841,10 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
               examples:
                 invalid_price:
-                  summary: 電價不得為零或負
+                  summary: 電價不得為零或負數
                   value:
                     error_code: ELECTRICITY_PRICE_MUST_BE_POSITIVE
-                    message: 電價必須為正整數
+                    message: 電價必須大於 0
     delete:
       operationId: deleteProperty
       summary: 刪除物業（軟刪除）
@@ -3126,7 +3128,7 @@ paths:
                     status: pending_meter
                     meter_previous_reading: 1250
                     meter_current_reading: null
-                    meter_unit_price: 5
+                    meter_unit_price: 4.5
         '401':
           description: 未認證
           content:
@@ -3265,7 +3267,7 @@ paths:
       description: |
         x-required-role: admin, organizer, staff
         BR-06：電表度數不得小於上月度數
-        BR-16：金額由系統計算（usage × unitPrice），不由員工輸入
+        BR-16：金額由系統計算（usage × unitPrice），並四捨五入為整數 amount，不由員工輸入
         MeterRecorded event → 帳單金額更新，狀態從 pending_meter 改為 pending_payment
       tags:
         - Billing
@@ -3304,8 +3306,8 @@ paths:
                     status: pending_payment
                     meter_previous_reading: 1250
                     meter_current_reading: 1380
-                    meter_unit_price: 5
-                    amount: 650
+                    meter_unit_price: 4.5
+                    amount: 585
                     meter_recorded_at: '2026-04-15T10:00:00Z'
         '400':
           description: 欄位驗證錯誤
@@ -5672,11 +5674,33 @@ components:
           type: string
         address:
           type: string
+        subtitle:
+          type: string
+          nullable: true
         electricity_unit_price:
-          type: integer
+          type: number
+          format: double
+          minimum: 0
+          exclusiveMinimum: true
+          description: 台幣正數/度，可接受小數
+          nullable: true
         owner_id:
           type: string
           format: uuid
+        contact_phone:
+          type: string
+          nullable: true
+        contact_email:
+          type: string
+          format: email
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        facilities:
+          type: array
+          items: {}
+          nullable: true
         created_at:
           type: string
           format: date-time
@@ -5705,7 +5729,11 @@ components:
         address:
           type: string
         electricity_unit_price:
-          type: integer
+          type: number
+          format: double
+          minimum: 0
+          exclusiveMinimum: true
+          description: 台幣正數/度，可接受小數（例如 4.5）
         owner_id:
           type: string
           format: uuid
@@ -5717,7 +5745,11 @@ components:
         address:
           type: string
         electricity_unit_price:
-          type: integer
+          type: number
+          format: double
+          minimum: 0
+          exclusiveMinimum: true
+          description: 台幣正數/度，可接受小數（例如 4.5）
     AttachmentResponse:
       type: object
       properties:
@@ -5779,6 +5811,29 @@ components:
             - vacant
             - occupied
             - maintenance
+        size:
+          type: number
+          format: double
+          nullable: true
+        floor:
+          type: string
+          nullable: true
+        room_type:
+          type: string
+          nullable: true
+        facilities:
+          type: object
+          additionalProperties: true
+          nullable: true
+        default_rent_amount:
+          type: integer
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        zone:
+          type: string
+          nullable: true
         created_at:
           type: string
           format: date-time
@@ -5872,12 +5927,27 @@ components:
         email:
           type: string
           format: email
+          nullable: true
         phone:
           type: string
+          nullable: true
         contacts:
           type: array
           items:
             type: object
+        birth_date:
+          type: string
+          format: date
+          nullable: true
+        national_id:
+          type: string
+          nullable: true
+        address:
+          type: string
+          nullable: true
+        occupation:
+          type: string
+          nullable: true
         status:
           type: string
           enum:
@@ -5975,6 +6045,16 @@ components:
           nullable: true
         deposit_deduction_reason:
           type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        termination_reason:
+          type: string
+          nullable: true
+        settlement_detail:
+          type: object
+          additionalProperties: true
           nullable: true
         created_at:
           type: string
@@ -6155,7 +6235,8 @@ components:
           type: integer
           nullable: true
         meter_unit_price:
-          type: integer
+          type: number
+          format: double
           nullable: true
         meter_recorded_at:
           type: string

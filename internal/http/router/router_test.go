@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gin-gonic/gin"
 
 	appiam "stds_backend/internal/application/iam"
@@ -246,6 +247,7 @@ func TestCreateUserReturnsNotificationErrorCodeWhenDispatchFails(t *testing.T) {
 		"",
 		fakeJobRunsRepo{},
 		&testNotificationSender{sendErr: errors.New("resend down")},
+		appproperty.NewCreatePropertyService(fakePropertyRepo{}, dbtxrunner.New(nil, nil)),
 	)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/users", strings.NewReader(`{
@@ -314,6 +316,64 @@ func TestCreatePropertyRejectsMalformedJSONAsBadRequest(t *testing.T) {
 
 	if payload["error_code"] != "BAD_REQUEST" {
 		t.Fatalf("expected error_code BAD_REQUEST, got %v", payload["error_code"])
+	}
+}
+
+func TestCreatePropertyAcceptsDecimalElectricityPrice(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("INSERT INTO properties").
+		WithArgs("Property A", "Address A", 4.5, "00000000-0000-0000-0000-000000000010").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "name", "address", "electricity_unit_price", "owner_id", "created_at", "updated_at", "version",
+		}).AddRow(
+			"property-new",
+			"Property A",
+			"Address A",
+			4.5,
+			"00000000-0000-0000-0000-000000000010",
+			time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+			time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+			1,
+		))
+	mock.ExpectCommit()
+
+	repo := fakeUserRepo{}
+	createPropertyService := appproperty.NewCreatePropertyService(dbproperties.NewRepository(db), dbtxrunner.New(db, nil))
+	engine := newTestEngineWithCreatePropertyService(repo, fakeAuthenticator{}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{}, createPropertyService)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/properties", strings.NewReader(`{
+		"name":"Property A",
+		"address":"Address A",
+		"electricity_unit_price":4.5,
+		"owner_id":"00000000-0000-0000-0000-000000000010"
+	}`))
+	req.Header.Set("Authorization", "Bearer valid-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if payload["electricity_unit_price"] != 4.5 {
+		t.Fatalf("expected electricity_unit_price 4.5, got %v", payload["electricity_unit_price"])
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
 	}
 }
 
@@ -568,7 +628,10 @@ type fakePropertyRepo struct {
 	ownerByPropertyID map[string]string
 }
 
-type fakePropertyQueryRepo struct{}
+type fakePropertyQueryRepo struct {
+	property   *dbpropertyquery.Property
+	properties []dbpropertyquery.Property
+}
 
 type fakeResourceOwnershipRepo struct {
 	propertyByRoomID             map[string]string
@@ -658,11 +721,12 @@ func (f fakePropertyRepo) FindOwnerIDByPropertyID(_ context.Context, propertyID 
 }
 
 func (f fakePropertyRepo) Create(_ context.Context, _ *sql.Tx, params dbproperties.CreatePropertyParams) (*dbproperties.Property, error) {
+	electricityUnitPrice := params.ElectricityUnitPrice
 	return &dbproperties.Property{
 		ID:                   "property-new",
 		Name:                 params.Name,
 		Address:              params.Address,
-		ElectricityUnitPrice: params.ElectricityUnitPrice,
+		ElectricityUnitPrice: &electricityUnitPrice,
 		OwnerID:              params.OwnerID,
 		CreatedAt:            time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
 		UpdatedAt:            time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
@@ -670,12 +734,17 @@ func (f fakePropertyRepo) Create(_ context.Context, _ *sql.Tx, params dbproperti
 	}, nil
 }
 
-func (fakePropertyQueryRepo) FindByID(_ context.Context, propertyID string) (*dbpropertyquery.Property, error) {
+func (f fakePropertyQueryRepo) FindByID(_ context.Context, propertyID string) (*dbpropertyquery.Property, error) {
+	if f.property != nil {
+		return f.property, nil
+	}
+
+	electricityUnitPrice := 4.5
 	return &dbpropertyquery.Property{
 		ID:                   propertyID,
 		Name:                 "Property",
 		Address:              "Address",
-		ElectricityUnitPrice: 5,
+		ElectricityUnitPrice: &electricityUnitPrice,
 		OwnerID:              "user-1",
 		CreatedAt:            time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
 		UpdatedAt:            time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
@@ -683,13 +752,18 @@ func (fakePropertyQueryRepo) FindByID(_ context.Context, propertyID string) (*db
 	}, nil
 }
 
-func (fakePropertyQueryRepo) ListAccessible(_ context.Context, _ string, _ string, _ []string) ([]dbpropertyquery.Property, error) {
+func (f fakePropertyQueryRepo) ListAccessible(_ context.Context, _ string, _ string, _ []string) ([]dbpropertyquery.Property, error) {
+	if f.properties != nil {
+		return f.properties, nil
+	}
+
+	electricityUnitPrice := 4.5
 	return []dbpropertyquery.Property{
 		{
 			ID:                   "property-1",
 			Name:                 "Property",
 			Address:              "Address",
-			ElectricityUnitPrice: 5,
+			ElectricityUnitPrice: &electricityUnitPrice,
 			OwnerID:              "user-1",
 			CreatedAt:            time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
 			UpdatedAt:            time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
@@ -761,6 +835,18 @@ func (fakeJobRunsRepo) Fail(_ context.Context, _ string, _ string) error     { r
 func (fakeJobRunsRepo) Skip(_ context.Context, _ string, _ string) error     { return nil }
 
 func newTestEngine(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo) *gin.Engine {
+	return newTestEngineWithCreatePropertyService(
+		userRepo,
+		authenticator,
+		propertyRepo,
+		ownershipRepo,
+		schedulerKey,
+		jobRunsRepo,
+		appproperty.NewCreatePropertyService(propertyRepo, dbtxrunner.New(nil, nil)),
+	)
+}
+
+func newTestEngineWithCreatePropertyService(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo, createPropertyService *appproperty.CreatePropertyService) *gin.Engine {
 	return newTestEngineWithNotificationSender(
 		userRepo,
 		authenticator,
@@ -769,10 +855,11 @@ func newTestEngine(userRepo fakeUserRepo, authenticator fakeAuthenticator, prope
 		schedulerKey,
 		jobRunsRepo,
 		&testNotificationSender{},
+		createPropertyService,
 	)
 }
 
-func newTestEngineWithNotificationSender(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo, notificationSender *testNotificationSender) *gin.Engine {
+func newTestEngineWithNotificationSender(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo, notificationSender *testNotificationSender, createPropertyService *appproperty.CreatePropertyService) *gin.Engine {
 	return New(
 		config.AppConfig{Name: "test", Env: "test", SchedulerKey: schedulerKey, ReadTimeout: time.Second, WriteTimeout: time.Second},
 		testLogger(),
@@ -787,7 +874,7 @@ func newTestEngineWithNotificationSender(userRepo fakeUserRepo, authenticator fa
 		appiam.NewSyncAuthService(userRepo, appiam.NewCustomClaimsService(authenticator)),
 		appjobs.NewTriggerService(jobRunsRepo, nil, time.Minute, 3),
 		fakePropertyQueryRepo{},
-		appproperty.NewCreatePropertyService(propertyRepo, dbtxrunner.New(nil, nil)),
+		createPropertyService,
 	)
 }
 

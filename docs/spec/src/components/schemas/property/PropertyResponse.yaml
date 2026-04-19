@@ -7,11 +7,33 @@ properties:
     type: string
   address:
     type: string
+  subtitle:
+    type: string
+    nullable: true
   electricity_unit_price:
-    type: integer
+    type: number
+    format: double
+    minimum: 0
+    exclusiveMinimum: true
+    description: 台幣正數/度，可接受小數
+    nullable: true
   owner_id:
     type: string
     format: uuid
+  contact_phone:
+    type: string
+    nullable: true
+  contact_email:
+    type: string
+    format: email
+    nullable: true
+  notes:
+    type: string
+    nullable: true
+  facilities:
+    type: array
+    items: {}
+    nullable: true
   created_at:
     type: string
     format: date-time

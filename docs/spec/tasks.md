@@ -1,6 +1,6 @@
 # 實作任務清單
 
-產出依據：docs/design/domain-model.md v3.0
+產出依據：docs/design/domain-model.md v3.3
 
 ---
 
@@ -377,7 +377,7 @@ T-14~T-19 ── T-20（整合測試）
 - **完成條件**:
   - [ ] BR-05：帳單 status = paid 時，收款操作拋出 `BILL_ALREADY_PAID` 錯誤
   - [ ] BR-06：電表抄錄 current_reading < previous_reading 時，拋出 `METER_READING_LESS_THAN_PREVIOUS` 錯誤（回傳 previous_reading 值）
-  - [ ] BR-16：MeterRecorded 時，系統計算 amount = usage × unitPrice，不接受員工直接傳入 amount 欄位
+  - [ ] BR-16：MeterRecorded 時，系統計算 rawAmount = usage × unitPrice，amount = round(rawAmount)（四捨五入為整數），不接受員工直接傳入 amount 欄位
   - [ ] BillPaid event 發出後，PropertyAccount 新增正確 category 的 AccountingEntry
   - [ ] LeaseTerminated event 訂閱：void 該 lease_id 所有 pending_payment 和 pending_meter 帳單
   - [ ] 樂觀鎖衝突（逾期掃描 vs 付款）：Application Service 正確處理，付款方收到 `CONCURRENT_UPDATE_CONFLICT`，批次任務跳過
