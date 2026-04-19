@@ -235,6 +235,10 @@ func (f fakeUserRepo) Create(_ context.Context, params users.CreateUserParams) (
 	}, nil
 }
 
+func (f fakeUserRepo) UpdateCurrentUser(_ context.Context, _ string, _ users.UpdateCurrentUserParams) (*users.User, error) {
+	return nil, users.ErrNotFound
+}
+
 func (f *fakeUserRepo) DeleteByID(_ context.Context, id string) error {
 	f.deletedID = id
 	return nil

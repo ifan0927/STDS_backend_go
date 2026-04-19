@@ -47,6 +47,7 @@ func New(
 	authzRepos AuthorizationRepositories,
 	createUserService *appiam.CreateUserService,
 	syncAuthService *appiam.SyncAuthService,
+	updateCurrentUserService *appiam.UpdateCurrentUserService,
 	jobTriggerService *appjobs.TriggerService,
 	propertyQueryRepo dbpropertyquery.Repository,
 	createPropertyService *appproperty.CreatePropertyService,
@@ -66,7 +67,7 @@ func New(
 	engine.GET("/openapi.yaml", docsHandler.OpenAPI)
 	engine.GET("/scalar", docsHandler.Scalar)
 
-	api.RegisterHandlersWithOptions(engine, handler.NewAPIServer(userRepo, createUserService, syncAuthService, jobTriggerService, propertyQueryRepo, createPropertyService), api.GinServerOptions{
+	api.RegisterHandlersWithOptions(engine, handler.NewAPIServer(userRepo, createUserService, syncAuthService, updateCurrentUserService, jobTriggerService, propertyQueryRepo, createPropertyService), api.GinServerOptions{
 		BaseURL: "/api/v1",
 		Middlewares: []api.MiddlewareFunc{
 			protectedAPIMiddleware(appCfg, authenticator, userRepo, authzRepos),
@@ -240,6 +241,7 @@ func routePolicies(authzRepos AuthorizationRepositories) []routePolicy {
 		{method: "GET", path: "/api/v1/users", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
 		{method: "POST", path: "/api/v1/users", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer"}},
 		{method: "GET", path: "/api/v1/users/me", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff", "owner"}},
+		{method: "PATCH", path: "/api/v1/users/me", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff", "owner"}},
 		{method: "GET", path: "/api/v1/users/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
 		{method: "PATCH", path: "/api/v1/users/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff", "owner"}},
 		{method: "POST", path: "/api/v1/users/:id/property-assignments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin"}},

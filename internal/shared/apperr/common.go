@@ -27,6 +27,8 @@ const (
 	CodeValidationEmailInvalid = "VALIDATION_EMAIL_INVALID"
 	// CodeValidationNameRequired identifies missing required name input.
 	CodeValidationNameRequired = "VALIDATION_NAME_REQUIRED"
+	// CodeValidationNameTooLong identifies name input that exceeds the allowed length.
+	CodeValidationNameTooLong = "VALIDATION_NAME_TOO_LONG"
 	// CodeValidationAddressRequired identifies missing required address input.
 	CodeValidationAddressRequired = "VALIDATION_ADDRESS_REQUIRED"
 	// CodeValidationOwnerIDRequired identifies missing required owner id input.
@@ -115,6 +117,12 @@ var (
 		CodeValidationNameRequired,
 		http.StatusBadRequest,
 		"Name is required.",
+	)
+	// ErrValidationNameTooLong is returned when name exceeds the allowed length.
+	ErrValidationNameTooLong = New(
+		CodeValidationNameTooLong,
+		http.StatusBadRequest,
+		"Name must be 100 characters or fewer.",
 	)
 	// ErrValidationAddressRequired is returned when address is missing from input.
 	ErrValidationAddressRequired = New(

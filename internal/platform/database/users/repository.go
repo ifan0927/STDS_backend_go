@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
+
+	domainusers "stds_backend/internal/domain/users"
 )
 
 // ErrNotFound indicates that no user matched the requested lookup.
@@ -42,11 +44,17 @@ type CreateUserParams struct {
 	Role        string
 }
 
+// UpdateCurrentUserParams contains the self-service fields a user may edit.
+type UpdateCurrentUserParams struct {
+	Name string
+}
+
 // Repository defines user lookups required by the HTTP authentication layer.
 type Repository interface {
 	FindByFirebaseUID(ctx context.Context, firebaseUID string) (*User, error)
 	FindByID(ctx context.Context, id string) (*User, error)
 	Create(ctx context.Context, params CreateUserParams) (*User, error)
+	UpdateCurrentUser(ctx context.Context, id string, params UpdateCurrentUserParams) (*User, error)
 	DeleteByID(ctx context.Context, id string) error
 }
 
@@ -146,6 +154,66 @@ RETURNING
 	}
 
 	return user, nil
+}
+
+// UpdateCurrentUser updates the self-service fields for a single active user.
+func (r *SQLRepository) UpdateCurrentUser(ctx context.Context, id string, params UpdateCurrentUserParams) (*User, error) {
+	const query = `
+UPDATE users
+SET name = $2,
+	updated_at = now(),
+	version = version + 1
+WHERE id = $1
+  AND deleted_at IS NULL
+RETURNING
+	id,
+	firebase_uid,
+	email,
+	name,
+	role,
+	COALESCE(permission_overrides, '[]'::jsonb)::text AS permission_overrides,
+	COALESCE(assigned_property_ids, '[]'::jsonb)::text AS assigned_property_ids,
+	created_at,
+	updated_at,
+	version
+`
+
+	user, err := scanUser(r.db.QueryRowContext(ctx, query, id, params.Name))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("update current user: %w", err)
+	}
+
+	return user, nil
+}
+
+// UpdateCurrentUserProfile updates the self-service fields for a single active user.
+func (r *SQLRepository) UpdateCurrentUserProfile(ctx context.Context, id string, params domainusers.UpdateCurrentUserParams) (*domainusers.User, error) {
+	user, err := r.UpdateCurrentUser(ctx, id, UpdateCurrentUserParams{
+		Name: params.Name,
+	})
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil, domainusers.ErrNotFound
+		}
+
+		return nil, err
+	}
+
+	return &domainusers.User{
+		ID:                  user.ID,
+		FirebaseUID:         user.FirebaseUID,
+		Email:               user.Email,
+		Name:                user.Name,
+		Role:                user.Role,
+		PermissionOverrides: user.PermissionOverrides,
+		AssignedPropertyIDs: user.AssignedPropertyIDs,
+		CreatedAt:           user.CreatedAt,
+		UpdatedAt:           user.UpdatedAt,
+		Version:             user.Version,
+	}, nil
 }
 
 // DeleteByID soft-deletes the user row by id.

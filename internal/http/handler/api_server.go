@@ -10,6 +10,7 @@ import (
 	appiam "stds_backend/internal/application/iam"
 	appjobs "stds_backend/internal/application/jobs"
 	appproperty "stds_backend/internal/application/property"
+	domainusers "stds_backend/internal/domain/users"
 	"stds_backend/internal/http/api"
 	"stds_backend/internal/http/requestctx"
 	dbproperties "stds_backend/internal/platform/database/properties"
@@ -26,6 +27,7 @@ type APIServer struct {
 	userRepo          users.Repository
 	createUserService *appiam.CreateUserService
 	syncAuthService   *appiam.SyncAuthService
+	updateCurrentUser *appiam.UpdateCurrentUserService
 	jobTriggerService *appjobs.TriggerService
 	propertyQueryRepo dbpropertyquery.Repository
 	createPropertySvc *appproperty.CreatePropertyService
@@ -37,6 +39,7 @@ func NewAPIServer(
 	userRepo users.Repository,
 	createUserService *appiam.CreateUserService,
 	syncAuthService *appiam.SyncAuthService,
+	updateCurrentUser *appiam.UpdateCurrentUserService,
 	jobTriggerService *appjobs.TriggerService,
 	propertyQueryRepo dbpropertyquery.Repository,
 	createPropertySvc *appproperty.CreatePropertyService,
@@ -45,6 +48,7 @@ func NewAPIServer(
 		userRepo:          userRepo,
 		createUserService: createUserService,
 		syncAuthService:   syncAuthService,
+		updateCurrentUser: updateCurrentUser,
 		jobTriggerService: jobTriggerService,
 		propertyQueryRepo: propertyQueryRepo,
 		createPropertySvc: createPropertySvc,
@@ -450,6 +454,32 @@ func (s *APIServer) GetCurrentUser(c *gin.Context) {
 	c.JSON(http.StatusOK, toUserResponse(user))
 }
 
+// UpdateCurrentUser handles self-service user profile updates.
+func (s *APIServer) UpdateCurrentUser(c *gin.Context) {
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	var request api.UpdateCurrentUserRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.Error(apperr.ErrBadRequest.WithCause(err))
+		return
+	}
+
+	user, err := s.updateCurrentUser.Execute(c.Request.Context(), appiam.UpdateCurrentUserInput{
+		UserID: principal.UserID,
+		Name:   request.Name,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toCurrentUserResponse(user))
+}
+
 // GetUser handles user detail retrieval.
 func (s *APIServer) GetUser(c *gin.Context, id string) { writeNotImplemented(c) }
 
@@ -460,6 +490,35 @@ func (s *APIServer) UpdateUser(c *gin.Context, id string) { writeNotImplemented(
 func (s *APIServer) AssignUserProperties(c *gin.Context, id string) { writeNotImplemented(c) }
 
 func toUserResponse(user *users.User) api.UserResponse {
+	id, ok := parseUUID(user.ID)
+	email := openapi_types.Email(user.Email)
+	role := api.UserResponseRole(user.Role)
+	createdAt := user.CreatedAt
+	updatedAt := user.UpdatedAt
+	version := user.Version
+	firebaseUID := user.FirebaseUID
+	name := user.Name
+
+	response := api.UserResponse{
+		AssignedPropertyIds: toUUIDList(user.AssignedPropertyIDs),
+		CreatedAt:           &createdAt,
+		Email:               &email,
+		FirebaseUid:         &firebaseUID,
+		Name:                &name,
+		PermissionOverrides: &user.PermissionOverrides,
+		Role:                &role,
+		UpdatedAt:           &updatedAt,
+		Version:             &version,
+	}
+
+	if ok {
+		response.Id = &id
+	}
+
+	return response
+}
+
+func toCurrentUserResponse(user *domainusers.User) api.UserResponse {
 	id, ok := parseUUID(user.ID)
 	email := openapi_types.Email(user.Email)
 	role := api.UserResponseRole(user.Role)
