@@ -26,6 +26,7 @@ type APIServer struct {
 	userRepo          users.Repository
 	createUserService *appiam.CreateUserService
 	syncAuthService   *appiam.SyncAuthService
+	updateCurrentUser *appiam.UpdateCurrentUserService
 	jobTriggerService *appjobs.TriggerService
 	propertyQueryRepo dbpropertyquery.Repository
 	createPropertySvc *appproperty.CreatePropertyService
@@ -37,6 +38,7 @@ func NewAPIServer(
 	userRepo users.Repository,
 	createUserService *appiam.CreateUserService,
 	syncAuthService *appiam.SyncAuthService,
+	updateCurrentUser *appiam.UpdateCurrentUserService,
 	jobTriggerService *appjobs.TriggerService,
 	propertyQueryRepo dbpropertyquery.Repository,
 	createPropertySvc *appproperty.CreatePropertyService,
@@ -45,6 +47,7 @@ func NewAPIServer(
 		userRepo:          userRepo,
 		createUserService: createUserService,
 		syncAuthService:   syncAuthService,
+		updateCurrentUser: updateCurrentUser,
 		jobTriggerService: jobTriggerService,
 		propertyQueryRepo: propertyQueryRepo,
 		createPropertySvc: createPropertySvc,
@@ -444,6 +447,32 @@ func (s *APIServer) GetCurrentUser(c *gin.Context) {
 		default:
 			c.Error(apperr.ErrInternalServerError.WithCause(err))
 		}
+		return
+	}
+
+	c.JSON(http.StatusOK, toUserResponse(user))
+}
+
+// UpdateCurrentUser handles self-service user profile updates.
+func (s *APIServer) UpdateCurrentUser(c *gin.Context) {
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	var request api.UpdateCurrentUserRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.Error(apperr.ErrBadRequest.WithCause(err))
+		return
+	}
+
+	user, err := s.updateCurrentUser.Execute(c.Request.Context(), appiam.UpdateCurrentUserInput{
+		UserID: principal.UserID,
+		Name:   request.Name,
+	})
+	if err != nil {
+		c.Error(err)
 		return
 	}
 

@@ -42,11 +42,17 @@ type CreateUserParams struct {
 	Role        string
 }
 
+// UpdateCurrentUserParams contains the self-service fields a user may edit.
+type UpdateCurrentUserParams struct {
+	Name string
+}
+
 // Repository defines user lookups required by the HTTP authentication layer.
 type Repository interface {
 	FindByFirebaseUID(ctx context.Context, firebaseUID string) (*User, error)
 	FindByID(ctx context.Context, id string) (*User, error)
 	Create(ctx context.Context, params CreateUserParams) (*User, error)
+	UpdateCurrentUser(ctx context.Context, id string, params UpdateCurrentUserParams) (*User, error)
 	DeleteByID(ctx context.Context, id string) error
 }
 
@@ -143,6 +149,39 @@ RETURNING
 			}
 		}
 		return nil, fmt.Errorf("create user: %w", err)
+	}
+
+	return user, nil
+}
+
+// UpdateCurrentUser updates the self-service fields for a single active user.
+func (r *SQLRepository) UpdateCurrentUser(ctx context.Context, id string, params UpdateCurrentUserParams) (*User, error) {
+	const query = `
+UPDATE users
+SET name = $2,
+	updated_at = now(),
+	version = version + 1
+WHERE id = $1
+  AND deleted_at IS NULL
+RETURNING
+	id,
+	firebase_uid,
+	email,
+	name,
+	role,
+	COALESCE(permission_overrides, '[]'::jsonb)::text AS permission_overrides,
+	COALESCE(assigned_property_ids, '[]'::jsonb)::text AS assigned_property_ids,
+	created_at,
+	updated_at,
+	version
+`
+
+	user, err := scanUser(r.db.QueryRowContext(ctx, query, id, params.Name))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("update current user: %w", err)
 	}
 
 	return user, nil

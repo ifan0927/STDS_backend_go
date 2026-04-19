@@ -716,6 +716,12 @@ type TerminateLeaseRequest struct {
 	RefundAmount           *int    `json:"refund_amount,omitempty"`
 }
 
+// UpdateCurrentUserRequest defines model for UpdateCurrentUserRequest.
+type UpdateCurrentUserRequest struct {
+	// Name 顯示名稱
+	Name string `json:"name"`
+}
+
 // UpdateDepositRequest defines model for UpdateDepositRequest.
 type UpdateDepositRequest struct {
 	// DeductionAmount 扣款金額；有值時須提供 deduction_reason
@@ -1027,6 +1033,9 @@ type CreateTenantAttachmentJSONRequestBody = RegisterAttachmentRequest
 // CreateUserJSONRequestBody defines body for CreateUser for application/json ContentType.
 type CreateUserJSONRequestBody = CreateUserRequest
 
+// UpdateCurrentUserJSONRequestBody defines body for UpdateCurrentUser for application/json ContentType.
+type UpdateCurrentUserJSONRequestBody = UpdateCurrentUserRequest
+
 // UpdateUserJSONRequestBody defines body for UpdateUser for application/json ContentType.
 type UpdateUserJSONRequestBody = UpdateUserRequest
 
@@ -1263,6 +1272,9 @@ type ServerInterface interface {
 	// 查看自己的帳號資料
 	// (GET /users/me)
 	GetCurrentUser(c *gin.Context)
+	// 更新自己的帳號資料
+	// (PATCH /users/me)
+	UpdateCurrentUser(c *gin.Context)
 	// 成員詳情
 	// (GET /users/{id})
 	GetUser(c *gin.Context, id string)
@@ -3538,6 +3550,21 @@ func (siw *ServerInterfaceWrapper) GetCurrentUser(c *gin.Context) {
 	siw.Handler.GetCurrentUser(c)
 }
 
+// UpdateCurrentUser operation middleware
+func (siw *ServerInterfaceWrapper) UpdateCurrentUser(c *gin.Context) {
+
+	c.Set(BearerAuthScopes, []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.UpdateCurrentUser(c)
+}
+
 // GetUser operation middleware
 func (siw *ServerInterfaceWrapper) GetUser(c *gin.Context) {
 
@@ -3719,6 +3746,7 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.GET(options.BaseURL+"/users", wrapper.ListUsers)
 	router.POST(options.BaseURL+"/users", wrapper.CreateUser)
 	router.GET(options.BaseURL+"/users/me", wrapper.GetCurrentUser)
+	router.PATCH(options.BaseURL+"/users/me", wrapper.UpdateCurrentUser)
 	router.GET(options.BaseURL+"/users/:id", wrapper.GetUser)
 	router.PATCH(options.BaseURL+"/users/:id", wrapper.UpdateUser)
 	router.POST(options.BaseURL+"/users/:id/property-assignments", wrapper.AssignUserProperties)

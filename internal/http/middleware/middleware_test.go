@@ -399,6 +399,16 @@ func (fakeUserRepo) Create(_ context.Context, params users.CreateUserParams) (*u
 	}, nil
 }
 
+func (fakeUserRepo) UpdateCurrentUser(_ context.Context, id string, params users.UpdateCurrentUserParams) (*users.User, error) {
+	return &users.User{
+		ID:                  id,
+		FirebaseUID:         "uid-1",
+		Name:                params.Name,
+		Role:                "organizer",
+		AssignedPropertyIDs: []string{"property-1"},
+	}, nil
+}
+
 func (fakeUserRepo) DeleteByID(_ context.Context, _ string) error {
 	return nil
 }

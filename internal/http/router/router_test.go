@@ -115,6 +115,56 @@ func TestGetCurrentUserReturnsProfile(t *testing.T) {
 	}
 }
 
+func TestUpdateCurrentUserReturnsUpdatedProfile(t *testing.T) {
+	repo := fakeUserRepo{}
+	engine := newTestEngine(repo, fakeAuthenticator{}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/users/me", strings.NewReader(`{"name":"Updated Organizer"}`))
+	req.Header.Set("Authorization", "Bearer valid-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if payload["name"] != "Updated Organizer" {
+		t.Fatalf("expected updated name, got %v", payload["name"])
+	}
+}
+
+func TestUpdateCurrentUserRejectsBlankName(t *testing.T) {
+	repo := fakeUserRepo{}
+	engine := newTestEngine(repo, fakeAuthenticator{}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/users/me", strings.NewReader(`{"name":"   "}`))
+	req.Header.Set("Authorization", "Bearer valid-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if payload["error_code"] != "VALIDATION_NAME_REQUIRED" {
+		t.Fatalf("expected VALIDATION_NAME_REQUIRED, got %v", payload["error_code"])
+	}
+}
+
 func TestSyncAuthReturnsProfileForExistingUser(t *testing.T) {
 	repo := fakeUserRepo{}
 	engine := newTestEngine(repo, fakeAuthenticator{}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
@@ -618,10 +668,11 @@ func (f fakeAuthenticator) DeleteUser(_ context.Context, _ string) error {
 }
 
 type fakeUserRepo struct {
-	role                string
-	assignedPropertyIDs []string
-	findByIDErr         error
-	createErr           error
+	role                 string
+	assignedPropertyIDs  []string
+	findByIDErr          error
+	createErr            error
+	updateCurrentUserErr error
 }
 
 type fakePropertyRepo struct {
@@ -705,6 +756,25 @@ func (f fakeUserRepo) Create(_ context.Context, params users.CreateUserParams) (
 		CreatedAt:           time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
 		UpdatedAt:           time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
 		Version:             1,
+	}, nil
+}
+
+func (f fakeUserRepo) UpdateCurrentUser(_ context.Context, id string, params users.UpdateCurrentUserParams) (*users.User, error) {
+	if f.updateCurrentUserErr != nil {
+		return nil, f.updateCurrentUserErr
+	}
+
+	return &users.User{
+		ID:                  id,
+		FirebaseUID:         "uid-1",
+		Email:               "organizer@studio.com",
+		Name:                params.Name,
+		Role:                firstRole(f.role),
+		PermissionOverrides: []map[string]interface{}{},
+		AssignedPropertyIDs: firstAssignedPropertyIDs(f.assignedPropertyIDs),
+		CreatedAt:           time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+		UpdatedAt:           time.Date(2026, 4, 19, 10, 0, 0, 0, time.UTC),
+		Version:             2,
 	}, nil
 }
 
@@ -872,6 +942,7 @@ func newTestEngineWithNotificationSender(userRepo fakeUserRepo, authenticator fa
 		},
 		appiam.NewCreateUserService(userRepo, authenticator, appnotification.NewService(notificationSender)),
 		appiam.NewSyncAuthService(userRepo, appiam.NewCustomClaimsService(authenticator)),
+		appiam.NewUpdateCurrentUserService(userRepo),
 		appjobs.NewTriggerService(jobRunsRepo, nil, time.Minute, 3),
 		fakePropertyQueryRepo{},
 		createPropertyService,

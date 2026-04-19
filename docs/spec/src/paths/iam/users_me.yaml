@@ -39,3 +39,76 @@ get:
               value:
                 error_code: UNAUTHORIZED
                 message: 請先登入
+patch:
+  operationId: updateCurrentUser
+  summary: 更新自己的帳號資料
+  tags:
+    - Identity & Access
+  description: |
+    僅允許更新 self-service 欄位。現階段僅支援更新自己的名稱；角色、權限與指派物業不透過此 API 修改。
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+    - owner
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: ../../components/schemas/iam/UpdateCurrentUserRequest.yaml
+        examples:
+          update_name:
+            summary: 更新自己的名稱
+            value:
+              name: 王大明
+  responses:
+    '200':
+      description: 更新成功
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/iam/UserResponse.yaml
+          examples:
+            success:
+              value:
+                id: 00000000-0000-0000-0000-000000000001
+                firebase_uid: uid_abc123xyz
+                name: 王大明
+                email: organizer@studio.com
+                role: organizer
+                assigned_property_ids:
+                  - 10000000-0000-0000-0000-000000000001
+    '400':
+      description: 請求格式錯誤或欄位驗證失敗
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            bad_request:
+              value:
+                error_code: VALIDATION_NAME_REQUIRED
+                message: Name is required.
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: 請先登入
+    '404':
+      description: 使用者不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: USER_NOT_FOUND
+                message: 使用者不存在
