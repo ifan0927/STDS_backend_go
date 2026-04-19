@@ -21,6 +21,7 @@ import (
 	appnotification "stds_backend/internal/application/notification"
 	appproperty "stds_backend/internal/application/property"
 	"stds_backend/internal/config"
+	domainusers "stds_backend/internal/domain/users"
 	dbjobruns "stds_backend/internal/platform/database/jobruns"
 	dbproperties "stds_backend/internal/platform/database/properties"
 	dbpropertyquery "stds_backend/internal/platform/database/propertyquery"
@@ -162,6 +163,31 @@ func TestUpdateCurrentUserRejectsBlankName(t *testing.T) {
 
 	if payload["error_code"] != "VALIDATION_NAME_REQUIRED" {
 		t.Fatalf("expected VALIDATION_NAME_REQUIRED, got %v", payload["error_code"])
+	}
+}
+
+func TestUpdateCurrentUserRejectsNameThatIsTooLong(t *testing.T) {
+	repo := fakeUserRepo{}
+	engine := newTestEngine(repo, fakeAuthenticator{}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/users/me", strings.NewReader(`{"name":"`+strings.Repeat("名", 101)+`"}`))
+	req.Header.Set("Authorization", "Bearer valid-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if payload["error_code"] != "VALIDATION_NAME_TOO_LONG" {
+		t.Fatalf("expected VALIDATION_NAME_TOO_LONG, got %v", payload["error_code"])
 	}
 }
 
@@ -765,6 +791,25 @@ func (f fakeUserRepo) UpdateCurrentUser(_ context.Context, id string, params use
 	}
 
 	return &users.User{
+		ID:                  id,
+		FirebaseUID:         "uid-1",
+		Email:               "organizer@studio.com",
+		Name:                params.Name,
+		Role:                firstRole(f.role),
+		PermissionOverrides: []map[string]interface{}{},
+		AssignedPropertyIDs: firstAssignedPropertyIDs(f.assignedPropertyIDs),
+		CreatedAt:           time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+		UpdatedAt:           time.Date(2026, 4, 19, 10, 0, 0, 0, time.UTC),
+		Version:             2,
+	}, nil
+}
+
+func (f fakeUserRepo) UpdateCurrentUserProfile(_ context.Context, id string, params domainusers.UpdateCurrentUserParams) (*domainusers.User, error) {
+	if f.updateCurrentUserErr != nil {
+		return nil, f.updateCurrentUserErr
+	}
+
+	return &domainusers.User{
 		ID:                  id,
 		FirebaseUID:         "uid-1",
 		Email:               "organizer@studio.com",

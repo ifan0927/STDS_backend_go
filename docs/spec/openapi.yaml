@@ -5723,6 +5723,7 @@ components:
         name:
           type: string
           description: 顯示名稱
+          maxLength: 100
     UpdateUserRequest:
       type: object
       properties:

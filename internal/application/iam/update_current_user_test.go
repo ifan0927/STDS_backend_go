@@ -3,10 +3,11 @@ package iam
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
-	"stds_backend/internal/platform/database/users"
+	domainusers "stds_backend/internal/domain/users"
 )
 
 func TestUpdateCurrentUserServiceExecute(t *testing.T) {
@@ -33,7 +34,8 @@ func TestUpdateCurrentUserServiceExecute(t *testing.T) {
 	})
 
 	t.Run("rejects empty name", func(t *testing.T) {
-		service := NewUpdateCurrentUserService(&updateCurrentUserRepo{})
+		repo := &updateCurrentUserRepo{}
+		service := NewUpdateCurrentUserService(repo)
 
 		_, err := service.Execute(context.Background(), UpdateCurrentUserInput{
 			UserID: "user-1",
@@ -42,10 +44,29 @@ func TestUpdateCurrentUserServiceExecute(t *testing.T) {
 		if err == nil || err.Error() != "Name is required." {
 			t.Fatalf("expected name required, got %v", err)
 		}
+		if repo.updatedUserID != "" {
+			t.Fatalf("expected repo not called, got user id %q", repo.updatedUserID)
+		}
+	})
+
+	t.Run("rejects name longer than 100 characters after trimming", func(t *testing.T) {
+		repo := &updateCurrentUserRepo{}
+		service := NewUpdateCurrentUserService(repo)
+
+		_, err := service.Execute(context.Background(), UpdateCurrentUserInput{
+			UserID: "user-1",
+			Name:   " " + strings.Repeat("名", 101) + " ",
+		})
+		if err == nil || err.Error() != "Name must be 100 characters or fewer." {
+			t.Fatalf("expected name too long, got %v", err)
+		}
+		if repo.updatedUserID != "" {
+			t.Fatalf("expected repo not called, got user id %q", repo.updatedUserID)
+		}
 	})
 
 	t.Run("maps missing user to not found", func(t *testing.T) {
-		service := NewUpdateCurrentUserService(&updateCurrentUserRepo{updateErr: users.ErrNotFound})
+		service := NewUpdateCurrentUserService(&updateCurrentUserRepo{updateErr: domainusers.ErrNotFound})
 
 		_, err := service.Execute(context.Background(), UpdateCurrentUserInput{
 			UserID: "user-1",
@@ -75,19 +96,7 @@ type updateCurrentUserRepo struct {
 	updatedName   string
 }
 
-func (r *updateCurrentUserRepo) FindByFirebaseUID(_ context.Context, _ string) (*users.User, error) {
-	return nil, users.ErrNotFound
-}
-
-func (r *updateCurrentUserRepo) FindByID(_ context.Context, _ string) (*users.User, error) {
-	return nil, users.ErrNotFound
-}
-
-func (r *updateCurrentUserRepo) Create(_ context.Context, _ users.CreateUserParams) (*users.User, error) {
-	return nil, users.ErrNotFound
-}
-
-func (r *updateCurrentUserRepo) UpdateCurrentUser(_ context.Context, id string, params users.UpdateCurrentUserParams) (*users.User, error) {
+func (r *updateCurrentUserRepo) UpdateCurrentUserProfile(_ context.Context, id string, params domainusers.UpdateCurrentUserParams) (*domainusers.User, error) {
 	if r.updateErr != nil {
 		return nil, r.updateErr
 	}
@@ -95,7 +104,7 @@ func (r *updateCurrentUserRepo) UpdateCurrentUser(_ context.Context, id string, 
 	r.updatedUserID = id
 	r.updatedName = params.Name
 
-	return &users.User{
+	return &domainusers.User{
 		ID:                  id,
 		FirebaseUID:         "uid-1",
 		Email:               "organizer@studio.com",
@@ -107,8 +116,4 @@ func (r *updateCurrentUserRepo) UpdateCurrentUser(_ context.Context, id string, 
 		UpdatedAt:           time.Date(2026, 4, 19, 10, 0, 0, 0, time.UTC),
 		Version:             2,
 	}, nil
-}
-
-func (r *updateCurrentUserRepo) DeleteByID(_ context.Context, _ string) error {
-	return users.ErrNotFound
 }

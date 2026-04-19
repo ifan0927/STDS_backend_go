@@ -5,3 +5,4 @@ properties:
   name:
     type: string
     description: 顯示名稱
+    maxLength: 100

@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
+
+	domainusers "stds_backend/internal/domain/users"
 )
 
 // ErrNotFound indicates that no user matched the requested lookup.
@@ -185,6 +187,33 @@ RETURNING
 	}
 
 	return user, nil
+}
+
+// UpdateCurrentUserProfile updates the self-service fields for a single active user.
+func (r *SQLRepository) UpdateCurrentUserProfile(ctx context.Context, id string, params domainusers.UpdateCurrentUserParams) (*domainusers.User, error) {
+	user, err := r.UpdateCurrentUser(ctx, id, UpdateCurrentUserParams{
+		Name: params.Name,
+	})
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil, domainusers.ErrNotFound
+		}
+
+		return nil, err
+	}
+
+	return &domainusers.User{
+		ID:                  user.ID,
+		FirebaseUID:         user.FirebaseUID,
+		Email:               user.Email,
+		Name:                user.Name,
+		Role:                user.Role,
+		PermissionOverrides: user.PermissionOverrides,
+		AssignedPropertyIDs: user.AssignedPropertyIDs,
+		CreatedAt:           user.CreatedAt,
+		UpdatedAt:           user.UpdatedAt,
+		Version:             user.Version,
+	}, nil
 }
 
 // DeleteByID soft-deletes the user row by id.

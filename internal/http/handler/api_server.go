@@ -10,6 +10,7 @@ import (
 	appiam "stds_backend/internal/application/iam"
 	appjobs "stds_backend/internal/application/jobs"
 	appproperty "stds_backend/internal/application/property"
+	domainusers "stds_backend/internal/domain/users"
 	"stds_backend/internal/http/api"
 	"stds_backend/internal/http/requestctx"
 	dbproperties "stds_backend/internal/platform/database/properties"
@@ -476,7 +477,7 @@ func (s *APIServer) UpdateCurrentUser(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, toUserResponse(user))
+	c.JSON(http.StatusOK, toCurrentUserResponse(user))
 }
 
 // GetUser handles user detail retrieval.
@@ -489,6 +490,35 @@ func (s *APIServer) UpdateUser(c *gin.Context, id string) { writeNotImplemented(
 func (s *APIServer) AssignUserProperties(c *gin.Context, id string) { writeNotImplemented(c) }
 
 func toUserResponse(user *users.User) api.UserResponse {
+	id, ok := parseUUID(user.ID)
+	email := openapi_types.Email(user.Email)
+	role := api.UserResponseRole(user.Role)
+	createdAt := user.CreatedAt
+	updatedAt := user.UpdatedAt
+	version := user.Version
+	firebaseUID := user.FirebaseUID
+	name := user.Name
+
+	response := api.UserResponse{
+		AssignedPropertyIds: toUUIDList(user.AssignedPropertyIDs),
+		CreatedAt:           &createdAt,
+		Email:               &email,
+		FirebaseUid:         &firebaseUID,
+		Name:                &name,
+		PermissionOverrides: &user.PermissionOverrides,
+		Role:                &role,
+		UpdatedAt:           &updatedAt,
+		Version:             &version,
+	}
+
+	if ok {
+		response.Id = &id
+	}
+
+	return response
+}
+
+func toCurrentUserResponse(user *domainusers.User) api.UserResponse {
 	id, ok := parseUUID(user.ID)
 	email := openapi_types.Email(user.Email)
 	role := api.UserResponseRole(user.Role)
