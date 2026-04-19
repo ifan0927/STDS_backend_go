@@ -76,5 +76,14 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
     are intended to become `INTERNAL_SERVER_ERROR`.
   - Use `INTERNAL_SERVER_ERROR` only as the final fallback for unmapped
     unexpected failures.
+- Tests should follow these rules:
+  - Prefer Go standard library testing with `t.Run` for multiple scenarios of
+    the same behavior.
+  - Keep assertions explicit and behavior-focused; do not introduce a new test
+    framework unless the task requires it.
+  - Add comments in tests only when fixture setup or legacy business context is
+    not obvious from the test name and code.
+  - When changing behavior, update or add the narrowest test that proves the
+    expected outcome and run the relevant tests.
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.

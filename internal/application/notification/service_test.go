@@ -11,24 +11,47 @@ import (
 )
 
 func TestServiceSendUserPasswordResetEmail(t *testing.T) {
-	sender := &fakeSender{}
-	service := NewService(sender)
+	t.Run("sends email command", func(t *testing.T) {
+		sender := &fakeSender{}
+		service := NewService(sender)
 
-	err := service.SendUserPasswordResetEmail(context.Background(), UserPasswordResetEmailInput{
-		Email:    "user@example.com",
-		Name:     "Test User",
-		ResetURL: "https://reset.example.com",
+		err := service.SendUserPasswordResetEmail(context.Background(), UserPasswordResetEmailInput{
+			Email:    "user@example.com",
+			Name:     "Test User",
+			ResetURL: "https://reset.example.com",
+		})
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		if sender.command.Channel != platformnotification.ChannelEmail {
+			t.Fatalf("expected email channel, got %s", sender.command.Channel)
+		}
+		if sender.command.Email == nil || sender.command.Email.To[0] != "user@example.com" {
+			t.Fatal("expected email recipient to be set")
+		}
 	})
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
 
-	if sender.command.Channel != platformnotification.ChannelEmail {
-		t.Fatalf("expected email channel, got %s", sender.command.Channel)
-	}
-	if sender.command.Email == nil || sender.command.Email.To[0] != "user@example.com" {
-		t.Fatal("expected email recipient to be set")
-	}
+	t.Run("returns notification error code", func(t *testing.T) {
+		service := NewService(&fakeSender{sendErr: errors.New("resend down")})
+
+		err := service.SendUserPasswordResetEmail(context.Background(), UserPasswordResetEmailInput{
+			Email:    "user@example.com",
+			Name:     "Test User",
+			ResetURL: "https://reset.example.com",
+		})
+		if err == nil {
+			t.Fatal("expected error")
+		}
+
+		var appErr *apperr.Error
+		if !errors.As(err, &appErr) {
+			t.Fatalf("expected app error, got %T", err)
+		}
+		if appErr.Code != CodeNotificationSendFailed {
+			t.Fatalf("expected %s, got %s", CodeNotificationSendFailed, appErr.Code)
+		}
+	})
 }
 
 func TestServiceHandleUserPasswordResetRequested(t *testing.T) {
@@ -46,27 +69,6 @@ func TestServiceHandleUserPasswordResetRequested(t *testing.T) {
 
 	if sender.command.Email == nil || sender.command.Email.Subject == "" {
 		t.Fatal("expected email command to be built")
-	}
-}
-
-func TestServiceSendUserPasswordResetEmailReturnsNotificationErrorCode(t *testing.T) {
-	service := NewService(&fakeSender{sendErr: errors.New("resend down")})
-
-	err := service.SendUserPasswordResetEmail(context.Background(), UserPasswordResetEmailInput{
-		Email:    "user@example.com",
-		Name:     "Test User",
-		ResetURL: "https://reset.example.com",
-	})
-	if err == nil {
-		t.Fatal("expected error")
-	}
-
-	var appErr *apperr.Error
-	if !errors.As(err, &appErr) {
-		t.Fatalf("expected app error, got %T", err)
-	}
-	if appErr.Code != CodeNotificationSendFailed {
-		t.Fatalf("expected %s, got %s", CodeNotificationSendFailed, appErr.Code)
 	}
 }
 
