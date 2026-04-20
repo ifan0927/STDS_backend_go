@@ -30,6 +30,8 @@ type APIServer struct {
 	sendPasswordReset *appiam.SendUserPasswordResetService
 	syncAuthService   *appiam.SyncAuthService
 	updateCurrentUser *appiam.UpdateCurrentUserService
+	updateUser        *appiam.UpdateUserService
+	assignProperties  *appiam.AssignUserPropertiesService
 	jobTriggerService *appjobs.TriggerService
 	propertyQueryRepo dbpropertyquery.Repository
 	createPropertySvc *appproperty.CreatePropertyService
@@ -43,6 +45,8 @@ func NewAPIServer(
 	sendPasswordReset *appiam.SendUserPasswordResetService,
 	syncAuthService *appiam.SyncAuthService,
 	updateCurrentUser *appiam.UpdateCurrentUserService,
+	updateUser *appiam.UpdateUserService,
+	assignProperties *appiam.AssignUserPropertiesService,
 	jobTriggerService *appjobs.TriggerService,
 	propertyQueryRepo dbpropertyquery.Repository,
 	createPropertySvc *appproperty.CreatePropertyService,
@@ -53,6 +57,8 @@ func NewAPIServer(
 		sendPasswordReset: sendPasswordReset,
 		syncAuthService:   syncAuthService,
 		updateCurrentUser: updateCurrentUser,
+		updateUser:        updateUser,
+		assignProperties:  assignProperties,
 		jobTriggerService: jobTriggerService,
 		propertyQueryRepo: propertyQueryRepo,
 		createPropertySvc: createPropertySvc,
@@ -551,10 +557,79 @@ func (s *APIServer) GetUser(c *gin.Context, id string) {
 }
 
 // UpdateUser handles user updates.
-func (s *APIServer) UpdateUser(c *gin.Context, id string) { writeNotImplemented(c) }
+func (s *APIServer) UpdateUser(c *gin.Context, id string) {
+	if _, err := uuid.Parse(id); err != nil {
+		c.Error(apperr.ErrBadRequest.WithDetails(map[string]interface{}{
+			"field":  "id",
+			"reason": "must be a valid UUID",
+		}))
+		return
+	}
+
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	var request api.UpdateUserRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.Error(apperr.ErrBadRequest.WithCause(err))
+		return
+	}
+
+	var role *string
+	if request.Role != nil {
+		value := string(*request.Role)
+		role = &value
+	}
+
+	user, err := s.updateUser.Execute(c.Request.Context(), appiam.UpdateUserInput{
+		ActorUserID:  principal.UserID,
+		TargetUserID: id,
+		Name:         request.Name,
+		Role:         role,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toUserResponse(user))
+}
 
 // AssignUserProperties handles property assignment updates for a user.
-func (s *APIServer) AssignUserProperties(c *gin.Context, id string) { writeNotImplemented(c) }
+func (s *APIServer) AssignUserProperties(c *gin.Context, id string) {
+	if _, err := uuid.Parse(id); err != nil {
+		c.Error(apperr.ErrBadRequest.WithDetails(map[string]interface{}{
+			"field":  "id",
+			"reason": "must be a valid UUID",
+		}))
+		return
+	}
+
+	var request api.PropertyAssignmentRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.Error(apperr.ErrBadRequest.WithCause(err))
+		return
+	}
+
+	propertyIDs := make([]string, 0, len(request.PropertyIds))
+	for _, propertyID := range request.PropertyIds {
+		propertyIDs = append(propertyIDs, propertyID.String())
+	}
+
+	user, err := s.assignProperties.Execute(c.Request.Context(), appiam.AssignUserPropertiesInput{
+		TargetUserID: id,
+		PropertyIDs:  propertyIDs,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toUserResponse(user))
+}
 
 func toUserResponse(user *users.User) api.UserResponse {
 	id, ok := parseUUID(user.ID)

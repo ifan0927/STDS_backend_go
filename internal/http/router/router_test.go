@@ -417,6 +417,122 @@ func TestUpdateCurrentUserRejectsNameThatIsTooLong(t *testing.T) {
 	}
 }
 
+func TestUpdateUserReturnsUpdatedManagedUser(t *testing.T) {
+	repo := fakeUserRepo{role: "admin"}
+	claimsCall := &customClaimsCall{}
+	engine := newTestEngine(repo, fakeAuthenticator{role: "admin", setCustomClaimsSink: claimsCall}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/users/00000000-0000-0000-0000-000000000001", strings.NewReader(`{"name":"Updated User","role":"staff"}`))
+	req.Header.Set("Authorization", "Bearer valid-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if payload["role"] != "staff" {
+		t.Fatalf("expected updated role staff, got %v", payload["role"])
+	}
+	if claimsCall.role != "staff" {
+		t.Fatalf("expected claims role staff, got %q", claimsCall.role)
+	}
+}
+
+func TestUpdateUserRejectsAdminSelfDowngradeWithValidUUID(t *testing.T) {
+	repo := fakeUserRepo{userID: "00000000-0000-0000-0000-000000000001", role: "admin"}
+	engine := newTestEngine(repo, fakeAuthenticator{role: "admin"}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/users/00000000-0000-0000-0000-000000000001", strings.NewReader(`{"role":"organizer"}`))
+	req.Header.Set("Authorization", "Bearer valid-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if payload["error_code"] != "ADMIN_CANNOT_DOWNGRADE_SELF" {
+		t.Fatalf("expected ADMIN_CANNOT_DOWNGRADE_SELF, got %v", payload["error_code"])
+	}
+}
+
+func TestAssignUserPropertiesReturnsUpdatedUser(t *testing.T) {
+	repo := fakeUserRepo{role: "admin"}
+	claimsCall := &customClaimsCall{}
+	engine := newTestEngine(repo, fakeAuthenticator{role: "admin", setCustomClaimsSink: claimsCall}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/00000000-0000-0000-0000-000000000001/property-assignments", strings.NewReader(`{
+		"property_ids":[
+			"10000000-0000-0000-0000-000000000001",
+			"10000000-0000-0000-0000-000000000002"
+		]
+	}`))
+	req.Header.Set("Authorization", "Bearer valid-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	assigned, ok := payload["assigned_property_ids"].([]any)
+	if !ok || len(assigned) != 2 {
+		t.Fatalf("expected 2 assigned property ids, got %v", payload["assigned_property_ids"])
+	}
+	if len(claimsCall.assignedPropertyIDs) != 2 {
+		t.Fatalf("expected claims sync assignments, got %v", claimsCall.assignedPropertyIDs)
+	}
+}
+
+func TestAssignUserPropertiesRejectsOwnerTarget(t *testing.T) {
+	repo := fakeUserRepo{role: "admin", findByIDRole: "owner"}
+	engine := newTestEngine(repo, fakeAuthenticator{role: "admin"}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/00000000-0000-0000-0000-000000000001/property-assignments", strings.NewReader(`{
+		"property_ids":["10000000-0000-0000-0000-000000000001"]
+	}`))
+	req.Header.Set("Authorization", "Bearer valid-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if payload["error_code"] != "CANNOT_ASSIGN_PROPERTY_TO_OWNER" {
+		t.Fatalf("expected CANNOT_ASSIGN_PROPERTY_TO_OWNER, got %v", payload["error_code"])
+	}
+}
+
 func TestTriggerUserPasswordResetReturnsNoContent(t *testing.T) {
 	repo := fakeUserRepo{role: "admin"}
 	notificationSender := &testNotificationSender{}
@@ -901,6 +1017,7 @@ type fakeAuthenticator struct {
 	role                string
 	assignedPropertyIDs []string
 	setCustomClaimsErr  error
+	setCustomClaimsSink *customClaimsCall
 	createUserErr       error
 	resetLink           string
 	resetLinkErr        error
@@ -924,7 +1041,12 @@ func (f fakeAuthenticator) VerifyIDToken(_ context.Context, token string) (*plat
 	}, nil
 }
 
-func (f fakeAuthenticator) SetCustomClaims(_ context.Context, _ string, _ string, _ []string) error {
+func (f fakeAuthenticator) SetCustomClaims(_ context.Context, firebaseUID string, role string, assignedPropertyIDs []string) error {
+	if f.setCustomClaimsSink != nil {
+		f.setCustomClaimsSink.firebaseUID = firebaseUID
+		f.setCustomClaimsSink.role = role
+		f.setCustomClaimsSink.assignedPropertyIDs = assignedPropertyIDs
+	}
 	return f.setCustomClaimsErr
 }
 
@@ -956,7 +1078,9 @@ func (f fakeAuthenticator) DeleteUser(_ context.Context, _ string) error {
 }
 
 type fakeUserRepo struct {
+	userID               string
 	role                 string
+	findByIDRole         string
 	assignedPropertyIDs  []string
 	findByIDErr          error
 	listUsers            []users.User
@@ -964,6 +1088,11 @@ type fakeUserRepo struct {
 	listParamsSink       *users.ListParams
 	createErr            error
 	updateCurrentUserErr error
+	updateManagedUserErr error
+	replaceAssignedErr   error
+	updatedManagedName   string
+	updatedManagedRole   string
+	replacedPropertyIDs  []string
 }
 
 type fakePropertyRepo struct {
@@ -991,15 +1120,25 @@ type fakeJobRunsRepo struct {
 	status   dbjobruns.Status
 }
 
+type customClaimsCall struct {
+	firebaseUID         string
+	role                string
+	assignedPropertyIDs []string
+}
+
 func (f fakeUserRepo) FindByFirebaseUID(_ context.Context, firebaseUID string) (*users.User, error) {
 	if firebaseUID == "missing" {
 		return nil, users.ErrNotFound
 	}
 
 	assigned := firstAssignedPropertyIDs(f.assignedPropertyIDs)
+	userID := "user-1"
+	if f.userID != "" {
+		userID = f.userID
+	}
 
 	return &users.User{
-		ID:                  "user-1",
+		ID:                  userID,
 		FirebaseUID:         "uid-1",
 		Email:               "organizer@studio.com",
 		Name:                "Organizer",
@@ -1022,7 +1161,7 @@ func (f fakeUserRepo) FindByID(_ context.Context, id string) (*users.User, error
 		FirebaseUID:         "uid-1",
 		Email:               "organizer@studio.com",
 		Name:                "Organizer",
-		Role:                firstRole(f.role),
+		Role:                firstRoleValue(f.findByIDRole, f.role),
 		PermissionOverrides: []map[string]interface{}{},
 		AssignedPropertyIDs: firstAssignedPropertyIDs(f.assignedPropertyIDs),
 		CreatedAt:           time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
@@ -1090,6 +1229,49 @@ func (f fakeUserRepo) UpdateCurrentUser(_ context.Context, id string, params use
 		Role:                firstRole(f.role),
 		PermissionOverrides: []map[string]interface{}{},
 		AssignedPropertyIDs: firstAssignedPropertyIDs(f.assignedPropertyIDs),
+		CreatedAt:           time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+		UpdatedAt:           time.Date(2026, 4, 19, 10, 0, 0, 0, time.UTC),
+		Version:             2,
+	}, nil
+}
+
+func (f fakeUserRepo) UpdateManagedUser(_ context.Context, id string, params users.UpdateManagedUserParams) (*users.User, error) {
+	if f.updateManagedUserErr != nil {
+		return nil, f.updateManagedUserErr
+	}
+
+	f.updatedManagedName = params.Name
+	f.updatedManagedRole = params.Role
+
+	return &users.User{
+		ID:                  id,
+		FirebaseUID:         "uid-1",
+		Email:               "organizer@studio.com",
+		Name:                params.Name,
+		Role:                params.Role,
+		PermissionOverrides: []map[string]interface{}{},
+		AssignedPropertyIDs: firstAssignedPropertyIDs(f.assignedPropertyIDs),
+		CreatedAt:           time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+		UpdatedAt:           time.Date(2026, 4, 19, 10, 0, 0, 0, time.UTC),
+		Version:             2,
+	}, nil
+}
+
+func (f fakeUserRepo) ReplaceAssignedProperties(_ context.Context, id string, propertyIDs []string) (*users.User, error) {
+	if f.replaceAssignedErr != nil {
+		return nil, f.replaceAssignedErr
+	}
+
+	f.replacedPropertyIDs = propertyIDs
+
+	return &users.User{
+		ID:                  id,
+		FirebaseUID:         "uid-1",
+		Email:               "organizer@studio.com",
+		Name:                "Organizer",
+		Role:                firstRole(f.role),
+		PermissionOverrides: []map[string]interface{}{},
+		AssignedPropertyIDs: propertyIDs,
 		CreatedAt:           time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
 		UpdatedAt:           time.Date(2026, 4, 19, 10, 0, 0, 0, time.UTC),
 		Version:             2,
@@ -1285,6 +1467,8 @@ func newTestEngineWithNotificationSender(userRepo fakeUserRepo, authenticator fa
 		appiam.NewSendUserPasswordResetService(repo, authenticator, appnotification.NewService(notificationSender)),
 		appiam.NewSyncAuthService(repo, appiam.NewCustomClaimsService(authenticator)),
 		appiam.NewUpdateCurrentUserService(repo),
+		appiam.NewUpdateUserService(repo, appiam.NewCustomClaimsService(authenticator)),
+		appiam.NewAssignUserPropertiesService(repo, fakePropertyQueryRepo{}, appiam.NewCustomClaimsService(authenticator)),
 		appjobs.NewTriggerService(jobRunsRepo, nil, time.Minute, 3),
 		fakePropertyQueryRepo{},
 		createPropertyService,
@@ -1310,6 +1494,16 @@ func firstAssignedPropertyIDs(assigned []string) []string {
 func firstRole(role string) string {
 	if role != "" {
 		return role
+	}
+
+	return "organizer"
+}
+
+func firstRoleValue(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
 	}
 
 	return "organizer"

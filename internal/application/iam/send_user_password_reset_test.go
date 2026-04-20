@@ -88,6 +88,14 @@ func (r sendResetUserRepo) UpdateCurrentUser(_ context.Context, _ string, _ user
 	return nil, users.ErrNotFound
 }
 
+func (r sendResetUserRepo) UpdateManagedUser(_ context.Context, _ string, _ users.UpdateManagedUserParams) (*users.User, error) {
+	return nil, users.ErrNotFound
+}
+
+func (r sendResetUserRepo) ReplaceAssignedProperties(_ context.Context, _ string, _ []string) (*users.User, error) {
+	return nil, users.ErrNotFound
+}
+
 func (r sendResetUserRepo) DeleteByID(_ context.Context, _ string) error {
 	return users.ErrNotFound
 }

@@ -413,6 +413,25 @@ func (fakeUserRepo) UpdateCurrentUser(_ context.Context, id string, params users
 	}, nil
 }
 
+func (fakeUserRepo) UpdateManagedUser(_ context.Context, id string, params users.UpdateManagedUserParams) (*users.User, error) {
+	return &users.User{
+		ID:                  id,
+		FirebaseUID:         "uid-1",
+		Name:                params.Name,
+		Role:                params.Role,
+		AssignedPropertyIDs: []string{"property-1"},
+	}, nil
+}
+
+func (fakeUserRepo) ReplaceAssignedProperties(_ context.Context, id string, assignedPropertyIDs []string) (*users.User, error) {
+	return &users.User{
+		ID:                  id,
+		FirebaseUID:         "uid-1",
+		Role:                "organizer",
+		AssignedPropertyIDs: assignedPropertyIDs,
+	}, nil
+}
+
 func (fakeUserRepo) DeleteByID(_ context.Context, _ string) error {
 	return nil
 }
