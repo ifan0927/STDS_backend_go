@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	domainusers "stds_backend/internal/domain/users"
+	"stds_backend/internal/shared/apperr"
 )
 
 // ErrNotFound indicates that no user matched the requested lookup.
@@ -49,10 +50,18 @@ type UpdateCurrentUserParams struct {
 	Name string
 }
 
+// ListParams contains supported filters for listing active users.
+type ListParams struct {
+	Role   string
+	Limit  int
+	Offset int
+}
+
 // Repository defines user lookups required by the HTTP authentication layer.
 type Repository interface {
 	FindByFirebaseUID(ctx context.Context, firebaseUID string) (*User, error)
 	FindByID(ctx context.Context, id string) (*User, error)
+	List(ctx context.Context, params ListParams) ([]User, error)
 	Create(ctx context.Context, params CreateUserParams) (*User, error)
 	UpdateCurrentUser(ctx context.Context, id string, params UpdateCurrentUserParams) (*User, error)
 	DeleteByID(ctx context.Context, id string) error
@@ -108,6 +117,61 @@ LIMIT 1
 	}
 
 	return user, nil
+}
+
+// List returns active users filtered by role and paginated by limit/offset.
+func (r *SQLRepository) List(ctx context.Context, params ListParams) ([]User, error) {
+	query := selectUserColumns + `
+FROM users
+WHERE deleted_at IS NULL
+`
+
+	args := make([]any, 0, 3)
+	argPos := 1
+	if params.Role != "" {
+		query += fmt.Sprintf("  AND role = $%d\n", argPos)
+		args = append(args, params.Role)
+		argPos++
+	}
+
+	query += fmt.Sprintf("ORDER BY created_at DESC, id DESC\nLIMIT $%d OFFSET $%d", argPos, argPos+1)
+	args = append(args, params.Limit, params.Offset)
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, apperr.ErrInternalServerError.WithDetails(map[string]interface{}{
+			"operation": "users.list.query",
+			"role":      params.Role,
+			"limit":     params.Limit,
+			"offset":    params.Offset,
+		}).WithCause(err)
+	}
+	defer rows.Close()
+
+	items := []User{}
+	for rows.Next() {
+		user, err := scanUser(rows)
+		if err != nil {
+			return nil, apperr.ErrInternalServerError.WithDetails(map[string]interface{}{
+				"operation": "users.list.scan",
+				"role":      params.Role,
+				"limit":     params.Limit,
+				"offset":    params.Offset,
+			}).WithCause(err)
+		}
+		items = append(items, *user)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, apperr.ErrInternalServerError.WithDetails(map[string]interface{}{
+			"operation": "users.list.rows",
+			"role":      params.Role,
+			"limit":     params.Limit,
+			"offset":    params.Offset,
+		}).WithCause(err)
+	}
+
+	return items, nil
 }
 
 // Create persists a new user row and returns the created record.

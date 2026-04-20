@@ -388,6 +388,10 @@ func (fakeUserRepo) FindByID(_ context.Context, id string) (*users.User, error) 
 	}, nil
 }
 
+func (fakeUserRepo) List(_ context.Context, _ users.ListParams) ([]users.User, error) {
+	return []users.User{}, nil
+}
+
 func (fakeUserRepo) Create(_ context.Context, params users.CreateUserParams) (*users.User, error) {
 	return &users.User{
 		ID:                  "user-1",

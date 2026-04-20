@@ -12,6 +12,7 @@ import (
 	appproperty "stds_backend/internal/application/property"
 	domainusers "stds_backend/internal/domain/users"
 	"stds_backend/internal/http/api"
+	"stds_backend/internal/http/queryparams"
 	"stds_backend/internal/http/requestctx"
 	dbproperties "stds_backend/internal/platform/database/properties"
 	dbpropertyquery "stds_backend/internal/platform/database/propertyquery"
@@ -416,7 +417,35 @@ func (s *APIServer) ListTenantLeases(c *gin.Context, id string, params api.ListT
 }
 
 // ListUsers handles the user listing endpoint.
-func (s *APIServer) ListUsers(c *gin.Context, params api.ListUsersParams) { writeNotImplemented(c) }
+func (s *APIServer) ListUsers(c *gin.Context, params api.ListUsersParams) {
+	role := ""
+	if params.Role != nil {
+		role = string(*params.Role)
+	}
+
+	pagination, err := queryparams.NormalizePagination(params.Page, params.Limit)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	items, err := s.userRepo.List(c.Request.Context(), users.ListParams{
+		Role:   role,
+		Limit:  pagination.Limit,
+		Offset: pagination.Offset,
+	})
+	if err != nil {
+		c.Error(apperr.ErrInternalServerError.WithCause(err))
+		return
+	}
+
+	responseItems := make([]api.UserResponse, 0, len(items))
+	for _, user := range items {
+		responseItems = append(responseItems, toUserResponse(&user))
+	}
+
+	c.JSON(http.StatusOK, api.UserListResponse{Data: &responseItems})
+}
 
 // CreateUser handles user creation.
 func (s *APIServer) CreateUser(c *gin.Context) {
@@ -498,7 +527,28 @@ func (s *APIServer) TriggerUserPasswordReset(c *gin.Context, id string) {
 }
 
 // GetUser handles user detail retrieval.
-func (s *APIServer) GetUser(c *gin.Context, id string) { writeNotImplemented(c) }
+func (s *APIServer) GetUser(c *gin.Context, id string) {
+	if _, err := uuid.Parse(id); err != nil {
+		c.Error(apperr.ErrBadRequest.WithDetails(map[string]interface{}{
+			"field":  "id",
+			"reason": "must be a valid UUID",
+		}))
+		return
+	}
+
+	user, err := s.userRepo.FindByID(c.Request.Context(), id)
+	if err != nil {
+		switch err {
+		case users.ErrNotFound:
+			c.Error(apperr.ErrUserNotFound)
+		default:
+			c.Error(apperr.ErrInternalServerError.WithCause(err))
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, toUserResponse(user))
+}
 
 // UpdateUser handles user updates.
 func (s *APIServer) UpdateUser(c *gin.Context, id string) { writeNotImplemented(c) }

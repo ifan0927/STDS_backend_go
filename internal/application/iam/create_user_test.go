@@ -216,6 +216,10 @@ func (f fakeUserRepo) FindByID(_ context.Context, id string) (*users.User, error
 	return nil, users.ErrNotFound
 }
 
+func (f fakeUserRepo) List(_ context.Context, _ users.ListParams) ([]users.User, error) {
+	return []users.User{}, nil
+}
+
 func (f fakeUserRepo) Create(_ context.Context, params users.CreateUserParams) (*users.User, error) {
 	if f.createErr != nil {
 		return nil, f.createErr
