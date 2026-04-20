@@ -92,6 +92,160 @@ func TestListUsersRejectsOwnerRole(t *testing.T) {
 	}
 }
 
+func TestListUsersReturnsActiveUsers(t *testing.T) {
+	repo := fakeUserRepo{
+		listUsers: []users.User{
+			{
+				ID:                  "00000000-0000-0000-0000-000000000001",
+				FirebaseUID:         "uid-1",
+				Email:               "organizer@studio.com",
+				Name:                "Organizer",
+				Role:                "organizer",
+				PermissionOverrides: []map[string]interface{}{},
+				AssignedPropertyIDs: []string{"10000000-0000-0000-0000-000000000001"},
+				CreatedAt:           time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+				UpdatedAt:           time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+				Version:             1,
+			},
+			{
+				ID:                  "00000000-0000-0000-0000-000000000002",
+				FirebaseUID:         "uid-2",
+				Email:               "staff@studio.com",
+				Name:                "Staff",
+				Role:                "staff",
+				PermissionOverrides: []map[string]interface{}{},
+				AssignedPropertyIDs: []string{},
+				CreatedAt:           time.Date(2026, 4, 15, 10, 0, 0, 0, time.UTC),
+				UpdatedAt:           time.Date(2026, 4, 15, 10, 0, 0, 0, time.UTC),
+				Version:             1,
+			},
+		},
+	}
+	engine := newTestEngine(repo, fakeAuthenticator{}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	data, ok := payload["data"].([]any)
+	if !ok {
+		t.Fatalf("expected data array, got %T", payload["data"])
+	}
+	if len(data) != 2 {
+		t.Fatalf("expected 2 users, got %d", len(data))
+	}
+}
+
+func TestListUsersSupportsRoleFilter(t *testing.T) {
+	var recorded users.ListParams
+	repo := fakeUserRepo{
+		listParamsSink: &recorded,
+		listUsers: []users.User{
+			{
+				ID:                  "00000000-0000-0000-0000-000000000002",
+				FirebaseUID:         "uid-2",
+				Email:               "staff@studio.com",
+				Name:                "Staff",
+				Role:                "staff",
+				PermissionOverrides: []map[string]interface{}{},
+				AssignedPropertyIDs: []string{},
+				CreatedAt:           time.Date(2026, 4, 15, 10, 0, 0, 0, time.UTC),
+				UpdatedAt:           time.Date(2026, 4, 15, 10, 0, 0, 0, time.UTC),
+				Version:             1,
+			},
+		},
+	}
+	engine := newTestEngine(repo, fakeAuthenticator{}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users?role=staff&page=2&limit=10", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	if recorded.Role != "staff" {
+		t.Fatalf("expected role filter staff, got %q", recorded.Role)
+	}
+	if recorded.Limit != 10 {
+		t.Fatalf("expected limit 10, got %d", recorded.Limit)
+	}
+	if recorded.Offset != 10 {
+		t.Fatalf("expected offset 10, got %d", recorded.Offset)
+	}
+}
+
+func TestListUsersRejectsPageLessThanOne(t *testing.T) {
+	repo := fakeUserRepo{}
+	engine := newTestEngine(repo, fakeAuthenticator{}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users?page=0", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if payload["error_code"] != "BAD_REQUEST" {
+		t.Fatalf("expected BAD_REQUEST, got %v", payload["error_code"])
+	}
+}
+
+func TestListUsersRejectsLimitOutsideAllowedRange(t *testing.T) {
+	testCases := []string{
+		"/api/v1/users?limit=0",
+		"/api/v1/users?limit=101",
+	}
+
+	for _, url := range testCases {
+		t.Run(url, func(t *testing.T) {
+			repo := fakeUserRepo{}
+			engine := newTestEngine(repo, fakeAuthenticator{}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+
+			req := httptest.NewRequest(http.MethodGet, url, nil)
+			req.Header.Set("Authorization", "Bearer valid-token")
+			resp := httptest.NewRecorder()
+
+			engine.ServeHTTP(resp, req)
+
+			if resp.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d: %s", resp.Code, resp.Body.String())
+			}
+
+			payload := map[string]any{}
+			if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+				t.Fatalf("unmarshal response: %v", err)
+			}
+
+			if payload["error_code"] != "BAD_REQUEST" {
+				t.Fatalf("expected BAD_REQUEST, got %v", payload["error_code"])
+			}
+		})
+	}
+}
+
 func TestGetCurrentUserReturnsProfile(t *testing.T) {
 	repo := fakeUserRepo{}
 	engine := newTestEngine(repo, fakeAuthenticator{}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
@@ -113,6 +267,54 @@ func TestGetCurrentUserReturnsProfile(t *testing.T) {
 
 	if payload["firebase_uid"] != "uid-1" {
 		t.Fatalf("expected firebase_uid uid-1, got %v", payload["firebase_uid"])
+	}
+}
+
+func TestGetUserReturnsDetail(t *testing.T) {
+	repo := fakeUserRepo{}
+	engine := newTestEngine(repo, fakeAuthenticator{}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/user-1", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if payload["firebase_uid"] != "uid-1" {
+		t.Fatalf("expected firebase_uid uid-1, got %v", payload["firebase_uid"])
+	}
+}
+
+func TestGetUserReturnsNotFoundForMissingUser(t *testing.T) {
+	repo := fakeUserRepo{findByIDErr: users.ErrNotFound}
+	engine := newTestEngine(repo, fakeAuthenticator{}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/missing", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if payload["error_code"] != "USER_NOT_FOUND" {
+		t.Fatalf("expected USER_NOT_FOUND, got %v", payload["error_code"])
 	}
 }
 
@@ -733,6 +935,9 @@ type fakeUserRepo struct {
 	role                 string
 	assignedPropertyIDs  []string
 	findByIDErr          error
+	listUsers            []users.User
+	listErr              error
+	listParamsSink       *users.ListParams
 	createErr            error
 	updateCurrentUserErr error
 }
@@ -799,6 +1004,33 @@ func (f fakeUserRepo) FindByID(_ context.Context, id string) (*users.User, error
 		CreatedAt:           time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
 		UpdatedAt:           time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
 		Version:             1,
+	}, nil
+}
+
+func (f *fakeUserRepo) List(_ context.Context, params users.ListParams) ([]users.User, error) {
+	if f.listParamsSink != nil {
+		*f.listParamsSink = params
+	}
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	if f.listUsers != nil {
+		return f.listUsers, nil
+	}
+
+	return []users.User{
+		{
+			ID:                  "user-1",
+			FirebaseUID:         "uid-1",
+			Email:               "organizer@studio.com",
+			Name:                "Organizer",
+			Role:                firstRole(f.role),
+			PermissionOverrides: []map[string]interface{}{},
+			AssignedPropertyIDs: firstAssignedPropertyIDs(f.assignedPropertyIDs),
+			CreatedAt:           time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+			UpdatedAt:           time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+			Version:             1,
+		},
 	}, nil
 }
 
@@ -1014,20 +1246,21 @@ func newTestEngineWithCreatePropertyService(userRepo fakeUserRepo, authenticator
 }
 
 func newTestEngineWithNotificationSender(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo, notificationSender *testNotificationSender, createPropertyService *appproperty.CreatePropertyService) *gin.Engine {
+	repo := &userRepo
 	return New(
 		config.AppConfig{Name: "test", Env: "test", SchedulerKey: schedulerKey, ReadTimeout: time.Second, WriteTimeout: time.Second},
 		testLogger(),
 		nil,
 		authenticator,
-		userRepo,
+		repo,
 		AuthorizationRepositories{
 			Properties:        propertyRepo,
 			ResourceOwnership: ownershipRepo,
 		},
-		appiam.NewCreateUserService(userRepo, authenticator, appnotification.NewService(notificationSender)),
-		appiam.NewSendUserPasswordResetService(userRepo, authenticator, appnotification.NewService(notificationSender)),
-		appiam.NewSyncAuthService(userRepo, appiam.NewCustomClaimsService(authenticator)),
-		appiam.NewUpdateCurrentUserService(userRepo),
+		appiam.NewCreateUserService(repo, authenticator, appnotification.NewService(notificationSender)),
+		appiam.NewSendUserPasswordResetService(repo, authenticator, appnotification.NewService(notificationSender)),
+		appiam.NewSyncAuthService(repo, appiam.NewCustomClaimsService(authenticator)),
+		appiam.NewUpdateCurrentUserService(repo),
 		appjobs.NewTriggerService(jobRunsRepo, nil, time.Minute, 3),
 		fakePropertyQueryRepo{},
 		createPropertyService,
