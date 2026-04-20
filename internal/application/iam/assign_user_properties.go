@@ -42,12 +42,10 @@ func (s *AssignUserPropertiesService) Execute(ctx context.Context, input AssignU
 
 	target, err := s.userRepo.FindByID(ctx, targetUserID)
 	if err != nil {
-		switch err {
-		case ErrManagedUserNotFound:
+		if errors.Is(err, apperr.ErrUserNotFound) {
 			return nil, apperr.ErrUserNotFound
-		default:
-			return nil, apperr.ErrInternalServerError.WithCause(err)
 		}
+		return nil, apperr.ErrInternalServerError.WithCause(err)
 	}
 
 	if target.Role == "owner" {
@@ -58,11 +56,6 @@ func (s *AssignUserPropertiesService) Execute(ctx context.Context, input AssignU
 	for _, propertyID := range propertyIDs {
 		exists, err := s.propertyReader.Exists(ctx, propertyID)
 		if err != nil {
-			if errors.Is(err, ErrManagedPropertyNotFound) {
-				return nil, apperr.ErrPropertyNotFound.WithDetails(map[string]interface{}{
-					"property_id": propertyID,
-				})
-			}
 			return nil, apperr.ErrInternalServerError.WithCause(err)
 		}
 		if !exists {
@@ -74,12 +67,10 @@ func (s *AssignUserPropertiesService) Execute(ctx context.Context, input AssignU
 
 	user, err := s.userRepo.ReplaceAssignedProperties(ctx, targetUserID, propertyIDs)
 	if err != nil {
-		switch err {
-		case ErrManagedUserNotFound:
+		if errors.Is(err, apperr.ErrUserNotFound) {
 			return nil, apperr.ErrUserNotFound
-		default:
-			return nil, apperr.ErrInternalServerError.WithCause(err)
 		}
+		return nil, apperr.ErrInternalServerError.WithCause(err)
 	}
 
 	if s.claimsSync == nil {

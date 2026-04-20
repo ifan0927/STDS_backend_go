@@ -6,6 +6,7 @@ import (
 	appiam "stds_backend/internal/application/iam"
 	dbpropertyquery "stds_backend/internal/platform/database/propertyquery"
 	dbusers "stds_backend/internal/platform/database/users"
+	"stds_backend/internal/shared/apperr"
 )
 
 type managedUserRepositoryAdapter struct {
@@ -16,7 +17,7 @@ func (a managedUserRepositoryAdapter) FindByID(ctx context.Context, id string) (
 	user, err := a.repo.FindByID(ctx, id)
 	if err != nil {
 		if err == dbusers.ErrNotFound {
-			return nil, appiam.ErrManagedUserNotFound
+			return nil, apperr.ErrUserNotFound
 		}
 		return nil, err
 	}
@@ -28,7 +29,7 @@ func (a managedUserRepositoryAdapter) ReplaceAssignedProperties(ctx context.Cont
 	user, err := a.repo.ReplaceAssignedProperties(ctx, id, assignedPropertyIDs)
 	if err != nil {
 		if err == dbusers.ErrNotFound {
-			return nil, appiam.ErrManagedUserNotFound
+			return nil, apperr.ErrUserNotFound
 		}
 		return nil, err
 	}
@@ -44,7 +45,7 @@ func (a propertyExistenceCheckerAdapter) Exists(ctx context.Context, propertyID 
 	_, err := a.repo.FindByID(ctx, propertyID)
 	if err != nil {
 		if err == dbpropertyquery.ErrNotFound {
-			return false, appiam.ErrManagedPropertyNotFound
+			return false, nil
 		}
 		return false, err
 	}

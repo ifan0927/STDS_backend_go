@@ -30,6 +30,7 @@ import (
 	"stds_backend/internal/platform/database/users"
 	platformfirebase "stds_backend/internal/platform/firebase"
 	platformnotification "stds_backend/internal/platform/notification"
+	"stds_backend/internal/shared/apperr"
 )
 
 func TestGetPropertyUsesFormalAPIWiring(t *testing.T) {
@@ -1134,7 +1135,7 @@ func (a testManagedUserRepositoryAdapter) FindByID(ctx context.Context, id strin
 	user, err := a.repo.FindByID(ctx, id)
 	if err != nil {
 		if err == users.ErrNotFound {
-			return nil, appiam.ErrManagedUserNotFound
+			return nil, apperr.ErrUserNotFound
 		}
 		return nil, err
 	}
@@ -1157,7 +1158,7 @@ func (a testManagedUserRepositoryAdapter) ReplaceAssignedProperties(ctx context.
 	user, err := a.repo.ReplaceAssignedProperties(ctx, id, assignedPropertyIDs)
 	if err != nil {
 		if err == users.ErrNotFound {
-			return nil, appiam.ErrManagedUserNotFound
+			return nil, apperr.ErrUserNotFound
 		}
 		return nil, err
 	}
@@ -1184,7 +1185,7 @@ func (a testPropertyExistenceChecker) Exists(ctx context.Context, propertyID str
 	_, err := a.repo.FindByID(ctx, propertyID)
 	if err != nil {
 		if err == dbpropertyquery.ErrNotFound {
-			return false, appiam.ErrManagedPropertyNotFound
+			return false, nil
 		}
 		return false, err
 	}

@@ -143,7 +143,7 @@ type propertyReaderSpy struct {
 
 func (s *propertyReaderSpy) Exists(_ context.Context, propertyID string) (bool, error) {
 	if _, ok := s.missingIDs[propertyID]; ok {
-		return false, ErrManagedPropertyNotFound
+		return false, nil
 	}
 
 	return true, nil

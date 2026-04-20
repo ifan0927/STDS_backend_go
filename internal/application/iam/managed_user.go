@@ -2,15 +2,8 @@ package iam
 
 import (
 	"context"
-	"errors"
 	"time"
 )
-
-// ErrManagedUserNotFound indicates that no managed user matched the requested lookup.
-var ErrManagedUserNotFound = errors.New("managed user not found")
-
-// ErrManagedPropertyNotFound indicates that a requested property does not exist.
-var ErrManagedPropertyNotFound = errors.New("managed property not found")
 
 // ManagedUser is the application-facing user shape for admin IAM mutations.
 type ManagedUser struct {
