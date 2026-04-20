@@ -74,7 +74,7 @@ func (s *UpdateUserService) Execute(ctx context.Context, input UpdateUserInput) 
 	}
 
 	role := current.Role
-	roleChanged := false
+	shouldSyncClaims := input.Role != nil
 	if input.Role != nil {
 		role = strings.TrimSpace(*input.Role)
 		switch {
@@ -85,11 +85,13 @@ func (s *UpdateUserService) Execute(ctx context.Context, input UpdateUserInput) 
 				"role": role,
 			})
 		}
-		roleChanged = role != current.Role
 	}
 
 	if actorUserID == current.ID && current.Role == "admin" && role != "admin" {
 		return nil, apperr.ErrAdminCannotDowngradeSelf
+	}
+	if shouldSyncClaims && s.claimsSync == nil {
+		return nil, apperr.ErrInternalServerError
 	}
 
 	user, err := s.userRepo.UpdateManagedUser(ctx, targetUserID, users.UpdateManagedUserParams{
@@ -105,10 +107,7 @@ func (s *UpdateUserService) Execute(ctx context.Context, input UpdateUserInput) 
 		}
 	}
 
-	if roleChanged {
-		if s.claimsSync == nil {
-			return nil, apperr.ErrInternalServerError
-		}
+	if shouldSyncClaims {
 		if err := s.claimsSync.Sync(ctx, user.FirebaseUID, user.Role, user.AssignedPropertyIDs); err != nil {
 			return nil, apperr.ErrInternalServerError.WithCause(err)
 		}

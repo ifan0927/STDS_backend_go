@@ -116,6 +116,34 @@ func TestUpdateUserServiceExecute(t *testing.T) {
 			t.Fatalf("expected persisted update before claims sync failure, got %d calls", repo.updateCalls)
 		}
 	})
+
+	t.Run("retries claims sync when request repeats same role after prior partial failure", func(t *testing.T) {
+		repo := &managedUserRepo{
+			findUser: &users.User{
+				ID:                  "user-1",
+				FirebaseUID:         "uid-1",
+				Email:               "organizer@studio.com",
+				Name:                "Organizer",
+				Role:                "staff",
+				AssignedPropertyIDs: []string{"property-1"},
+			},
+		}
+		claims := &claimsSyncSpy{}
+		service := NewUpdateUserService(repo, claims)
+		role := "staff"
+
+		_, err := service.Execute(context.Background(), UpdateUserInput{
+			ActorUserID:  "admin-1",
+			TargetUserID: "user-1",
+			Role:         &role,
+		})
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if claims.role != "staff" {
+			t.Fatalf("expected claims role staff, got %q", claims.role)
+		}
+	})
 }
 
 type managedUserRepo struct {

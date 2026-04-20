@@ -71,7 +71,11 @@ func New(cfg *config.Config) (*Server, error) {
 	syncAuthService := appiam.NewSyncAuthService(userRepo, customClaimsService)
 	updateCurrentUserService := appiam.NewUpdateCurrentUserService(userRepo)
 	updateUserService := appiam.NewUpdateUserService(userRepo, customClaimsService)
-	assignUserPropertiesService := appiam.NewAssignUserPropertiesService(userRepo, propertyQueryRepo, customClaimsService)
+	assignUserPropertiesService := appiam.NewAssignUserPropertiesService(
+		managedUserRepositoryAdapter{repo: userRepo},
+		propertyExistenceCheckerAdapter{repo: propertyQueryRepo},
+		customClaimsService,
+	)
 	txRunner := dbtxrunner.New(db, bus)
 	createPropertyService := appproperty.NewCreatePropertyService(propertyRepo, txRunner)
 	jobTriggerService := appjobs.NewTriggerService(jobRunsRepo, nil, cfg.App.SchedulerJobTimeout, cfg.App.SchedulerMaxRetries)

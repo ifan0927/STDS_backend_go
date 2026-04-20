@@ -628,7 +628,7 @@ func (s *APIServer) AssignUserProperties(c *gin.Context, id string) {
 		return
 	}
 
-	c.JSON(http.StatusOK, toUserResponse(user))
+	c.JSON(http.StatusOK, toManagedUserResponse(user))
 }
 
 func toUserResponse(user *users.User) api.UserResponse {
@@ -661,6 +661,35 @@ func toUserResponse(user *users.User) api.UserResponse {
 }
 
 func toCurrentUserResponse(user *domainusers.User) api.UserResponse {
+	id, ok := parseUUID(user.ID)
+	email := openapi_types.Email(user.Email)
+	role := api.UserResponseRole(user.Role)
+	createdAt := user.CreatedAt
+	updatedAt := user.UpdatedAt
+	version := user.Version
+	firebaseUID := user.FirebaseUID
+	name := user.Name
+
+	response := api.UserResponse{
+		AssignedPropertyIds: toUUIDList(user.AssignedPropertyIDs),
+		CreatedAt:           &createdAt,
+		Email:               &email,
+		FirebaseUid:         &firebaseUID,
+		Name:                &name,
+		PermissionOverrides: &user.PermissionOverrides,
+		Role:                &role,
+		UpdatedAt:           &updatedAt,
+		Version:             &version,
+	}
+
+	if ok {
+		response.Id = &id
+	}
+
+	return response
+}
+
+func toManagedUserResponse(user *appiam.ManagedUser) api.UserResponse {
 	id, ok := parseUUID(user.ID)
 	email := openapi_types.Email(user.Email)
 	role := api.UserResponseRole(user.Role)

@@ -1126,6 +1126,72 @@ type customClaimsCall struct {
 	assignedPropertyIDs []string
 }
 
+type testManagedUserRepositoryAdapter struct {
+	repo *fakeUserRepo
+}
+
+func (a testManagedUserRepositoryAdapter) FindByID(ctx context.Context, id string) (*appiam.ManagedUser, error) {
+	user, err := a.repo.FindByID(ctx, id)
+	if err != nil {
+		if err == users.ErrNotFound {
+			return nil, appiam.ErrManagedUserNotFound
+		}
+		return nil, err
+	}
+
+	return &appiam.ManagedUser{
+		ID:                  user.ID,
+		FirebaseUID:         user.FirebaseUID,
+		Email:               user.Email,
+		Name:                user.Name,
+		Role:                user.Role,
+		PermissionOverrides: user.PermissionOverrides,
+		AssignedPropertyIDs: user.AssignedPropertyIDs,
+		CreatedAt:           user.CreatedAt,
+		UpdatedAt:           user.UpdatedAt,
+		Version:             user.Version,
+	}, nil
+}
+
+func (a testManagedUserRepositoryAdapter) ReplaceAssignedProperties(ctx context.Context, id string, assignedPropertyIDs []string) (*appiam.ManagedUser, error) {
+	user, err := a.repo.ReplaceAssignedProperties(ctx, id, assignedPropertyIDs)
+	if err != nil {
+		if err == users.ErrNotFound {
+			return nil, appiam.ErrManagedUserNotFound
+		}
+		return nil, err
+	}
+
+	return &appiam.ManagedUser{
+		ID:                  user.ID,
+		FirebaseUID:         user.FirebaseUID,
+		Email:               user.Email,
+		Name:                user.Name,
+		Role:                user.Role,
+		PermissionOverrides: user.PermissionOverrides,
+		AssignedPropertyIDs: user.AssignedPropertyIDs,
+		CreatedAt:           user.CreatedAt,
+		UpdatedAt:           user.UpdatedAt,
+		Version:             user.Version,
+	}, nil
+}
+
+type testPropertyExistenceChecker struct {
+	repo fakePropertyQueryRepo
+}
+
+func (a testPropertyExistenceChecker) Exists(ctx context.Context, propertyID string) (bool, error) {
+	_, err := a.repo.FindByID(ctx, propertyID)
+	if err != nil {
+		if err == dbpropertyquery.ErrNotFound {
+			return false, appiam.ErrManagedPropertyNotFound
+		}
+		return false, err
+	}
+
+	return true, nil
+}
+
 func (f fakeUserRepo) FindByFirebaseUID(_ context.Context, firebaseUID string) (*users.User, error) {
 	if firebaseUID == "missing" {
 		return nil, users.ErrNotFound
@@ -1468,7 +1534,11 @@ func newTestEngineWithNotificationSender(userRepo fakeUserRepo, authenticator fa
 		appiam.NewSyncAuthService(repo, appiam.NewCustomClaimsService(authenticator)),
 		appiam.NewUpdateCurrentUserService(repo),
 		appiam.NewUpdateUserService(repo, appiam.NewCustomClaimsService(authenticator)),
-		appiam.NewAssignUserPropertiesService(repo, fakePropertyQueryRepo{}, appiam.NewCustomClaimsService(authenticator)),
+		appiam.NewAssignUserPropertiesService(
+			testManagedUserRepositoryAdapter{repo: repo},
+			testPropertyExistenceChecker{repo: fakePropertyQueryRepo{}},
+			appiam.NewCustomClaimsService(authenticator),
+		),
 		appjobs.NewTriggerService(jobRunsRepo, nil, time.Minute, 3),
 		fakePropertyQueryRepo{},
 		createPropertyService,

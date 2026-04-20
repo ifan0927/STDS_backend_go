@@ -2,11 +2,10 @@ package iam
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 
-	dbpropertyquery "stds_backend/internal/platform/database/propertyquery"
-	"stds_backend/internal/platform/database/users"
 	"stds_backend/internal/shared/apperr"
 )
 
@@ -18,13 +17,13 @@ type AssignUserPropertiesInput struct {
 
 // AssignUserPropertiesService replaces a user's property assignment list.
 type AssignUserPropertiesService struct {
-	userRepo       users.Repository
-	propertyReader dbpropertyquery.Repository
+	userRepo       ManagedUserPropertyAssignmentRepository
+	propertyReader PropertyExistenceChecker
 	claimsSync     ManagedUserClaimsSyncer
 }
 
 // NewAssignUserPropertiesService returns an AssignUserPropertiesService.
-func NewAssignUserPropertiesService(userRepo users.Repository, propertyReader dbpropertyquery.Repository, claimsSync ManagedUserClaimsSyncer) *AssignUserPropertiesService {
+func NewAssignUserPropertiesService(userRepo ManagedUserPropertyAssignmentRepository, propertyReader PropertyExistenceChecker, claimsSync ManagedUserClaimsSyncer) *AssignUserPropertiesService {
 	return &AssignUserPropertiesService{
 		userRepo:       userRepo,
 		propertyReader: propertyReader,
@@ -33,7 +32,7 @@ func NewAssignUserPropertiesService(userRepo users.Repository, propertyReader db
 }
 
 // Execute validates assignment rules, replaces assignments, and refreshes Firebase claims.
-func (s *AssignUserPropertiesService) Execute(ctx context.Context, input AssignUserPropertiesInput) (*users.User, error) {
+func (s *AssignUserPropertiesService) Execute(ctx context.Context, input AssignUserPropertiesInput) (*ManagedUser, error) {
 	targetUserID := strings.TrimSpace(input.TargetUserID)
 	if targetUserID == "" {
 		return nil, apperr.ErrBadRequest.WithDetails(map[string]interface{}{
@@ -44,7 +43,7 @@ func (s *AssignUserPropertiesService) Execute(ctx context.Context, input AssignU
 	target, err := s.userRepo.FindByID(ctx, targetUserID)
 	if err != nil {
 		switch err {
-		case users.ErrNotFound:
+		case ErrManagedUserNotFound:
 			return nil, apperr.ErrUserNotFound
 		default:
 			return nil, apperr.ErrInternalServerError.WithCause(err)
@@ -57,22 +56,26 @@ func (s *AssignUserPropertiesService) Execute(ctx context.Context, input AssignU
 
 	propertyIDs := normalizePropertyIDs(input.PropertyIDs)
 	for _, propertyID := range propertyIDs {
-		if _, err := s.propertyReader.FindByID(ctx, propertyID); err != nil {
-			switch err {
-			case dbpropertyquery.ErrNotFound:
+		exists, err := s.propertyReader.Exists(ctx, propertyID)
+		if err != nil {
+			if errors.Is(err, ErrManagedPropertyNotFound) {
 				return nil, apperr.ErrPropertyNotFound.WithDetails(map[string]interface{}{
 					"property_id": propertyID,
 				})
-			default:
-				return nil, apperr.ErrInternalServerError.WithCause(err)
 			}
+			return nil, apperr.ErrInternalServerError.WithCause(err)
+		}
+		if !exists {
+			return nil, apperr.ErrPropertyNotFound.WithDetails(map[string]interface{}{
+				"property_id": propertyID,
+			})
 		}
 	}
 
 	user, err := s.userRepo.ReplaceAssignedProperties(ctx, targetUserID, propertyIDs)
 	if err != nil {
 		switch err {
-		case users.ErrNotFound:
+		case ErrManagedUserNotFound:
 			return nil, apperr.ErrUserNotFound
 		default:
 			return nil, apperr.ErrInternalServerError.WithCause(err)

@@ -6,8 +6,6 @@ import (
 	"testing"
 	"time"
 
-	dbpropertyquery "stds_backend/internal/platform/database/propertyquery"
-	"stds_backend/internal/platform/database/users"
 	"stds_backend/internal/shared/apperr"
 )
 
@@ -38,7 +36,7 @@ func TestAssignUserPropertiesServiceExecute(t *testing.T) {
 
 	t.Run("rejects owner target", func(t *testing.T) {
 		repo := &assignUserPropertiesRepo{
-			findUser: &users.User{ID: "user-1", FirebaseUID: "uid-owner", Name: "Owner", Role: "owner"},
+			findUser: &ManagedUser{ID: "user-1", FirebaseUID: "uid-owner", Name: "Owner", Role: "owner"},
 		}
 		service := NewAssignUserPropertiesService(repo, &propertyReaderSpy{}, &claimsSyncSpy{})
 
@@ -88,18 +86,14 @@ func TestAssignUserPropertiesServiceExecute(t *testing.T) {
 }
 
 type assignUserPropertiesRepo struct {
-	findUser            *users.User
+	findUser            *ManagedUser
 	findErr             error
 	replaceErr          error
 	replaceCalls        int
 	replacedPropertyIDs []string
 }
 
-func (r *assignUserPropertiesRepo) FindByFirebaseUID(_ context.Context, _ string) (*users.User, error) {
-	return nil, errors.New("not used")
-}
-
-func (r *assignUserPropertiesRepo) FindByID(_ context.Context, id string) (*users.User, error) {
+func (r *assignUserPropertiesRepo) FindByID(_ context.Context, id string) (*ManagedUser, error) {
 	if r.findErr != nil {
 		return nil, r.findErr
 	}
@@ -107,7 +101,7 @@ func (r *assignUserPropertiesRepo) FindByID(_ context.Context, id string) (*user
 		return r.findUser, nil
 	}
 
-	return &users.User{
+	return &ManagedUser{
 		ID:                  id,
 		FirebaseUID:         "uid-1",
 		Email:               "organizer@studio.com",
@@ -121,23 +115,7 @@ func (r *assignUserPropertiesRepo) FindByID(_ context.Context, id string) (*user
 	}, nil
 }
 
-func (r *assignUserPropertiesRepo) List(_ context.Context, _ users.ListParams) ([]users.User, error) {
-	return nil, errors.New("not used")
-}
-
-func (r *assignUserPropertiesRepo) Create(_ context.Context, _ users.CreateUserParams) (*users.User, error) {
-	return nil, errors.New("not used")
-}
-
-func (r *assignUserPropertiesRepo) UpdateCurrentUser(_ context.Context, _ string, _ users.UpdateCurrentUserParams) (*users.User, error) {
-	return nil, errors.New("not used")
-}
-
-func (r *assignUserPropertiesRepo) UpdateManagedUser(_ context.Context, _ string, _ users.UpdateManagedUserParams) (*users.User, error) {
-	return nil, errors.New("not used")
-}
-
-func (r *assignUserPropertiesRepo) ReplaceAssignedProperties(_ context.Context, id string, propertyIDs []string) (*users.User, error) {
+func (r *assignUserPropertiesRepo) ReplaceAssignedProperties(_ context.Context, id string, propertyIDs []string) (*ManagedUser, error) {
 	if r.replaceErr != nil {
 		return nil, r.replaceErr
 	}
@@ -145,7 +123,7 @@ func (r *assignUserPropertiesRepo) ReplaceAssignedProperties(_ context.Context, 
 	r.replaceCalls++
 	r.replacedPropertyIDs = propertyIDs
 
-	return &users.User{
+	return &ManagedUser{
 		ID:                  id,
 		FirebaseUID:         "uid-1",
 		Email:               "organizer@studio.com",
@@ -159,22 +137,14 @@ func (r *assignUserPropertiesRepo) ReplaceAssignedProperties(_ context.Context, 
 	}, nil
 }
 
-func (r *assignUserPropertiesRepo) DeleteByID(_ context.Context, _ string) error {
-	return errors.New("not used")
-}
-
 type propertyReaderSpy struct {
 	missingIDs map[string]struct{}
 }
 
-func (s *propertyReaderSpy) FindByID(_ context.Context, propertyID string) (*dbpropertyquery.Property, error) {
+func (s *propertyReaderSpy) Exists(_ context.Context, propertyID string) (bool, error) {
 	if _, ok := s.missingIDs[propertyID]; ok {
-		return nil, dbpropertyquery.ErrNotFound
+		return false, ErrManagedPropertyNotFound
 	}
 
-	return &dbpropertyquery.Property{ID: propertyID}, nil
-}
-
-func (s *propertyReaderSpy) ListAccessible(_ context.Context, _ string, _ string, _ []string) ([]dbpropertyquery.Property, error) {
-	return nil, errors.New("not used")
+	return true, nil
 }
