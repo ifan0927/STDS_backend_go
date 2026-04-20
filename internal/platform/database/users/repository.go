@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	domainusers "stds_backend/internal/domain/users"
+	"stds_backend/internal/shared/apperr"
 )
 
 // ErrNotFound indicates that no user matched the requested lookup.
@@ -138,7 +139,12 @@ WHERE deleted_at IS NULL
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("list users: %w", err)
+		return nil, apperr.ErrInternalServerError.WithDetails(map[string]interface{}{
+			"operation": "users.list.query",
+			"role":      params.Role,
+			"limit":     params.Limit,
+			"offset":    params.Offset,
+		}).WithCause(err)
 	}
 	defer rows.Close()
 
@@ -146,13 +152,23 @@ WHERE deleted_at IS NULL
 	for rows.Next() {
 		user, err := scanUser(rows)
 		if err != nil {
-			return nil, fmt.Errorf("scan listed user: %w", err)
+			return nil, apperr.ErrInternalServerError.WithDetails(map[string]interface{}{
+				"operation": "users.list.scan",
+				"role":      params.Role,
+				"limit":     params.Limit,
+				"offset":    params.Offset,
+			}).WithCause(err)
 		}
 		items = append(items, *user)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate listed users: %w", err)
+		return nil, apperr.ErrInternalServerError.WithDetails(map[string]interface{}{
+			"operation": "users.list.rows",
+			"role":      params.Role,
+			"limit":     params.Limit,
+			"offset":    params.Offset,
+		}).WithCause(err)
 	}
 
 	return items, nil

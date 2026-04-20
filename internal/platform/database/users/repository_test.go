@@ -2,11 +2,14 @@ package users
 
 import (
 	"context"
+	"errors"
 	"regexp"
 	"testing"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+
+	"stds_backend/internal/shared/apperr"
 )
 
 func TestListReturnsActiveUsersWithPagination(t *testing.T) {
@@ -119,6 +122,69 @@ LIMIT $2 OFFSET $3`)).
 	}
 	if items[0].Role != "staff" {
 		t.Fatalf("expected staff role, got %s", items[0].Role)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestListWrapsQueryErrorsAsStructuredAppError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewRepository(db)
+	queryErr := errors.New("db down")
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT
+	id,
+	firebase_uid,
+	email,
+	name,
+	role,
+	COALESCE(permission_overrides, '[]'::jsonb)::text AS permission_overrides,
+	COALESCE(assigned_property_ids, '[]'::jsonb)::text AS assigned_property_ids,
+	created_at,
+	updated_at,
+	version
+FROM users
+WHERE deleted_at IS NULL
+ORDER BY created_at DESC, id DESC
+LIMIT $1 OFFSET $2`)).
+		WithArgs(20, 0).
+		WillReturnError(queryErr)
+
+	_, err = repo.List(context.Background(), ListParams{Limit: 20, Offset: 0})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	var appErr *apperr.Error
+	if !errors.As(err, &appErr) {
+		t.Fatalf("expected apperr.Error, got %T", err)
+	}
+	if appErr.Code != apperr.CodeInternalServerError {
+		t.Fatalf("expected INTERNAL_SERVER_ERROR, got %s", appErr.Code)
+	}
+	if !errors.Is(err, queryErr) {
+		t.Fatalf("expected wrapped cause %v, got %v", queryErr, err)
+	}
+
+	details, ok := appErr.Details.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected details map, got %T", appErr.Details)
+	}
+	if details["operation"] != "users.list.query" {
+		t.Fatalf("expected operation users.list.query, got %v", details["operation"])
+	}
+	if details["limit"] != 20 {
+		t.Fatalf("expected limit 20, got %v", details["limit"])
+	}
+	if details["offset"] != 0 {
+		t.Fatalf("expected offset 0, got %v", details["offset"])
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {

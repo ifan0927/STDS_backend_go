@@ -528,6 +528,14 @@ func (s *APIServer) TriggerUserPasswordReset(c *gin.Context, id string) {
 
 // GetUser handles user detail retrieval.
 func (s *APIServer) GetUser(c *gin.Context, id string) {
+	if _, err := uuid.Parse(id); err != nil {
+		c.Error(apperr.ErrBadRequest.WithDetails(map[string]interface{}{
+			"field":  "id",
+			"reason": "must be a valid UUID",
+		}))
+		return
+	}
+
 	user, err := s.userRepo.FindByID(c.Request.Context(), id)
 	if err != nil {
 		switch err {

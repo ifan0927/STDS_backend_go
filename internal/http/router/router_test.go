@@ -274,7 +274,7 @@ func TestGetUserReturnsDetail(t *testing.T) {
 	repo := fakeUserRepo{}
 	engine := newTestEngine(repo, fakeAuthenticator{}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/user-1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/00000000-0000-0000-0000-000000000001", nil)
 	req.Header.Set("Authorization", "Bearer valid-token")
 	resp := httptest.NewRecorder()
 
@@ -298,7 +298,7 @@ func TestGetUserReturnsNotFoundForMissingUser(t *testing.T) {
 	repo := fakeUserRepo{findByIDErr: users.ErrNotFound}
 	engine := newTestEngine(repo, fakeAuthenticator{}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/missing", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/00000000-0000-0000-0000-000000000099", nil)
 	req.Header.Set("Authorization", "Bearer valid-token")
 	resp := httptest.NewRecorder()
 
@@ -315,6 +315,30 @@ func TestGetUserReturnsNotFoundForMissingUser(t *testing.T) {
 
 	if payload["error_code"] != "USER_NOT_FOUND" {
 		t.Fatalf("expected USER_NOT_FOUND, got %v", payload["error_code"])
+	}
+}
+
+func TestGetUserRejectsInvalidUUID(t *testing.T) {
+	repo := fakeUserRepo{}
+	engine := newTestEngine(repo, fakeAuthenticator{}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/not-a-uuid", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if payload["error_code"] != "BAD_REQUEST" {
+		t.Fatalf("expected BAD_REQUEST, got %v", payload["error_code"])
 	}
 }
 

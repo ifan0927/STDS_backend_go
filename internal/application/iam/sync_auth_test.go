@@ -73,6 +73,10 @@ func (syncAuthUserRepo) FindByID(_ context.Context, _ string) (*users.User, erro
 	return nil, users.ErrNotFound
 }
 
+func (syncAuthUserRepo) List(_ context.Context, _ users.ListParams) ([]users.User, error) {
+	return []users.User{}, nil
+}
+
 func (syncAuthUserRepo) Create(_ context.Context, _ users.CreateUserParams) (*users.User, error) {
 	return nil, users.ErrNotFound
 }

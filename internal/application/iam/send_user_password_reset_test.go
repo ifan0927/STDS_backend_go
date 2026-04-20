@@ -76,6 +76,10 @@ func (r sendResetUserRepo) FindByID(_ context.Context, id string) (*users.User, 
 	}, nil
 }
 
+func (r sendResetUserRepo) List(_ context.Context, _ users.ListParams) ([]users.User, error) {
+	return []users.User{}, nil
+}
+
 func (r sendResetUserRepo) Create(_ context.Context, _ users.CreateUserParams) (*users.User, error) {
 	return nil, users.ErrNotFound
 }
