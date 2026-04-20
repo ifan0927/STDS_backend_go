@@ -21,18 +21,19 @@ func TestCreatePropertyServiceCreatesProperty(t *testing.T) {
 
 	mock.ExpectBegin()
 	mock.ExpectQuery("INSERT INTO properties").
-		WithArgs("Property A", "Address A", 4.5, "owner-1").
+		WithArgs("Property A", "Address A", 4.5, "monthly", "owner-1").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "address", "electricity_unit_price", "owner_id", "created_at", "updated_at", "version",
-		}).AddRow("property-1", "Property A", "Address A", 4.5, "owner-1", time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), 1))
+			"id", "name", "address", "electricity_unit_price", "default_electricity_billing_cadence", "owner_id", "created_at", "updated_at", "version",
+		}).AddRow("property-1", "Property A", "Address A", 4.5, "monthly", "owner-1", time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), 1))
 	mock.ExpectCommit()
 
 	service := NewCreatePropertyService(dbproperties.NewRepository(db), dbtxrunner.New(db, domainevents.NoopPublisher{}))
 	property, err := service.Execute(context.Background(), CreatePropertyInput{
-		Name:                 "Property A",
-		Address:              "Address A",
-		ElectricityUnitPrice: 4.5,
-		OwnerID:              "owner-1",
+		Name:                             "Property A",
+		Address:                          "Address A",
+		ElectricityUnitPrice:             4.5,
+		DefaultElectricityBillingCadence: "monthly",
+		OwnerID:                          "owner-1",
 	})
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
@@ -43,6 +44,9 @@ func TestCreatePropertyServiceCreatesProperty(t *testing.T) {
 	}
 	if property.ElectricityUnitPrice == nil || *property.ElectricityUnitPrice != 4.5 {
 		t.Fatalf("expected electricity_unit_price 4.5, got %v", property.ElectricityUnitPrice)
+	}
+	if property.DefaultElectricityBillingCadence != "monthly" {
+		t.Fatalf("expected default cadence monthly, got %q", property.DefaultElectricityBillingCadence)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {

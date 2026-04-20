@@ -200,6 +200,9 @@ func (s *APIServer) UpdateLease(c *gin.Context, id string) { writeNotImplemented
 // UpdateLeaseDeposit handles lease deposit updates.
 func (s *APIServer) UpdateLeaseDeposit(c *gin.Context, id string) { writeNotImplemented(c) }
 
+// ReplaceLease handles lease replacement.
+func (s *APIServer) ReplaceLease(c *gin.Context, id string) { writeNotImplemented(c) }
+
 // ForceTerminateLease handles forced lease termination.
 func (s *APIServer) ForceTerminateLease(c *gin.Context, id string) { writeNotImplemented(c) }
 
@@ -237,10 +240,11 @@ func (s *APIServer) CreateProperty(c *gin.Context) {
 	}
 
 	property, err := s.createPropertySvc.Execute(c.Request.Context(), appproperty.CreatePropertyInput{
-		Name:                 request.Name,
-		Address:              request.Address,
-		ElectricityUnitPrice: request.ElectricityUnitPrice,
-		OwnerID:              request.OwnerId.String(),
+		Name:                             request.Name,
+		Address:                          request.Address,
+		ElectricityUnitPrice:             request.ElectricityUnitPrice,
+		DefaultElectricityBillingCadence: string(request.DefaultElectricityBillingCadence),
+		OwnerID:                          request.OwnerId.String(),
 	})
 	if err != nil {
 		c.Error(err)
@@ -651,6 +655,10 @@ func toPropertyResponse(property *dbpropertyquery.Property) api.PropertyResponse
 		UpdatedAt: &updatedAt,
 		Version:   &version,
 	}
+	if property.DefaultElectricityBillingCadence != "" {
+		cadence := api.PropertyResponseDefaultElectricityBillingCadence(property.DefaultElectricityBillingCadence)
+		response.DefaultElectricityBillingCadence = &cadence
+	}
 	if property.ElectricityUnitPrice != nil {
 		electricityUnitPrice := *property.ElectricityUnitPrice
 		response.ElectricityUnitPrice = &electricityUnitPrice
@@ -667,14 +675,15 @@ func toPropertyResponse(property *dbpropertyquery.Property) api.PropertyResponse
 
 func toCreatedPropertyResponse(property *dbproperties.Property) api.PropertyResponse {
 	queryShape := &dbpropertyquery.Property{
-		ID:                   property.ID,
-		Name:                 property.Name,
-		Address:              property.Address,
-		ElectricityUnitPrice: property.ElectricityUnitPrice,
-		OwnerID:              property.OwnerID,
-		CreatedAt:            property.CreatedAt,
-		UpdatedAt:            property.UpdatedAt,
-		Version:              property.Version,
+		ID:                               property.ID,
+		Name:                             property.Name,
+		Address:                          property.Address,
+		ElectricityUnitPrice:             property.ElectricityUnitPrice,
+		DefaultElectricityBillingCadence: property.DefaultElectricityBillingCadence,
+		OwnerID:                          property.OwnerID,
+		CreatedAt:                        property.CreatedAt,
+		UpdatedAt:                        property.UpdatedAt,
+		Version:                          property.Version,
 	}
 
 	return toPropertyResponse(queryShape)

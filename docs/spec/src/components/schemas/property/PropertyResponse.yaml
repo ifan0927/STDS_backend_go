@@ -17,6 +17,11 @@ properties:
     exclusiveMinimum: true
     description: 台幣正數/度，可接受小數
     nullable: true
+  default_electricity_billing_cadence:
+    type: string
+    enum:
+      - monthly
+      - bimonthly
   owner_id:
     type: string
     format: uuid

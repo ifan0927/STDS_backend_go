@@ -115,6 +115,8 @@ INSERT INTO bills (
 	property_id,
 	type,
 	amount,
+	period_start,
+	period_end,
 	due_date,
 	status,
 	paid_at,
@@ -124,7 +126,7 @@ INSERT INTO bills (
 	meter_unit_price,
 	meter_recorded_at,
 	source_ref
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb)
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17::jsonb)
 RETURNING id
 `)).
 		WithArgs(
@@ -134,6 +136,8 @@ RETURNING id
 			"property-uuid-10",
 			billTypeElectricity,
 			136,
+			time.Date(2020, 2, 1, 0, 0, 0, 0, time.UTC),
+			time.Date(2020, 2, 29, 0, 0, 0, 0, time.UTC),
 			time.Date(2020, 2, 29, 0, 0, 0, 0, time.UTC),
 			billStatusPaid,
 			sqlmock.AnyArg(),

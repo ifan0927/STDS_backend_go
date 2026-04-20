@@ -67,6 +67,18 @@ const (
 	Rent        BillResponseType = "rent"
 )
 
+// Defines values for CreateLeaseRequestElectricityBillingCadence.
+const (
+	CreateLeaseRequestElectricityBillingCadenceBimonthly CreateLeaseRequestElectricityBillingCadence = "bimonthly"
+	CreateLeaseRequestElectricityBillingCadenceMonthly   CreateLeaseRequestElectricityBillingCadence = "monthly"
+)
+
+// Defines values for CreatePropertyRequestDefaultElectricityBillingCadence.
+const (
+	CreatePropertyRequestDefaultElectricityBillingCadenceBimonthly CreatePropertyRequestDefaultElectricityBillingCadence = "bimonthly"
+	CreatePropertyRequestDefaultElectricityBillingCadenceMonthly   CreatePropertyRequestDefaultElectricityBillingCadence = "monthly"
+)
+
 // Defines values for CreateUserRequestRole.
 const (
 	CreateUserRequestRoleAdmin     CreateUserRequestRole = "admin"
@@ -103,11 +115,41 @@ const (
 	ForceTerminationResponseStatusInProgress ForceTerminationResponseStatus = "in_progress"
 )
 
+// Defines values for LeaseReplaceRequestDepositHandling.
+const (
+	LeaseReplaceRequestDepositHandlingCarryOver LeaseReplaceRequestDepositHandling = "carry_over"
+)
+
+// Defines values for LeaseReplaceRequestNewLeaseElectricityBillingCadence.
+const (
+	LeaseReplaceRequestNewLeaseElectricityBillingCadenceBimonthly LeaseReplaceRequestNewLeaseElectricityBillingCadence = "bimonthly"
+	LeaseReplaceRequestNewLeaseElectricityBillingCadenceMonthly   LeaseReplaceRequestNewLeaseElectricityBillingCadence = "monthly"
+)
+
+// Defines values for LeaseReplaceRequestReason.
+const (
+	CadenceChange   LeaseReplaceRequestReason = "cadence_change"
+	ContractReissue LeaseReplaceRequestReason = "contract_reissue"
+	OtherException  LeaseReplaceRequestReason = "other_exception"
+	Renewal         LeaseReplaceRequestReason = "renewal"
+)
+
+// Defines values for LeaseReplaceResponseReplacementDepositHandling.
+const (
+	LeaseReplaceResponseReplacementDepositHandlingCarryOver LeaseReplaceResponseReplacementDepositHandling = "carry_over"
+)
+
 // Defines values for LeaseResponseDepositStatus.
 const (
 	LeaseResponseDepositStatusHeld       LeaseResponseDepositStatus = "held"
 	LeaseResponseDepositStatusSettled    LeaseResponseDepositStatus = "settled"
 	LeaseResponseDepositStatusWrittenOff LeaseResponseDepositStatus = "written_off"
+)
+
+// Defines values for LeaseResponseElectricityBillingCadence.
+const (
+	LeaseResponseElectricityBillingCadenceBimonthly LeaseResponseElectricityBillingCadence = "bimonthly"
+	LeaseResponseElectricityBillingCadenceMonthly   LeaseResponseElectricityBillingCadence = "monthly"
 )
 
 // Defines values for LeaseResponseStatus.
@@ -116,6 +158,12 @@ const (
 	LeaseResponseStatusExpired         LeaseResponseStatus = "expired"
 	LeaseResponseStatusForceTerminated LeaseResponseStatus = "force_terminated"
 	LeaseResponseStatusTerminated      LeaseResponseStatus = "terminated"
+)
+
+// Defines values for PropertyResponseDefaultElectricityBillingCadence.
+const (
+	PropertyResponseDefaultElectricityBillingCadenceBimonthly PropertyResponseDefaultElectricityBillingCadence = "bimonthly"
+	PropertyResponseDefaultElectricityBillingCadenceMonthly   PropertyResponseDefaultElectricityBillingCadence = "monthly"
 )
 
 // Defines values for RecordPaymentRequestPaymentMethod.
@@ -158,6 +206,12 @@ const (
 const (
 	TenantResponseStatusActive   TenantResponseStatus = "active"
 	TenantResponseStatusInactive TenantResponseStatus = "inactive"
+)
+
+// Defines values for UpdatePropertyRequestDefaultElectricityBillingCadence.
+const (
+	UpdatePropertyRequestDefaultElectricityBillingCadenceBimonthly UpdatePropertyRequestDefaultElectricityBillingCadence = "bimonthly"
+	UpdatePropertyRequestDefaultElectricityBillingCadenceMonthly   UpdatePropertyRequestDefaultElectricityBillingCadence = "monthly"
 )
 
 // Defines values for UpdateUserRequestRole.
@@ -299,6 +353,8 @@ type BillResponse struct {
 	PaidAmount           *int                       `json:"paid_amount"`
 	PaidAt               *time.Time                 `json:"paid_at"`
 	PaymentMethod        *BillResponsePaymentMethod `json:"payment_method"`
+	PeriodEnd            *openapi_types.Date        `json:"period_end,omitempty"`
+	PeriodStart          *openapi_types.Date        `json:"period_start,omitempty"`
 	PropertyId           *openapi_types.UUID        `json:"property_id,omitempty"`
 	RoomId               *openapi_types.UUID        `json:"room_id,omitempty"`
 	Status               *BillResponseStatus        `json:"status,omitempty"`
@@ -334,23 +390,35 @@ type CreateJournalLogRequest struct {
 
 // CreateLeaseRequest defines model for CreateLeaseRequest.
 type CreateLeaseRequest struct {
-	DepositAmount int                `json:"deposit_amount"`
-	EndDate       openapi_types.Date `json:"end_date"`
-	RentAmount    int                `json:"rent_amount"`
-	RoomId        openapi_types.UUID `json:"room_id"`
-	StartDate     openapi_types.Date `json:"start_date"`
-	TenantId      openapi_types.UUID `json:"tenant_id"`
+	DepositAmount int `json:"deposit_amount"`
+
+	// ElectricityBillingCadence 可省略；若未提供則套用 Property 的 default_electricity_billing_cadence
+	ElectricityBillingCadence *CreateLeaseRequestElectricityBillingCadence `json:"electricity_billing_cadence,omitempty"`
+	EndDate                   openapi_types.Date                           `json:"end_date"`
+	RentAmount                int                                          `json:"rent_amount"`
+	RoomId                    openapi_types.UUID                           `json:"room_id"`
+	StartDate                 openapi_types.Date                           `json:"start_date"`
+	TenantId                  openapi_types.UUID                           `json:"tenant_id"`
 }
+
+// CreateLeaseRequestElectricityBillingCadence 可省略；若未提供則套用 Property 的 default_electricity_billing_cadence
+type CreateLeaseRequestElectricityBillingCadence string
 
 // CreatePropertyRequest defines model for CreatePropertyRequest.
 type CreatePropertyRequest struct {
 	Address string `json:"address"`
+
+	// DefaultElectricityBillingCadence 物業預設電費計費 cadence，僅影響新建 Lease
+	DefaultElectricityBillingCadence CreatePropertyRequestDefaultElectricityBillingCadence `json:"default_electricity_billing_cadence"`
 
 	// ElectricityUnitPrice 台幣正數/度，可接受小數（例如 4.5）
 	ElectricityUnitPrice float64            `json:"electricity_unit_price"`
 	Name                 string             `json:"name"`
 	OwnerId              openapi_types.UUID `json:"owner_id"`
 }
+
+// CreatePropertyRequestDefaultElectricityBillingCadence 物業預設電費計費 cadence，僅影響新建 Lease
+type CreatePropertyRequestDefaultElectricityBillingCadence string
 
 // CreateRepairRequestRequest defines model for CreateRepairRequestRequest.
 type CreateRepairRequestRequest struct {
@@ -510,31 +578,73 @@ type LeaseListResponse struct {
 	Data *[]LeaseResponse `json:"data,omitempty"`
 }
 
+// LeaseReplaceRequest defines model for LeaseReplaceRequest.
+type LeaseReplaceRequest struct {
+	// DepositHandling 第一版僅支援 carry_over；replacement 不在此流程中結清或改寫押金狀態
+	DepositHandling    LeaseReplaceRequestDepositHandling `json:"deposit_handling"`
+	EffectiveStartDate openapi_types.Date                 `json:"effective_start_date"`
+	NewLease           struct {
+		ElectricityBillingCadence LeaseReplaceRequestNewLeaseElectricityBillingCadence `json:"electricity_billing_cadence"`
+		EndDate                   openapi_types.Date                                   `json:"end_date"`
+		Notes                     *string                                              `json:"notes"`
+		RentAmount                int                                                  `json:"rent_amount"`
+	} `json:"new_lease"`
+	Reason LeaseReplaceRequestReason `json:"reason"`
+}
+
+// LeaseReplaceRequestDepositHandling 第一版僅支援 carry_over；replacement 不在此流程中結清或改寫押金狀態
+type LeaseReplaceRequestDepositHandling string
+
+// LeaseReplaceRequestNewLeaseElectricityBillingCadence defines model for LeaseReplaceRequest.NewLease.ElectricityBillingCadence.
+type LeaseReplaceRequestNewLeaseElectricityBillingCadence string
+
+// LeaseReplaceRequestReason defines model for LeaseReplaceRequest.Reason.
+type LeaseReplaceRequestReason string
+
+// LeaseReplaceResponse defines model for LeaseReplaceResponse.
+type LeaseReplaceResponse struct {
+	NewLease    *LeaseResponse `json:"new_lease,omitempty"`
+	OldLease    *LeaseResponse `json:"old_lease,omitempty"`
+	Replacement *struct {
+		ChangedFields      *[]string                                       `json:"changed_fields,omitempty"`
+		DepositHandling    *LeaseReplaceResponseReplacementDepositHandling `json:"deposit_handling,omitempty"`
+		EffectiveStartDate *openapi_types.Date                             `json:"effective_start_date,omitempty"`
+		Reason             *string                                         `json:"reason,omitempty"`
+	} `json:"replacement,omitempty"`
+}
+
+// LeaseReplaceResponseReplacementDepositHandling defines model for LeaseReplaceResponse.Replacement.DepositHandling.
+type LeaseReplaceResponseReplacementDepositHandling string
+
 // LeaseResponse defines model for LeaseResponse.
 type LeaseResponse struct {
-	CreatedAt              *time.Time                  `json:"created_at,omitempty"`
-	DepositAmount          *int                        `json:"deposit_amount,omitempty"`
-	DepositDeductionAmount *int                        `json:"deposit_deduction_amount"`
-	DepositDeductionReason *string                     `json:"deposit_deduction_reason"`
-	DepositRefundAmount    *int                        `json:"deposit_refund_amount"`
-	DepositStatus          *LeaseResponseDepositStatus `json:"deposit_status,omitempty"`
-	EndDate                *openapi_types.Date         `json:"end_date,omitempty"`
-	Id                     *openapi_types.UUID         `json:"id,omitempty"`
-	Notes                  *string                     `json:"notes"`
-	PropertyId             *openapi_types.UUID         `json:"property_id,omitempty"`
-	RentAmount             *int                        `json:"rent_amount,omitempty"`
-	RoomId                 *openapi_types.UUID         `json:"room_id,omitempty"`
-	SettlementDetail       *map[string]interface{}     `json:"settlement_detail"`
-	StartDate              *openapi_types.Date         `json:"start_date,omitempty"`
-	Status                 *LeaseResponseStatus        `json:"status,omitempty"`
-	TenantId               *openapi_types.UUID         `json:"tenant_id,omitempty"`
-	TerminationReason      *string                     `json:"termination_reason"`
-	UpdatedAt              *time.Time                  `json:"updated_at,omitempty"`
-	Version                *int                        `json:"version,omitempty"`
+	CreatedAt                 *time.Time                              `json:"created_at,omitempty"`
+	DepositAmount             *int                                    `json:"deposit_amount,omitempty"`
+	DepositDeductionAmount    *int                                    `json:"deposit_deduction_amount"`
+	DepositDeductionReason    *string                                 `json:"deposit_deduction_reason"`
+	DepositRefundAmount       *int                                    `json:"deposit_refund_amount"`
+	DepositStatus             *LeaseResponseDepositStatus             `json:"deposit_status,omitempty"`
+	ElectricityBillingCadence *LeaseResponseElectricityBillingCadence `json:"electricity_billing_cadence,omitempty"`
+	EndDate                   *openapi_types.Date                     `json:"end_date,omitempty"`
+	Id                        *openapi_types.UUID                     `json:"id,omitempty"`
+	Notes                     *string                                 `json:"notes"`
+	PropertyId                *openapi_types.UUID                     `json:"property_id,omitempty"`
+	RentAmount                *int                                    `json:"rent_amount,omitempty"`
+	RoomId                    *openapi_types.UUID                     `json:"room_id,omitempty"`
+	SettlementDetail          *map[string]interface{}                 `json:"settlement_detail"`
+	StartDate                 *openapi_types.Date                     `json:"start_date,omitempty"`
+	Status                    *LeaseResponseStatus                    `json:"status,omitempty"`
+	TenantId                  *openapi_types.UUID                     `json:"tenant_id,omitempty"`
+	TerminationReason         *string                                 `json:"termination_reason"`
+	UpdatedAt                 *time.Time                              `json:"updated_at,omitempty"`
+	Version                   *int                                    `json:"version,omitempty"`
 }
 
 // LeaseResponseDepositStatus defines model for LeaseResponse.DepositStatus.
 type LeaseResponseDepositStatus string
+
+// LeaseResponseElectricityBillingCadence defines model for LeaseResponse.ElectricityBillingCadence.
+type LeaseResponseElectricityBillingCadence string
 
 // LeaseResponseStatus defines model for LeaseResponse.Status.
 type LeaseResponseStatus string
@@ -551,10 +661,11 @@ type PropertyListResponse struct {
 
 // PropertyResponse defines model for PropertyResponse.
 type PropertyResponse struct {
-	Address      *string              `json:"address,omitempty"`
-	ContactEmail *openapi_types.Email `json:"contact_email"`
-	ContactPhone *string              `json:"contact_phone"`
-	CreatedAt    *time.Time           `json:"created_at,omitempty"`
+	Address                          *string                                           `json:"address,omitempty"`
+	ContactEmail                     *openapi_types.Email                              `json:"contact_email"`
+	ContactPhone                     *string                                           `json:"contact_phone"`
+	CreatedAt                        *time.Time                                        `json:"created_at,omitempty"`
+	DefaultElectricityBillingCadence *PropertyResponseDefaultElectricityBillingCadence `json:"default_electricity_billing_cadence,omitempty"`
 
 	// ElectricityUnitPrice 台幣正數/度，可接受小數
 	ElectricityUnitPrice *float64            `json:"electricity_unit_price"`
@@ -567,6 +678,9 @@ type PropertyResponse struct {
 	UpdatedAt            *time.Time          `json:"updated_at,omitempty"`
 	Version              *int                `json:"version,omitempty"`
 }
+
+// PropertyResponseDefaultElectricityBillingCadence defines model for PropertyResponse.DefaultElectricityBillingCadence.
+type PropertyResponseDefaultElectricityBillingCadence string
 
 // RecordMeterRequest defines model for RecordMeterRequest.
 type RecordMeterRequest struct {
@@ -751,10 +865,16 @@ type UpdateLeaseRequest struct {
 type UpdatePropertyRequest struct {
 	Address *string `json:"address,omitempty"`
 
+	// DefaultElectricityBillingCadence 僅影響之後新建的 Lease，不回頭修改既有 Lease
+	DefaultElectricityBillingCadence *UpdatePropertyRequestDefaultElectricityBillingCadence `json:"default_electricity_billing_cadence,omitempty"`
+
 	// ElectricityUnitPrice 台幣正數/度，可接受小數（例如 4.5）
 	ElectricityUnitPrice *float64 `json:"electricity_unit_price,omitempty"`
 	Name                 *string  `json:"name,omitempty"`
 }
+
+// UpdatePropertyRequestDefaultElectricityBillingCadence 僅影響之後新建的 Lease，不回頭修改既有 Lease
+type UpdatePropertyRequestDefaultElectricityBillingCadence string
 
 // UpdateRepairRequestRequest defines model for UpdateRepairRequestRequest.
 type UpdateRepairRequestRequest struct {
@@ -982,6 +1102,9 @@ type UpdateLeaseDepositJSONRequestBody = UpdateDepositRequest
 // ForceTerminateLeaseJSONRequestBody defines body for ForceTerminateLease for application/json ContentType.
 type ForceTerminateLeaseJSONRequestBody = ForceTerminateRequest
 
+// ReplaceLeaseJSONRequestBody defines body for ReplaceLease for application/json ContentType.
+type ReplaceLeaseJSONRequestBody = LeaseReplaceRequest
+
 // TerminateLeaseJSONRequestBody defines body for TerminateLease for application/json ContentType.
 type TerminateLeaseJSONRequestBody = TerminateLeaseRequest
 
@@ -1140,6 +1263,9 @@ type ServerInterface interface {
 	// 強制終止租約（觸發 LeaseTerminated event，forced=true）
 	// (POST /leases/{id}/force-terminate)
 	ForceTerminateLease(c *gin.Context, id string)
+	// Lease replacement（特殊條件重建）
+	// (POST /leases/{id}/replace)
+	ReplaceLease(c *gin.Context, id string)
 	// 正常終止租約（觸發 LeaseTerminated event，forced=false）
 	// (POST /leases/{id}/terminate)
 	TerminateLease(c *gin.Context, id string)
@@ -2272,6 +2398,32 @@ func (siw *ServerInterfaceWrapper) ForceTerminateLease(c *gin.Context) {
 	}
 
 	siw.Handler.ForceTerminateLease(c, id)
+}
+
+// ReplaceLease operation middleware
+func (siw *ServerInterfaceWrapper) ReplaceLease(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Param("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(BearerAuthScopes, []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ReplaceLease(c, id)
 }
 
 // TerminateLease operation middleware
@@ -3731,6 +3883,7 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.POST(options.BaseURL+"/leases/:id/attachments", wrapper.CreateLeaseAttachment)
 	router.PATCH(options.BaseURL+"/leases/:id/deposit", wrapper.UpdateLeaseDeposit)
 	router.POST(options.BaseURL+"/leases/:id/force-terminate", wrapper.ForceTerminateLease)
+	router.POST(options.BaseURL+"/leases/:id/replace", wrapper.ReplaceLease)
 	router.POST(options.BaseURL+"/leases/:id/terminate", wrapper.TerminateLease)
 	router.GET(options.BaseURL+"/properties", wrapper.ListProperties)
 	router.POST(options.BaseURL+"/properties", wrapper.CreateProperty)

@@ -424,8 +424,9 @@ INSERT INTO properties (
 	notes,
 	facilities,
 	electricity_unit_price,
+	default_electricity_billing_cadence,
 	owner_id
-) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)
+) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)
 RETURNING id
 `
 
@@ -441,6 +442,7 @@ RETURNING id
 		nullIfEmpty(property.Notes),
 		property.FacilitiesJSON,
 		property.ElectricityUnitPrice,
+		"monthly",
 		ownerID,
 	).Scan(&propertyID); err != nil {
 		return "", fmt.Errorf("insert property for legacy estate %s: %w", property.LegacyEstateID, err)

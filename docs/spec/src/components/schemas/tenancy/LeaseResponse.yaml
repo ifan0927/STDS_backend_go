@@ -20,6 +20,11 @@ properties:
   end_date:
     type: string
     format: date
+  electricity_billing_cadence:
+    type: string
+    enum:
+      - monthly
+      - bimonthly
   status:
     type: string
     enum:

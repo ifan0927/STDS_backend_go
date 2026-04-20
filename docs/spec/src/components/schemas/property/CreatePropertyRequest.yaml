@@ -3,6 +3,7 @@ required:
   - name
   - address
   - electricity_unit_price
+  - default_electricity_billing_cadence
   - owner_id
 properties:
   name:
@@ -15,6 +16,12 @@ properties:
     minimum: 0
     exclusiveMinimum: true
     description: 台幣正數/度，可接受小數（例如 4.5）
+  default_electricity_billing_cadence:
+    type: string
+    enum:
+      - monthly
+      - bimonthly
+    description: 物業預設電費計費 cadence，僅影響新建 Lease
   owner_id:
     type: string
     format: uuid

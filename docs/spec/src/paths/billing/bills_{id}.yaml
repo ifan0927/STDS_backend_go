@@ -2,8 +2,9 @@ get:
   operationId: getBill
   summary: 帳單詳情（電費帳單自動帶入 previousReading）
   description: >
-    電費帳單回傳時，系統自動查詢同 room_id 最近一張有 meter_reading 的電費帳單的 currentReading 作為
-    previousReading。
+    電費帳單回傳時，系統自動查詢同 room_id 最近一張屬於上一個已完成 billing period 且有
+    meter_reading 的電費帳單的 currentReading 作為 previousReading。response 並帶
+    period_start / period_end。
   tags:
     - Billing
   x-required-role:
@@ -32,6 +33,8 @@ get:
                 id: 50000000-0000-0000-0000-000000000001
                 type: rent
                 amount: 18000
+                period_start: '2026-05-01'
+                period_end: '2026-05-31'
                 due_date: '2026-05-01'
                 status: pending_payment
             electricity_bill_pending_meter:
@@ -40,6 +43,8 @@ get:
                 id: 50000000-0000-0000-0000-000000000002
                 type: electricity
                 amount: null
+                period_start: '2026-05-01'
+                period_end: '2026-05-31'
                 due_date: '2026-05-01'
                 status: pending_meter
                 meter_previous_reading: 1250

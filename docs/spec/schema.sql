@@ -61,6 +61,7 @@ CREATE TABLE properties (
     address                 TEXT         NOT NULL,
     -- electricityUnitPrice：台幣正數/度，物業層級電價，可接受小數
     electricity_unit_price  NUMERIC(10,4) CHECK (electricity_unit_price > 0),
+    default_electricity_billing_cadence VARCHAR(20) NOT NULL CHECK (default_electricity_billing_cadence IN ('monthly', 'bimonthly')),
     -- owner_id：業主帳號，resource-based 存取控制用
     owner_id                UUID         NOT NULL REFERENCES users(id),
     subtitle                VARCHAR(200),
@@ -162,6 +163,7 @@ CREATE TABLE leases (
     rent_amount             INTEGER      NOT NULL CHECK (rent_amount > 0),  -- BR-02
     start_date              DATE         NOT NULL,
     end_date                DATE         NOT NULL,
+    electricity_billing_cadence VARCHAR(20) NOT NULL CHECK (electricity_billing_cadence IN ('monthly', 'bimonthly')),
     -- status：active | expired | terminated | force_terminated
     status                  VARCHAR(30)  NOT NULL CHECK (status IN ('active', 'expired', 'terminated', 'force_terminated'))
                                          DEFAULT 'active',
@@ -212,6 +214,8 @@ CREATE TABLE bills (
     -- type：rent | electricity
     type                VARCHAR(20)  NOT NULL CHECK (type IN ('rent', 'electricity')),
     amount              INTEGER,     -- 電費帳單預產時為 null，抄表後依 usage × unitPrice 四捨五入填入
+    period_start        DATE         NOT NULL,
+    period_end          DATE         NOT NULL,
     due_date            DATE         NOT NULL,
     -- status：
     --   租金帳單：pending_payment → paid | overdue | voided | written_off

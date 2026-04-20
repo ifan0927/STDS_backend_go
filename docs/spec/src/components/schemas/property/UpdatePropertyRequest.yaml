@@ -10,3 +10,9 @@ properties:
     minimum: 0
     exclusiveMinimum: true
     description: 台幣正數/度，可接受小數（例如 4.5）
+  default_electricity_billing_cadence:
+    type: string
+    enum:
+      - monthly
+      - bimonthly
+    description: 僅影響之後新建的 Lease，不回頭修改既有 Lease

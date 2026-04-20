@@ -1,0 +1,22 @@
+type: object
+properties:
+  old_lease:
+    $ref: ./LeaseResponse.yaml
+  new_lease:
+    $ref: ./LeaseResponse.yaml
+  replacement:
+    type: object
+    properties:
+      reason:
+        type: string
+      effective_start_date:
+        type: string
+        format: date
+      deposit_handling:
+        type: string
+        enum:
+          - carry_over
+      changed_fields:
+        type: array
+        items:
+          type: string

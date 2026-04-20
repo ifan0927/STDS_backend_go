@@ -1,0 +1,42 @@
+type: object
+required:
+  - reason
+  - effective_start_date
+  - deposit_handling
+  - new_lease
+properties:
+  reason:
+    type: string
+    enum:
+      - cadence_change
+      - renewal
+      - contract_reissue
+      - other_exception
+  effective_start_date:
+    type: string
+    format: date
+  deposit_handling:
+    type: string
+    enum:
+      - carry_over
+    description: 第一版僅支援 carry_over；replacement 不在此流程中結清或改寫押金狀態
+  new_lease:
+    type: object
+    required:
+      - end_date
+      - rent_amount
+      - electricity_billing_cadence
+    properties:
+      end_date:
+        type: string
+        format: date
+      rent_amount:
+        type: integer
+      electricity_billing_cadence:
+        type: string
+        enum:
+          - monthly
+          - bimonthly
+      notes:
+        type: string
+        nullable: true

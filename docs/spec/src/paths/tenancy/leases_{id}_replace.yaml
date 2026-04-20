@@ -1,0 +1,135 @@
+post:
+  operationId: replaceLease
+  summary: Lease replacement（特殊條件重建）
+  description: |
+    x-required-role: admin, organizer, staff
+    以「終止舊 Lease + 建立新 Lease」處理 cadence change、renewal、contract reissue 等少數例外。
+    replacement 不是一般編輯租約，而是特殊條件重建操作。
+
+    BR-20：僅允許在完整 electricity billing period boundary 執行
+    BR-21：boundary 前帳單必須全部結清
+    BR-22：僅支援同 tenant、同 room、同 property 的條件重建
+    BR-23：第一版僅支援 deposit_handling = carry_over
+
+    觸發 LeaseTerminated + LeaseCreated + LeaseReplaced event。
+  tags:
+    - Leasing
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+  x-ownership-required: true
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: ../../components/schemas/tenancy/LeaseReplaceRequest.yaml
+        examples:
+          cadence_change:
+            summary: 切換電費 cadence
+            value:
+              reason: cadence_change
+              effective_start_date: '2026-07-01'
+              deposit_handling: carry_over
+              new_lease:
+                end_date: '2027-04-30'
+                rent_amount: 18000
+                electricity_billing_cadence: bimonthly
+  responses:
+    '200':
+      description: Lease replacement 成功
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/tenancy/LeaseReplaceResponse.yaml
+          examples:
+            success:
+              value:
+                old_lease:
+                  id: 40000000-0000-0000-0000-000000000003
+                  tenant_id: 30000000-0000-0000-0000-000000000001
+                  room_id: 20000000-0000-0000-0000-000000000002
+                  property_id: 10000000-0000-0000-0000-000000000001
+                  rent_amount: 18000
+                  start_date: '2026-05-01'
+                  end_date: '2026-06-30'
+                  electricity_billing_cadence: monthly
+                  status: terminated
+                  deposit_amount: 36000
+                  deposit_status: held
+                new_lease:
+                  id: 40000000-0000-0000-0000-000000000004
+                  tenant_id: 30000000-0000-0000-0000-000000000001
+                  room_id: 20000000-0000-0000-0000-000000000002
+                  property_id: 10000000-0000-0000-0000-000000000001
+                  rent_amount: 18000
+                  start_date: '2026-07-01'
+                  end_date: '2027-04-30'
+                  electricity_billing_cadence: bimonthly
+                  status: active
+                  deposit_amount: 36000
+                  deposit_status: held
+                replacement:
+                  reason: cadence_change
+                  effective_start_date: '2026-07-01'
+                  deposit_handling: carry_over
+                  changed_fields:
+                    - electricity_billing_cadence
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+    '403':
+      description: 權限不足
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+    '404':
+      description: 租約不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+    '409':
+      description: 樂觀鎖衝突
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+    '422':
+      description: Business Rule 拒絕
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_boundary:
+              summary: BR-20 非完整 billing period boundary
+              value:
+                error_code: LEASE_REPLACEMENT_NOT_AT_BILLING_BOUNDARY
+                message: Lease replacement 僅允許在完整計費週期邊界執行
+            unpaid_bills:
+              summary: BR-21 boundary 前有未結清帳單
+              value:
+                error_code: LEASE_REPLACEMENT_HAS_UNSETTLED_BILLS
+                message: Boundary 前仍有未結清帳單，無法執行 replacement
+            scope_mismatch:
+              summary: BR-22 replacement 不得變更 tenant 或 room
+              value:
+                error_code: LEASE_REPLACEMENT_SCOPE_MISMATCH
+                message: Lease replacement 僅支援同 tenant、同 room、同 property 的條件重建
+            unsupported_deposit_handling:
+              summary: BR-23 第一版僅支援 carry_over
+              value:
+                error_code: LEASE_REPLACEMENT_DEPOSIT_HANDLING_UNSUPPORTED
+                message: Lease replacement 第一版僅支援 deposit carry_over

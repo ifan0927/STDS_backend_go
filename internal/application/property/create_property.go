@@ -14,10 +14,11 @@ import (
 
 // CreatePropertyInput is the command payload for creating a property.
 type CreatePropertyInput struct {
-	Name                 string
-	Address              string
-	ElectricityUnitPrice float64
-	OwnerID              string
+	Name                             string
+	Address                          string
+	ElectricityUnitPrice             float64
+	DefaultElectricityBillingCadence string
+	OwnerID                          string
 }
 
 // CreatePropertyService creates properties in a transaction and publishes the
@@ -46,10 +47,11 @@ func (s *CreatePropertyService) Execute(ctx context.Context, input CreatePropert
 	var created *dbproperties.Property
 	err := s.txRunner.WithinTransaction(ctx, func(ctx context.Context, tx *sql.Tx, recorder *txrunner.EventRecorder) error {
 		property, err := s.propertyRepo.Create(ctx, tx, dbproperties.CreatePropertyParams{
-			Name:                 strings.TrimSpace(input.Name),
-			Address:              strings.TrimSpace(input.Address),
-			ElectricityUnitPrice: input.ElectricityUnitPrice,
-			OwnerID:              strings.TrimSpace(input.OwnerID),
+			Name:                             strings.TrimSpace(input.Name),
+			Address:                          strings.TrimSpace(input.Address),
+			ElectricityUnitPrice:             input.ElectricityUnitPrice,
+			DefaultElectricityBillingCadence: strings.TrimSpace(input.DefaultElectricityBillingCadence),
+			OwnerID:                          strings.TrimSpace(input.OwnerID),
 		})
 		if err != nil {
 			return apperr.ErrInternalServerError.WithCause(err)
@@ -77,6 +79,8 @@ func validateCreatePropertyInput(input CreatePropertyInput) error {
 		return apperr.ErrValidationAddressRequired
 	case input.ElectricityUnitPrice <= 0:
 		return apperr.ErrValidationElectricityPriceInvalid
+	case strings.TrimSpace(input.DefaultElectricityBillingCadence) == "":
+		return apperr.ErrBadRequest
 	case strings.TrimSpace(input.OwnerID) == "":
 		return apperr.ErrValidationOwnerIDRequired
 	default:

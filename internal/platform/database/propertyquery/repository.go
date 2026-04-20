@@ -14,14 +14,15 @@ var ErrNotFound = errors.New("property query not found")
 
 // Property is the read model returned by property queries.
 type Property struct {
-	ID                   string
-	Name                 string
-	Address              string
-	ElectricityUnitPrice *float64
-	OwnerID              string
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
-	Version              int
+	ID                               string
+	Name                             string
+	Address                          string
+	ElectricityUnitPrice             *float64
+	DefaultElectricityBillingCadence string
+	OwnerID                          string
+	CreatedAt                        time.Time
+	UpdatedAt                        time.Time
+	Version                          int
 }
 
 // Repository serves read-model queries for properties.
@@ -43,7 +44,7 @@ func NewRepository(db *sql.DB) *SQLRepository {
 // FindByID returns a single active property.
 func (r *SQLRepository) FindByID(ctx context.Context, propertyID string) (*Property, error) {
 	const query = `
-SELECT id, name, address, electricity_unit_price, owner_id, created_at, updated_at, version
+SELECT id, name, address, electricity_unit_price, default_electricity_billing_cadence, owner_id, created_at, updated_at, version
 FROM properties
 WHERE id = $1
   AND deleted_at IS NULL
@@ -64,7 +65,7 @@ LIMIT 1
 // ListAccessible returns properties visible to the authenticated principal.
 func (r *SQLRepository) ListAccessible(ctx context.Context, role string, userID string, assignedPropertyIDs []string) ([]Property, error) {
 	base := `
-SELECT id, name, address, electricity_unit_price, owner_id, created_at, updated_at, version
+SELECT id, name, address, electricity_unit_price, default_electricity_billing_cadence, owner_id, created_at, updated_at, version
 FROM properties
 WHERE deleted_at IS NULL
 `
@@ -121,6 +122,7 @@ func scanProperty(row rowScanner) (*Property, error) {
 		&property.Name,
 		&property.Address,
 		&electricityUnitPrice,
+		&property.DefaultElectricityBillingCadence,
 		&property.OwnerID,
 		&property.CreatedAt,
 		&property.UpdatedAt,

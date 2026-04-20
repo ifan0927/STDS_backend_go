@@ -52,6 +52,7 @@ post:
               value:
                 id: 40000000-0000-0000-0000-000000000003
                 status: terminated
+                electricity_billing_cadence: monthly
                 deposit_status: settled
                 deposit_refund_amount: 15000
                 deposit_deduction_amount: 5000

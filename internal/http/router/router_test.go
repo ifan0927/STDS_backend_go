@@ -435,14 +435,15 @@ func TestCreatePropertyAcceptsDecimalElectricityPrice(t *testing.T) {
 
 	mock.ExpectBegin()
 	mock.ExpectQuery("INSERT INTO properties").
-		WithArgs("Property A", "Address A", 4.5, "00000000-0000-0000-0000-000000000010").
+		WithArgs("Property A", "Address A", 4.5, "monthly", "00000000-0000-0000-0000-000000000010").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "address", "electricity_unit_price", "owner_id", "created_at", "updated_at", "version",
+			"id", "name", "address", "electricity_unit_price", "default_electricity_billing_cadence", "owner_id", "created_at", "updated_at", "version",
 		}).AddRow(
 			"property-new",
 			"Property A",
 			"Address A",
 			4.5,
+			"monthly",
 			"00000000-0000-0000-0000-000000000010",
 			time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
 			time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
@@ -458,6 +459,7 @@ func TestCreatePropertyAcceptsDecimalElectricityPrice(t *testing.T) {
 		"name":"Property A",
 		"address":"Address A",
 		"electricity_unit_price":4.5,
+		"default_electricity_billing_cadence":"monthly",
 		"owner_id":"00000000-0000-0000-0000-000000000010"
 	}`))
 	req.Header.Set("Authorization", "Bearer valid-token")
@@ -477,6 +479,9 @@ func TestCreatePropertyAcceptsDecimalElectricityPrice(t *testing.T) {
 
 	if payload["electricity_unit_price"] != 4.5 {
 		t.Fatalf("expected electricity_unit_price 4.5, got %v", payload["electricity_unit_price"])
+	}
+	if payload["default_electricity_billing_cadence"] != "monthly" {
+		t.Fatalf("expected default_electricity_billing_cadence monthly, got %v", payload["default_electricity_billing_cadence"])
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -869,14 +874,15 @@ func (f fakePropertyRepo) FindOwnerIDByPropertyID(_ context.Context, propertyID 
 func (f fakePropertyRepo) Create(_ context.Context, _ *sql.Tx, params dbproperties.CreatePropertyParams) (*dbproperties.Property, error) {
 	electricityUnitPrice := params.ElectricityUnitPrice
 	return &dbproperties.Property{
-		ID:                   "property-new",
-		Name:                 params.Name,
-		Address:              params.Address,
-		ElectricityUnitPrice: &electricityUnitPrice,
-		OwnerID:              params.OwnerID,
-		CreatedAt:            time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
-		UpdatedAt:            time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
-		Version:              1,
+		ID:                               "property-new",
+		Name:                             params.Name,
+		Address:                          params.Address,
+		ElectricityUnitPrice:             &electricityUnitPrice,
+		DefaultElectricityBillingCadence: params.DefaultElectricityBillingCadence,
+		OwnerID:                          params.OwnerID,
+		CreatedAt:                        time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+		UpdatedAt:                        time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+		Version:                          1,
 	}, nil
 }
 
@@ -887,14 +893,15 @@ func (f fakePropertyQueryRepo) FindByID(_ context.Context, propertyID string) (*
 
 	electricityUnitPrice := 4.5
 	return &dbpropertyquery.Property{
-		ID:                   propertyID,
-		Name:                 "Property",
-		Address:              "Address",
-		ElectricityUnitPrice: &electricityUnitPrice,
-		OwnerID:              "user-1",
-		CreatedAt:            time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
-		UpdatedAt:            time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
-		Version:              1,
+		ID:                               propertyID,
+		Name:                             "Property",
+		Address:                          "Address",
+		ElectricityUnitPrice:             &electricityUnitPrice,
+		DefaultElectricityBillingCadence: "monthly",
+		OwnerID:                          "user-1",
+		CreatedAt:                        time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+		UpdatedAt:                        time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+		Version:                          1,
 	}, nil
 }
 
@@ -906,14 +913,15 @@ func (f fakePropertyQueryRepo) ListAccessible(_ context.Context, _ string, _ str
 	electricityUnitPrice := 4.5
 	return []dbpropertyquery.Property{
 		{
-			ID:                   "property-1",
-			Name:                 "Property",
-			Address:              "Address",
-			ElectricityUnitPrice: &electricityUnitPrice,
-			OwnerID:              "user-1",
-			CreatedAt:            time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
-			UpdatedAt:            time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
-			Version:              1,
+			ID:                               "property-1",
+			Name:                             "Property",
+			Address:                          "Address",
+			ElectricityUnitPrice:             &electricityUnitPrice,
+			DefaultElectricityBillingCadence: "monthly",
+			OwnerID:                          "user-1",
+			CreatedAt:                        time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+			UpdatedAt:                        time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+			Version:                          1,
 		},
 	}, nil
 }

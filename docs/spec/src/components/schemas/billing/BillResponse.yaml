@@ -23,6 +23,12 @@ properties:
   amount:
     type: integer
     nullable: true
+  period_start:
+    type: string
+    format: date
+  period_end:
+    type: string
+    format: date
   due_date:
     type: string
     format: date

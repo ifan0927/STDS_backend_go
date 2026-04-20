@@ -718,6 +718,7 @@ paths:
                         name: 台北大安物業
                         address: 台北市大安區復興南路一段100號
                         electricity_unit_price: 4.5
+                        default_electricity_billing_cadence: monthly
         '401':
           description: 未認證
           content:
@@ -736,6 +737,7 @@ paths:
         x-required-role: admin, organizer, staff
         觸發 PropertyCreated event → Billing BC 建立 PropertyAccount
         electricity_unit_price 接受大於 0 的台幣數值，可接受小數（例如 4.5）
+        default_electricity_billing_cadence 決定之後新建 Lease 的預設電費計費週期
       tags:
         - Property
       x-required-role:
@@ -755,6 +757,7 @@ paths:
                   name: 台北大安物業
                   address: 台北市大安區復興南路一段100號
                   electricity_unit_price: 4.5
+                  default_electricity_billing_cadence: monthly
                   owner_id: 00000000-0000-0000-0000-000000000010
       responses:
         '201':
@@ -770,6 +773,7 @@ paths:
                     name: 台北大安物業
                     address: 台北市大安區復興南路一段100號
                     electricity_unit_price: 4.5
+                    default_electricity_billing_cadence: monthly
                     owner_id: 00000000-0000-0000-0000-000000000010
                     created_at: '2026-04-15T10:00:00Z'
         '400':
@@ -841,6 +845,7 @@ paths:
                     name: 台北大安物業
                     address: 台北市大安區復興南路一段100號
                     electricity_unit_price: 4.5
+                    default_electricity_billing_cadence: monthly
                     owner_id: 00000000-0000-0000-0000-000000000010
         '401':
           description: 未認證
@@ -881,6 +886,7 @@ paths:
       description: |
         修改電價（electricity_unit_price）：x-required-role: admin, organizer（BR-17）
         electricity_unit_price 接受大於 0 的台幣數值，可接受小數（例如 4.5）
+        修改 default_electricity_billing_cadence 只影響之後新建的 Lease
         其他欄位編輯：x-required-role: admin, organizer, staff
       tags:
         - Property
@@ -906,6 +912,7 @@ paths:
                 summary: 修改電價
                 value:
                   electricity_unit_price: 4.5
+                  default_electricity_billing_cadence: bimonthly
       responses:
         '200':
           description: 更新成功
@@ -918,6 +925,7 @@ paths:
                   value:
                     id: 10000000-0000-0000-0000-000000000001
                     electricity_unit_price: 4.5
+                    default_electricity_billing_cadence: bimonthly
                     updated_at: '2026-04-15T12:00:00Z'
         '401':
           description: 未認證
@@ -2319,6 +2327,7 @@ paths:
         BR-02：租金不得為零
         BR-03：押金不得為負
         BR-12：目標房間必須為 vacant（取悲觀鎖後檢查）
+        electricity_billing_cadence 可於建約時覆寫，未提供時套用 Property 預設值
       tags:
         - Leasing
       x-required-role:
@@ -2341,6 +2350,7 @@ paths:
                   start_date: '2026-05-01'
                   end_date: '2027-04-30'
                   deposit_amount: 36000
+                  electricity_billing_cadence: monthly
       responses:
         '201':
           description: 租約建立成功（LeaseCreated event 已發出，帳單已預產）
@@ -2357,6 +2367,7 @@ paths:
                     rent_amount: 18000
                     start_date: '2026-05-01'
                     end_date: '2027-04-30'
+                    electricity_billing_cadence: monthly
                     deposit_amount: 36000
                     deposit_status: held
                     status: active
@@ -2476,6 +2487,7 @@ paths:
                     rent_amount: 18000
                     start_date: '2026-05-01'
                     end_date: '2027-04-30'
+                    electricity_billing_cadence: monthly
                     status: active
                     deposit_amount: 36000
                     deposit_status: held
@@ -2519,7 +2531,7 @@ paths:
       description: |
         x-required-role: admin, organizer（BR 限制員工不可調整租金）
         LeaseConditionChanged：void due_date >= nextPaymentDate 且 pending_payment/pending_meter 的帳單，重產新帳單。
-        BR-01、BR-02 適用。
+        BR-01、BR-02 適用。此 API 僅支援租金調整，不支援 cadence 修改；若需更動 cadence 或其他結構性條件，走 Lease replacement。
       tags:
         - Leasing
       x-required-role:
@@ -2555,6 +2567,7 @@ paths:
                   value:
                     id: 40000000-0000-0000-0000-000000000003
                     rent_amount: 20000
+                    electricity_billing_cadence: monthly
                     updated_at: '2026-04-15T14:00:00Z'
         '401':
           description: 未認證
@@ -2761,6 +2774,142 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /leases/{id}/replace:
+    post:
+      operationId: replaceLease
+      summary: Lease replacement（特殊條件重建）
+      description: |
+        x-required-role: admin, organizer, staff
+        以「終止舊 Lease + 建立新 Lease」處理 cadence change、renewal、contract reissue 等少數例外。
+        replacement 不是一般編輯租約，而是特殊條件重建操作。
+
+        BR-20：僅允許在完整 electricity billing period boundary 執行
+        BR-21：boundary 前帳單必須全部結清
+        BR-22：僅支援同 tenant、同 room、同 property 的條件重建
+        BR-23：第一版僅支援 deposit_handling = carry_over
+
+        觸發 LeaseTerminated + LeaseCreated + LeaseReplaced event。
+      tags:
+        - Leasing
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LeaseReplaceRequest'
+            examples:
+              cadence_change:
+                summary: 切換電費 cadence
+                value:
+                  reason: cadence_change
+                  effective_start_date: '2026-07-01'
+                  deposit_handling: carry_over
+                  new_lease:
+                    end_date: '2027-04-30'
+                    rent_amount: 18000
+                    electricity_billing_cadence: bimonthly
+      responses:
+        '200':
+          description: Lease replacement 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaseReplaceResponse'
+              examples:
+                success:
+                  value:
+                    old_lease:
+                      id: 40000000-0000-0000-0000-000000000003
+                      tenant_id: 30000000-0000-0000-0000-000000000001
+                      room_id: 20000000-0000-0000-0000-000000000002
+                      property_id: 10000000-0000-0000-0000-000000000001
+                      rent_amount: 18000
+                      start_date: '2026-05-01'
+                      end_date: '2026-06-30'
+                      electricity_billing_cadence: monthly
+                      status: terminated
+                      deposit_amount: 36000
+                      deposit_status: held
+                    new_lease:
+                      id: 40000000-0000-0000-0000-000000000004
+                      tenant_id: 30000000-0000-0000-0000-000000000001
+                      room_id: 20000000-0000-0000-0000-000000000002
+                      property_id: 10000000-0000-0000-0000-000000000001
+                      rent_amount: 18000
+                      start_date: '2026-07-01'
+                      end_date: '2027-04-30'
+                      electricity_billing_cadence: bimonthly
+                      status: active
+                      deposit_amount: 36000
+                      deposit_status: held
+                    replacement:
+                      reason: cadence_change
+                      effective_start_date: '2026-07-01'
+                      deposit_handling: carry_over
+                      changed_fields:
+                        - electricity_billing_cadence
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 租約不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: 樂觀鎖衝突
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Business Rule 拒絕
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_boundary:
+                  summary: BR-20 非完整 billing period boundary
+                  value:
+                    error_code: LEASE_REPLACEMENT_NOT_AT_BILLING_BOUNDARY
+                    message: Lease replacement 僅允許在完整計費週期邊界執行
+                unpaid_bills:
+                  summary: BR-21 boundary 前有未結清帳單
+                  value:
+                    error_code: LEASE_REPLACEMENT_HAS_UNSETTLED_BILLS
+                    message: Boundary 前仍有未結清帳單，無法執行 replacement
+                scope_mismatch:
+                  summary: BR-22 replacement 不得變更 tenant 或 room
+                  value:
+                    error_code: LEASE_REPLACEMENT_SCOPE_MISMATCH
+                    message: Lease replacement 僅支援同 tenant、同 room、同 property 的條件重建
+                unsupported_deposit_handling:
+                  summary: BR-23 第一版僅支援 carry_over
+                  value:
+                    error_code: LEASE_REPLACEMENT_DEPOSIT_HANDLING_UNSUPPORTED
+                    message: Lease replacement 第一版僅支援 deposit carry_over
   /leases/{id}/terminate:
     post:
       operationId: terminateLease
@@ -2812,6 +2961,7 @@ paths:
                   value:
                     id: 40000000-0000-0000-0000-000000000003
                     status: terminated
+                    electricity_billing_cadence: monthly
                     deposit_status: settled
                     deposit_refund_amount: 15000
                     deposit_deduction_amount: 5000
@@ -3207,7 +3357,7 @@ paths:
       operationId: getBill
       summary: 帳單詳情（電費帳單自動帶入 previousReading）
       description: |
-        電費帳單回傳時，系統自動查詢同 room_id 最近一張有 meter_reading 的電費帳單的 currentReading 作為 previousReading。
+        電費帳單回傳時，系統自動查詢同 room_id 最近一張屬於上一個已完成 billing period 且有 meter_reading 的電費帳單的 currentReading 作為 previousReading。response 並帶 period_start / period_end。
       tags:
         - Billing
       x-required-role:
@@ -3236,6 +3386,8 @@ paths:
                     id: 50000000-0000-0000-0000-000000000001
                     type: rent
                     amount: 18000
+                    period_start: '2026-05-01'
+                    period_end: '2026-05-31'
                     due_date: '2026-05-01'
                     status: pending_payment
                 electricity_bill_pending_meter:
@@ -3244,6 +3396,8 @@ paths:
                     id: 50000000-0000-0000-0000-000000000002
                     type: electricity
                     amount: null
+                    period_start: '2026-05-01'
+                    period_end: '2026-05-31'
                     due_date: '2026-05-01'
                     status: pending_meter
                     meter_previous_reading: 1250
@@ -3389,6 +3543,7 @@ paths:
         BR-06：電表度數不得小於上月度數
         BR-16：金額由系統計算（usage × unitPrice），並四捨五入為整數 amount，不由員工輸入
         MeterRecorded event → 帳單金額更新，狀態從 pending_meter 改為 pending_payment
+        抄表是針對 bill 所代表的 billing period，而不是固定自然月
       tags:
         - Billing
       x-required-role:
@@ -3424,6 +3579,8 @@ paths:
                   value:
                     id: 50000000-0000-0000-0000-000000000002
                     status: pending_payment
+                    period_start: '2026-05-01'
+                    period_end: '2026-06-30'
                     meter_previous_reading: 1250
                     meter_current_reading: 1380
                     meter_unit_price: 4.5
@@ -3623,6 +3780,8 @@ paths:
     get:
       operationId: listPropertyPendingMeters
       summary: 某物業待抄表清單（pending_meter 帳單）
+      description: |
+        待抄表清單以 bill period 顯示；response item 會帶 period_start / period_end。
       tags:
         - Billing
       x-required-role:
@@ -3649,6 +3808,8 @@ paths:
                     data:
                       - id: 50000000-0000-0000-0000-000000000002
                         room_id: 20000000-0000-0000-0000-000000000002
+                        period_start: '2026-05-01'
+                        period_end: '2026-06-30'
                         due_date: '2026-05-01'
                         meter_previous_reading: 1250
         '401':
@@ -5813,6 +5974,11 @@ components:
           exclusiveMinimum: true
           description: 台幣正數/度，可接受小數
           nullable: true
+        default_electricity_billing_cadence:
+          type: string
+          enum:
+            - monthly
+            - bimonthly
         owner_id:
           type: string
           format: uuid
@@ -5851,6 +6017,7 @@ components:
         - name
         - address
         - electricity_unit_price
+        - default_electricity_billing_cadence
         - owner_id
       properties:
         name:
@@ -5863,6 +6030,12 @@ components:
           minimum: 0
           exclusiveMinimum: true
           description: 台幣正數/度，可接受小數（例如 4.5）
+        default_electricity_billing_cadence:
+          type: string
+          enum:
+            - monthly
+            - bimonthly
+          description: 物業預設電費計費 cadence，僅影響新建 Lease
         owner_id:
           type: string
           format: uuid
@@ -5879,6 +6052,12 @@ components:
           minimum: 0
           exclusiveMinimum: true
           description: 台幣正數/度，可接受小數（例如 4.5）
+        default_electricity_billing_cadence:
+          type: string
+          enum:
+            - monthly
+            - bimonthly
+          description: 僅影響之後新建的 Lease，不回頭修改既有 Lease
     AttachmentResponse:
       type: object
       properties:
@@ -6151,6 +6330,11 @@ components:
         end_date:
           type: string
           format: date
+        electricity_billing_cadence:
+          type: string
+          enum:
+            - monthly
+            - bimonthly
         status:
           type: string
           enum:
@@ -6226,6 +6410,12 @@ components:
           format: date
         deposit_amount:
           type: integer
+        electricity_billing_cadence:
+          type: string
+          enum:
+            - monthly
+            - bimonthly
+          description: 可省略；若未提供則套用 Property 的 default_electricity_billing_cadence
     UpdateLeaseRequest:
       type: object
       properties:
@@ -6234,6 +6424,72 @@ components:
         end_date:
           type: string
           format: date
+    LeaseReplaceRequest:
+      type: object
+      required:
+        - reason
+        - effective_start_date
+        - deposit_handling
+        - new_lease
+      properties:
+        reason:
+          type: string
+          enum:
+            - cadence_change
+            - renewal
+            - contract_reissue
+            - other_exception
+        effective_start_date:
+          type: string
+          format: date
+        deposit_handling:
+          type: string
+          enum:
+            - carry_over
+          description: 第一版僅支援 carry_over；replacement 不在此流程中結清或改寫押金狀態
+        new_lease:
+          type: object
+          required:
+            - end_date
+            - rent_amount
+            - electricity_billing_cadence
+          properties:
+            end_date:
+              type: string
+              format: date
+            rent_amount:
+              type: integer
+            electricity_billing_cadence:
+              type: string
+              enum:
+                - monthly
+                - bimonthly
+            notes:
+              type: string
+              nullable: true
+    LeaseReplaceResponse:
+      type: object
+      properties:
+        old_lease:
+          $ref: '#/components/schemas/LeaseResponse'
+        new_lease:
+          $ref: '#/components/schemas/LeaseResponse'
+        replacement:
+          type: object
+          properties:
+            reason:
+              type: string
+            effective_start_date:
+              type: string
+              format: date
+            deposit_handling:
+              type: string
+              enum:
+                - carry_over
+            changed_fields:
+              type: array
+              items:
+                type: string
     TerminateLeaseRequest:
       type: object
       properties:
@@ -6331,6 +6587,12 @@ components:
         amount:
           type: integer
           nullable: true
+        period_start:
+          type: string
+          format: date
+        period_end:
+          type: string
+          format: date
         due_date:
           type: string
           format: date

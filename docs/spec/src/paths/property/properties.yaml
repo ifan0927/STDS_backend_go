@@ -29,6 +29,7 @@ get:
                     name: 台北大安物業
                     address: 台北市大安區復興南路一段100號
                     electricity_unit_price: 4.5
+                    default_electricity_billing_cadence: monthly
     '401':
       description: 未認證
       content:
@@ -47,6 +48,7 @@ post:
     x-required-role: admin, organizer, staff
     觸發 PropertyCreated event → Billing BC 建立 PropertyAccount
     electricity_unit_price 接受大於 0 的台幣數值，可接受小數（例如 4.5）
+    default_electricity_billing_cadence 決定之後新建 Lease 的預設電費計費週期
   tags:
     - Property
   x-required-role:
@@ -66,6 +68,7 @@ post:
               name: 台北大安物業
               address: 台北市大安區復興南路一段100號
               electricity_unit_price: 4.5
+              default_electricity_billing_cadence: monthly
               owner_id: 00000000-0000-0000-0000-000000000010
   responses:
     '201':
@@ -81,6 +84,7 @@ post:
                 name: 台北大安物業
                 address: 台北市大安區復興南路一段100號
                 electricity_unit_price: 4.5
+                default_electricity_billing_cadence: monthly
                 owner_id: 00000000-0000-0000-0000-000000000010
                 created_at: '2026-04-15T10:00:00Z'
     '400':

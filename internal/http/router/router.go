@@ -192,6 +192,7 @@ func routePolicies(authzRepos AuthorizationRepositories) []routePolicy {
 		{method: "GET", path: "/api/v1/leases/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByLeaseID)},
 		{method: "PATCH", path: "/api/v1/leases/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByLeaseID)},
 		{method: "PATCH", path: "/api/v1/leases/:id/deposit", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByLeaseID)},
+		{method: "POST", path: "/api/v1/leases/:id/replace", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByLeaseID)},
 		{method: "POST", path: "/api/v1/leases/:id/force-terminate", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByLeaseID)},
 		{method: "POST", path: "/api/v1/leases/:id/terminate", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByLeaseID)},
 

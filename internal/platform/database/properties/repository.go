@@ -23,22 +23,24 @@ type CommandRepository interface {
 
 // Property is the persisted property aggregate state used by write flows.
 type Property struct {
-	ID                   string
-	Name                 string
-	Address              string
-	ElectricityUnitPrice *float64
-	OwnerID              string
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
-	Version              int
+	ID                               string
+	Name                             string
+	Address                          string
+	ElectricityUnitPrice             *float64
+	DefaultElectricityBillingCadence string
+	OwnerID                          string
+	CreatedAt                        time.Time
+	UpdatedAt                        time.Time
+	Version                          int
 }
 
 // CreatePropertyParams contains the writable fields required to persist a property.
 type CreatePropertyParams struct {
-	Name                 string
-	Address              string
-	ElectricityUnitPrice float64
-	OwnerID              string
+	Name                             string
+	Address                          string
+	ElectricityUnitPrice             float64
+	DefaultElectricityBillingCadence string
+	OwnerID                          string
 }
 
 // SQLRepository loads property ownership data from PostgreSQL.
@@ -80,20 +82,22 @@ INSERT INTO properties (
 	name,
 	address,
 	electricity_unit_price,
+	default_electricity_billing_cadence,
 	owner_id
-) VALUES ($1, $2, $3, $4)
+) VALUES ($1, $2, $3, $4, $5)
 RETURNING
 	id,
 	name,
 	address,
 	electricity_unit_price,
+	default_electricity_billing_cadence,
 	owner_id,
 	created_at,
 	updated_at,
 	version
 `
 
-	property, err := scanProperty(tx.QueryRowContext(ctx, query, params.Name, params.Address, params.ElectricityUnitPrice, params.OwnerID))
+	property, err := scanProperty(tx.QueryRowContext(ctx, query, params.Name, params.Address, params.ElectricityUnitPrice, params.DefaultElectricityBillingCadence, params.OwnerID))
 	if err != nil {
 		return nil, fmt.Errorf("create property: %w", err)
 	}
@@ -113,6 +117,7 @@ func scanProperty(row rowScanner) (*Property, error) {
 		&property.Name,
 		&property.Address,
 		&electricityUnitPrice,
+		&property.DefaultElectricityBillingCadence,
 		&property.OwnerID,
 		&property.CreatedAt,
 		&property.UpdatedAt,

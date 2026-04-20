@@ -6,6 +6,7 @@ post:
     BR-06：電表度數不得小於上月度數
     BR-16：金額由系統計算（usage × unitPrice），並四捨五入為整數 amount，不由員工輸入
     MeterRecorded event → 帳單金額更新，狀態從 pending_meter 改為 pending_payment
+    抄表是針對 bill 所代表的 billing period，而不是固定自然月
   tags:
     - Billing
   x-required-role:
@@ -41,6 +42,8 @@ post:
               value:
                 id: 50000000-0000-0000-0000-000000000002
                 status: pending_payment
+                period_start: '2026-05-01'
+                period_end: '2026-06-30'
                 meter_previous_reading: 1250
                 meter_current_reading: 1380
                 meter_unit_price: 4.5

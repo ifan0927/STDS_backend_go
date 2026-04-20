@@ -157,6 +157,7 @@ INSERT INTO leases (
 	rent_amount,
 	start_date,
 	end_date,
+	electricity_billing_cadence,
 	status,
 	deposit_amount,
 	deposit_refund_amount,
@@ -165,7 +166,7 @@ INSERT INTO leases (
 	notes,
 	termination_reason,
 	settlement_detail
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb)
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb)
 RETURNING id
 `)).
 		WithArgs(
@@ -175,6 +176,7 @@ RETURNING id
 			10000,
 			time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
 			time.Date(2020, 12, 31, 0, 0, 0, 0, time.UTC),
+			"monthly",
 			leaseStatusTerminated,
 			4000,
 			3111,

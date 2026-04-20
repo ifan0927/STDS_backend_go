@@ -30,6 +30,7 @@ get:
                 rent_amount: 18000
                 start_date: '2026-05-01'
                 end_date: '2027-04-30'
+                electricity_billing_cadence: monthly
                 status: active
                 deposit_amount: 36000
                 deposit_status: held
@@ -76,7 +77,7 @@ patch:
     LeaseConditionChanged：void due_date >= nextPaymentDate 且
     pending_payment/pending_meter 的帳單，重產新帳單。
 
-    BR-01、BR-02 適用。
+    BR-01、BR-02 適用。此 API 僅支援租金調整，不支援 cadence 修改；若需更動 cadence 或其他結構性條件，走 Lease replacement。
   tags:
     - Leasing
   x-required-role:
@@ -112,6 +113,7 @@ patch:
               value:
                 id: 40000000-0000-0000-0000-000000000003
                 rent_amount: 20000
+                electricity_billing_cadence: monthly
                 updated_at: '2026-04-15T14:00:00Z'
     '401':
       description: 未認證

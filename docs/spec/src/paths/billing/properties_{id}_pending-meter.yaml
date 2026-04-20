@@ -1,6 +1,8 @@
 get:
   operationId: listPropertyPendingMeters
   summary: 某物業待抄表清單（pending_meter 帳單）
+  description: |
+    待抄表清單以 bill period 顯示；response item 會帶 period_start / period_end。
   tags:
     - Billing
   x-required-role:
@@ -27,6 +29,8 @@ get:
                 data:
                   - id: 50000000-0000-0000-0000-000000000002
                     room_id: 20000000-0000-0000-0000-000000000002
+                    period_start: '2026-05-01'
+                    period_end: '2026-06-30'
                     due_date: '2026-05-01'
                     meter_previous_reading: 1250
     '401':

@@ -82,6 +82,7 @@ post:
     BR-02：租金不得為零
     BR-03：押金不得為負
     BR-12：目標房間必須為 vacant（取悲觀鎖後檢查）
+    electricity_billing_cadence 可於建約時覆寫，未提供時套用 Property 預設值
   tags:
     - Leasing
   x-required-role:
@@ -104,6 +105,7 @@ post:
               start_date: '2026-05-01'
               end_date: '2027-04-30'
               deposit_amount: 36000
+              electricity_billing_cadence: monthly
   responses:
     '201':
       description: 租約建立成功（LeaseCreated event 已發出，帳單已預產）
@@ -120,6 +122,7 @@ post:
                 rent_amount: 18000
                 start_date: '2026-05-01'
                 end_date: '2027-04-30'
+                electricity_billing_cadence: monthly
                 deposit_amount: 36000
                 deposit_status: held
                 status: active

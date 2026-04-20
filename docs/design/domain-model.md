@@ -46,15 +46,17 @@ Domain Model
 
 **不支援 LeaseRenewed**：續約一律以「舊租約終止 + 新租約建立」處理，確保帳單和押金歷史清晰。
 
-租約建立時，系統於整個租約期間預產所有帳單（租金帳單 + 電費帳單）。租金帳單初始狀態為 `pending_payment`，電費帳單初始狀態為 `pending_meter`，等待每月抄表後更新金額。
+租約建立時，系統於整個租約期間預產所有帳單（租金帳單 + 電費帳單）。租金帳單初始狀態為 `pending_payment`，電費帳單初始狀態為 `pending_meter`，等待該帳單所屬 billing period 抄表後更新金額。
 
 **付款日語意**：付款日固定為租約起始日當天，每月同一天。該月無此日期（如 1/31 → 2 月）則順延至該月最後一天。付款日不可單獨修改，屬於租約起始條件的一部分。
 
-租金調整（`LeaseConditionChanged`）時，void 所有 `due_date >= nextPaymentDate` 且狀態為 `pending_payment` 或 `pending_meter` 的帳單（狀態改為 `voided`），從 `nextPaymentDate` 起重產新金額帳單。`nextPaymentDate` 為 operationDate 之後的第一個付款日，計算規則同 BR-15。當月帳單不受影響，即使尚未到期。`LeaseConditionChanged` 僅涵蓋租金金額調整，不含付款日修改。
+Lease 於建立時決定 `electricityBillingCadence`（`monthly | bimonthly`）。若 request 未帶值，套用 Property 的 `defaultElectricityBillingCadence`。Lease 建立後 cadence 不可修改；若需更動 cadence、續約重簽、或其他少數條件重建，走 `LeaseReplaced` 流程，以「終止舊 Lease + 建立新 Lease」處理。
+
+租金調整（`LeaseConditionChanged`）時，void 所有 `due_date >= nextPaymentDate` 且狀態為 `pending_payment` 或 `pending_meter` 的帳單（狀態改為 `voided`），從 `nextPaymentDate` 起重產新金額帳單。`nextPaymentDate` 為 operationDate 之後的第一個付款日，計算規則同 BR-15。當月帳單不受影響，即使尚未到期。`LeaseConditionChanged` 僅涵蓋租金金額調整，不含付款日修改與 cadence 修改。
 
 ### Billing
 
-電表抄錄、帳單管理與收款確認。帳單分為租金帳單與電費帳單，電費帳單在租約建立時即預產（`pending_meter`），等待 `MeterRecorded` 事件觸發金額更新後進入 `pending_payment`。
+電表抄錄、帳單管理與收款確認。帳單分為租金帳單與電費帳單，電費帳單在租約建立時即依 `electricityBillingCadence` 預產（`pending_meter`），等待 `MeterRecorded` 事件觸發金額更新後進入 `pending_payment`。
 
 每日排程任務掃描逾期帳單（`due_date < today AND status = pending_payment`），批次更新為 `overdue`。允許 `overdue → paid` 轉換（逾期帳單仍可收款）。
 
@@ -82,7 +84,7 @@ Domain Model
 | 帳單通知 | 帳單預產完成（`RentBillsGenerated`） | 租客 | Event（payload 需含：tenantEmail, tenantName, roomName, bills[]{amount, dueDate, type}） |
 | 收款收據 | 帳單收款確認（`BillPaid`） | 租客 | Event（payload 需含：tenantEmail, tenantName, roomName, amount, paidAt, billType） |
 | 逾期催收通知 | 每週排程，最多 3 次 | 租客 | 排程任務 |
-| 退租確認 | `LeaseTerminated`（forced: false **且** isRenewal: false） | 租客 | Event（payload 需含：tenantEmail, tenantName, roomName） |
+| 退租確認 | `LeaseTerminated`（forced: false **且** isReplacement: false） | 租客 | Event（payload 需含：tenantEmail, tenantName, roomName） |
 | 強制終止通知 | `LeaseTerminated`（forced: true） | 租客 | Event（payload 需含：tenantEmail, tenantName, roomName） |
 | 租約到期提醒 | 到期前 30 天排程 | 主辦、員工 | 排程任務 |
 | 財報寄送 | 主辦手動審核後觸發 | 業主 | 人工操作 |
@@ -110,6 +112,7 @@ Domain Model
   - `force_terminated`：強制終止
 - **包含**：
   - 租約條件（租金、起訖日）
+  - `electricityBillingCadence: monthly | bimonthly`
   - `deposit: Deposit`（Value Object）
     - `amount`（原始押金金額）
     - `deductionAmount`（optional，扣款金額）
@@ -121,6 +124,7 @@ Domain Model
 - **一致性邊界**：
   - 帳單隨租約刪除而刪除
   - 正常終止：需所有帳單結清（含押金狀態確認）才能執行
+  - Lease replacement：作為特殊條件重建例外，允許 `depositHandling = carry_over`，不在終止舊 Lease 時結清押金
   - 強制終止：主辦以上角色執行，未結清帳單標記 `written_off`，記錄呆帳原因
   - 押金退還／扣款透過 Lease Aggregate 操作
 - **併發策略**：樂觀鎖
@@ -131,6 +135,7 @@ Domain Model
 - **包含**：
   - Room entities（含狀態）
   - `electricityUnitPrice`（台幣正數/度，物業層級電價，可接受小數，例：4.5）
+  - `defaultElectricityBillingCadence: monthly | bimonthly`
 - **Room 狀態**：`vacant | occupied | maintenance`
 - **狀態轉換**：
   - `vacant → occupied`：訂閱 `LeaseCreated`
@@ -147,13 +152,15 @@ Domain Model
   - `type: rent | electricity`（預產時帶入）
   - `room_id`（從 Lease 取得，直接存入，電表查詢不需 JOIN）
   - `lease_id`
+  - `periodStart`
+  - `periodEnd`
   - 付款紀錄（Value Object）
     - `paymentMethod: cash | transfer | other`（收款確認時填入）
     - `paidAt`
     - `paidAmount`
   - 帳單狀態
   - `meterReading: MeterReading`（optional Value Object，電費帳單專用）
-    - `previousReading`（系統查詢填入，不由員工輸入）
+    - `previousReading`（系統查詢填入，不由員工輸入；取同 room 最近一張已完成上一個 electricity billing period 的帳單）
     - `currentReading`
     - `unitPrice`（抄表當下從 Property 取得並鎖定，台幣正數，可接受小數）
     - `recordedAt`
@@ -222,8 +229,9 @@ Domain Model
 
 | Event | 發出 BC | 說明 | 主要 Payload | 訂閱者 |
 |-------|---------|------|-------------|-------|
-| LeaseCreated | Leasing | 租約建立 | leaseId, roomId, tenantId, startDate, endDate | Property, Billing |
-| LeaseTerminated | Leasing | 租約終止（含強制終止） | leaseId, roomId, forced: bool, isRenewal: bool | Property, Billing, Notification |
+| LeaseCreated | Leasing | 租約建立 | leaseId, roomId, tenantId, startDate, endDate, electricityBillingCadence | Property, Billing |
+| LeaseTerminated | Leasing | 租約終止（含強制終止） | leaseId, roomId, forced: bool, isRenewal: bool, isReplacement: bool | Property, Billing, Notification |
+| LeaseReplaced | Leasing | 以新 Lease 承接舊 Lease 的特殊條件重建 | oldLeaseId, newLeaseId, roomId, tenantId, reason, effectiveDate, changedFields[], depositHandling | Notification |
 | LeaseConditionChanged | Leasing | 租金金額調整 | leaseId, newRentAmount | Billing |
 | DepositRefunded | Leasing | 押金退還（含部分退還） | leaseId, refundAmount, propertyId | Billing |
 | DepositDeducted | Leasing | 押金扣款（含部分扣款） | leaseId, deductionAmount, reason, propertyId | Billing |
@@ -268,6 +276,11 @@ Domain Model
 | BR-16 | 電費帳單金額由系統計算：usage = currentReading - previousReading，rawAmount = usage × MeterReading.unitPrice，amount = round(rawAmount)；不由員工輸入金額 | 抄表送出時 | 系統自動計算並四捨五入為整數，拒絕員工直接輸入金額 | 無 |
 | BR-17 | 修改物業電價（electricityUnitPrice）需主辦以上角色，且電價僅接受大於 0 的數值，可接受小數 | 修改電價時 | 員工角色拒絕；零與負數拒絕 | 無 |
 | BR-18 | 附件允許的 MIME type：`image/jpeg`、`image/png`、`image/heic`、`application/pdf`；單檔上限 20MB | 上傳附件時（Step 3 登記） | 拒絕登記，回傳 422 | 無 |
+| BR-19 | Property 預設電費 cadence 僅影響新建 Lease；既有 Lease 不可直接修改 cadence | 修改物業預設 cadence 或編輯 Lease 時 | 拒絕以編輯 Lease 方式修改 cadence | 若需更動 cadence，走 LeaseReplaced |
+| BR-20 | Lease replacement 僅允許在完整 electricity billing period boundary 執行 | 執行 LeaseReplaced 時 | 拒絕 replacement | 無 |
+| BR-21 | Lease replacement 前，舊 Lease 在 boundary 前的帳單必須全部結清，且不得存在 `pending_meter`、`pending_payment`、`overdue` | 執行 LeaseReplaced 時 | 拒絕 replacement，回傳未結清帳單清單 | 無 |
+| BR-22 | Lease replacement 僅支援同 tenant、同 room、同 property 的條件重建，不得用於搬房或換租客 | 執行 LeaseReplaced 時 | 拒絕 replacement | 無 |
+| BR-23 | Lease replacement 第一版僅支援 `depositHandling = carry_over`，不得在 replacement 當下結清或改寫押金狀態 | 執行 LeaseReplaced 時 | 拒絕 replacement | 需要押金狀態改變時，走其他流程 |
 
 ---
 
@@ -298,7 +311,9 @@ Domain Model
 | 設定房間進入維修 | ✅ | ✅ | ✅ | ❌ |
 | **Leasing** | | | | |
 | 建立／編輯 Tenant | ✅ | ✅ | ✅ | ❌ |
-| 建立／編輯 Lease | ✅ | ✅ | ✅ | ❌ |
+| 建立 Lease | ✅ | ✅ | ✅ | ❌ |
+| Lease replacement | ✅ | ✅ | ✅ | ❌ |
+| 編輯 Lease（僅租金調整） | ✅ | ✅ | ❌ | ❌ |
 | 刪除 Lease | ✅ | ✅ | ❌ | ❌ |
 | 正常終止租約 | ✅ | ✅ | ✅ | ❌ |
 | 強制終止租約 | ✅ | ✅ | ❌ | ❌ |
@@ -364,7 +379,7 @@ Domain Model
 | 查詢路徑 | 說明 | 主要 Filter |
 |---------|------|------------|
 | `GET /bills` | 帳單列表 | propertyId, leaseId, status, month |
-| `GET /bills/{id}` | 帳單詳情（電費帳單自動帶入 previousReading） | — |
+| `GET /bills/{id}` | 帳單詳情（電費帳單自動帶入 previousReading 與 period） | — |
 | `GET /properties/{id}/financial-report` | 財報摘要列表（歷史月份） | year |
 | `GET /properties/{id}/financial-report/{year}/{month}` | 特定月份財報 | — |
 
@@ -381,11 +396,11 @@ Domain Model
 
 | 查詢路徑 | 說明 | 主要 Filter |
 |---------|------|------------|
-| `GET /properties/{id}/pending-meter` | 某物業待抄表清單（`pending_meter` 帳單） | — |
+| `GET /properties/{id}/pending-meter` | 某物業待抄表清單（`pending_meter` 帳單，按 bill period 顯示） | — |
 | `GET /properties/{id}/meter-history` | 某物業全房間電表歷史，按月呈現 | year |
 | `GET /rooms/{id}/meter-history` | 單房間電表歷史 | year, month |
 
-> **previousReading 填入機制**：`GET /bills/{id}` 回傳時，系統自動查詢同一 `room_id` 最近一張 `meter_reading IS NOT NULL` 的電費帳單的 `currentReading`，作為 `previousReading` 帶入 response。員工送出抄表時只傳 `currentReading`。
+> **previousReading 填入機制**：`GET /bills/{id}` 回傳時，系統自動查詢同一 `room_id` 最近一張屬於上一個已完成 electricity billing period 且 `meter_reading IS NOT NULL` 的電費帳單的 `currentReading`，作為 `previousReading` 帶入 response。員工送出抄表時只傳 `currentReading`。
 
 ### 附件查詢
 
@@ -480,6 +495,22 @@ PropertyOwnerView
 
 > 最後一個月帳單按整月計算，不按天拆分。
 > 空窗期（vacant 期間）不產生任何帳單，超出系統範圍。
+
+### Lease Replacement
+
+```
+發起 Lease replacement
+  → 檢查 replacement reason 與 effective date
+  → 檢查新 Lease 與舊 Lease 是否為同 tenant、同 room、同 property
+  → 檢查 effective date 是否為完整 electricity billing period boundary
+  → 檢查 boundary 前帳單是否已全部結清
+  → 檢查 depositHandling = carry_over
+  → 正常終止舊 Lease（replacement 專用語意，不在此步結清押金）
+  → 建立新 Lease（帶入新條件與 electricityBillingCadence）
+  → LeaseTerminated event（forced: false, isRenewal: false, isReplacement: true）
+  → LeaseCreated event
+  → LeaseReplaced event
+```
 
 ---
 
@@ -580,8 +611,9 @@ attachment_upload_tokens(
 | 決策 | 選擇 | 理由 |
 |------|------|------|
 | 押金建模 | Lease 內的 Value Object | 押金生命週期完全跟著租約，不需獨立 Aggregate |
-| 續約處理 | LeaseTerminated + LeaseCreated | 避免 LeaseRenewed 語意模糊，帳單與押金歷史清晰 |
-| 電費帳單建立 | 租約建立時一併預產，初始 pending_meter | 與租金帳單同批預產，MeterRecorded 時找對應帳單更新金額 |
+| 續約處理 | Lease replacement API | 續約只是 replacement 的其中一種 reason，不單獨定義 LeaseRenewed |
+| 電費帳單 cadence | Property 定義預設值，Lease 建立時決定有效值 | 支援 monthly / bimonthly；既有 Lease 不受 Property 預設值更新影響 |
+| 電費帳單建立 | 租約建立時依 Lease cadence 一併預產，初始 pending_meter | 與租金帳單同批預產，Bill 補 periodStart/periodEnd，MeterRecorded 時找對應 period 更新金額 |
 | 租金調整後帳單 | void `due_date >= nextPaymentDate` 的帳單，從 nextPaymentDate 重產 | 當月帳單不動，業務語意清楚（這個月金額已說好）；nextPaymentDate 計算複用 BR-15 邏輯 |
 | 付款日 | 固定為租約起始日，不可單獨修改，特殊月份順延月底 | 消除帳單產生邏輯的邊界案例，paymentDay 欄位移除 |
 | JournalEntry 拆分 | JournalLog + RepairRequest | 兩者行為差異過大，合併導致 schema nullable 欄位過多 |
@@ -599,7 +631,7 @@ attachment_upload_tokens(
 | 逾期競態 | 樂觀鎖，付款優先，批次跳過衝突 | 帳單已付款則批次自然不再掃到，無需額外處理 |
 | overdue → paid | 允許 | 逾期帳單仍應可收款，不因逾期狀態阻斷收款流程 |
 | 押金部分扣款 | Deposit VO 拆分 deductionAmount + refundAmount，status 改為 settled 取代 refunded/deducted | 台灣退租最常見情境是「扣一部分、退餘額」，原 refunded/deducted 二選一無法表達；DepositDeducted + DepositRefunded 兩事件可依序發出，PropertyAccount 分別記入 deposit_deduction 與 deposit_refund 分錄 |
-| 續約誤發退租通知 | LeaseTerminated 加 isRenewal: bool，Notification BC 僅在 isRenewal: false 時寄退租確認 | 續約操作（舊租約終止 + 新租約建立）會觸發 LeaseTerminated，若不加識別欄位，租客會收到錯誤的退租確認 Email |
+| Lease replacement 通知語意 | LeaseTerminated 加 `isReplacement: bool`，並新增 LeaseReplaced event | Notification BC 對 replacement 不寄退租確認，改由 LeaseReplaced 作為特殊通知或審計依據 |
 | 認證機制 | Firebase Auth + Custom Claims | 降低自建 JWT 與密碼管理複雜度；Custom Claims 支援 server-side 更新，可在物業指派變更後立即同步 role 與 assigned_property_ids 至 token；users table 改存 firebase_uid 取代 password_hash |
 | 附件業務定位 | 純 CRUD，不參與業務規則 | 附件為輔助資訊，不影響任何 Aggregate 狀態機或業務決策；保持模型簡潔，避免過度設計 |
 | 附件表架構 | 方案 B：各資源獨立附件表 | 維持真實 FK 約束，符合現有 BC 邊界設計風格；軟刪除 cascade 由應用層 transaction 保證 |

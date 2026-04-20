@@ -118,6 +118,8 @@ paths:
     $ref: paths/tenancy/leases_{id}.yaml
   /leases/{id}/attachments:
     $ref: paths/tenancy/leases_{id}_attachments.yaml
+  /leases/{id}/replace:
+    $ref: paths/tenancy/leases_{id}_replace.yaml
   /leases/{id}/terminate:
     $ref: paths/tenancy/leases_{id}_terminate.yaml
   /leases/{id}/force-terminate:

@@ -124,8 +124,9 @@ INSERT INTO properties (
 	notes,
 	facilities,
 	electricity_unit_price,
+	default_electricity_billing_cadence,
 	owner_id
-) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)
+) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)
 RETURNING id
 `)).
 		WithArgs(
@@ -137,6 +138,7 @@ RETURNING id
 			"<p>note</p>",
 			jsonArgument(`["網路設備"]`),
 			nil,
+			"monthly",
 			"owner-uuid-1",
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("property-uuid-1"))

@@ -23,3 +23,9 @@ properties:
     format: date
   deposit_amount:
     type: integer
+  electricity_billing_cadence:
+    type: string
+    enum:
+      - monthly
+      - bimonthly
+    description: 可省略；若未提供則套用 Property 的 default_electricity_billing_cadence
