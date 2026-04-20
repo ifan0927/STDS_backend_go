@@ -243,6 +243,14 @@ func (f fakeUserRepo) UpdateCurrentUser(_ context.Context, _ string, _ users.Upd
 	return nil, users.ErrNotFound
 }
 
+func (f fakeUserRepo) UpdateManagedUser(_ context.Context, _ string, _ users.UpdateManagedUserParams) (*users.User, error) {
+	return nil, users.ErrNotFound
+}
+
+func (f fakeUserRepo) ReplaceAssignedProperties(_ context.Context, _ string, _ []string) (*users.User, error) {
+	return nil, users.ErrNotFound
+}
+
 func (f *fakeUserRepo) DeleteByID(_ context.Context, id string) error {
 	f.deletedID = id
 	return nil

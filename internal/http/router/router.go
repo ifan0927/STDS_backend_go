@@ -49,6 +49,8 @@ func New(
 	sendPasswordResetService *appiam.SendUserPasswordResetService,
 	syncAuthService *appiam.SyncAuthService,
 	updateCurrentUserService *appiam.UpdateCurrentUserService,
+	updateUserService *appiam.UpdateUserService,
+	assignUserPropertiesService *appiam.AssignUserPropertiesService,
 	jobTriggerService *appjobs.TriggerService,
 	propertyQueryRepo dbpropertyquery.Repository,
 	createPropertyService *appproperty.CreatePropertyService,
@@ -68,7 +70,7 @@ func New(
 	engine.GET("/openapi.yaml", docsHandler.OpenAPI)
 	engine.GET("/scalar", docsHandler.Scalar)
 
-	api.RegisterHandlersWithOptions(engine, handler.NewAPIServer(userRepo, createUserService, sendPasswordResetService, syncAuthService, updateCurrentUserService, jobTriggerService, propertyQueryRepo, createPropertyService), api.GinServerOptions{
+	api.RegisterHandlersWithOptions(engine, handler.NewAPIServer(userRepo, createUserService, sendPasswordResetService, syncAuthService, updateCurrentUserService, updateUserService, assignUserPropertiesService, jobTriggerService, propertyQueryRepo, createPropertyService), api.GinServerOptions{
 		BaseURL: "/api/v1",
 		Middlewares: []api.MiddlewareFunc{
 			protectedAPIMiddleware(appCfg, authenticator, userRepo, authzRepos),

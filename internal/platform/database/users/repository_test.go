@@ -191,3 +191,126 @@ LIMIT $1 OFFSET $2`)).
 		t.Fatalf("ExpectationsWereMet: %v", err)
 	}
 }
+
+func TestUpdateManagedUserUpdatesNameAndRole(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewRepository(db)
+	now := time.Date(2026, 4, 20, 10, 0, 0, 0, time.UTC)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`
+UPDATE users
+SET name = $2,
+	role = $3,
+	updated_at = now(),
+	version = version + 1
+WHERE id = $1
+  AND deleted_at IS NULL
+RETURNING
+	id,
+	firebase_uid,
+	email,
+	name,
+	role,
+	COALESCE(permission_overrides, '[]'::jsonb)::text AS permission_overrides,
+	COALESCE(assigned_property_ids, '[]'::jsonb)::text AS assigned_property_ids,
+	created_at,
+	updated_at,
+	version
+`)).
+		WithArgs("user-1", "Updated Name", "staff").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "firebase_uid", "email", "name", "role", "permission_overrides", "assigned_property_ids", "created_at", "updated_at", "version",
+		}).AddRow(
+			"user-1",
+			"uid-1",
+			"organizer@studio.com",
+			"Updated Name",
+			"staff",
+			"[]",
+			`["property-1"]`,
+			now,
+			now,
+			2,
+		))
+
+	user, err := repo.UpdateManagedUser(context.Background(), "user-1", UpdateManagedUserParams{
+		Name: "Updated Name",
+		Role: "staff",
+	})
+	if err != nil {
+		t.Fatalf("UpdateManagedUser: %v", err)
+	}
+	if user.Role != "staff" {
+		t.Fatalf("expected role staff, got %s", user.Role)
+	}
+	if user.Name != "Updated Name" {
+		t.Fatalf("expected Updated Name, got %s", user.Name)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestReplaceAssignedPropertiesPersistsJSONList(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewRepository(db)
+	now := time.Date(2026, 4, 20, 10, 0, 0, 0, time.UTC)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`
+UPDATE users
+SET assigned_property_ids = $2::jsonb,
+	updated_at = now(),
+	version = version + 1
+WHERE id = $1
+  AND deleted_at IS NULL
+RETURNING
+	id,
+	firebase_uid,
+	email,
+	name,
+	role,
+	COALESCE(permission_overrides, '[]'::jsonb)::text AS permission_overrides,
+	COALESCE(assigned_property_ids, '[]'::jsonb)::text AS assigned_property_ids,
+	created_at,
+	updated_at,
+	version
+`)).
+		WithArgs("user-1", `["property-1","property-2"]`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "firebase_uid", "email", "name", "role", "permission_overrides", "assigned_property_ids", "created_at", "updated_at", "version",
+		}).AddRow(
+			"user-1",
+			"uid-1",
+			"organizer@studio.com",
+			"Organizer",
+			"organizer",
+			"[]",
+			`["property-1","property-2"]`,
+			now,
+			now,
+			2,
+		))
+
+	user, err := repo.ReplaceAssignedProperties(context.Background(), "user-1", []string{"property-1", "property-2"})
+	if err != nil {
+		t.Fatalf("ReplaceAssignedProperties: %v", err)
+	}
+	if len(user.AssignedPropertyIDs) != 2 {
+		t.Fatalf("expected 2 property ids, got %d", len(user.AssignedPropertyIDs))
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}

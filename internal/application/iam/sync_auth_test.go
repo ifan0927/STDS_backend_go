@@ -85,6 +85,14 @@ func (syncAuthUserRepo) UpdateCurrentUser(_ context.Context, _ string, _ users.U
 	return nil, users.ErrNotFound
 }
 
+func (syncAuthUserRepo) UpdateManagedUser(_ context.Context, _ string, _ users.UpdateManagedUserParams) (*users.User, error) {
+	return nil, users.ErrNotFound
+}
+
+func (syncAuthUserRepo) ReplaceAssignedProperties(_ context.Context, _ string, _ []string) (*users.User, error) {
+	return nil, users.ErrNotFound
+}
+
 func (syncAuthUserRepo) DeleteByID(_ context.Context, _ string) error {
 	return users.ErrNotFound
 }

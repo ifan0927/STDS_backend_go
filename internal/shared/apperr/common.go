@@ -43,6 +43,10 @@ const (
 	CodeValidationElectricityPriceInvalid = "VALIDATION_ELECTRICITY_PRICE_INVALID"
 	// CodeValidationWindowKeyRequired identifies missing scheduler window keys.
 	CodeValidationWindowKeyRequired = "VALIDATION_WINDOW_KEY_REQUIRED"
+	// CodeAdminCannotDowngradeSelf identifies self-role downgrade attempts by admins.
+	CodeAdminCannotDowngradeSelf = "ADMIN_CANNOT_DOWNGRADE_SELF"
+	// CodeCannotAssignPropertyToOwner identifies property assignment attempts targeting owners.
+	CodeCannotAssignPropertyToOwner = "CANNOT_ASSIGN_PROPERTY_TO_OWNER"
 )
 
 var (
@@ -165,5 +169,17 @@ var (
 		CodeValidationWindowKeyRequired,
 		http.StatusBadRequest,
 		"window_key is required.",
+	)
+	// ErrAdminCannotDowngradeSelf is returned when an admin attempts to remove their own admin role.
+	ErrAdminCannotDowngradeSelf = New(
+		CodeAdminCannotDowngradeSelf,
+		http.StatusUnprocessableEntity,
+		"Admin cannot downgrade own role.",
+	)
+	// ErrCannotAssignPropertyToOwner is returned when property assignment targets an owner account.
+	ErrCannotAssignPropertyToOwner = New(
+		CodeCannotAssignPropertyToOwner,
+		http.StatusUnprocessableEntity,
+		"Property assignment target must be a studio member, not an owner.",
 	)
 )

@@ -70,6 +70,12 @@ func New(cfg *config.Config) (*Server, error) {
 	customClaimsService := appiam.NewCustomClaimsService(authenticator)
 	syncAuthService := appiam.NewSyncAuthService(userRepo, customClaimsService)
 	updateCurrentUserService := appiam.NewUpdateCurrentUserService(userRepo)
+	updateUserService := appiam.NewUpdateUserService(userRepo, customClaimsService)
+	assignUserPropertiesService := appiam.NewAssignUserPropertiesService(
+		managedUserRepositoryAdapter{repo: userRepo},
+		propertyExistenceCheckerAdapter{repo: propertyQueryRepo},
+		customClaimsService,
+	)
 	txRunner := dbtxrunner.New(db, bus)
 	createPropertyService := appproperty.NewCreatePropertyService(propertyRepo, txRunner)
 	jobTriggerService := appjobs.NewTriggerService(jobRunsRepo, nil, cfg.App.SchedulerJobTimeout, cfg.App.SchedulerMaxRetries)
@@ -77,7 +83,7 @@ func New(cfg *config.Config) (*Server, error) {
 	engine := router.New(cfg.App, logger, db, authenticator, userRepo, router.AuthorizationRepositories{
 		Properties:        propertyRepo,
 		ResourceOwnership: resourceOwnershipRepo,
-	}, createUserService, sendPasswordResetService, syncAuthService, updateCurrentUserService, jobTriggerService, propertyQueryRepo, createPropertyService)
+	}, createUserService, sendPasswordResetService, syncAuthService, updateCurrentUserService, updateUserService, assignUserPropertiesService, jobTriggerService, propertyQueryRepo, createPropertyService)
 
 	return &Server{
 		httpServer: &http.Server{
