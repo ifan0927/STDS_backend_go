@@ -18,10 +18,7 @@ General working rules such as assumption handling, simplicity, surgical changes,
 
 - Check `internal/shared/apperr/common.go` before creating a new reusable application error.
 - If no shared error fits, define the error in the owning package.
-- Do not let raw `error` values flow into Gin error middleware unless the intended result is `INTERNAL_SERVER_ERROR`.
-- Use `INTERNAL_SERVER_ERROR` only as the final fallback for unmapped failures.
-- Use `WithCause` for internal debugging context, not for public API semantics.
-- Use `WithDetails` only for safe, useful, request-relevant details.
+- Keep `WithCause` for internal debugging context, `WithDetails` for safe request-relevant details, and reserve `INTERNAL_SERVER_ERROR` as the final fallback for unmapped failures.
 - Convert `sql.ErrNoRows` into a package-level not found error before mapping it at higher layers.
 - **OpenAPI wrapper binding and parameter parsing errors must use the same API error schema as shared Gin error middleware; do not leave generated handlers on a fallback response shape such as `{"msg": ...}`.**
 
@@ -36,12 +33,9 @@ General working rules such as assumption handling, simplicity, surgical changes,
 
 ## Application Service Rules
 
-- Service constructors should accept only the dependencies required by the use case.
-- `Execute(...)` methods should validate and normalize input before running the main flow.
-- Input cleanup such as `strings.TrimSpace` should happen at the service boundary, not be repeated across layers.
+- Service constructors should accept only the dependencies required by the use case, and `Execute(...)` methods should validate and normalize input before running the main flow.
 - Use `internal/platform/database/txrunner.Runner` for transactional use cases instead of open-coded transaction handling.
 - Application services must not depend on Gin types or HTTP-specific behavior.
-- Do not introduce new abstractions for a single use case unless the current code already requires them.
 - **Application services must not import concrete database adapter packages such as `internal/platform/database/users` or `internal/platform/database/properties` for business-facing dependencies. Define and depend on ports in `internal/application/...` or `internal/domain/...`, and wire platform implementations at the composition root.**
 - **When a use case needs persistence, the consuming application package must own the port interface, request/response structs, and sentinel semantics it depends on. Infrastructure packages may implement that port, but they must not define the contract that application code imports.**
 
@@ -51,38 +45,26 @@ General working rules such as assumption handling, simplicity, surgical changes,
 - Repositories must not return Gin-specific or HTTP-specific concepts.
 - Add operation context when wrapping unexpected database failures.
 - Use package-level sentinel errors only for stable repository semantics such as not found or uniqueness conflicts.
-- Repeated scan logic may be extracted into package-private helpers.
 - Transactional write methods should explicitly accept `*sql.Tx`.
 - **Repositories must not return `apperr.Error` values directly; repository code should return repository/domain semantics plus wrapped persistence context, and application or HTTP layers should map those errors to API-facing contracts.**
 - **If a repository implementation needs to satisfy an application/domain port, keep the port owned by the consuming layer and have the `internal/platform/database/...` package implement it; do not make the application layer import the database package just to obtain an interface or DTO type.**
 
 ## Shared Utilities Rules
 
-- Reuse `internal/http/queryparams.NormalizePagination` for standard page and limit handling.
-- Reuse `internal/platform/database/txrunner.Runner` for transaction orchestration.
-- Reuse `internal/shared/apperr` for standardized API-facing errors.
-- Reuse `internal/http/requestctx` for request-scoped metadata.
-- Reuse existing auth, authorization, and router wiring patterns before adding new middleware or helper layers.
+- Reuse existing shared helpers and wiring patterns such as `internal/http/queryparams`, `internal/http/requestctx`, `internal/shared/apperr`, and `internal/platform/database/txrunner` before adding new middleware, helpers, or orchestration paths.
 - **Composition-root adapters in `internal/server` should be grouped by consuming application slice or responsibility, such as `iam_adapters.go`, `property_adapters.go`, and `jobs_adapters.go`; do not accumulate unrelated adapters in a misleading file name.**
 
 ## Testing Rules
 
-- Prefer Go standard library `testing`.
-- Use `t.Run` for multiple scenarios of the same behavior.
-- Keep assertions explicit, direct, and behavior-focused.
-- Do not introduce a new test framework for small or routine changes.
-- When behavior changes, add or update the narrowest test that proves the expected outcome.
-- When changing validation, error mapping, authorization, pagination, or transaction behavior, add the corresponding focused test.
+- Prefer Go standard library `testing`, use `t.Run` for scenario groups, and keep assertions explicit and behavior-focused.
+- When behavior changes, add or update the narrowest focused test that proves the expected outcome.
 - Run the smallest relevant test set after making the change.
 
 ## Go Style Rules
 
 - Follow idiomatic Go and the surrounding project style.
-- Prefer clear, compact names over clever or overly generic names.
-- Define interfaces when a consumer needs an abstraction, not for speculative flexibility.
-- Keep comments in English and use them only when intent is not obvious from the code.
-- Avoid wrapper functions that do not reduce meaningful complexity.
-- Do not add configurability, generic abstractions, or extension points that were not requested.
+- Prefer clear names, minimal comments, and interfaces only when a consumer needs an abstraction.
+- Do not add wrapper functions, configurability, or extension points that were not requested.
 
 ## Anti-Patterns For Agents
 
