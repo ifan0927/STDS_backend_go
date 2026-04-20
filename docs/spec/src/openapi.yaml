@@ -29,7 +29,7 @@ info:
     - 後端 middleware 以 Firebase Admin SDK 驗證 token，從 Custom Claims 讀取 role 與
     assigned_property_ids
 
-    - 密碼重設：`POST /users` 建立帳號後由後端向 Firebase 產生 reset link，再透過 email 寄送；系統不額外提供 password reset REST API
+    - 密碼重設：`POST /users` 建立帳號後由後端向 Firebase 產生 reset link，再透過 email 寄送；admin 可透過 `POST /users/{id}/password-reset` 重寄設定密碼信
 
     - users table 透過 firebase_uid 與 Firebase 帳號對應
 
@@ -86,6 +86,8 @@ paths:
     $ref: paths/iam/users_{id}.yaml
   /users/{id}/property-assignments:
     $ref: paths/iam/users_{id}_property-assignments.yaml
+  /users/{id}/password-reset:
+    $ref: paths/iam/users_{id}_password-reset.yaml
   /properties:
     $ref: paths/property/properties.yaml
   /properties/{id}:

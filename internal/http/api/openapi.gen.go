@@ -1278,9 +1278,12 @@ type ServerInterface interface {
 	// 成員詳情
 	// (GET /users/{id})
 	GetUser(c *gin.Context, id string)
-	// 更新使用者帳號（角色調整）
+	// 更新使用者帳號（管理用途）
 	// (PATCH /users/{id})
 	UpdateUser(c *gin.Context, id string)
+	// 重寄使用者設定密碼信
+	// (POST /users/{id}/password-reset)
+	TriggerUserPasswordReset(c *gin.Context, id string)
 	// 指派物業給成員（觸發 PropertyUnassigned/PropertyAssigned 邏輯）
 	// (POST /users/{id}/property-assignments)
 	AssignUserProperties(c *gin.Context, id string)
@@ -3617,6 +3620,32 @@ func (siw *ServerInterfaceWrapper) UpdateUser(c *gin.Context) {
 	siw.Handler.UpdateUser(c, id)
 }
 
+// TriggerUserPasswordReset operation middleware
+func (siw *ServerInterfaceWrapper) TriggerUserPasswordReset(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Param("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(BearerAuthScopes, []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.TriggerUserPasswordReset(c, id)
+}
+
 // AssignUserProperties operation middleware
 func (siw *ServerInterfaceWrapper) AssignUserProperties(c *gin.Context) {
 
@@ -3749,5 +3778,6 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.PATCH(options.BaseURL+"/users/me", wrapper.UpdateCurrentUser)
 	router.GET(options.BaseURL+"/users/:id", wrapper.GetUser)
 	router.PATCH(options.BaseURL+"/users/:id", wrapper.UpdateUser)
+	router.POST(options.BaseURL+"/users/:id/password-reset", wrapper.TriggerUserPasswordReset)
 	router.POST(options.BaseURL+"/users/:id/property-assignments", wrapper.AssignUserProperties)
 }

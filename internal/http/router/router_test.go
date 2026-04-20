@@ -191,6 +191,37 @@ func TestUpdateCurrentUserRejectsNameThatIsTooLong(t *testing.T) {
 	}
 }
 
+func TestTriggerUserPasswordResetReturnsNoContent(t *testing.T) {
+	repo := fakeUserRepo{role: "admin"}
+	notificationSender := &testNotificationSender{}
+	engine := newTestEngineWithNotificationSender(repo, fakeAuthenticator{role: "admin"}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{}, notificationSender, appproperty.NewCreatePropertyService(fakePropertyRepo{}, dbtxrunner.New(nil, nil)))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/user-1/password-reset", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestTriggerUserPasswordResetRejectsOrganizer(t *testing.T) {
+	repo := fakeUserRepo{role: "organizer"}
+	engine := newTestEngine(repo, fakeAuthenticator{role: "organizer"}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/user-1/password-reset", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
 func TestSyncAuthReturnsProfileForExistingUser(t *testing.T) {
 	repo := fakeUserRepo{}
 	engine := newTestEngine(repo, fakeAuthenticator{}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
@@ -986,6 +1017,7 @@ func newTestEngineWithNotificationSender(userRepo fakeUserRepo, authenticator fa
 			ResourceOwnership: ownershipRepo,
 		},
 		appiam.NewCreateUserService(userRepo, authenticator, appnotification.NewService(notificationSender)),
+		appiam.NewSendUserPasswordResetService(userRepo, authenticator, appnotification.NewService(notificationSender)),
 		appiam.NewSyncAuthService(userRepo, appiam.NewCustomClaimsService(authenticator)),
 		appiam.NewUpdateCurrentUserService(userRepo),
 		appjobs.NewTriggerService(jobRunsRepo, nil, time.Minute, 3),

@@ -26,6 +26,7 @@ var _ api.ServerInterface = (*APIServer)(nil)
 type APIServer struct {
 	userRepo          users.Repository
 	createUserService *appiam.CreateUserService
+	sendPasswordReset *appiam.SendUserPasswordResetService
 	syncAuthService   *appiam.SyncAuthService
 	updateCurrentUser *appiam.UpdateCurrentUserService
 	jobTriggerService *appjobs.TriggerService
@@ -38,6 +39,7 @@ type APIServer struct {
 func NewAPIServer(
 	userRepo users.Repository,
 	createUserService *appiam.CreateUserService,
+	sendPasswordReset *appiam.SendUserPasswordResetService,
 	syncAuthService *appiam.SyncAuthService,
 	updateCurrentUser *appiam.UpdateCurrentUserService,
 	jobTriggerService *appjobs.TriggerService,
@@ -47,6 +49,7 @@ func NewAPIServer(
 	return &APIServer{
 		userRepo:          userRepo,
 		createUserService: createUserService,
+		sendPasswordReset: sendPasswordReset,
 		syncAuthService:   syncAuthService,
 		updateCurrentUser: updateCurrentUser,
 		jobTriggerService: jobTriggerService,
@@ -478,6 +481,16 @@ func (s *APIServer) UpdateCurrentUser(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, toCurrentUserResponse(user))
+}
+
+// TriggerUserPasswordReset handles admin-triggered password reset emails.
+func (s *APIServer) TriggerUserPasswordReset(c *gin.Context, id string) {
+	if err := s.sendPasswordReset.Execute(c.Request.Context(), id); err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.Status(http.StatusNoContent)
 }
 
 // GetUser handles user detail retrieval.

@@ -403,11 +403,13 @@ T-14~T-19 ── T-20（整合測試）
 
 - **依賴**: T-09
 - **輸入**: T-09 User Aggregate、Application Service、Firebase middleware 就緒
-- **產出**: POST /auth/sync、GET/POST /users、GET /users/me、GET/PATCH /users/{id}、POST /users/{id}/property-assignments
+- **產出**: POST /auth/sync、GET/POST /users、GET/PATCH /users/me、GET/PATCH /users/{id}、POST /users/{id}/property-assignments、POST /users/{id}/password-reset
 - **完成條件**:
   - [ ] POST /auth/sync：Firebase ID token 有效時回傳使用者資料（id, firebase_uid, role, assigned_property_ids）；token 無效時回傳 401 `INVALID_FIREBASE_TOKEN`；firebase_uid 在 DB 不存在時回傳 404 `USER_NOT_FOUND`
   - [ ] POST /users：email 重複時回傳 409 `EMAIL_ALREADY_EXISTS`；staff 嘗試建立成員帳號時回傳 403 `FORBIDDEN`；建立成功後由後端向 Firebase 產生 password reset link，並透過 Resend 寄送設定密碼信
-  - [ ] PATCH /users/{id}：admin 降低自己角色時回傳 422 `ADMIN_CANNOT_DOWNGRADE_SELF`；不含 password 欄位（密碼由 Firebase 管理）
+  - [ ] PATCH /users/me：本人可更新 self-service 欄位（現階段至少包含 name）
+  - [ ] PATCH /users/{id}：僅 admin 管理用途；admin 降低自己角色時回傳 422 `ADMIN_CANNOT_DOWNGRADE_SELF`；不含 password 欄位（密碼由 Firebase 管理）
+  - [ ] POST /users/{id}/password-reset：僅 admin 可重寄設定密碼信；成功後回傳 204
   - [ ] POST /users/{id}/property-assignments：指派成功後呼叫 Firebase Admin SDK 更新 Custom Claims；指派給 owner 角色時回傳 422 `CANNOT_ASSIGN_PROPERTY_TO_OWNER`
 
 ---

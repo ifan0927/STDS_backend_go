@@ -17,7 +17,7 @@ info:
     - 登入流程：由前端 Firebase SDK 處理，後端不接受 email/password 登入
     - 後端驗證：每個 request 以 Firebase ID token（Bearer token）呼叫後端
     - 後端 middleware 以 Firebase Admin SDK 驗證 token，從 Custom Claims 讀取 role 與 assigned_property_ids
-    - 密碼重設：`POST /users` 建立帳號後由後端向 Firebase 產生 reset link，再透過 email 寄送；系統不額外提供 password reset REST API
+    - 密碼重設：`POST /users` 建立帳號後由後端向 Firebase 產生 reset link，再透過 email 寄送；admin 可透過 `POST /users/{id}/password-reset` 重寄設定密碼信
     - users table 透過 firebase_uid 與 Firebase 帳號對應
 
     ## Notification 機制
@@ -454,18 +454,16 @@ paths:
                     message: 使用者不存在
     patch:
       operationId: updateUser
-      summary: 更新使用者帳號（角色調整）
+      summary: 更新使用者帳號（管理用途）
       tags:
         - Identity & Access
       x-required-role:
         - admin
-        - organizer
-        - staff
-        - owner
       description: |
         - 角色調整：x-required-role: admin
-        - 名稱更新：x-required-role: admin, organizer, staff, owner（本人）
-        - 密碼重設：由 Firebase SDK 處理，不透過此 API（前端呼叫 Firebase sendPasswordResetEmail）
+        - 一般使用者更新自己的名稱：請使用 `PATCH /users/me`
+        - 物業指派：請使用 `POST /users/{id}/property-assignments`
+        - 重寄設定密碼信：請使用 `POST /users/{id}/password-reset`
         - BR-13：系統管理員不得降低自己的角色
       parameters:
         - name: id
@@ -484,10 +482,6 @@ paths:
                 summary: 變更角色
                 value:
                   role: organizer
-              update_name:
-                summary: 更新名稱
-                value:
-                  name: 王大明
       responses:
         '200':
           description: 更新成功
@@ -499,7 +493,6 @@ paths:
                 success:
                   value:
                     id: 00000000-0000-0000-0000-000000000001
-                    name: 王大明
                     role: organizer
                     updated_at: '2026-04-15T11:00:00Z'
         '401':
@@ -639,6 +632,60 @@ paths:
                   value:
                     error_code: CANNOT_ASSIGN_PROPERTY_TO_OWNER
                     message: 物業指派對象必須為工作室成員，不可指派給業主
+  /users/{id}/password-reset:
+    post:
+      operationId: triggerUserPasswordReset
+      summary: 重寄使用者設定密碼信
+      description: |
+        由系統管理員為既有使用者重新產生 Firebase password reset link，並透過既有通知流程寄送設定密碼信。
+
+        此 API 僅供管理用途，不修改使用者角色、名稱或其他資料。
+      tags:
+        - Identity & Access
+      x-required-role:
+        - admin
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: 已成功寄出設定密碼信
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: 請先登入
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: 權限不足
+        '404':
+          description: 使用者不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: USER_NOT_FOUND
+                    message: 使用者不存在
   /properties:
     get:
       operationId: listProperties

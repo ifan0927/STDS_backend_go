@@ -67,18 +67,16 @@ get:
                 message: 使用者不存在
 patch:
   operationId: updateUser
-  summary: 更新使用者帳號（角色調整）
+  summary: 更新使用者帳號（管理用途）
   tags:
     - Identity & Access
   x-required-role:
     - admin
-    - organizer
-    - staff
-    - owner
   description: |
     - 角色調整：x-required-role: admin
-    - 名稱更新：x-required-role: admin, organizer, staff, owner（本人）
-    - 密碼重設：由 Firebase SDK 處理，不透過此 API（前端呼叫 Firebase sendPasswordResetEmail）
+    - 一般使用者更新自己的名稱：請使用 `PATCH /users/me`
+    - 物業指派：請使用 `POST /users/{id}/property-assignments`
+    - 重寄設定密碼信：請使用 `POST /users/{id}/password-reset`
     - BR-13：系統管理員不得降低自己的角色
   parameters:
     - name: id
@@ -97,10 +95,6 @@ patch:
             summary: 變更角色
             value:
               role: organizer
-          update_name:
-            summary: 更新名稱
-            value:
-              name: 王大明
   responses:
     '200':
       description: 更新成功
@@ -112,7 +106,6 @@ patch:
             success:
               value:
                 id: 00000000-0000-0000-0000-000000000001
-                name: 王大明
                 role: organizer
                 updated_at: '2026-04-15T11:00:00Z'
     '401':

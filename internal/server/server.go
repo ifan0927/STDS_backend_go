@@ -66,6 +66,7 @@ func New(cfg *config.Config) (*Server, error) {
 	eventbus.Subscribe(bus, notificationService.HandleUserPasswordResetRequested)
 
 	createUserService := appiam.NewCreateUserService(userRepo, authenticator, notificationService)
+	sendPasswordResetService := appiam.NewSendUserPasswordResetService(userRepo, authenticator, notificationService)
 	customClaimsService := appiam.NewCustomClaimsService(authenticator)
 	syncAuthService := appiam.NewSyncAuthService(userRepo, customClaimsService)
 	updateCurrentUserService := appiam.NewUpdateCurrentUserService(userRepo)
@@ -76,7 +77,7 @@ func New(cfg *config.Config) (*Server, error) {
 	engine := router.New(cfg.App, logger, db, authenticator, userRepo, router.AuthorizationRepositories{
 		Properties:        propertyRepo,
 		ResourceOwnership: resourceOwnershipRepo,
-	}, createUserService, syncAuthService, updateCurrentUserService, jobTriggerService, propertyQueryRepo, createPropertyService)
+	}, createUserService, sendPasswordResetService, syncAuthService, updateCurrentUserService, jobTriggerService, propertyQueryRepo, createPropertyService)
 
 	return &Server{
 		httpServer: &http.Server{
