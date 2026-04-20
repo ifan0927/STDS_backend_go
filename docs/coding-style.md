@@ -23,6 +23,7 @@ General working rules such as assumption handling, simplicity, surgical changes,
 - Use `WithCause` for internal debugging context, not for public API semantics.
 - Use `WithDetails` only for safe, useful, request-relevant details.
 - Convert `sql.ErrNoRows` into a package-level not found error before mapping it at higher layers.
+- **OpenAPI wrapper binding and parameter parsing errors must use the same API error schema as shared Gin error middleware; do not leave generated handlers on a fallback response shape such as `{"msg": ...}`.**
 
 ## HTTP And Gin Rules
 
@@ -31,6 +32,7 @@ General working rules such as assumption handling, simplicity, surgical changes,
 - Use `c.Error(...)` and let shared middleware produce the final error response.
 - Keep request-scoped concerns in middleware.
 - Reuse shared query normalization helpers instead of reimplementing validation in handlers.
+- **Recovery and any custom transport-level error path must reuse the same shared HTTP error writer; do not hand-write alternate JSON error bodies.**
 
 ## Application Service Rules
 
@@ -40,6 +42,8 @@ General working rules such as assumption handling, simplicity, surgical changes,
 - Use `internal/platform/database/txrunner.Runner` for transactional use cases instead of open-coded transaction handling.
 - Application services must not depend on Gin types or HTTP-specific behavior.
 - Do not introduce new abstractions for a single use case unless the current code already requires them.
+- **Application services must not import concrete database adapter packages such as `internal/platform/database/users` or `internal/platform/database/properties` for business-facing dependencies. Define and depend on ports in `internal/application/...` or `internal/domain/...`, and wire platform implementations at the composition root.**
+- **When a use case needs persistence, the consuming application package must own the port interface, request/response structs, and sentinel semantics it depends on. Infrastructure packages may implement that port, but they must not define the contract that application code imports.**
 
 ## Repository And Database Rules
 
@@ -49,6 +53,8 @@ General working rules such as assumption handling, simplicity, surgical changes,
 - Use package-level sentinel errors only for stable repository semantics such as not found or uniqueness conflicts.
 - Repeated scan logic may be extracted into package-private helpers.
 - Transactional write methods should explicitly accept `*sql.Tx`.
+- **Repositories must not return `apperr.Error` values directly; repository code should return repository/domain semantics plus wrapped persistence context, and application or HTTP layers should map those errors to API-facing contracts.**
+- **If a repository implementation needs to satisfy an application/domain port, keep the port owned by the consuming layer and have the `internal/platform/database/...` package implement it; do not make the application layer import the database package just to obtain an interface or DTO type.**
 
 ## Shared Utilities Rules
 
@@ -57,6 +63,7 @@ General working rules such as assumption handling, simplicity, surgical changes,
 - Reuse `internal/shared/apperr` for standardized API-facing errors.
 - Reuse `internal/http/requestctx` for request-scoped metadata.
 - Reuse existing auth, authorization, and router wiring patterns before adding new middleware or helper layers.
+- **Composition-root adapters in `internal/server` should be grouped by consuming application slice or responsibility, such as `iam_adapters.go`, `property_adapters.go`, and `jobs_adapters.go`; do not accumulate unrelated adapters in a misleading file name.**
 
 ## Testing Rules
 

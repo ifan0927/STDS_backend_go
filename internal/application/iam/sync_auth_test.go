@@ -5,8 +5,6 @@ import (
 	"errors"
 	"testing"
 	"time"
-
-	"stds_backend/internal/platform/database/users"
 )
 
 func TestSyncAuthServiceExecute(t *testing.T) {
@@ -28,7 +26,7 @@ func TestSyncAuthServiceExecute(t *testing.T) {
 	})
 
 	t.Run("maps missing user to not found", func(t *testing.T) {
-		service := NewSyncAuthService(syncAuthUserRepo{findByFirebaseUIDErr: users.ErrNotFound}, NewCustomClaimsService(&fakeClaimsWriter{}))
+		service := NewSyncAuthService(syncAuthUserRepo{findByFirebaseUIDErr: ErrUserAccountNotFound}, NewCustomClaimsService(&fakeClaimsWriter{}))
 
 		_, err := service.Execute(context.Background(), "missing")
 		if err == nil || err.Error() != "User not found." {
@@ -50,12 +48,16 @@ type syncAuthUserRepo struct {
 	findByFirebaseUIDErr error
 }
 
-func (r syncAuthUserRepo) FindByFirebaseUID(_ context.Context, firebaseUID string) (*users.User, error) {
+func (syncAuthUserRepo) FindByID(_ context.Context, _ string) (*UserAccount, error) {
+	return nil, ErrUserAccountNotFound
+}
+
+func (r syncAuthUserRepo) FindByFirebaseUID(_ context.Context, firebaseUID string) (*UserAccount, error) {
 	if r.findByFirebaseUIDErr != nil {
 		return nil, r.findByFirebaseUIDErr
 	}
 
-	return &users.User{
+	return &UserAccount{
 		ID:                  "user-1",
 		FirebaseUID:         firebaseUID,
 		Email:               "organizer@studio.com",
@@ -67,34 +69,6 @@ func (r syncAuthUserRepo) FindByFirebaseUID(_ context.Context, firebaseUID strin
 		UpdatedAt:           time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
 		Version:             1,
 	}, nil
-}
-
-func (syncAuthUserRepo) FindByID(_ context.Context, _ string) (*users.User, error) {
-	return nil, users.ErrNotFound
-}
-
-func (syncAuthUserRepo) List(_ context.Context, _ users.ListParams) ([]users.User, error) {
-	return []users.User{}, nil
-}
-
-func (syncAuthUserRepo) Create(_ context.Context, _ users.CreateUserParams) (*users.User, error) {
-	return nil, users.ErrNotFound
-}
-
-func (syncAuthUserRepo) UpdateCurrentUser(_ context.Context, _ string, _ users.UpdateCurrentUserParams) (*users.User, error) {
-	return nil, users.ErrNotFound
-}
-
-func (syncAuthUserRepo) UpdateManagedUser(_ context.Context, _ string, _ users.UpdateManagedUserParams) (*users.User, error) {
-	return nil, users.ErrNotFound
-}
-
-func (syncAuthUserRepo) ReplaceAssignedProperties(_ context.Context, _ string, _ []string) (*users.User, error) {
-	return nil, users.ErrNotFound
-}
-
-func (syncAuthUserRepo) DeleteByID(_ context.Context, _ string) error {
-	return users.ErrNotFound
 }
 
 type fakeClaimsWriter struct {

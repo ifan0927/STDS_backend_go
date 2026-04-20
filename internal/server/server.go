@@ -65,20 +65,21 @@ func New(cfg *config.Config) (*Server, error) {
 	bus := eventbus.New()
 	eventbus.Subscribe(bus, notificationService.HandleUserPasswordResetRequested)
 
-	createUserService := appiam.NewCreateUserService(userRepo, authenticator, notificationService)
-	sendPasswordResetService := appiam.NewSendUserPasswordResetService(userRepo, authenticator, notificationService)
+	userAccountRepo := userAccountRepositoryAdapter{repo: userRepo}
+	createUserService := appiam.NewCreateUserService(userAccountRepo, authenticator, notificationService)
+	sendPasswordResetService := appiam.NewSendUserPasswordResetService(userAccountRepo, authenticator, notificationService)
 	customClaimsService := appiam.NewCustomClaimsService(authenticator)
-	syncAuthService := appiam.NewSyncAuthService(userRepo, customClaimsService)
+	syncAuthService := appiam.NewSyncAuthService(userAccountRepo, customClaimsService)
 	updateCurrentUserService := appiam.NewUpdateCurrentUserService(userRepo)
-	updateUserService := appiam.NewUpdateUserService(userRepo, customClaimsService)
+	updateUserService := appiam.NewUpdateUserService(userAccountRepo, customClaimsService)
 	assignUserPropertiesService := appiam.NewAssignUserPropertiesService(
 		managedUserRepositoryAdapter{repo: userRepo},
 		propertyExistenceCheckerAdapter{repo: propertyQueryRepo},
 		customClaimsService,
 	)
 	txRunner := dbtxrunner.New(db, bus)
-	createPropertyService := appproperty.NewCreatePropertyService(propertyRepo, txRunner)
-	jobTriggerService := appjobs.NewTriggerService(jobRunsRepo, nil, cfg.App.SchedulerJobTimeout, cfg.App.SchedulerMaxRetries)
+	createPropertyService := appproperty.NewCreatePropertyService(propertyRepositoryAdapter{repo: propertyRepo}, txRunner)
+	jobTriggerService := appjobs.NewTriggerService(jobRunStoreAdapter{repo: jobRunsRepo}, nil, cfg.App.SchedulerJobTimeout, cfg.App.SchedulerMaxRetries)
 
 	engine := router.New(cfg.App, logger, db, authenticator, userRepo, router.AuthorizationRepositories{
 		Properties:        propertyRepo,

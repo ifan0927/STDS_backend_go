@@ -3,6 +3,7 @@ package middleware
 import (
 	"errors"
 	"log/slog"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 
@@ -21,13 +22,15 @@ func ErrorHandler(logger *slog.Logger) gin.HandlerFunc {
 			return
 		}
 
-		appErr := toAppError(c.Errors.Last().Err)
+		appErr := ToAppError(c.Errors.Last().Err)
 		logServerError(c, logger, appErr)
-		writeError(c, appErr)
+		WriteError(c, appErr)
 	}
 }
 
-func toAppError(err error) *apperr.Error {
+// ToAppError converts an arbitrary error into the shared application error
+// contract used by the HTTP layer.
+func ToAppError(err error) *apperr.Error {
 	var appErr *apperr.Error
 	if errors.As(err, &appErr) {
 		return appErr
@@ -36,7 +39,32 @@ func toAppError(err error) *apperr.Error {
 	return apperr.ErrInternalServerError.WithCause(err)
 }
 
-func writeError(c *gin.Context, appErr *apperr.Error) {
+// NewHTTPStatusError maps transport-level status failures into the shared error
+// contract so every HTTP error response can use the same schema.
+func NewHTTPStatusError(statusCode int, err error) *apperr.Error {
+	switch statusCode {
+	case http.StatusBadRequest:
+		return apperr.ErrBadRequest.WithDetails(map[string]interface{}{
+			"reason": err.Error(),
+		})
+	case http.StatusUnauthorized:
+		return apperr.ErrUnauthorized.WithDetails(map[string]interface{}{
+			"reason": err.Error(),
+		})
+	case http.StatusForbidden:
+		return apperr.ErrForbidden.WithDetails(map[string]interface{}{
+			"reason": err.Error(),
+		})
+	default:
+		return apperr.New(http.StatusText(statusCode), statusCode, http.StatusText(statusCode)).WithDetails(map[string]interface{}{
+			"reason": err.Error(),
+		})
+	}
+}
+
+// WriteError serializes an application error using the project's standard API
+// error schema.
+func WriteError(c *gin.Context, appErr *apperr.Error) {
 	requestctx.SetErrorCode(c, appErr.Code)
 
 	details := normalizeDetails(appErr.Details)

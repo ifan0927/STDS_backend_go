@@ -2,6 +2,7 @@ package property
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 	"time"
 
@@ -27,7 +28,7 @@ func TestCreatePropertyServiceCreatesProperty(t *testing.T) {
 		}).AddRow("property-1", "Property A", "Address A", 4.5, "monthly", "owner-1", time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), 1))
 	mock.ExpectCommit()
 
-	service := NewCreatePropertyService(dbproperties.NewRepository(db), dbtxrunner.New(db, domainevents.NoopPublisher{}))
+	service := NewCreatePropertyService(sqlPropertyRepositoryAdapter{repo: dbproperties.NewRepository(db)}, dbtxrunner.New(db, domainevents.NoopPublisher{}))
 	property, err := service.Execute(context.Background(), CreatePropertyInput{
 		Name:                             "Property A",
 		Address:                          "Address A",
@@ -52,6 +53,35 @@ func TestCreatePropertyServiceCreatesProperty(t *testing.T) {
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("ExpectationsWereMet: %v", err)
 	}
+}
+
+type sqlPropertyRepositoryAdapter struct {
+	repo dbproperties.CommandRepository
+}
+
+func (a sqlPropertyRepositoryAdapter) Create(ctx context.Context, tx *sql.Tx, params CreatePropertyParams) (*Property, error) {
+	property, err := a.repo.Create(ctx, tx, dbproperties.CreatePropertyParams{
+		Name:                             params.Name,
+		Address:                          params.Address,
+		ElectricityUnitPrice:             params.ElectricityUnitPrice,
+		DefaultElectricityBillingCadence: params.DefaultElectricityBillingCadence,
+		OwnerID:                          params.OwnerID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &Property{
+		ID:                               property.ID,
+		Name:                             property.Name,
+		Address:                          property.Address,
+		ElectricityUnitPrice:             property.ElectricityUnitPrice,
+		DefaultElectricityBillingCadence: property.DefaultElectricityBillingCadence,
+		OwnerID:                          property.OwnerID,
+		CreatedAt:                        property.CreatedAt,
+		UpdatedAt:                        property.UpdatedAt,
+		Version:                          property.Version,
+	}, nil
 }
 
 func TestCreatePropertyServiceValidatesInput(t *testing.T) {

@@ -2,10 +2,10 @@ package iam
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"unicode/utf8"
 
-	"stds_backend/internal/platform/database/users"
 	"stds_backend/internal/shared/apperr"
 )
 
@@ -24,12 +24,12 @@ type UpdateUserInput struct {
 
 // UpdateUserService updates admin-managed user fields.
 type UpdateUserService struct {
-	userRepo   users.Repository
+	userRepo   ManagedUserUpdateRepository
 	claimsSync ManagedUserClaimsSyncer
 }
 
 // NewUpdateUserService returns an UpdateUserService.
-func NewUpdateUserService(userRepo users.Repository, claimsSync ManagedUserClaimsSyncer) *UpdateUserService {
+func NewUpdateUserService(userRepo ManagedUserUpdateRepository, claimsSync ManagedUserClaimsSyncer) *UpdateUserService {
 	return &UpdateUserService{
 		userRepo:   userRepo,
 		claimsSync: claimsSync,
@@ -37,7 +37,7 @@ func NewUpdateUserService(userRepo users.Repository, claimsSync ManagedUserClaim
 }
 
 // Execute validates the admin payload, persists the managed update, and refreshes claims when needed.
-func (s *UpdateUserService) Execute(ctx context.Context, input UpdateUserInput) (*users.User, error) {
+func (s *UpdateUserService) Execute(ctx context.Context, input UpdateUserInput) (*UserAccount, error) {
 	targetUserID := strings.TrimSpace(input.TargetUserID)
 	actorUserID := strings.TrimSpace(input.ActorUserID)
 	if targetUserID == "" {
@@ -54,8 +54,8 @@ func (s *UpdateUserService) Execute(ctx context.Context, input UpdateUserInput) 
 
 	current, err := s.userRepo.FindByID(ctx, targetUserID)
 	if err != nil {
-		switch err {
-		case users.ErrNotFound:
+		switch {
+		case errors.Is(err, ErrUserAccountNotFound):
 			return nil, apperr.ErrUserNotFound
 		default:
 			return nil, apperr.ErrInternalServerError.WithCause(err)
@@ -94,13 +94,13 @@ func (s *UpdateUserService) Execute(ctx context.Context, input UpdateUserInput) 
 		return nil, apperr.ErrInternalServerError
 	}
 
-	user, err := s.userRepo.UpdateManagedUser(ctx, targetUserID, users.UpdateManagedUserParams{
+	user, err := s.userRepo.UpdateManagedUser(ctx, targetUserID, UpdateManagedUserParams{
 		Name: name,
 		Role: role,
 	})
 	if err != nil {
-		switch err {
-		case users.ErrNotFound:
+		switch {
+		case errors.Is(err, ErrUserAccountNotFound):
 			return nil, apperr.ErrUserNotFound
 		default:
 			return nil, apperr.ErrInternalServerError.WithCause(err)

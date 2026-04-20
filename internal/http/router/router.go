@@ -75,6 +75,9 @@ func New(
 		Middlewares: []api.MiddlewareFunc{
 			protectedAPIMiddleware(appCfg, authenticator, userRepo, authzRepos),
 		},
+		ErrorHandler: func(c *gin.Context, err error, statusCode int) {
+			middleware.WriteError(c, middleware.NewHTTPStatusError(statusCode, err))
+		},
 	})
 
 	return engine

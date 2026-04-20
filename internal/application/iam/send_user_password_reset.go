@@ -4,20 +4,19 @@ import (
 	"context"
 
 	appnotification "stds_backend/internal/application/notification"
-	"stds_backend/internal/platform/database/users"
 	platformfirebase "stds_backend/internal/platform/firebase"
 	"stds_backend/internal/shared/apperr"
 )
 
 // SendUserPasswordResetService sends a password reset email for an existing user.
 type SendUserPasswordResetService struct {
-	userRepo        users.Repository
+	userRepo        UserAccountLookupRepository
 	userProvisioner platformfirebase.UserProvisioner
 	notifier        *appnotification.Service
 }
 
 // NewSendUserPasswordResetService returns a SendUserPasswordResetService.
-func NewSendUserPasswordResetService(userRepo users.Repository, userProvisioner platformfirebase.UserProvisioner, notifier *appnotification.Service) *SendUserPasswordResetService {
+func NewSendUserPasswordResetService(userRepo UserAccountLookupRepository, userProvisioner platformfirebase.UserProvisioner, notifier *appnotification.Service) *SendUserPasswordResetService {
 	return &SendUserPasswordResetService{
 		userRepo:        userRepo,
 		userProvisioner: userProvisioner,
@@ -34,7 +33,7 @@ func (s *SendUserPasswordResetService) Execute(ctx context.Context, userID strin
 	user, err := s.userRepo.FindByID(ctx, userID)
 	if err != nil {
 		switch err {
-		case users.ErrNotFound:
+		case ErrUserAccountNotFound:
 			return apperr.ErrUserNotFound
 		default:
 			return apperr.ErrInternalServerError.WithCause(err)

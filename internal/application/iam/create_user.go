@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	appnotification "stds_backend/internal/application/notification"
-	"stds_backend/internal/platform/database/users"
 	platformfirebase "stds_backend/internal/platform/firebase"
 	"stds_backend/internal/shared/apperr"
 )
@@ -21,13 +20,13 @@ type CreateUserInput struct {
 
 // CreateUserService creates users after validating the command input.
 type CreateUserService struct {
-	userRepo        users.Repository
+	userRepo        UserAccountCreatorRepository
 	userProvisioner platformfirebase.UserProvisioner
 	notifier        *appnotification.Service
 }
 
 // NewCreateUserService returns a CreateUserService with the required dependencies.
-func NewCreateUserService(userRepo users.Repository, userProvisioner platformfirebase.UserProvisioner, notifier *appnotification.Service) *CreateUserService {
+func NewCreateUserService(userRepo UserAccountCreatorRepository, userProvisioner platformfirebase.UserProvisioner, notifier *appnotification.Service) *CreateUserService {
 	return &CreateUserService{
 		userRepo:        userRepo,
 		userProvisioner: userProvisioner,
@@ -36,7 +35,7 @@ func NewCreateUserService(userRepo users.Repository, userProvisioner platformfir
 }
 
 // Execute validates the command and persists a new user record.
-func (s *CreateUserService) Execute(ctx context.Context, input CreateUserInput) (*users.User, error) {
+func (s *CreateUserService) Execute(ctx context.Context, input CreateUserInput) (*UserAccount, error) {
 	if err := validateCreateUserInput(input); err != nil {
 		return nil, err
 	}
@@ -58,7 +57,7 @@ func (s *CreateUserService) Execute(ctx context.Context, input CreateUserInput) 
 		return nil, apperr.ErrInternalServerError.WithCause(err)
 	}
 
-	user, err := s.userRepo.Create(ctx, users.CreateUserParams{
+	user, err := s.userRepo.Create(ctx, CreateUserParams{
 		FirebaseUID: firebaseUID,
 		Email:       email,
 		Name:        name,
@@ -71,9 +70,9 @@ func (s *CreateUserService) Execute(ctx context.Context, input CreateUserInput) 
 		}
 
 		switch err {
-		case users.ErrEmailAlreadyExists:
+		case ErrUserAccountEmailAlreadyExists:
 			return nil, apperr.ErrEmailAlreadyExists
-		case users.ErrFirebaseUIDAlreadyExists:
+		case ErrUserAccountFirebaseUIDInUse:
 			return nil, apperr.ErrFirebaseUIDAlreadyExists
 		default:
 			return nil, apperr.ErrInternalServerError.WithCause(err)

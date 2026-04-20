@@ -14,7 +14,6 @@ import (
 	"stds_backend/internal/http/api"
 	"stds_backend/internal/http/queryparams"
 	"stds_backend/internal/http/requestctx"
-	dbproperties "stds_backend/internal/platform/database/properties"
 	dbpropertyquery "stds_backend/internal/platform/database/propertyquery"
 	"stds_backend/internal/platform/database/users"
 	"stds_backend/internal/shared/apperr"
@@ -86,7 +85,7 @@ func (s *APIServer) SyncAuth(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, toUserResponse(user))
+	c.JSON(http.StatusOK, toIAMUserResponse(user))
 }
 
 // ListBills handles the bill listing endpoint.
@@ -471,7 +470,7 @@ func (s *APIServer) CreateUser(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, toUserResponse(user))
+	c.JSON(http.StatusCreated, toIAMUserResponse(user))
 }
 
 // GetCurrentUser handles retrieval of the current authenticated user.
@@ -595,7 +594,7 @@ func (s *APIServer) UpdateUser(c *gin.Context, id string) {
 		return
 	}
 
-	c.JSON(http.StatusOK, toUserResponse(user))
+	c.JSON(http.StatusOK, toIAMUserResponse(user))
 }
 
 // AssignUserProperties handles property assignment updates for a user.
@@ -658,6 +657,23 @@ func toUserResponse(user *users.User) api.UserResponse {
 	}
 
 	return response
+}
+
+func toIAMUserResponse(user *appiam.UserAccount) api.UserResponse {
+	adapted := &users.User{
+		ID:                  user.ID,
+		FirebaseUID:         user.FirebaseUID,
+		Email:               user.Email,
+		Name:                user.Name,
+		Role:                user.Role,
+		PermissionOverrides: user.PermissionOverrides,
+		AssignedPropertyIDs: user.AssignedPropertyIDs,
+		CreatedAt:           user.CreatedAt,
+		UpdatedAt:           user.UpdatedAt,
+		Version:             user.Version,
+	}
+
+	return toUserResponse(adapted)
 }
 
 func toCurrentUserResponse(user *domainusers.User) api.UserResponse {
@@ -827,7 +843,7 @@ func toPropertyResponse(property *dbpropertyquery.Property) api.PropertyResponse
 	return response
 }
 
-func toCreatedPropertyResponse(property *dbproperties.Property) api.PropertyResponse {
+func toCreatedPropertyResponse(property *appproperty.Property) api.PropertyResponse {
 	queryShape := &dbpropertyquery.Property{
 		ID:                               property.ID,
 		Name:                             property.Name,

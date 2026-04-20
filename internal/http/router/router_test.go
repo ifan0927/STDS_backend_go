@@ -22,7 +22,6 @@ import (
 	appproperty "stds_backend/internal/application/property"
 	"stds_backend/internal/config"
 	domainusers "stds_backend/internal/domain/users"
-	dbjobruns "stds_backend/internal/platform/database/jobruns"
 	dbproperties "stds_backend/internal/platform/database/properties"
 	dbpropertyquery "stds_backend/internal/platform/database/propertyquery"
 	dbresourceownership "stds_backend/internal/platform/database/resourceownership"
@@ -45,6 +44,30 @@ func TestGetPropertyUsesFormalAPIWiring(t *testing.T) {
 
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestPropertyAttachmentWrapperRejectsInvalidUUIDWithStandardErrorResponse(t *testing.T) {
+	repo := fakeUserRepo{}
+	engine := newTestEngine(repo, fakeAuthenticator{}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/properties/not-a-uuid/attachments", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if payload["error_code"] != "BAD_REQUEST" {
+		t.Fatalf("expected BAD_REQUEST, got %v", payload["error_code"])
 	}
 }
 
@@ -795,7 +818,7 @@ func TestCreatePropertyAcceptsDecimalElectricityPrice(t *testing.T) {
 	mock.ExpectCommit()
 
 	repo := fakeUserRepo{}
-	createPropertyService := appproperty.NewCreatePropertyService(dbproperties.NewRepository(db), dbtxrunner.New(db, nil))
+	createPropertyService := appproperty.NewCreatePropertyService(testSQLPropertyRepositoryAdapter{repo: dbproperties.NewRepository(db)}, dbtxrunner.New(db, nil))
 	engine := newTestEngineWithCreatePropertyService(repo, fakeAuthenticator{}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{}, createPropertyService)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/properties", strings.NewReader(`{
@@ -985,7 +1008,7 @@ func TestSchedulerEndpointSkipsDuplicateWindow(t *testing.T) {
 	repo := fakeUserRepo{}
 	engine := newTestEngine(repo, fakeAuthenticator{}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "scheduler-secret", fakeJobRunsRepo{
 		acquired: false,
-		status:   dbjobruns.StatusCompleted,
+		status:   appjobs.JobRunStatusCompleted,
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/internal/jobs/overdue-bills/scan?window_key=2026-04-16", nil)
@@ -1116,9 +1139,13 @@ type fakeResourceOwnershipRepo struct {
 	propertyByAttachmentID       map[string]string
 }
 
+type testSQLPropertyRepositoryAdapter struct {
+	repo dbproperties.CommandRepository
+}
+
 type fakeJobRunsRepo struct {
 	acquired bool
-	status   dbjobruns.Status
+	status   string
 }
 
 type customClaimsCall struct {
@@ -1127,8 +1154,76 @@ type customClaimsCall struct {
 	assignedPropertyIDs []string
 }
 
+type testUserAccountRepositoryAdapter struct {
+	repo *fakeUserRepo
+}
+
 type testManagedUserRepositoryAdapter struct {
 	repo *fakeUserRepo
+}
+
+func (a testUserAccountRepositoryAdapter) FindByID(ctx context.Context, id string) (*appiam.UserAccount, error) {
+	user, err := a.repo.FindByID(ctx, id)
+	if err != nil {
+		if err == users.ErrNotFound {
+			return nil, appiam.ErrUserAccountNotFound
+		}
+		return nil, err
+	}
+
+	return toApplicationUser(user), nil
+}
+
+func (a testUserAccountRepositoryAdapter) FindByFirebaseUID(ctx context.Context, firebaseUID string) (*appiam.UserAccount, error) {
+	user, err := a.repo.FindByFirebaseUID(ctx, firebaseUID)
+	if err != nil {
+		if err == users.ErrNotFound {
+			return nil, appiam.ErrUserAccountNotFound
+		}
+		return nil, err
+	}
+
+	return toApplicationUser(user), nil
+}
+
+func (a testUserAccountRepositoryAdapter) Create(ctx context.Context, params appiam.CreateUserParams) (*appiam.UserAccount, error) {
+	user, err := a.repo.Create(ctx, users.CreateUserParams{
+		FirebaseUID: params.FirebaseUID,
+		Email:       params.Email,
+		Name:        params.Name,
+		Role:        params.Role,
+	})
+	if err != nil {
+		switch err {
+		case users.ErrEmailAlreadyExists:
+			return nil, appiam.ErrUserAccountEmailAlreadyExists
+		case users.ErrFirebaseUIDAlreadyExists:
+			return nil, appiam.ErrUserAccountFirebaseUIDInUse
+		default:
+			return nil, err
+		}
+	}
+
+	return toApplicationUser(user), nil
+}
+
+func (a testUserAccountRepositoryAdapter) UpdateManagedUser(ctx context.Context, id string, params appiam.UpdateManagedUserParams) (*appiam.UserAccount, error) {
+	user, err := a.repo.UpdateManagedUser(ctx, id, users.UpdateManagedUserParams{
+		Name: params.Name,
+		Role: params.Role,
+	})
+	if err != nil {
+		if err == users.ErrNotFound {
+			return nil, appiam.ErrUserAccountNotFound
+		}
+		return nil, err
+	}
+
+	return toApplicationUser(user), nil
+}
+
+func (a testUserAccountRepositoryAdapter) DeleteByID(ctx context.Context, id string) error {
+	return a.repo.DeleteByID(ctx, id)
 }
 
 func (a testManagedUserRepositoryAdapter) FindByID(ctx context.Context, id string) (*appiam.ManagedUser, error) {
@@ -1152,6 +1247,21 @@ func (a testManagedUserRepositoryAdapter) FindByID(ctx context.Context, id strin
 		UpdatedAt:           user.UpdatedAt,
 		Version:             user.Version,
 	}, nil
+}
+
+func toApplicationUser(user *users.User) *appiam.UserAccount {
+	return &appiam.UserAccount{
+		ID:                  user.ID,
+		FirebaseUID:         user.FirebaseUID,
+		Email:               user.Email,
+		Name:                user.Name,
+		Role:                user.Role,
+		PermissionOverrides: user.PermissionOverrides,
+		AssignedPropertyIDs: user.AssignedPropertyIDs,
+		CreatedAt:           user.CreatedAt,
+		UpdatedAt:           user.UpdatedAt,
+		Version:             user.Version,
+	}
 }
 
 func (a testManagedUserRepositoryAdapter) ReplaceAssignedProperties(ctx context.Context, id string, assignedPropertyIDs []string) (*appiam.ManagedUser, error) {
@@ -1376,9 +1486,9 @@ func (f fakePropertyRepo) FindOwnerIDByPropertyID(_ context.Context, propertyID 
 	return "", dbproperties.ErrNotFound
 }
 
-func (f fakePropertyRepo) Create(_ context.Context, _ *sql.Tx, params dbproperties.CreatePropertyParams) (*dbproperties.Property, error) {
+func (f fakePropertyRepo) Create(_ context.Context, _ *sql.Tx, params appproperty.CreatePropertyParams) (*appproperty.Property, error) {
 	electricityUnitPrice := params.ElectricityUnitPrice
-	return &dbproperties.Property{
+	return &appproperty.Property{
 		ID:                               "property-new",
 		Name:                             params.Name,
 		Address:                          params.Address,
@@ -1388,6 +1498,31 @@ func (f fakePropertyRepo) Create(_ context.Context, _ *sql.Tx, params dbproperti
 		CreatedAt:                        time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
 		UpdatedAt:                        time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
 		Version:                          1,
+	}, nil
+}
+
+func (a testSQLPropertyRepositoryAdapter) Create(ctx context.Context, tx *sql.Tx, params appproperty.CreatePropertyParams) (*appproperty.Property, error) {
+	property, err := a.repo.Create(ctx, tx, dbproperties.CreatePropertyParams{
+		Name:                             params.Name,
+		Address:                          params.Address,
+		ElectricityUnitPrice:             params.ElectricityUnitPrice,
+		DefaultElectricityBillingCadence: params.DefaultElectricityBillingCadence,
+		OwnerID:                          params.OwnerID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &appproperty.Property{
+		ID:                               property.ID,
+		Name:                             property.Name,
+		Address:                          property.Address,
+		ElectricityUnitPrice:             property.ElectricityUnitPrice,
+		DefaultElectricityBillingCadence: property.DefaultElectricityBillingCadence,
+		OwnerID:                          property.OwnerID,
+		CreatedAt:                        property.CreatedAt,
+		UpdatedAt:                        property.UpdatedAt,
+		Version:                          property.Version,
 	}, nil
 }
 
@@ -1471,16 +1606,16 @@ func lookupPropertyID(values map[string]string, id string) (string, error) {
 	return "", dbresourceownership.ErrNotFound
 }
 
-func (f fakeJobRunsRepo) Start(_ context.Context, jobKey string, windowKey string, _ string, _ int) (*dbjobruns.StartResult, error) {
+func (f fakeJobRunsRepo) Start(_ context.Context, jobKey string, windowKey string, _ string, _ int) (*appjobs.StartResult, error) {
 	acquired := f.acquired
 	if !f.acquired && f.status == "" {
 		acquired = true
 	}
 	status := f.status
 	if status == "" {
-		status = dbjobruns.StatusStarted
+		status = appjobs.JobRunStatusStarted
 	}
-	return &dbjobruns.StartResult{
+	return &appjobs.StartResult{
 		RunID:     "run-1",
 		Status:    status,
 		Acquired:  acquired,
@@ -1520,6 +1655,7 @@ func newTestEngineWithCreatePropertyService(userRepo fakeUserRepo, authenticator
 
 func newTestEngineWithNotificationSender(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo, notificationSender *testNotificationSender, createPropertyService *appproperty.CreatePropertyService) *gin.Engine {
 	repo := &userRepo
+	userAccountRepo := testUserAccountRepositoryAdapter{repo: repo}
 	return New(
 		config.AppConfig{Name: "test", Env: "test", SchedulerKey: schedulerKey, ReadTimeout: time.Second, WriteTimeout: time.Second},
 		testLogger(),
@@ -1530,11 +1666,11 @@ func newTestEngineWithNotificationSender(userRepo fakeUserRepo, authenticator fa
 			Properties:        propertyRepo,
 			ResourceOwnership: ownershipRepo,
 		},
-		appiam.NewCreateUserService(repo, authenticator, appnotification.NewService(notificationSender)),
-		appiam.NewSendUserPasswordResetService(repo, authenticator, appnotification.NewService(notificationSender)),
-		appiam.NewSyncAuthService(repo, appiam.NewCustomClaimsService(authenticator)),
+		appiam.NewCreateUserService(userAccountRepo, authenticator, appnotification.NewService(notificationSender)),
+		appiam.NewSendUserPasswordResetService(userAccountRepo, authenticator, appnotification.NewService(notificationSender)),
+		appiam.NewSyncAuthService(userAccountRepo, appiam.NewCustomClaimsService(authenticator)),
 		appiam.NewUpdateCurrentUserService(repo),
-		appiam.NewUpdateUserService(repo, appiam.NewCustomClaimsService(authenticator)),
+		appiam.NewUpdateUserService(userAccountRepo, appiam.NewCustomClaimsService(authenticator)),
 		appiam.NewAssignUserPropertiesService(
 			testManagedUserRepositoryAdapter{repo: repo},
 			testPropertyExistenceChecker{repo: fakePropertyQueryRepo{}},

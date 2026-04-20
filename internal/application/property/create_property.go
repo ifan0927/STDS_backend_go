@@ -7,7 +7,6 @@ import (
 	"time"
 
 	domainevents "stds_backend/internal/domain/events"
-	dbproperties "stds_backend/internal/platform/database/properties"
 	"stds_backend/internal/platform/database/txrunner"
 	"stds_backend/internal/shared/apperr"
 )
@@ -24,13 +23,13 @@ type CreatePropertyInput struct {
 // CreatePropertyService creates properties in a transaction and publishes the
 // resulting event only after commit.
 type CreatePropertyService struct {
-	propertyRepo dbproperties.CommandRepository
+	propertyRepo Repository
 	txRunner     *txrunner.Runner
 	now          func() time.Time
 }
 
 // NewCreatePropertyService returns a CreatePropertyService.
-func NewCreatePropertyService(propertyRepo dbproperties.CommandRepository, txRunner *txrunner.Runner) *CreatePropertyService {
+func NewCreatePropertyService(propertyRepo Repository, txRunner *txrunner.Runner) *CreatePropertyService {
 	return &CreatePropertyService{
 		propertyRepo: propertyRepo,
 		txRunner:     txRunner,
@@ -39,14 +38,14 @@ func NewCreatePropertyService(propertyRepo dbproperties.CommandRepository, txRun
 }
 
 // Execute validates input and persists a new property.
-func (s *CreatePropertyService) Execute(ctx context.Context, input CreatePropertyInput) (*dbproperties.Property, error) {
+func (s *CreatePropertyService) Execute(ctx context.Context, input CreatePropertyInput) (*Property, error) {
 	if err := validateCreatePropertyInput(input); err != nil {
 		return nil, err
 	}
 
-	var created *dbproperties.Property
+	var created *Property
 	err := s.txRunner.WithinTransaction(ctx, func(ctx context.Context, tx *sql.Tx, recorder *txrunner.EventRecorder) error {
-		property, err := s.propertyRepo.Create(ctx, tx, dbproperties.CreatePropertyParams{
+		property, err := s.propertyRepo.Create(ctx, tx, CreatePropertyParams{
 			Name:                             strings.TrimSpace(input.Name),
 			Address:                          strings.TrimSpace(input.Address),
 			ElectricityUnitPrice:             input.ElectricityUnitPrice,

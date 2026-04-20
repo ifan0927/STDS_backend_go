@@ -7,7 +7,6 @@ import (
 	"time"
 
 	appnotification "stds_backend/internal/application/notification"
-	"stds_backend/internal/platform/database/users"
 	platformnotification "stds_backend/internal/platform/notification"
 )
 
@@ -31,7 +30,7 @@ func TestSendUserPasswordResetServiceExecute(t *testing.T) {
 	})
 
 	t.Run("maps missing user to not found", func(t *testing.T) {
-		service := NewSendUserPasswordResetService(sendResetUserRepo{findByIDErr: users.ErrNotFound}, &sendResetProvisioner{}, appnotification.NewService(&sendResetSender{}))
+		service := NewSendUserPasswordResetService(sendResetUserRepo{findByIDErr: ErrUserAccountNotFound}, &sendResetProvisioner{}, appnotification.NewService(&sendResetSender{}))
 
 		err := service.Execute(context.Background(), "missing")
 		if err == nil || err.Error() != "User not found." {
@@ -53,16 +52,16 @@ type sendResetUserRepo struct {
 	findByIDErr error
 }
 
-func (r sendResetUserRepo) FindByFirebaseUID(_ context.Context, _ string) (*users.User, error) {
-	return nil, users.ErrNotFound
+func (r sendResetUserRepo) FindByFirebaseUID(_ context.Context, _ string) (*UserAccount, error) {
+	return nil, ErrUserAccountNotFound
 }
 
-func (r sendResetUserRepo) FindByID(_ context.Context, id string) (*users.User, error) {
+func (r sendResetUserRepo) FindByID(_ context.Context, id string) (*UserAccount, error) {
 	if r.findByIDErr != nil {
 		return nil, r.findByIDErr
 	}
 
-	return &users.User{
+	return &UserAccount{
 		ID:                  id,
 		FirebaseUID:         "uid-1",
 		Email:               "organizer@studio.com",
@@ -74,30 +73,6 @@ func (r sendResetUserRepo) FindByID(_ context.Context, id string) (*users.User, 
 		UpdatedAt:           time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
 		Version:             1,
 	}, nil
-}
-
-func (r sendResetUserRepo) List(_ context.Context, _ users.ListParams) ([]users.User, error) {
-	return []users.User{}, nil
-}
-
-func (r sendResetUserRepo) Create(_ context.Context, _ users.CreateUserParams) (*users.User, error) {
-	return nil, users.ErrNotFound
-}
-
-func (r sendResetUserRepo) UpdateCurrentUser(_ context.Context, _ string, _ users.UpdateCurrentUserParams) (*users.User, error) {
-	return nil, users.ErrNotFound
-}
-
-func (r sendResetUserRepo) UpdateManagedUser(_ context.Context, _ string, _ users.UpdateManagedUserParams) (*users.User, error) {
-	return nil, users.ErrNotFound
-}
-
-func (r sendResetUserRepo) ReplaceAssignedProperties(_ context.Context, _ string, _ []string) (*users.User, error) {
-	return nil, users.ErrNotFound
-}
-
-func (r sendResetUserRepo) DeleteByID(_ context.Context, _ string) error {
-	return users.ErrNotFound
 }
 
 type sendResetProvisioner struct {

@@ -108,6 +108,22 @@ func TestProtectedMiddlewareLogsResolvedPropertyIDForResourceRoute(t *testing.T)
 	}
 }
 
+func TestRecoveryReturnsStandardErrorResponse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	engine := gin.New()
+	engine.Use(RequestID(), Recovery(testLoggerBuffer(nil)), ErrorHandler(testLoggerBuffer(nil)))
+	engine.GET("/panic", func(c *gin.Context) {
+		panic("boom")
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/panic", nil)
+	resp := httptest.NewRecorder()
+	engine.ServeHTTP(resp, req)
+
+	assertErrorCode(t, resp, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR")
+}
+
 func TestAuthReturnsUnauthorizedWithoutBearerToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

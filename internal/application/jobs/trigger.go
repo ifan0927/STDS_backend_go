@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"time"
-
-	dbjobruns "stds_backend/internal/platform/database/jobruns"
 )
 
 // JobKey identifies a scheduler-triggered job.
@@ -47,7 +45,7 @@ type TriggerResult struct {
 // TriggerService dispatches scheduler-triggered jobs with row-locked
 // deduplication, bounded execution timeout, and retry-aware run tracking.
 type TriggerService struct {
-	jobRuns    dbjobruns.Repository
+	jobRuns    JobRunStore
 	runners    map[JobKey]Runner
 	now        func() time.Time
 	timeout    time.Duration
@@ -55,7 +53,7 @@ type TriggerService struct {
 }
 
 // NewTriggerService returns a TriggerService with the provided dependencies.
-func NewTriggerService(jobRuns dbjobruns.Repository, runners map[JobKey]Runner, timeout time.Duration, maxRetries int) *TriggerService {
+func NewTriggerService(jobRuns JobRunStore, runners map[JobKey]Runner, timeout time.Duration, maxRetries int) *TriggerService {
 	if runners == nil {
 		runners = defaultRunners()
 	}

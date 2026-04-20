@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"stds_backend/internal/platform/database/users"
 	"stds_backend/internal/shared/apperr"
 )
 
@@ -46,7 +45,7 @@ func TestUpdateUserServiceExecute(t *testing.T) {
 
 	t.Run("rejects self downgrade", func(t *testing.T) {
 		repo := &managedUserRepo{
-			findUser: &users.User{ID: "admin-1", FirebaseUID: "uid-1", Name: "Admin", Role: "admin", AssignedPropertyIDs: []string{"property-1"}},
+			findUser: &UserAccount{ID: "admin-1", FirebaseUID: "uid-1", Name: "Admin", Role: "admin", AssignedPropertyIDs: []string{"property-1"}},
 		}
 		service := NewUpdateUserService(repo, &claimsSyncSpy{})
 		role := "organizer"
@@ -85,7 +84,7 @@ func TestUpdateUserServiceExecute(t *testing.T) {
 	})
 
 	t.Run("maps missing target user to not found", func(t *testing.T) {
-		repo := &managedUserRepo{findErr: users.ErrNotFound}
+		repo := &managedUserRepo{findErr: ErrUserAccountNotFound}
 		service := NewUpdateUserService(repo, &claimsSyncSpy{})
 		role := "staff"
 
@@ -119,7 +118,7 @@ func TestUpdateUserServiceExecute(t *testing.T) {
 
 	t.Run("retries claims sync when request repeats same role after prior partial failure", func(t *testing.T) {
 		repo := &managedUserRepo{
-			findUser: &users.User{
+			findUser: &UserAccount{
 				ID:                  "user-1",
 				FirebaseUID:         "uid-1",
 				Email:               "organizer@studio.com",
@@ -147,7 +146,7 @@ func TestUpdateUserServiceExecute(t *testing.T) {
 }
 
 type managedUserRepo struct {
-	findUser    *users.User
+	findUser    *UserAccount
 	findErr     error
 	updateErr   error
 	updateCalls int
@@ -155,11 +154,7 @@ type managedUserRepo struct {
 	updatedRole string
 }
 
-func (r *managedUserRepo) FindByFirebaseUID(_ context.Context, _ string) (*users.User, error) {
-	return nil, errors.New("not used")
-}
-
-func (r *managedUserRepo) FindByID(_ context.Context, id string) (*users.User, error) {
+func (r *managedUserRepo) FindByID(_ context.Context, id string) (*UserAccount, error) {
 	if r.findErr != nil {
 		return nil, r.findErr
 	}
@@ -167,7 +162,7 @@ func (r *managedUserRepo) FindByID(_ context.Context, id string) (*users.User, e
 		return r.findUser, nil
 	}
 
-	return &users.User{
+	return &UserAccount{
 		ID:                  id,
 		FirebaseUID:         "uid-1",
 		Email:               "organizer@studio.com",
@@ -181,19 +176,7 @@ func (r *managedUserRepo) FindByID(_ context.Context, id string) (*users.User, e
 	}, nil
 }
 
-func (r *managedUserRepo) List(_ context.Context, _ users.ListParams) ([]users.User, error) {
-	return nil, errors.New("not used")
-}
-
-func (r *managedUserRepo) Create(_ context.Context, _ users.CreateUserParams) (*users.User, error) {
-	return nil, errors.New("not used")
-}
-
-func (r *managedUserRepo) UpdateCurrentUser(_ context.Context, _ string, _ users.UpdateCurrentUserParams) (*users.User, error) {
-	return nil, errors.New("not used")
-}
-
-func (r *managedUserRepo) UpdateManagedUser(_ context.Context, id string, params users.UpdateManagedUserParams) (*users.User, error) {
+func (r *managedUserRepo) UpdateManagedUser(_ context.Context, id string, params UpdateManagedUserParams) (*UserAccount, error) {
 	if r.updateErr != nil {
 		return nil, r.updateErr
 	}
@@ -202,7 +185,7 @@ func (r *managedUserRepo) UpdateManagedUser(_ context.Context, id string, params
 	r.updatedName = params.Name
 	r.updatedRole = params.Role
 
-	return &users.User{
+	return &UserAccount{
 		ID:                  id,
 		FirebaseUID:         "uid-1",
 		Email:               "organizer@studio.com",
@@ -214,14 +197,6 @@ func (r *managedUserRepo) UpdateManagedUser(_ context.Context, id string, params
 		UpdatedAt:           time.Date(2026, 4, 20, 10, 0, 0, 0, time.UTC),
 		Version:             2,
 	}, nil
-}
-
-func (r *managedUserRepo) ReplaceAssignedProperties(_ context.Context, _ string, _ []string) (*users.User, error) {
-	return nil, errors.New("not used")
-}
-
-func (r *managedUserRepo) DeleteByID(_ context.Context, _ string) error {
-	return errors.New("not used")
 }
 
 type claimsSyncSpy struct {

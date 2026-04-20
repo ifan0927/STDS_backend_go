@@ -4,12 +4,11 @@ import (
 	"context"
 	"errors"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-
-	"stds_backend/internal/shared/apperr"
 )
 
 func TestListReturnsActiveUsersWithPagination(t *testing.T) {
@@ -129,7 +128,7 @@ LIMIT $2 OFFSET $3`)).
 	}
 }
 
-func TestListWrapsQueryErrorsAsStructuredAppError(t *testing.T) {
+func TestListWrapsQueryErrorsWithOperationContext(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("sqlmock.New: %v", err)
@@ -162,29 +161,11 @@ LIMIT $1 OFFSET $2`)).
 		t.Fatal("expected error")
 	}
 
-	var appErr *apperr.Error
-	if !errors.As(err, &appErr) {
-		t.Fatalf("expected apperr.Error, got %T", err)
-	}
-	if appErr.Code != apperr.CodeInternalServerError {
-		t.Fatalf("expected INTERNAL_SERVER_ERROR, got %s", appErr.Code)
-	}
 	if !errors.Is(err, queryErr) {
 		t.Fatalf("expected wrapped cause %v, got %v", queryErr, err)
 	}
-
-	details, ok := appErr.Details.(map[string]interface{})
-	if !ok {
-		t.Fatalf("expected details map, got %T", appErr.Details)
-	}
-	if details["operation"] != "users.list.query" {
-		t.Fatalf("expected operation users.list.query, got %v", details["operation"])
-	}
-	if details["limit"] != 20 {
-		t.Fatalf("expected limit 20, got %v", details["limit"])
-	}
-	if details["offset"] != 0 {
-		t.Fatalf("expected offset 0, got %v", details["offset"])
+	if !strings.Contains(err.Error(), `list users query role="" limit=20 offset=0`) {
+		t.Fatalf("expected contextual error message, got %q", err.Error())
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {

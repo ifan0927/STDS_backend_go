@@ -3,7 +3,6 @@ package middleware
 import (
 	"fmt"
 	"log/slog"
-	"net/http"
 	"runtime/debug"
 
 	"github.com/gin-gonic/gin"
@@ -27,16 +26,6 @@ func Recovery(logger *slog.Logger) gin.HandlerFunc {
 		appErr := apperr.ErrInternalServerError.WithDetails(map[string]interface{}{
 			"request_id": requestctx.GetRequestID(c),
 		}).WithCause(fmt.Errorf("panic: %v", recovered))
-		requestctx.SetErrorCode(c, appErr.Code)
-
-		errorCode := appErr.Code
-		message := appErr.Message
-		details := normalizeDetails(appErr.Details)
-
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-			"error_code": errorCode,
-			"message":    message,
-			"details":    details,
-		})
+		WriteError(c, appErr)
 	})
 }

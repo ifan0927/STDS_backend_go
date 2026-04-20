@@ -7,7 +7,6 @@ import (
 	"time"
 
 	appnotification "stds_backend/internal/application/notification"
-	"stds_backend/internal/platform/database/users"
 	platformfirebase "stds_backend/internal/platform/firebase"
 	platformnotification "stds_backend/internal/platform/notification"
 	"stds_backend/internal/shared/apperr"
@@ -70,7 +69,7 @@ func TestCreateUserServiceExecute(t *testing.T) {
 
 	t.Run("maps duplicate email conflict", func(t *testing.T) {
 		provisioner := &fakeUserProvisioner{firebaseUID: "uid-new"}
-		service := NewCreateUserService(&fakeUserRepo{createErr: users.ErrEmailAlreadyExists}, provisioner, nil)
+		service := NewCreateUserService(&fakeUserRepo{createErr: ErrUserAccountEmailAlreadyExists}, provisioner, nil)
 
 		_, err := service.Execute(context.Background(), CreateUserInput{
 			Email: "existing@studio.com",
@@ -91,7 +90,7 @@ func TestCreateUserServiceExecute(t *testing.T) {
 			firebaseUID: "uid-new",
 			deleteErr:   errors.New("delete failed"),
 		}
-		service := NewCreateUserService(&fakeUserRepo{createErr: users.ErrEmailAlreadyExists}, provisioner, nil)
+		service := NewCreateUserService(&fakeUserRepo{createErr: ErrUserAccountEmailAlreadyExists}, provisioner, nil)
 
 		_, err := service.Execute(context.Background(), CreateUserInput{
 			Email: "existing@studio.com",
@@ -208,24 +207,12 @@ type fakeUserRepo struct {
 	deletedID string
 }
 
-func (f fakeUserRepo) FindByFirebaseUID(_ context.Context, firebaseUID string) (*users.User, error) {
-	return nil, users.ErrNotFound
-}
-
-func (f fakeUserRepo) FindByID(_ context.Context, id string) (*users.User, error) {
-	return nil, users.ErrNotFound
-}
-
-func (f fakeUserRepo) List(_ context.Context, _ users.ListParams) ([]users.User, error) {
-	return []users.User{}, nil
-}
-
-func (f fakeUserRepo) Create(_ context.Context, params users.CreateUserParams) (*users.User, error) {
+func (f fakeUserRepo) Create(_ context.Context, params CreateUserParams) (*UserAccount, error) {
 	if f.createErr != nil {
 		return nil, f.createErr
 	}
 
-	return &users.User{
+	return &UserAccount{
 		ID:                  "00000000-0000-0000-0000-000000000003",
 		FirebaseUID:         params.FirebaseUID,
 		Email:               params.Email,
@@ -237,18 +224,6 @@ func (f fakeUserRepo) Create(_ context.Context, params users.CreateUserParams) (
 		UpdatedAt:           time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
 		Version:             1,
 	}, nil
-}
-
-func (f fakeUserRepo) UpdateCurrentUser(_ context.Context, _ string, _ users.UpdateCurrentUserParams) (*users.User, error) {
-	return nil, users.ErrNotFound
-}
-
-func (f fakeUserRepo) UpdateManagedUser(_ context.Context, _ string, _ users.UpdateManagedUserParams) (*users.User, error) {
-	return nil, users.ErrNotFound
-}
-
-func (f fakeUserRepo) ReplaceAssignedProperties(_ context.Context, _ string, _ []string) (*users.User, error) {
-	return nil, users.ErrNotFound
 }
 
 func (f *fakeUserRepo) DeleteByID(_ context.Context, id string) error {
