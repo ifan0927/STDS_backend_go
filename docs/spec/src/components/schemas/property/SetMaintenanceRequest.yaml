@@ -1,4 +1,9 @@
 type: object
+required:
+  - title
+  - description
 properties:
-  reason:
+  title:
+    type: string
+  description:
     type: string

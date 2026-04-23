@@ -1,0 +1,6 @@
+type: object
+properties:
+  room:
+    $ref: ./RoomResponse.yaml
+  repair_request:
+    $ref: ../repair/RepairRequestResponse.yaml

@@ -141,6 +141,7 @@ delete:
   description: |
     x-required-role: admin, organizer
     BR-08：出租中或維修中的房間不得刪除。
+    房間的 maintenance 狀態由維修入口建立的 active repair requests 與後續完成/取消事件共同維護。
   tags:
     - Property
   x-required-role:

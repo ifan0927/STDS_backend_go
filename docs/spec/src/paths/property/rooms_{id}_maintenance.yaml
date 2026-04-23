@@ -1,9 +1,10 @@
 post:
   operationId: createRoomMaintenance
-  summary: 設定房間進入維修狀態（觸發 RoomSetToMaintenance event）
+  summary: 設定房間進入維修狀態並建立維修請求（觸發 RoomSetToMaintenance event）
   description: |
     x-required-role: admin, organizer, staff
-    觸發 RoomSetToMaintenance event。
+    同一 transaction 內建立 room-scoped repair request、更新 room status = maintenance，
+    並於提交後觸發 RoomSetToMaintenance event。
   tags:
     - Property
   x-required-role:
@@ -26,20 +27,33 @@ post:
         examples:
           default:
             value:
-              reason: 浴室漏水維修
+              title: 浴室漏水
+              description: 浴室天花板持續漏水，需安排廠商檢修
   responses:
     '200':
-      description: 房間已進入維修狀態（RoomSetToMaintenance event 已發出）
+      description: 房間已進入維修狀態，並已建立維修請求（RoomSetToMaintenance event 已發出）
       content:
         application/json:
           schema:
-            $ref: ../../components/schemas/property/RoomResponse.yaml
+            $ref: ../../components/schemas/property/SetMaintenanceResponse.yaml
           examples:
             success:
               value:
-                id: 20000000-0000-0000-0000-000000000002
-                status: maintenance
-                updated_at: '2026-04-15T14:00:00Z'
+                room:
+                  id: 20000000-0000-0000-0000-000000000002
+                  status: maintenance
+                  updated_at: '2026-04-15T14:00:00Z'
+                repair_request:
+                  id: 70000000-0000-0000-0000-000000000002
+                  property_id: 10000000-0000-0000-0000-000000000001
+                  room_id: 20000000-0000-0000-0000-000000000002
+                  submitted_by: 00000000-0000-0000-0000-000000000002
+                  title: 浴室漏水
+                  description: 浴室天花板持續漏水，需安排廠商檢修
+                  status: submitted
+                  submitted_at: '2026-04-15T14:00:00Z'
+                  created_at: '2026-04-15T14:00:00Z'
+                  updated_at: '2026-04-15T14:00:00Z'
     '401':
       description: 未認證
       content:
