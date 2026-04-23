@@ -1,0 +1,9 @@
+type: object
+required:
+  - room
+  - repair_request
+properties:
+  room:
+    $ref: ./RoomResponse.yaml
+  repair_request:
+    $ref: ../repair/RepairRequestResponse.yaml

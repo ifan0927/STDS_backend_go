@@ -342,10 +342,10 @@ T-14~T-19 ── T-20（整合測試）
 - **產出**: Property Aggregate、Room 狀態機、相關 Business Rules
 - **完成條件**:
   - [ ] Room 狀態機：`vacant → occupied`（訂閱 LeaseCreated）、`occupied → vacant`（訂閱 LeaseTerminated）轉換正確執行
-  - [ ] `vacant → maintenance`（RoomSetToMaintenance）正確觸發 event
+  - [ ] `vacant → maintenance`（RoomSetToMaintenance）於同一 transaction 內建立 room-scoped RepairRequest 並正確觸發 event
   - [ ] `maintenance → vacant`（訂閱 RepairCompleted/RepairCancelled）：確認同 room_id 所有 RepairRequest 均 completed 或 cancelled 後才轉換
   - [ ] BR-07：有 `status = occupied` 房間的物業，刪除時拋出 `PROPERTY_HAS_OCCUPIED_ROOMS` 錯誤，回傳 occupied_room_ids
-  - [ ] BR-08：`status = occupied` 或 `maintenance` 的房間，刪除時分別拋出 `ROOM_IS_OCCUPIED`、`ROOM_IS_IN_MAINTENANCE` 錯誤
+  - [ ] BR-08：`status = occupied` 或 `maintenance` 的房間，刪除時分別拋出 `ROOM_IS_OCCUPIED`、`ROOM_IS_IN_MAINTENANCE` 錯誤；`maintenance` 狀態由 active RepairRequest 維持
   - [ ] PropertyCreated event 發出後，Billing BC 自動建立 PropertyAccount（訂閱正確執行）
 
 ---
@@ -392,6 +392,7 @@ T-14~T-19 ── T-20（整合測試）
 - **產出**: JournalLog Aggregate、RepairRequest Aggregate、狀態機
 - **完成條件**:
   - [ ] JournalLog 建立時，若有 expense_amount，正確發出 `JournalExpenseRecorded` event
+  - [ ] `POST /rooms/{id}/maintenance` 可在 Property command transaction 內建立 `submitted` 狀態的 room-scoped RepairRequest，並正確保存 `title` / `description`
   - [ ] RepairRequest 狀態機：submitted→assigned→in_progress→completed 轉換正確；submitted/assigned/in_progress→cancelled 正確
   - [ ] 無效狀態轉換（如 completed → assigned）時，分別拋出 `REPAIR_INVALID_STATUS_FOR_ASSIGN`、`REPAIR_INVALID_STATUS_FOR_PROGRESS`、`REPAIR_INVALID_STATUS_FOR_COMPLETE`、`REPAIR_ALREADY_COMPLETED` 錯誤
   - [ ] RepairCompleted / RepairCancelled event 正確發出，包含 roomId 與 propertyId
@@ -423,7 +424,7 @@ T-14~T-19 ── T-20（整合測試）
   - [ ] PATCH /properties/{id}：staff 修改 electricity_unit_price 時回傳 403 `FORBIDDEN_ELECTRICITY_PRICE_UPDATE`
   - [ ] DELETE /properties/{id}：有 occupied 房間時回傳 422 `PROPERTY_HAS_OCCUPIED_ROOMS`，response 包含 occupied_room_ids
   - [ ] DELETE /rooms/{id}：occupied 房間回傳 422 `ROOM_IS_OCCUPIED`；maintenance 房間回傳 422 `ROOM_IS_IN_MAINTENANCE`
-  - [ ] POST /rooms/{id}/maintenance：成功後 room status 為 maintenance，RoomSetToMaintenance event 已發出
+  - [ ] POST /rooms/{id}/maintenance：成功後 room status 為 maintenance、submitted repair request 已建立，且 RoomSetToMaintenance event 已發出
   - [ ] GET /properties/{id}/dashboard：回傳包含房間狀態、本月收支摘要、逾期帳單數、最近 5 筆 Journal 的完整資料
 
 ---

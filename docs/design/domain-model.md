@@ -140,7 +140,7 @@ Lease 於建立時決定 `electricityBillingCadence`（`monthly | bimonthly`）�
 - **狀態轉換**：
   - `vacant → occupied`：訂閱 `LeaseCreated`
   - `occupied → vacant`：訂閱 `LeaseTerminated`
-  - `vacant → maintenance`：主辦或員工手動操作，發出 `RoomSetToMaintenance`
+  - `vacant → maintenance`：主辦或員工透過 `POST /rooms/{id}/maintenance` 手動操作；同一 transaction 內建立 room-scoped `RepairRequest`，並發出 `RoomSetToMaintenance`
   - `maintenance → vacant`：訂閱 `RepairCompleted` 或 `RepairCancelled`，確認該 Room 所有 RepairRequest 均為 `completed` 或 `cancelled` 後才改回 `vacant`
 - **一致性邊界**：房間隨物業刪除而刪除；房間狀態由 Property Aggregate 統一管理
 - **併發策略**：樂觀鎖
@@ -202,11 +202,13 @@ Lease 於建立時決定 `electricityBillingCadence`（`monthly | bimonthly`）�
 
 - **Root Entity**：RepairRequest
 - **包含**：
-  - 報修內容
+  - `title`
+  - `description`
   - `assignedTo: UserId`（nullable）
   - `submittedAt`
   - `assignedAt`（nullable）
   - `completedAt`（nullable）
+- **建立入口**：可由 Journal BC 的 `POST /repair-requests` 建立，也可由 Property BC 的 `POST /rooms/{id}/maintenance` 在同一 transaction 內建立 room-scoped RepairRequest 並同步將 Room 設為 `maintenance`
 - **狀態機**：
   - `submitted → assigned → in_progress → completed`
   - `submitted → cancelled`
@@ -214,7 +216,7 @@ Lease 於建立時決定 `electricityBillingCadence`（`monthly | bimonthly`）�
   - `in_progress → cancelled`
 - **cancelled 後置處理**：Property BC 訂閱 `RepairCancelled` event，檢查該 Room 是否所有 RepairRequest 均為 `completed` 或 `cancelled`，若是則 Room 改回 `vacant`
 - **派工**：指派系統內員工，員工負責線下聯絡廠商
-- **刪除限制**：進行中的 RepairRequest 所屬 Room 不得刪除（BR-08）
+- **與 Room 狀態關聯**：只要該 Room 尚有未完成且未取消的 RepairRequest，Room 應維持 `maintenance`；因此 BR-08 可由 Room 狀態統一表達，不另定義獨立刪除規則
 
 ### User Aggregate（Identity & Access BC）
 
@@ -251,6 +253,10 @@ Lease 於建立時決定 `electricityBillingCadence`（`monthly | bimonthly`）�
 > - RepairCompleted payload 補上 roomId（Property BC 需要判斷該 Room 是否所有 RepairRequest 完成）
 > - 新增 PropertyUnassigned event
 > - 已移除：LeaseRenewed（v2.1）
+>
+> **RoomSetToMaintenance 補充**：
+> - maintenance request 的 `title` / `description` 持久化於 `repair_requests`
+> - `RoomSetToMaintenance` payload 維持輕量，不攜帶 repair reason/description
 
 ---
 
@@ -624,10 +630,10 @@ attachment_upload_tokens(
 | 軟刪除 | 全部軟刪除，所有查詢加 deleted_at IS NULL filter | 歷史帳單和日誌需保留關聯，不可真刪除 |
 | 強制終止租約 | 支援補償機制（saga 雛形），ForceTerminationStarted 記錄進度 | 跨多個 Bill Aggregate，中途失敗可由排程續行 |
 | Room 競態防護 | 建立租約時對 Room 取悲觀鎖（select for update）再檢查 BR-12 | 防止兩個請求同時對同一 Room 建立租約 |
-| maintenance → vacant 條件 | 該 Room 所有 RepairRequest 均 completed 才轉回 vacant | 多個 RepairRequest 場景下避免過早開放房間 |
+| maintenance → vacant 條件 | 該 Room 所有 RepairRequest 均 completed 或 cancelled 才轉回 vacant | 多個 RepairRequest 場景下避免過早開放房間 |
 | BR-09 移除 | 移除，BR-04 已完整涵蓋 | 退租流程統一由 BR-04 把關，不重複檢查 |
 | 物業指派移除 event | 新增 PropertyUnassigned event，進行中操作不撤銷 | 下次操作時權限自然擋住，不需要複雜的操作撤銷邏輯 |
-| BR-08 維修中刪除 | 移除例外，維修中房間不得刪除 | 刪除維修中 Room 導致 RepairRequest 狀態機孤立 |
+| BR-08 維修中刪除 | 移除例外，維修中房間不得刪除；maintenance 狀態由 active RepairRequest 維持 | 刪除維修中 Room 導致 RepairRequest 狀態機孤立 |
 | 逾期競態 | 樂觀鎖，付款優先，批次跳過衝突 | 帳單已付款則批次自然不再掃到，無需額外處理 |
 | overdue → paid | 允許 | 逾期帳單仍應可收款，不因逾期狀態阻斷收款流程 |
 | 押金部分扣款 | Deposit VO 拆分 deductionAmount + refundAmount，status 改為 settled 取代 refunded/deducted | 台灣退租最常見情境是「扣一部分、退餘額」，原 refunded/deducted 二選一無法表達；DepositDeducted + DepositRefunded 兩事件可依序發出，PropertyAccount 分別記入 deposit_deduction 與 deposit_refund 分錄 |

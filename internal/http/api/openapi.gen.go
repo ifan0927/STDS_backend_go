@@ -793,7 +793,14 @@ type SchedulerJobTriggerResponseStatus string
 
 // SetMaintenanceRequest defines model for SetMaintenanceRequest.
 type SetMaintenanceRequest struct {
-	Reason *string `json:"reason,omitempty"`
+	Description string `json:"description"`
+	Title       string `json:"title"`
+}
+
+// SetMaintenanceResponse defines model for SetMaintenanceResponse.
+type SetMaintenanceResponse struct {
+	RepairRequest RepairRequestResponse `json:"repair_request"`
+	Room          RoomResponse          `json:"room"`
 }
 
 // TenantListResponse defines model for TenantListResponse.
@@ -1362,7 +1369,7 @@ type ServerInterface interface {
 	// 登記房間附件
 	// (POST /rooms/{id}/attachments)
 	CreateRoomAttachment(c *gin.Context, id openapi_types.UUID)
-	// 設定房間進入維修狀態（觸發 RoomSetToMaintenance event）
+	// 設定房間進入維修狀態並建立維修請求（觸發 RoomSetToMaintenance event）
 	// (POST /rooms/{id}/maintenance)
 	CreateRoomMaintenance(c *gin.Context, id string)
 	// 單房間電表歷史
