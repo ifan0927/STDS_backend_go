@@ -51,6 +51,8 @@ const (
 	CodeJournalLogNotFound = "JOURNAL_LOG_NOT_FOUND"
 	// CodeRepairRequestNotFound identifies requests that reference a missing repair request.
 	CodeRepairRequestNotFound = "REPAIR_REQUEST_NOT_FOUND"
+	// CodeAttachmentNotFound identifies requests that reference a missing attachment.
+	CodeAttachmentNotFound = "ATTACHMENT_NOT_FOUND"
 	// CodeForceTerminationNotFound identifies requests that reference a missing force termination.
 	CodeForceTerminationNotFound = "FORCE_TERMINATION_NOT_FOUND"
 	// CodeValidationElectricityPriceInvalid identifies invalid electricity price input.
@@ -207,6 +209,12 @@ var (
 		CodeRepairRequestNotFound,
 		http.StatusNotFound,
 		"Repair request not found.",
+	)
+	// ErrAttachmentNotFound is returned when a requested attachment record does not exist.
+	ErrAttachmentNotFound = New(
+		CodeAttachmentNotFound,
+		http.StatusNotFound,
+		"Attachment not found.",
 	)
 	// ErrForceTerminationNotFound is returned when a requested force termination record does not exist.
 	ErrForceTerminationNotFound = New(

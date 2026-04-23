@@ -1060,6 +1060,34 @@ func TestDeleteAttachmentRejectsUnauthorizedPropertyAccess(t *testing.T) {
 	}
 }
 
+func TestDeleteAttachmentReturnsAttachmentNotFound(t *testing.T) {
+	repo := fakeUserRepo{assignedPropertyIDs: []string{"property-1"}}
+	engine := newTestEngine(repo, fakeAuthenticator{assignedPropertyIDs: []string{"property-1"}}, fakePropertyRepo{
+		ownerByPropertyID: map[string]string{
+			"property-1": "user-1",
+		},
+	}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/attachments/10000000-0000-0000-0000-000000000099", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if payload["error_code"] != apperr.CodeAttachmentNotFound {
+		t.Fatalf("expected error_code %s, got %v", apperr.CodeAttachmentNotFound, payload["error_code"])
+	}
+}
+
 func TestGetTenantAttachmentsResolvesPropertyAccessThroughOwnershipQuery(t *testing.T) {
 	repo := fakeUserRepo{assignedPropertyIDs: []string{"property-1"}}
 	engine := newTestEngine(repo, fakeAuthenticator{assignedPropertyIDs: []string{"property-1"}}, fakePropertyRepo{}, fakeResourceOwnershipRepo{

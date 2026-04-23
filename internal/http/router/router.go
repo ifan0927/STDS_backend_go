@@ -164,7 +164,7 @@ func routePolicies(authzRepos AuthorizationRepositories) []routePolicy {
 	return []routePolicy{
 		{method: "POST", path: "/api/v1/auth/sync", authStrategy: authStrategyFirebaseTokenOnly},
 		{method: "POST", path: "/api/v1/attachments/upload-url", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
-		{method: "DELETE", path: "/api/v1/attachments/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyID("id", ownership.FindPropertyIDByAttachmentID)},
+		{method: "DELETE", path: "/api/v1/attachments/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyIDWithNotFound("id", ownership.FindPropertyIDByAttachmentID, apperr.ErrAttachmentNotFound)},
 
 		{method: "GET", path: "/api/v1/bills", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff", "owner"}},
 		{method: "GET", path: "/api/v1/bills/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff", "owner"}, propertyResolver: middleware.ResourcePropertyIDWithNotFound("id", ownership.FindPropertyIDByBillID, apperr.ErrBillNotFound)},

@@ -5839,6 +5839,11 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: ATTACHMENT_NOT_FOUND
+                    message: Attachment not found.
 components:
   securitySchemes:
     BearerAuth:
