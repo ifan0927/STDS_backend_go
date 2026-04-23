@@ -12,6 +12,9 @@ const (
 	codeForbiddenElectricityPriceUpdate = "FORBIDDEN_ELECTRICITY_PRICE_UPDATE"
 	codeElectricityPriceMustBePositive  = "ELECTRICITY_PRICE_MUST_BE_POSITIVE"
 	codePropertyHasOccupiedRooms        = "PROPERTY_HAS_OCCUPIED_ROOMS"
+	codeValidationRoomNameRequired      = "VALIDATION_ROOM_NAME_REQUIRED"
+	codeRoomIsOccupied                  = "ROOM_IS_OCCUPIED"
+	codeRoomIsInMaintenance             = "ROOM_IS_IN_MAINTENANCE"
 )
 
 var (
@@ -29,6 +32,21 @@ var (
 		codePropertyHasOccupiedRooms,
 		http.StatusUnprocessableEntity,
 		"Property has occupied rooms.",
+	)
+	errValidationRoomNameRequired = apperr.New(
+		codeValidationRoomNameRequired,
+		http.StatusBadRequest,
+		"Room name is required.",
+	)
+	errRoomIsOccupied = apperr.New(
+		codeRoomIsOccupied,
+		http.StatusUnprocessableEntity,
+		"Room is occupied.",
+	)
+	errRoomIsInMaintenance = apperr.New(
+		codeRoomIsInMaintenance,
+		http.StatusUnprocessableEntity,
+		"Room is in maintenance.",
 	)
 )
 
@@ -52,6 +70,14 @@ func mapDomainError(err error) error {
 		return errForbiddenElectricityPriceUpdate
 	case errors.Is(err, domainproperty.ErrElectricityPriceMustBePositive):
 		return errElectricityPriceMustBePositive
+	case errors.Is(err, domainproperty.ErrRoomNameRequired):
+		return errValidationRoomNameRequired
+	case errors.Is(err, domainproperty.ErrRoomIsOccupied):
+		return errRoomIsOccupied
+	case errors.Is(err, domainproperty.ErrRoomIsInMaintenance):
+		return errRoomIsInMaintenance
+	case errors.Is(err, domainproperty.ErrBadRoomStatus):
+		return apperr.ErrInternalServerError.WithCause(err)
 	default:
 		var occupiedErr *domainproperty.OccupiedRoomsError
 		if errors.As(err, &occupiedErr) {

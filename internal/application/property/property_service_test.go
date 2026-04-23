@@ -28,12 +28,21 @@ type propertyRepoStub struct {
 	created         *Property
 	current         *Property
 	updated         *Property
+	room            *Room
+	createdRoom     *Room
+	updatedRoom     *Room
+	repairRequest   *RepairRequest
 	occupiedRoomIDs []string
 	createErr       error
 	findErr         error
 	updateErr       error
+	findRoomErr     error
+	createRoomErr   error
+	updateRoomErr   error
+	repairErr       error
 	listOccupiedErr error
 	deleteErr       error
+	deleteRoomErr   error
 }
 
 func (s propertyRepoStub) Create(context.Context, *sql.Tx, CreatePropertyParams) (*Property, error) {
@@ -60,6 +69,35 @@ func (s propertyRepoStub) ListOccupiedRoomIDs(context.Context, *sql.Tx, string) 
 
 func (s propertyRepoStub) SoftDelete(context.Context, *sql.Tx, string, int) error {
 	return s.deleteErr
+}
+
+func (s propertyRepoStub) CreateRoom(context.Context, *sql.Tx, CreateRoomParams) (*Room, error) {
+	return s.createdRoom, s.createRoomErr
+}
+
+func (s propertyRepoStub) FindRoomByID(context.Context, *sql.Tx, string) (*Room, error) {
+	if s.findRoomErr != nil {
+		return nil, s.findRoomErr
+	}
+	return s.room, nil
+}
+
+func (s propertyRepoStub) UpdateRoom(context.Context, *sql.Tx, UpdateRoomParams) (*Room, error) {
+	if s.updateRoomErr != nil {
+		return nil, s.updateRoomErr
+	}
+	return s.updatedRoom, nil
+}
+
+func (s propertyRepoStub) SoftDeleteRoom(context.Context, *sql.Tx, string) error {
+	return s.deleteRoomErr
+}
+
+func (s propertyRepoStub) CreateRepairRequest(context.Context, *sql.Tx, CreateRepairRequestParams) (*RepairRequest, error) {
+	if s.repairErr != nil {
+		return nil, s.repairErr
+	}
+	return s.repairRequest, nil
 }
 
 func TestCreatePropertyServicePublishesPropertyCreatedAfterCommit(t *testing.T) {
