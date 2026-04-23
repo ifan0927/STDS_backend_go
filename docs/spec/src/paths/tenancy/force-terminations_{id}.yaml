@@ -34,3 +34,8 @@ get:
         application/json:
           schema:
             $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: FORCE_TERMINATION_NOT_FOUND
+                message: 找不到強制終止記錄

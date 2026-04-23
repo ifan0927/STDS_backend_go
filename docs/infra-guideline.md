@@ -117,6 +117,12 @@
 
 你在新 API 開發時，**原則上不應改這條 middleware 鏈**，除非你真的新增新的 cross-cutting concern。
 
+補充：
+
+- 這條鏈可以維持不變，但 `RequirePropertyAccess` 使用的 resolver 必須攜帶正確的 resource not-found 語意
+- 不要把 resource lookup 的 `not found` 一律壓成 `FORBIDDEN`
+- 對 `/properties/:id/...` 這種直接吃 property id 的 route，也要維持 `PROPERTY_NOT_FOUND` 與 `FORBIDDEN` 的區分
+
 ---
 
 ## Logging Strategy
@@ -437,6 +443,12 @@ Repository 原則：
 - **auth / authorization 骨架本身已經先建好了**
 - checklist 提到的 `auth`，不是要你重寫 middleware
 - 而是要你在 `internal/http/router/router.go` 的 route policy 裡，明確接上這支 API 要用哪種既有保護規則
+
+另外要注意：
+
+- 如果 route 是 `ResourcePropertyID(...)` 這類先 lookup resource 再回推 property scope 的模式，router policy 不能只表達「怎麼找到 property」
+- router policy 還必須同時表達「這個 resource 不存在時要回哪個 not-found error code」
+- 例如 room route 應回 `ROOM_NOT_FOUND`，bill route 應回 `BILL_NOT_FOUND`，不能共用一個模糊的 `FORBIDDEN`
 
 ### Scheduler Auth
 

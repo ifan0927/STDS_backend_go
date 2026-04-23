@@ -3159,6 +3159,11 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: FORCE_TERMINATION_NOT_FOUND
+                    message: 找不到強制終止記錄
   /leases/{id}/deposit:
     patch:
       operationId: updateLeaseDeposit

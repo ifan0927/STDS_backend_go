@@ -15,6 +15,7 @@ import (
 
 	"stds_backend/internal/http/requestctx"
 	dbproperties "stds_backend/internal/platform/database/properties"
+	dbresourceownership "stds_backend/internal/platform/database/resourceownership"
 	"stds_backend/internal/platform/database/users"
 	platformfirebase "stds_backend/internal/platform/firebase"
 	"stds_backend/internal/shared/apperr"
@@ -250,7 +251,11 @@ func TestRequirePropertyAccessReturnsForbidden(t *testing.T) {
 			AssignedPropertyIDs: []string{"property-2"},
 		})
 		c.Next()
-	}, RequirePropertyAccess(ParamPropertyID("id"), fakePropertyRepo{}), func(c *gin.Context) {
+	}, RequirePropertyAccess(ParamPropertyID("id"), fakePropertyRepo{
+		ownerByPropertyID: map[string]string{
+			"property-1": "owner-1",
+		},
+	}), func(c *gin.Context) {
 		c.Status(http.StatusOK)
 	})
 
@@ -259,6 +264,84 @@ func TestRequirePropertyAccessReturnsForbidden(t *testing.T) {
 	engine.ServeHTTP(resp, req)
 
 	assertErrorCode(t, resp, http.StatusForbidden, "FORBIDDEN")
+}
+
+func TestRequirePropertyAccessReturnsPropertyNotFoundForMissingProperty(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	engine := gin.New()
+	engine.Use(RequestID(), ErrorHandler(testLoggerBuffer(nil)))
+	engine.GET("/properties/:id", func(c *gin.Context) {
+		requestctx.SetPrincipal(c, requestctx.Principal{
+			Role:                "organizer",
+			AssignedPropertyIDs: []string{"property-2"},
+		})
+		c.Next()
+	}, RequirePropertyAccess(ParamPropertyID("id"), fakePropertyRepo{}), func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/properties/property-missing", nil)
+	resp := httptest.NewRecorder()
+	engine.ServeHTTP(resp, req)
+
+	assertErrorCode(t, resp, http.StatusNotFound, "PROPERTY_NOT_FOUND")
+}
+
+func TestRequirePropertyAccessReturnsRoomNotFoundForMissingRoomLookup(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	engine := gin.New()
+	engine.Use(RequestID(), ErrorHandler(testLoggerBuffer(nil)))
+	engine.GET("/rooms/:id", func(c *gin.Context) {
+		requestctx.SetPrincipal(c, requestctx.Principal{
+			Role:                "organizer",
+			AssignedPropertyIDs: []string{"property-1"},
+		})
+		c.Next()
+	}, RequirePropertyAccess(ResourcePropertyIDWithNotFound("id", func(_ context.Context, _ string) (string, error) {
+		return "", dbresourceownership.ErrNotFound
+	}, apperr.ErrRoomNotFound), fakePropertyRepo{
+		ownerByPropertyID: map[string]string{
+			"property-1": "owner-1",
+		},
+	}), func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/rooms/room-missing", nil)
+	resp := httptest.NewRecorder()
+	engine.ServeHTTP(resp, req)
+
+	assertErrorCode(t, resp, http.StatusNotFound, "ROOM_NOT_FOUND")
+}
+
+func TestRequirePropertyAccessReturnsInternalServerErrorForUnexpectedResolverFailure(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	engine := gin.New()
+	engine.Use(RequestID(), ErrorHandler(testLoggerBuffer(nil)))
+	engine.GET("/rooms/:id", func(c *gin.Context) {
+		requestctx.SetPrincipal(c, requestctx.Principal{
+			Role:                "organizer",
+			AssignedPropertyIDs: []string{"property-1"},
+		})
+		c.Next()
+	}, RequirePropertyAccess(ResourcePropertyID("id", func(_ context.Context, _ string) (string, error) {
+		return "", errors.New("db down")
+	}), fakePropertyRepo{
+		ownerByPropertyID: map[string]string{
+			"property-1": "owner-1",
+		},
+	}), func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/rooms/room-1", nil)
+	resp := httptest.NewRecorder()
+	engine.ServeHTTP(resp, req)
+
+	assertErrorCode(t, resp, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR")
 }
 
 func TestRequirePropertyAccessAllowsOwnerForOwnedProperty(t *testing.T) {

@@ -73,7 +73,11 @@ func TestPropertyAttachmentWrapperRejectsInvalidUUIDWithStandardErrorResponse(t 
 
 func TestGetPropertyRejectsUnauthorizedPropertyAccess(t *testing.T) {
 	repo := fakeUserRepo{assignedPropertyIDs: []string{"property-2"}}
-	engine := newTestEngine(repo, fakeAuthenticator{assignedPropertyIDs: []string{"property-2"}}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+	engine := newTestEngine(repo, fakeAuthenticator{assignedPropertyIDs: []string{"property-2"}}, fakePropertyRepo{
+		ownerByPropertyID: map[string]string{
+			"property-1": "user-1",
+		},
+	}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/properties/property-1", nil)
 	req.Header.Set("Authorization", "Bearer valid-token")
@@ -88,7 +92,11 @@ func TestGetPropertyRejectsUnauthorizedPropertyAccess(t *testing.T) {
 
 func TestGetPropertyUsesDBPrincipalInsteadOfClaims(t *testing.T) {
 	repo := fakeUserRepo{assignedPropertyIDs: []string{"property-2"}}
-	engine := newTestEngine(repo, fakeAuthenticator{assignedPropertyIDs: []string{"property-1"}}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+	engine := newTestEngine(repo, fakeAuthenticator{assignedPropertyIDs: []string{"property-1"}}, fakePropertyRepo{
+		ownerByPropertyID: map[string]string{
+			"property-1": "user-1",
+		},
+	}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/properties/property-1", nil)
 	req.Header.Set("Authorization", "Bearer valid-token")
@@ -874,6 +882,110 @@ func TestGetBillResolvesPropertyAccessThroughOwnershipQuery(t *testing.T) {
 	}
 }
 
+func TestProtectedRoutesReturnResourceSpecificNotFoundCodes(t *testing.T) {
+	tests := []struct {
+		name          string
+		path          string
+		expectedCode  string
+		expectedHTTP  int
+		userRepo      fakeUserRepo
+		authenticator fakeAuthenticator
+		propertyRepo  fakePropertyRepo
+		ownershipRepo fakeResourceOwnershipRepo
+	}{
+		{
+			name:          "property rooms missing property",
+			path:          "/api/v1/properties/property-missing/rooms",
+			expectedCode:  apperr.CodePropertyNotFound,
+			expectedHTTP:  http.StatusNotFound,
+			userRepo:      fakeUserRepo{assignedPropertyIDs: []string{"property-2"}},
+			authenticator: fakeAuthenticator{assignedPropertyIDs: []string{"property-2"}},
+			propertyRepo:  fakePropertyRepo{},
+		},
+		{
+			name:          "room detail missing room",
+			path:          "/api/v1/rooms/room-missing",
+			expectedCode:  apperr.CodeRoomNotFound,
+			expectedHTTP:  http.StatusNotFound,
+			userRepo:      fakeUserRepo{assignedPropertyIDs: []string{"property-1"}},
+			authenticator: fakeAuthenticator{assignedPropertyIDs: []string{"property-1"}},
+		},
+		{
+			name:          "bill detail missing bill",
+			path:          "/api/v1/bills/bill-missing",
+			expectedCode:  apperr.CodeBillNotFound,
+			expectedHTTP:  http.StatusNotFound,
+			userRepo:      fakeUserRepo{assignedPropertyIDs: []string{"property-1"}},
+			authenticator: fakeAuthenticator{assignedPropertyIDs: []string{"property-1"}},
+		},
+		{
+			name:          "lease detail missing lease",
+			path:          "/api/v1/leases/lease-missing",
+			expectedCode:  apperr.CodeLeaseNotFound,
+			expectedHTTP:  http.StatusNotFound,
+			userRepo:      fakeUserRepo{assignedPropertyIDs: []string{"property-1"}},
+			authenticator: fakeAuthenticator{assignedPropertyIDs: []string{"property-1"}},
+		},
+		{
+			name:          "force termination detail missing record",
+			path:          "/api/v1/force-terminations/10000000-0000-0000-0000-000000000222",
+			expectedCode:  apperr.CodeForceTerminationNotFound,
+			expectedHTTP:  http.StatusNotFound,
+			userRepo:      fakeUserRepo{role: "organizer", assignedPropertyIDs: []string{"property-1"}},
+			authenticator: fakeAuthenticator{role: "organizer", assignedPropertyIDs: []string{"property-1"}},
+		},
+		{
+			name:          "journal log detail missing journal log",
+			path:          "/api/v1/journal-logs/journal-missing",
+			expectedCode:  apperr.CodeJournalLogNotFound,
+			expectedHTTP:  http.StatusNotFound,
+			userRepo:      fakeUserRepo{assignedPropertyIDs: []string{"property-1"}},
+			authenticator: fakeAuthenticator{assignedPropertyIDs: []string{"property-1"}},
+		},
+		{
+			name:          "repair request detail missing repair request",
+			path:          "/api/v1/repair-requests/repair-missing",
+			expectedCode:  apperr.CodeRepairRequestNotFound,
+			expectedHTTP:  http.StatusNotFound,
+			userRepo:      fakeUserRepo{assignedPropertyIDs: []string{"property-1"}},
+			authenticator: fakeAuthenticator{assignedPropertyIDs: []string{"property-1"}},
+		},
+		{
+			name:          "tenant attachment missing tenant",
+			path:          "/api/v1/tenants/10000000-0000-0000-0000-000000000111/attachments",
+			expectedCode:  apperr.CodeTenantNotFound,
+			expectedHTTP:  http.StatusNotFound,
+			userRepo:      fakeUserRepo{assignedPropertyIDs: []string{"property-1"}},
+			authenticator: fakeAuthenticator{assignedPropertyIDs: []string{"property-1"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			engine := newTestEngine(tt.userRepo, tt.authenticator, tt.propertyRepo, tt.ownershipRepo, "", fakeJobRunsRepo{})
+
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			req.Header.Set("Authorization", "Bearer valid-token")
+			resp := httptest.NewRecorder()
+
+			engine.ServeHTTP(resp, req)
+
+			if resp.Code != tt.expectedHTTP {
+				t.Fatalf("expected %d, got %d: %s", tt.expectedHTTP, resp.Code, resp.Body.String())
+			}
+
+			payload := map[string]any{}
+			if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+				t.Fatalf("unmarshal response: %v", err)
+			}
+
+			if payload["error_code"] != tt.expectedCode {
+				t.Fatalf("expected error_code %s, got %v", tt.expectedCode, payload["error_code"])
+			}
+		})
+	}
+}
+
 func TestGetPropertyAttachmentsUsesPropertyAccessPolicy(t *testing.T) {
 	propertyID := "10000000-0000-0000-0000-000000000001"
 	repo := fakeUserRepo{assignedPropertyIDs: []string{propertyID}}
@@ -927,7 +1039,11 @@ func TestDeleteAttachmentResolvesPropertyAccessThroughOwnershipQuery(t *testing.
 
 func TestDeleteAttachmentRejectsUnauthorizedPropertyAccess(t *testing.T) {
 	repo := fakeUserRepo{assignedPropertyIDs: []string{"property-2"}}
-	engine := newTestEngine(repo, fakeAuthenticator{assignedPropertyIDs: []string{"property-2"}}, fakePropertyRepo{}, fakeResourceOwnershipRepo{
+	engine := newTestEngine(repo, fakeAuthenticator{assignedPropertyIDs: []string{"property-2"}}, fakePropertyRepo{
+		ownerByPropertyID: map[string]string{
+			"property-1": "user-1",
+		},
+	}, fakeResourceOwnershipRepo{
 		propertyByAttachmentID: map[string]string{
 			"10000000-0000-0000-0000-000000000099": "property-1",
 		},

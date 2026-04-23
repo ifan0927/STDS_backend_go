@@ -9,6 +9,7 @@ import (
 
 	"stds_backend/internal/http/requestctx"
 	dbproperties "stds_backend/internal/platform/database/properties"
+	dbresourceownership "stds_backend/internal/platform/database/resourceownership"
 	"stds_backend/internal/shared/apperr"
 )
 
@@ -65,7 +66,7 @@ func RequirePropertyAccess(resolvePropertyID PropertyIDResolver, propertyRepo db
 
 		propertyID, err := resolvePropertyID(c)
 		if err != nil {
-			c.Error(apperr.ErrForbidden.WithCause(err))
+			c.Error(mapPropertyResolverError(err))
 			c.Abort()
 			return
 		}
@@ -80,7 +81,7 @@ func RequirePropertyAccess(resolvePropertyID PropertyIDResolver, propertyRepo db
 		if principal.Role == "owner" {
 			ownerID, err := propertyRepo.FindOwnerIDByPropertyID(c.Request.Context(), propertyID)
 			if err != nil {
-				c.Error(apperr.ErrForbidden.WithCause(err))
+				c.Error(mapPropertyLookupError(err))
 				c.Abort()
 				return
 			}
@@ -102,6 +103,12 @@ func RequirePropertyAccess(resolvePropertyID PropertyIDResolver, propertyRepo db
 				c.Next()
 				return
 			}
+		}
+
+		if _, err := propertyRepo.FindOwnerIDByPropertyID(c.Request.Context(), propertyID); err != nil {
+			c.Error(mapPropertyLookupError(err))
+			c.Abort()
+			return
 		}
 
 		c.Error(apperr.ErrForbidden.WithDetails(map[string]interface{}{
@@ -126,6 +133,14 @@ func ParamPropertyID(param string) PropertyIDResolver {
 // ResourcePropertyID returns a resolver that first extracts a route parameter
 // and then maps it back to a property id through a repository lookup.
 func ResourcePropertyID(param string, lookup PropertyLookup) PropertyIDResolver {
+	return ResourcePropertyIDWithNotFound(param, lookup, nil)
+}
+
+// ResourcePropertyIDWithNotFound returns a resolver that first extracts a
+// route parameter and then maps it back to a property id through a repository
+// lookup, translating lookup not-found results into the provided application
+// error when configured.
+func ResourcePropertyIDWithNotFound(param string, lookup PropertyLookup, notFoundErr *apperr.Error) PropertyIDResolver {
 	return func(c *gin.Context) (string, error) {
 		if param == "" {
 			return "", errors.New("resource param is required")
@@ -139,6 +154,33 @@ func ResourcePropertyID(param string, lookup PropertyLookup) PropertyIDResolver 
 			return "", fmt.Errorf("resource param %q is empty", param)
 		}
 
-		return lookup(c.Request.Context(), resourceID)
+		propertyID, err := lookup(c.Request.Context(), resourceID)
+		if err != nil {
+			if errors.Is(err, dbresourceownership.ErrNotFound) && notFoundErr != nil {
+				return "", notFoundErr.WithCause(err)
+			}
+
+			return "", err
+		}
+
+		return propertyID, nil
+	}
+}
+
+func mapPropertyResolverError(err error) error {
+	var appErr *apperr.Error
+	if errors.As(err, &appErr) {
+		return appErr
+	}
+
+	return apperr.ErrInternalServerError.WithCause(err)
+}
+
+func mapPropertyLookupError(err error) error {
+	switch {
+	case errors.Is(err, dbproperties.ErrNotFound):
+		return apperr.ErrPropertyNotFound.WithCause(err)
+	default:
+		return apperr.ErrInternalServerError.WithCause(err)
 	}
 }
