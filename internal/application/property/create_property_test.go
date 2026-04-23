@@ -107,3 +107,23 @@ func (a sqlPropertyRepositoryAdapter) ListOccupiedRoomIDs(context.Context, *sql.
 func (a sqlPropertyRepositoryAdapter) SoftDelete(context.Context, *sql.Tx, string, int) error {
 	return nil
 }
+
+func (a sqlPropertyRepositoryAdapter) CreateRoom(context.Context, *sql.Tx, CreateRoomParams) (*Room, error) {
+	return nil, nil
+}
+
+func (a sqlPropertyRepositoryAdapter) FindRoomByID(context.Context, *sql.Tx, string) (*Room, error) {
+	return nil, nil
+}
+
+func (a sqlPropertyRepositoryAdapter) UpdateRoom(context.Context, *sql.Tx, UpdateRoomParams) (*Room, error) {
+	return nil, nil
+}
+
+func (a sqlPropertyRepositoryAdapter) SoftDeleteRoom(context.Context, *sql.Tx, string) error {
+	return nil
+}
+
+func (a sqlPropertyRepositoryAdapter) CreateRepairRequest(context.Context, *sql.Tx, CreateRepairRequestParams) (*RepairRequest, error) {
+	return nil, nil
+}

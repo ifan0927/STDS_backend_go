@@ -23,6 +23,33 @@ type Property struct {
 	Version                          int
 }
 
+// Room is the application-facing room shape for room command use cases.
+type Room struct {
+	ID         string
+	PropertyID string
+	Name       string
+	Status     string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
+// RepairRequest is the application-facing repair request shape for maintenance entry.
+type RepairRequest struct {
+	ID          string
+	PropertyID  string
+	RoomID      string
+	SubmittedBy string
+	Title       string
+	Description string
+	Status      string
+	SubmittedAt time.Time
+	AssignedAt  *time.Time
+	AssignedTo  *string
+	CompletedAt *time.Time
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
 // CreatePropertyParams contains the writable fields required to create a
 // property.
 type CreatePropertyParams struct {
@@ -45,6 +72,28 @@ type UpdatePropertyParams struct {
 	Version                          int
 }
 
+// CreateRoomParams contains the writable fields required to create a room.
+type CreateRoomParams struct {
+	PropertyID string
+	Name       string
+}
+
+// UpdateRoomParams contains the writable fields required to persist a room update.
+type UpdateRoomParams struct {
+	ID     string
+	Name   string
+	Status *string
+}
+
+// CreateRepairRequestParams contains the writable fields required to create a room-scoped repair request.
+type CreateRepairRequestParams struct {
+	PropertyID  string
+	RoomID      string
+	SubmittedBy string
+	Title       string
+	Description string
+}
+
 // Repository defines persistence needed by property application services.
 type Repository interface {
 	Create(ctx context.Context, tx *sql.Tx, params CreatePropertyParams) (*Property, error)
@@ -52,4 +101,9 @@ type Repository interface {
 	Update(ctx context.Context, tx *sql.Tx, params UpdatePropertyParams) (*Property, error)
 	ListOccupiedRoomIDs(ctx context.Context, tx *sql.Tx, propertyID string) ([]string, error)
 	SoftDelete(ctx context.Context, tx *sql.Tx, id string, version int) error
+	CreateRoom(ctx context.Context, tx *sql.Tx, params CreateRoomParams) (*Room, error)
+	FindRoomByID(ctx context.Context, tx *sql.Tx, id string) (*Room, error)
+	UpdateRoom(ctx context.Context, tx *sql.Tx, params UpdateRoomParams) (*Room, error)
+	SoftDeleteRoom(ctx context.Context, tx *sql.Tx, id string) error
+	CreateRepairRequest(ctx context.Context, tx *sql.Tx, params CreateRepairRequestParams) (*RepairRequest, error)
 }

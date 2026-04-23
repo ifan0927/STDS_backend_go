@@ -37,6 +37,10 @@ type APIServer struct {
 	createPropertySvc *appproperty.CreatePropertyService
 	updatePropertySvc *appproperty.UpdatePropertyService
 	deletePropertySvc *appproperty.DeletePropertyService
+	createRoomSvc     *appproperty.CreateRoomService
+	updateRoomSvc     *appproperty.UpdateRoomService
+	deleteRoomSvc     *appproperty.DeleteRoomService
+	setMaintenanceSvc *appproperty.SetRoomMaintenanceService
 }
 
 // NewAPIServer returns an API server with only the currently implemented
@@ -54,6 +58,10 @@ func NewAPIServer(
 	createPropertySvc *appproperty.CreatePropertyService,
 	updatePropertySvc *appproperty.UpdatePropertyService,
 	deletePropertySvc *appproperty.DeletePropertyService,
+	createRoomSvc *appproperty.CreateRoomService,
+	updateRoomSvc *appproperty.UpdateRoomService,
+	deleteRoomSvc *appproperty.DeleteRoomService,
+	setMaintenanceSvc *appproperty.SetRoomMaintenanceService,
 ) *APIServer {
 	return &APIServer{
 		userRepo:          userRepo,
@@ -68,6 +76,10 @@ func NewAPIServer(
 		createPropertySvc: createPropertySvc,
 		updatePropertySvc: updatePropertySvc,
 		deletePropertySvc: deletePropertySvc,
+		createRoomSvc:     createRoomSvc,
+		updateRoomSvc:     updateRoomSvc,
+		deleteRoomSvc:     deleteRoomSvc,
+		setMaintenanceSvc: setMaintenanceSvc,
 	}
 }
 
@@ -417,7 +429,24 @@ func (s *APIServer) ListPropertyRooms(c *gin.Context, id string, params api.List
 }
 
 // CreatePropertyRoom handles room creation within a property.
-func (s *APIServer) CreatePropertyRoom(c *gin.Context, id string) { writeNotImplemented(c) }
+func (s *APIServer) CreatePropertyRoom(c *gin.Context, id string) {
+	var request api.CreateRoomRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.Error(apperr.ErrBadRequest.WithCause(err))
+		return
+	}
+
+	room, err := s.createRoomSvc.Execute(c.Request.Context(), appproperty.CreateRoomInput{
+		PropertyID: id,
+		Name:       request.Name,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusCreated, toCreatedRoomResponse(room))
+}
 
 // ListRepairRequests handles the repair request listing endpoint.
 func (s *APIServer) ListRepairRequests(c *gin.Context, params api.ListRepairRequestsParams) {
@@ -459,7 +488,14 @@ func (s *APIServer) CompleteRepairRequest(c *gin.Context, id string) { writeNotI
 func (s *APIServer) ProgressRepairRequest(c *gin.Context, id string) { writeNotImplemented(c) }
 
 // DeleteRoom handles room deletion.
-func (s *APIServer) DeleteRoom(c *gin.Context, id string) { writeNotImplemented(c) }
+func (s *APIServer) DeleteRoom(c *gin.Context, id string) {
+	if err := s.deleteRoomSvc.Execute(c.Request.Context(), appproperty.DeleteRoomInput{ID: id}); err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.Status(http.StatusNoContent)
+}
 
 // GetRoom handles room detail retrieval.
 func (s *APIServer) GetRoom(c *gin.Context, id string) {
@@ -488,10 +524,55 @@ func (s *APIServer) CreateRoomAttachment(c *gin.Context, id openapi_types.UUID) 
 }
 
 // UpdateRoom handles room updates.
-func (s *APIServer) UpdateRoom(c *gin.Context, id string) { writeNotImplemented(c) }
+func (s *APIServer) UpdateRoom(c *gin.Context, id string) {
+	var request api.UpdateRoomRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.Error(apperr.ErrBadRequest.WithCause(err))
+		return
+	}
+
+	room, err := s.updateRoomSvc.Execute(c.Request.Context(), appproperty.UpdateRoomInput{
+		ID:   id,
+		Name: request.Name,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toCreatedRoomResponse(room))
+}
 
 // CreateRoomMaintenance handles setting room maintenance state.
-func (s *APIServer) CreateRoomMaintenance(c *gin.Context, id string) { writeNotImplemented(c) }
+func (s *APIServer) CreateRoomMaintenance(c *gin.Context, id string) {
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	var request api.SetMaintenanceRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.Error(apperr.ErrBadRequest.WithCause(err))
+		return
+	}
+
+	result, err := s.setMaintenanceSvc.Execute(c.Request.Context(), appproperty.SetRoomMaintenanceInput{
+		RoomID:      id,
+		OperatorID:  principal.UserID,
+		Title:       request.Title,
+		Description: request.Description,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, api.SetMaintenanceResponse{
+		Room:          toCreatedRoomResponse(result.Room),
+		RepairRequest: toRepairRequestResponse(result.RepairRequest),
+	})
+}
 
 // ListRoomMeterHistory handles room meter history retrieval.
 func (s *APIServer) ListRoomMeterHistory(c *gin.Context, id string, params api.ListRoomMeterHistoryParams) {
@@ -992,6 +1073,63 @@ func toCreatedPropertyResponse(property *appproperty.Property) api.PropertyRespo
 	}
 
 	return toPropertyResponse(queryShape)
+}
+
+func toCreatedRoomResponse(room *appproperty.Room) api.RoomResponse {
+	queryShape := &dbpropertyquery.Room{
+		ID:         room.ID,
+		PropertyID: room.PropertyID,
+		Name:       room.Name,
+		Status:     room.Status,
+		CreatedAt:  room.CreatedAt,
+		UpdatedAt:  room.UpdatedAt,
+	}
+
+	return toRoomResponse(queryShape)
+}
+
+func toRepairRequestResponse(repairRequest *appproperty.RepairRequest) api.RepairRequestResponse {
+	id, ok := parseUUID(repairRequest.ID)
+	propertyID, propertyOK := parseUUID(repairRequest.PropertyID)
+	roomID, roomOK := parseUUID(repairRequest.RoomID)
+	submittedBy, submittedByOK := parseUUID(repairRequest.SubmittedBy)
+	title := repairRequest.Title
+	description := repairRequest.Description
+	status := api.RepairRequestResponseStatus(repairRequest.Status)
+	submittedAt := repairRequest.SubmittedAt
+	createdAt := repairRequest.CreatedAt
+	updatedAt := repairRequest.UpdatedAt
+
+	response := api.RepairRequestResponse{
+		AssignedAt:  repairRequest.AssignedAt,
+		CompletedAt: repairRequest.CompletedAt,
+		CreatedAt:   &createdAt,
+		Description: &description,
+		Status:      &status,
+		SubmittedAt: &submittedAt,
+		Title:       &title,
+		UpdatedAt:   &updatedAt,
+	}
+	if ok {
+		response.Id = &id
+	}
+	if propertyOK {
+		response.PropertyId = &propertyID
+	}
+	if roomOK {
+		response.RoomId = &roomID
+	}
+	if submittedByOK {
+		response.SubmittedBy = &submittedBy
+	}
+	if repairRequest.AssignedTo != nil {
+		assignedTo, assignedToOK := parseUUID(*repairRequest.AssignedTo)
+		if assignedToOK {
+			response.AssignedTo = &assignedTo
+		}
+	}
+
+	return response
 }
 
 func isSupportedRoomStatus(status string) bool {

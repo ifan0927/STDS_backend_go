@@ -23,6 +23,11 @@ type CommandRepository interface {
 	Update(ctx context.Context, tx *sql.Tx, params UpdatePropertyParams) (*Property, error)
 	ListOccupiedRoomIDs(ctx context.Context, tx *sql.Tx, propertyID string) ([]string, error)
 	SoftDelete(ctx context.Context, tx *sql.Tx, id string, version int) error
+	CreateRoom(ctx context.Context, tx *sql.Tx, params CreateRoomParams) (*Room, error)
+	FindRoomByID(ctx context.Context, tx *sql.Tx, id string) (*Room, error)
+	UpdateRoom(ctx context.Context, tx *sql.Tx, params UpdateRoomParams) (*Room, error)
+	SoftDeleteRoom(ctx context.Context, tx *sql.Tx, id string) error
+	CreateRepairRequest(ctx context.Context, tx *sql.Tx, params CreateRepairRequestParams) (*RepairRequest, error)
 }
 
 // Property is the persisted property aggregate state used by write flows.
@@ -36,6 +41,33 @@ type Property struct {
 	CreatedAt                        time.Time
 	UpdatedAt                        time.Time
 	Version                          int
+}
+
+// Room is the persisted room state used by write flows.
+type Room struct {
+	ID         string
+	PropertyID string
+	Name       string
+	Status     string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
+// RepairRequest is the persisted repair request state used by write flows.
+type RepairRequest struct {
+	ID          string
+	PropertyID  string
+	RoomID      string
+	SubmittedBy string
+	AssignedTo  *string
+	Title       string
+	Description string
+	Status      string
+	SubmittedAt time.Time
+	AssignedAt  *time.Time
+	CompletedAt *time.Time
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 // CreatePropertyParams contains the writable fields required to persist a property.
@@ -56,6 +88,28 @@ type UpdatePropertyParams struct {
 	DefaultElectricityBillingCadence string
 	OwnerID                          string
 	Version                          int
+}
+
+// CreateRoomParams contains the writable fields required to persist a room.
+type CreateRoomParams struct {
+	PropertyID string
+	Name       string
+}
+
+// UpdateRoomParams contains the writable fields required to persist a room update.
+type UpdateRoomParams struct {
+	ID     string
+	Name   string
+	Status *string
+}
+
+// CreateRepairRequestParams contains the writable fields required to persist a repair request.
+type CreateRepairRequestParams struct {
+	PropertyID  string
+	RoomID      string
+	SubmittedBy string
+	Title       string
+	Description string
 }
 
 // SQLRepository loads property ownership data from PostgreSQL.
@@ -250,6 +304,151 @@ WHERE id = $1
 	return nil
 }
 
+// CreateRoom persists a new room row within the provided transaction.
+func (r *SQLRepository) CreateRoom(ctx context.Context, tx *sql.Tx, params CreateRoomParams) (*Room, error) {
+	const query = `
+INSERT INTO rooms (
+	property_id,
+	name
+) VALUES ($1, $2)
+RETURNING
+	id,
+	property_id,
+	name,
+	status,
+	created_at,
+	updated_at
+`
+
+	room, err := scanRoom(tx.QueryRowContext(ctx, query, params.PropertyID, params.Name))
+	if err != nil {
+		return nil, fmt.Errorf("create room: %w", err)
+	}
+
+	return room, nil
+}
+
+// FindRoomByID loads a single active room inside the provided transaction.
+func (r *SQLRepository) FindRoomByID(ctx context.Context, tx *sql.Tx, id string) (*Room, error) {
+	const query = `
+SELECT
+	id,
+	property_id,
+	name,
+	status,
+	created_at,
+	updated_at
+FROM rooms
+WHERE id = $1
+  AND deleted_at IS NULL
+LIMIT 1
+`
+
+	room, err := scanRoom(tx.QueryRowContext(ctx, query, id))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("find room by id: %w", err)
+	}
+
+	return room, nil
+}
+
+// UpdateRoom persists a room mutation inside the provided transaction.
+func (r *SQLRepository) UpdateRoom(ctx context.Context, tx *sql.Tx, params UpdateRoomParams) (*Room, error) {
+	status := ""
+	if params.Status != nil {
+		status = *params.Status
+	}
+
+	const query = `
+UPDATE rooms
+SET name = $2,
+	status = CASE WHEN $3 = '' THEN status ELSE $3 END,
+	updated_at = now()
+WHERE id = $1
+  AND deleted_at IS NULL
+RETURNING
+	id,
+	property_id,
+	name,
+	status,
+	created_at,
+	updated_at
+`
+
+	room, err := scanRoom(tx.QueryRowContext(ctx, query, params.ID, params.Name, status))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("update room: %w", err)
+	}
+
+	return room, nil
+}
+
+// SoftDeleteRoom marks an active room as deleted inside the provided transaction.
+func (r *SQLRepository) SoftDeleteRoom(ctx context.Context, tx *sql.Tx, id string) error {
+	const query = `
+UPDATE rooms
+SET deleted_at = now(),
+	updated_at = now()
+WHERE id = $1
+  AND deleted_at IS NULL
+`
+
+	result, err := tx.ExecContext(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("soft delete room: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("soft delete room rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
+// CreateRepairRequest persists a new room-scoped repair request within the provided transaction.
+func (r *SQLRepository) CreateRepairRequest(ctx context.Context, tx *sql.Tx, params CreateRepairRequestParams) (*RepairRequest, error) {
+	const query = `
+INSERT INTO repair_requests (
+	property_id,
+	room_id,
+	submitted_by,
+	title,
+	description
+) VALUES ($1, $2, $3, $4, $5)
+RETURNING
+	id,
+	property_id,
+	room_id,
+	submitted_by,
+	assigned_to,
+	title,
+	description,
+	status,
+	submitted_at,
+	assigned_at,
+	completed_at,
+	created_at,
+	updated_at
+`
+
+	repairRequest, err := scanRepairRequest(tx.QueryRowContext(ctx, query, params.PropertyID, params.RoomID, params.SubmittedBy, params.Title, params.Description))
+	if err != nil {
+		return nil, fmt.Errorf("create repair request: %w", err)
+	}
+
+	return repairRequest, nil
+}
+
 type rowScanner interface {
 	Scan(dest ...any) error
 }
@@ -275,4 +474,57 @@ func scanProperty(row rowScanner) (*Property, error) {
 	}
 
 	return &property, nil
+}
+
+func scanRoom(row rowScanner) (*Room, error) {
+	var room Room
+	if err := row.Scan(
+		&room.ID,
+		&room.PropertyID,
+		&room.Name,
+		&room.Status,
+		&room.CreatedAt,
+		&room.UpdatedAt,
+	); err != nil {
+		return nil, err
+	}
+
+	return &room, nil
+}
+
+func scanRepairRequest(row rowScanner) (*RepairRequest, error) {
+	var repairRequest RepairRequest
+	var assignedTo sql.NullString
+	var assignedAt sql.NullTime
+	var completedAt sql.NullTime
+
+	if err := row.Scan(
+		&repairRequest.ID,
+		&repairRequest.PropertyID,
+		&repairRequest.RoomID,
+		&repairRequest.SubmittedBy,
+		&assignedTo,
+		&repairRequest.Title,
+		&repairRequest.Description,
+		&repairRequest.Status,
+		&repairRequest.SubmittedAt,
+		&assignedAt,
+		&completedAt,
+		&repairRequest.CreatedAt,
+		&repairRequest.UpdatedAt,
+	); err != nil {
+		return nil, err
+	}
+
+	if assignedTo.Valid {
+		repairRequest.AssignedTo = &assignedTo.String
+	}
+	if assignedAt.Valid {
+		repairRequest.AssignedAt = &assignedAt.Time
+	}
+	if completedAt.Valid {
+		repairRequest.CompletedAt = &completedAt.Time
+	}
+
+	return &repairRequest, nil
 }

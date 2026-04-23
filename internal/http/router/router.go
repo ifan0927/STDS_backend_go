@@ -56,6 +56,10 @@ func New(
 	createPropertyService *appproperty.CreatePropertyService,
 	updatePropertyService *appproperty.UpdatePropertyService,
 	deletePropertyService *appproperty.DeletePropertyService,
+	createRoomService *appproperty.CreateRoomService,
+	updateRoomService *appproperty.UpdateRoomService,
+	deleteRoomService *appproperty.DeleteRoomService,
+	setRoomMaintenanceService *appproperty.SetRoomMaintenanceService,
 ) *gin.Engine {
 	engine := gin.New()
 	engine.Use(
@@ -72,7 +76,7 @@ func New(
 	engine.GET("/openapi.yaml", docsHandler.OpenAPI)
 	engine.GET("/scalar", docsHandler.Scalar)
 
-	api.RegisterHandlersWithOptions(engine, handler.NewAPIServer(userRepo, createUserService, sendPasswordResetService, syncAuthService, updateCurrentUserService, updateUserService, assignUserPropertiesService, jobTriggerService, propertyQueryRepo, createPropertyService, updatePropertyService, deletePropertyService), api.GinServerOptions{
+	api.RegisterHandlersWithOptions(engine, handler.NewAPIServer(userRepo, createUserService, sendPasswordResetService, syncAuthService, updateCurrentUserService, updateUserService, assignUserPropertiesService, jobTriggerService, propertyQueryRepo, createPropertyService, updatePropertyService, deletePropertyService, createRoomService, updateRoomService, deleteRoomService, setRoomMaintenanceService), api.GinServerOptions{
 		BaseURL: "/api/v1",
 		Middlewares: []api.MiddlewareFunc{
 			protectedAPIMiddleware(appCfg, authenticator, userRepo, authzRepos),

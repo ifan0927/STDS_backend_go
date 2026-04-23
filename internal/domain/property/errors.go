@@ -9,6 +9,10 @@ var (
 	ErrElectricityPriceMustBePositive  = errors.New("property electricity price must be positive")
 	ErrInvalidBillingCadence           = errors.New("property billing cadence is invalid")
 	ErrForbiddenElectricityPriceUpdate = errors.New("property electricity price update is forbidden")
+	ErrRoomNameRequired                = errors.New("room name is required")
+	ErrRoomIsOccupied                  = errors.New("room is occupied")
+	ErrRoomIsInMaintenance             = errors.New("room is in maintenance")
+	ErrBadRoomStatus                   = errors.New("room status is invalid")
 )
 
 // OccupiedRoomsError indicates that a property cannot be deleted because one or
