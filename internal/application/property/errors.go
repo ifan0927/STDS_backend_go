@@ -76,6 +76,8 @@ func mapDomainError(err error) error {
 		return errRoomIsOccupied
 	case errors.Is(err, domainproperty.ErrRoomIsInMaintenance):
 		return errRoomIsInMaintenance
+	case errors.Is(err, domainproperty.ErrBadRoomStatus):
+		return apperr.ErrInternalServerError.WithCause(err)
 	default:
 		var occupiedErr *domainproperty.OccupiedRoomsError
 		if errors.As(err, &occupiedErr) {

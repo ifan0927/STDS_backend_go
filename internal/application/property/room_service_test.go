@@ -162,6 +162,18 @@ func TestUpdateRoomServiceUpdatesName(t *testing.T) {
 	}
 }
 
+func TestMapDomainErrorMapsBadRoomStatusToInternalServerError(t *testing.T) {
+	err := mapDomainError(domainproperty.ErrBadRoomStatus)
+
+	var appErr *apperr.Error
+	if !errors.As(err, &appErr) {
+		t.Fatalf("expected app error, got %v", err)
+	}
+	if appErr.Code != apperr.ErrInternalServerError.Code {
+		t.Fatalf("expected %s, got %s", apperr.ErrInternalServerError.Code, appErr.Code)
+	}
+}
+
 func TestSetRoomMaintenanceServicePublishesEventAfterCommit(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
