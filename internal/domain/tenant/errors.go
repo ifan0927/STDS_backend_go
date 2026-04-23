@@ -7,6 +7,8 @@ var (
 	ErrNameRequired = errors.New("tenant name is required")
 	// ErrNameTooLong indicates that tenant names cannot exceed 100 characters.
 	ErrNameTooLong = errors.New("tenant name is too long")
+	// ErrBadTenantStatus indicates that tenant status must be one of the supported values.
+	ErrBadTenantStatus = errors.New("tenant status is invalid")
 	// ErrEmailRequired indicates that tenant email is required on create.
 	ErrEmailRequired = errors.New("tenant email is required")
 	// ErrEmailInvalid indicates that tenant email must be a valid address.

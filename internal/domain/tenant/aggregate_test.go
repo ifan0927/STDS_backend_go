@@ -1,6 +1,9 @@
 package tenant
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestAggregateStateReturnsDefensiveCopy(t *testing.T) {
 	email := "tenant@example.com"
@@ -14,6 +17,9 @@ func TestAggregateStateReturnsDefensiveCopy(t *testing.T) {
 			{
 				"name":  "Primary",
 				"email": "primary@example.com",
+				"meta": map[string]interface{}{
+					"tags": []interface{}{"vip", "renewal"},
+				},
 			},
 		},
 		Status:  StatusActive,
@@ -27,6 +33,11 @@ func TestAggregateStateReturnsDefensiveCopy(t *testing.T) {
 	*snapshot.Email = "mutated@example.com"
 	*snapshot.Phone = "0999999999"
 	snapshot.Contacts[0]["name"] = "Mutated"
+	snapshot.Contacts[0]["meta"].(map[string]interface{})["tags"].([]interface{})[0] = "mutated"
+	snapshot.Contacts[0]["meta"].(map[string]interface{})["tags"] = append(
+		snapshot.Contacts[0]["meta"].(map[string]interface{})["tags"].([]interface{}),
+		"extra",
+	)
 	snapshot.Contacts = append(snapshot.Contacts, map[string]interface{}{"name": "Extra"})
 
 	current := aggregate.State()
@@ -39,7 +50,29 @@ func TestAggregateStateReturnsDefensiveCopy(t *testing.T) {
 	if got := current.Contacts[0]["name"]; got != "Primary" {
 		t.Fatalf("State().Contacts mutated aggregate state, got %v", got)
 	}
+	meta := current.Contacts[0]["meta"].(map[string]interface{})
+	tags := meta["tags"].([]interface{})
+	if got := tags[0]; got != "vip" {
+		t.Fatalf("State().Contacts nested value mutated aggregate state, got %v", got)
+	}
+	if len(tags) != 2 {
+		t.Fatalf("State().Contacts nested slice length = %d, want 2", len(tags))
+	}
 	if len(current.Contacts) != 1 {
 		t.Fatalf("State().Contacts length = %d, want 1", len(current.Contacts))
+	}
+}
+
+func TestRehydrateRejectsInvalidStatus(t *testing.T) {
+	email := "tenant@example.com"
+
+	_, err := Rehydrate(State{
+		ID:     "tenant-1",
+		Name:   "Tenant One",
+		Email:  &email,
+		Status: "archived",
+	})
+	if !errors.Is(err, ErrBadTenantStatus) {
+		t.Fatalf("expected ErrBadTenantStatus, got %v", err)
 	}
 }

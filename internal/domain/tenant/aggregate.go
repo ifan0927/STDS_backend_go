@@ -104,6 +104,7 @@ func (a *Aggregate) State() State {
 
 func normalizeState(state State, requireEmail bool) (State, error) {
 	state.Name = strings.TrimSpace(state.Name)
+	state.Status = strings.TrimSpace(state.Status)
 	if err := validateName(state.Name); err != nil {
 		return State{}, err
 	}
@@ -117,6 +118,12 @@ func normalizeState(state State, requireEmail bool) (State, error) {
 	state.Contacts = cloneContacts(state.Contacts)
 	if state.Status == "" {
 		state.Status = StatusActive
+	} else {
+		switch state.Status {
+		case StatusActive, StatusInactive:
+		default:
+			return State{}, ErrBadTenantStatus
+		}
 	}
 
 	return state, nil
@@ -194,12 +201,31 @@ func cloneContacts(contacts []map[string]interface{}) []map[string]interface{} {
 
 		item := make(map[string]interface{}, len(contact))
 		for key, value := range contact {
-			item[key] = value
+			item[key] = deepCloneValue(value)
 		}
 		cloned = append(cloned, item)
 	}
 
 	return cloned
+}
+
+func deepCloneValue(value interface{}) interface{} {
+	switch v := value.(type) {
+	case map[string]interface{}:
+		cloned := make(map[string]interface{}, len(v))
+		for key, child := range v {
+			cloned[key] = deepCloneValue(child)
+		}
+		return cloned
+	case []interface{}:
+		cloned := make([]interface{}, len(v))
+		for index, item := range v {
+			cloned[index] = deepCloneValue(item)
+		}
+		return cloned
+	default:
+		return value
+	}
 }
 
 func isValidEmail(value string) bool {
