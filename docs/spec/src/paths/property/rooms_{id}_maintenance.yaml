@@ -99,3 +99,8 @@ post:
               value:
                 error_code: ROOM_IS_OCCUPIED
                 message: 出租中的房間無法設定維修狀態
+            room_already_in_maintenance:
+              summary: 維修中的房間無法重複設定維修
+              value:
+                error_code: ROOM_IS_IN_MAINTENANCE
+                message: 維修中的房間無法設定維修狀態

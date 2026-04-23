@@ -799,8 +799,8 @@ type SetMaintenanceRequest struct {
 
 // SetMaintenanceResponse defines model for SetMaintenanceResponse.
 type SetMaintenanceResponse struct {
-	RepairRequest *RepairRequestResponse `json:"repair_request,omitempty"`
-	Room          *RoomResponse          `json:"room,omitempty"`
+	RepairRequest RepairRequestResponse `json:"repair_request"`
+	Room          RoomResponse          `json:"room"`
 }
 
 // TenantListResponse defines model for TenantListResponse.

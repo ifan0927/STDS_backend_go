@@ -1727,6 +1727,11 @@ paths:
                   value:
                     error_code: ROOM_IS_OCCUPIED
                     message: 出租中的房間無法設定維修狀態
+                room_already_in_maintenance:
+                  summary: 維修中的房間無法重複設定維修
+                  value:
+                    error_code: ROOM_IS_IN_MAINTENANCE
+                    message: 維修中的房間無法設定維修狀態
   /properties/{id}/dashboard:
     get:
       operationId: getPropertyDashboard
@@ -6200,8 +6205,10 @@ components:
       properties:
         title:
           type: string
+          minLength: 1
         description:
           type: string
+          minLength: 1
     RepairRequestResponse:
       type: object
       properties:
@@ -6252,6 +6259,9 @@ components:
           format: date-time
     SetMaintenanceResponse:
       type: object
+      required:
+        - room
+        - repair_request
       properties:
         room:
           $ref: '#/components/schemas/RoomResponse'
