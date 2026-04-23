@@ -53,7 +53,7 @@ get:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '404':
       description: 租客不存在
       content:
@@ -64,4 +64,4 @@ get:
             not_found:
               value:
                 error_code: TENANT_NOT_FOUND
-                message: 租客不存在
+                message: Tenant not found.

@@ -56,7 +56,7 @@ post:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '403':
       description: 員工角色無法執行強制終止（BR-14）
       content:
@@ -79,7 +79,7 @@ post:
             not_found:
               value:
                 error_code: LEASE_NOT_FOUND
-                message: 租約不存在
+                message: Lease not found.
     '422':
       description: Business Rule 拒絕
       content:

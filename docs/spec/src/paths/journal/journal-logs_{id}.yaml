@@ -42,7 +42,7 @@ get:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '403':
       description: 無存取權限
       content:
@@ -53,7 +53,7 @@ get:
             forbidden:
               value:
                 error_code: FORBIDDEN
-                message: 無此物業的存取權限
+                message: Forbidden.
     '404':
       description: 日誌不存在
       content:
@@ -64,7 +64,7 @@ get:
             not_found:
               value:
                 error_code: JOURNAL_LOG_NOT_FOUND
-                message: 日誌不存在
+                message: Journal log not found.
 patch:
   operationId: updateJournalLog
   summary: 編輯日誌
@@ -115,7 +115,7 @@ patch:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '403':
       description: 權限不足
       content:
@@ -126,7 +126,7 @@ patch:
             forbidden:
               value:
                 error_code: FORBIDDEN
-                message: 業主無法編輯日誌
+                message: Forbidden.
     '404':
       description: 日誌不存在
       content:
@@ -137,7 +137,7 @@ patch:
             not_found:
               value:
                 error_code: JOURNAL_LOG_NOT_FOUND
-                message: 日誌不存在
+                message: Journal log not found.
 delete:
   operationId: deleteJournalLog
   summary: 刪除日誌（軟刪除）
@@ -167,7 +167,7 @@ delete:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '403':
       description: 員工無法刪除日誌
       content:
@@ -178,7 +178,7 @@ delete:
             forbidden:
               value:
                 error_code: FORBIDDEN
-                message: 員工無法刪除日誌
+                message: Forbidden.
     '404':
       description: 日誌不存在
       content:
@@ -189,4 +189,4 @@ delete:
             not_found:
               value:
                 error_code: JOURNAL_LOG_NOT_FOUND
-                message: 日誌不存在
+                message: Journal log not found.

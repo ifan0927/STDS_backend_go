@@ -62,7 +62,7 @@ get:
               summary: 未提供 token
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '403':
       description: 權限不足
       content:
@@ -74,7 +74,7 @@ get:
               summary: 業主無法查看成員列表
               value:
                 error_code: FORBIDDEN
-                message: 權限不足
+                message: Forbidden.
 post:
   operationId: createUser
   summary: 建立使用者帳號
@@ -140,12 +140,12 @@ post:
               summary: email 未填
               value:
                 error_code: VALIDATION_EMAIL_REQUIRED
-                message: email 為必填欄位
+                message: Email is required.
             invalid_email:
               summary: email 格式錯誤
               value:
                 error_code: VALIDATION_EMAIL_INVALID
-                message: email 格式不正確
+                message: Email format is invalid.
     '401':
       description: 未認證
       content:
@@ -157,7 +157,7 @@ post:
               summary: 未提供 token
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '403':
       description: 權限不足
       content:
@@ -169,7 +169,7 @@ post:
               summary: 員工無法建立成員帳號
               value:
                 error_code: FORBIDDEN
-                message: 權限不足
+                message: Forbidden.
     '409':
       description: Email 已存在
       content:
@@ -181,4 +181,4 @@ post:
               summary: Email 重複
               value:
                 error_code: EMAIL_ALREADY_EXISTS
-                message: 此 Email 已被使用
+                message: Email already exists.

@@ -40,7 +40,7 @@ get:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
 post:
   operationId: createProperty
   summary: 建立物業（觸發 PropertyCreated event）
@@ -97,11 +97,11 @@ post:
             missing_name:
               value:
                 error_code: VALIDATION_NAME_REQUIRED
-                message: 物業名稱為必填欄位
+                message: Name is required.
             invalid_electricity_price:
               value:
                 error_code: VALIDATION_ELECTRICITY_PRICE_INVALID
-                message: 電價必須大於 0
+                message: Electricity unit price is invalid.
     '401':
       description: 未認證
       content:
@@ -112,7 +112,7 @@ post:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '403':
       description: 權限不足
       content:
@@ -123,4 +123,4 @@ post:
             forbidden:
               value:
                 error_code: FORBIDDEN
-                message: 業主無法建立物業
+                message: Forbidden.

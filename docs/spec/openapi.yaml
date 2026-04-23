@@ -76,7 +76,7 @@ paths:
                   summary: token 無效
                   value:
                     error_code: INVALID_FIREBASE_TOKEN
-                    message: Firebase ID token 無效或已過期
+                    message: Invalid Firebase ID token.
         '404':
           description: 此 firebase_uid 尚未在後端建立帳號
           content:
@@ -88,7 +88,7 @@ paths:
                   summary: 帳號尚未建立
                   value:
                     error_code: USER_NOT_FOUND
-                    message: 此 Firebase 帳號尚未在系統中建立，請聯絡管理員
+                    message: User not found.
   /users:
     get:
       operationId: listUsers
@@ -154,7 +154,7 @@ paths:
                   summary: 未提供 token
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 權限不足
           content:
@@ -166,7 +166,7 @@ paths:
                   summary: 業主無法查看成員列表
                   value:
                     error_code: FORBIDDEN
-                    message: 權限不足
+                    message: Forbidden.
     post:
       operationId: createUser
       summary: 建立使用者帳號
@@ -227,12 +227,12 @@ paths:
                   summary: email 未填
                   value:
                     error_code: VALIDATION_EMAIL_REQUIRED
-                    message: email 為必填欄位
+                    message: Email is required.
                 invalid_email:
                   summary: email 格式錯誤
                   value:
                     error_code: VALIDATION_EMAIL_INVALID
-                    message: email 格式不正確
+                    message: Email format is invalid.
         '401':
           description: 未認證
           content:
@@ -244,7 +244,7 @@ paths:
                   summary: 未提供 token
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 權限不足
           content:
@@ -256,7 +256,7 @@ paths:
                   summary: 員工無法建立成員帳號
                   value:
                     error_code: FORBIDDEN
-                    message: 權限不足
+                    message: Forbidden.
         '409':
           description: Email 已存在
           content:
@@ -268,7 +268,7 @@ paths:
                   summary: Email 重複
                   value:
                     error_code: EMAIL_ALREADY_EXISTS
-                    message: 此 Email 已被使用
+                    message: Email already exists.
   /users/me:
     get:
       operationId: getCurrentUser
@@ -310,7 +310,7 @@ paths:
                   summary: 未提供 token
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
     patch:
       operationId: updateCurrentUser
       summary: 更新自己的帳號資料
@@ -372,7 +372,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '404':
           description: 使用者不存在
           content:
@@ -383,7 +383,7 @@ paths:
                 not_found:
                   value:
                     error_code: USER_NOT_FOUND
-                    message: 使用者不存在
+                    message: User not found.
   /users/{id}:
     get:
       operationId: getUser
@@ -429,7 +429,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 權限不足
           content:
@@ -440,7 +440,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 權限不足
+                    message: Forbidden.
         '404':
           description: 使用者不存在
           content:
@@ -451,7 +451,7 @@ paths:
                 not_found:
                   value:
                     error_code: USER_NOT_FOUND
-                    message: 使用者不存在
+                    message: User not found.
     patch:
       operationId: updateUser
       summary: 更新使用者帳號（管理用途）
@@ -505,7 +505,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 權限不足
           content:
@@ -516,7 +516,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 權限不足
+                    message: Forbidden.
         '404':
           description: 使用者不存在
           content:
@@ -527,7 +527,7 @@ paths:
                 not_found:
                   value:
                     error_code: USER_NOT_FOUND
-                    message: 使用者不存在
+                    message: User not found.
         '422':
           description: Business Rule 拒絕
           content:
@@ -539,7 +539,7 @@ paths:
                   summary: BR-13 系統管理員不得降低自己的角色
                   value:
                     error_code: ADMIN_CANNOT_DOWNGRADE_SELF
-                    message: 系統管理員不得降低自己的角色
+                    message: Admin cannot downgrade own role.
   /users/{id}/property-assignments:
     post:
       operationId: assignUserProperties
@@ -597,7 +597,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 權限不足
           content:
@@ -608,7 +608,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 只有系統管理員可執行物業指派
+                    message: Forbidden.
         '404':
           description: 使用者或物業不存在
           content:
@@ -619,7 +619,7 @@ paths:
                 user_not_found:
                   value:
                     error_code: USER_NOT_FOUND
-                    message: 使用者不存在
+                    message: User not found.
         '422':
           description: Business Rule 拒絕
           content:
@@ -631,7 +631,7 @@ paths:
                   summary: BR-11 指派對象必須為工作室成員
                   value:
                     error_code: CANNOT_ASSIGN_PROPERTY_TO_OWNER
-                    message: 物業指派對象必須為工作室成員，不可指派給業主
+                    message: Property assignment target must be a studio member, not an owner.
   /users/{id}/password-reset:
     post:
       operationId: triggerUserPasswordReset
@@ -663,7 +663,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 權限不足
           content:
@@ -674,7 +674,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 權限不足
+                    message: Forbidden.
         '404':
           description: 使用者不存在
           content:
@@ -685,7 +685,7 @@ paths:
                 not_found:
                   value:
                     error_code: USER_NOT_FOUND
-                    message: 使用者不存在
+                    message: User not found.
   /properties:
     get:
       operationId: listProperties
@@ -729,7 +729,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
     post:
       operationId: createProperty
       summary: 建立物業（觸發 PropertyCreated event）
@@ -786,11 +786,11 @@ paths:
                 missing_name:
                   value:
                     error_code: VALIDATION_NAME_REQUIRED
-                    message: 物業名稱為必填欄位
+                    message: Name is required.
                 invalid_electricity_price:
                   value:
                     error_code: VALIDATION_ELECTRICITY_PRICE_INVALID
-                    message: 電價必須大於 0
+                    message: Electricity unit price is invalid.
         '401':
           description: 未認證
           content:
@@ -801,7 +801,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 權限不足
           content:
@@ -812,7 +812,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 業主無法建立物業
+                    message: Forbidden.
   /properties/{id}:
     get:
       operationId: getProperty
@@ -857,7 +857,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 權限不足（非指派物業）
           content:
@@ -868,7 +868,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 無此物業的存取權限
+                    message: Forbidden.
         '404':
           description: 物業不存在
           content:
@@ -879,7 +879,7 @@ paths:
                 not_found:
                   value:
                     error_code: PROPERTY_NOT_FOUND
-                    message: 物業不存在
+                    message: Property not found.
     patch:
       operationId: updateProperty
       summary: 編輯物業（含修改電價 BR-17）
@@ -937,7 +937,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 權限不足（員工不可修改電價 BR-17）
           content:
@@ -960,7 +960,7 @@ paths:
                 not_found:
                   value:
                     error_code: PROPERTY_NOT_FOUND
-                    message: 物業不存在
+                    message: Property not found.
         '422':
           description: Business Rule 拒絕
           content:
@@ -1004,7 +1004,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 權限不足
           content:
@@ -1015,7 +1015,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 員工無法刪除物業
+                    message: Forbidden.
         '404':
           description: 物業不存在
           content:
@@ -1026,7 +1026,7 @@ paths:
                 not_found:
                   value:
                     error_code: PROPERTY_NOT_FOUND
-                    message: 物業不存在
+                    message: Property not found.
         '422':
           description: Business Rule 拒絕
           content:
@@ -1208,7 +1208,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 無此物業存取權限
           content:
@@ -1219,7 +1219,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 無此物業的存取權限
+                    message: Forbidden.
         '404':
           description: 物業不存在
           content:
@@ -1230,7 +1230,7 @@ paths:
                 not_found:
                   value:
                     error_code: PROPERTY_NOT_FOUND
-                    message: 物業不存在
+                    message: Property not found.
     post:
       operationId: createPropertyRoom
       summary: 建立房間
@@ -1294,7 +1294,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 權限不足
           content:
@@ -1305,7 +1305,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 無此物業的存取權限或角色權限不足
+                    message: Forbidden.
         '404':
           description: 物業不存在
           content:
@@ -1316,7 +1316,7 @@ paths:
                 not_found:
                   value:
                     error_code: PROPERTY_NOT_FOUND
-                    message: 物業不存在
+                    message: Property not found.
   /rooms/{id}:
     get:
       operationId: getRoom
@@ -1359,7 +1359,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 無此物業存取權限
           content:
@@ -1370,7 +1370,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 無此物業的存取權限
+                    message: Forbidden.
         '404':
           description: 房間不存在
           content:
@@ -1381,7 +1381,7 @@ paths:
                 not_found:
                   value:
                     error_code: ROOM_NOT_FOUND
-                    message: 房間不存在
+                    message: Room not found.
     patch:
       operationId: updateRoom
       summary: 編輯房間
@@ -1432,7 +1432,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 權限不足
           content:
@@ -1443,7 +1443,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 無此物業的存取權限
+                    message: Forbidden.
         '404':
           description: 房間不存在
           content:
@@ -1454,7 +1454,7 @@ paths:
                 not_found:
                   value:
                     error_code: ROOM_NOT_FOUND
-                    message: 房間不存在
+                    message: Room not found.
     delete:
       operationId: deleteRoom
       summary: 刪除房間（軟刪除）
@@ -1486,7 +1486,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 權限不足
           content:
@@ -1497,7 +1497,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 員工無法刪除房間
+                    message: Forbidden.
         '404':
           description: 房間不存在
           content:
@@ -1508,7 +1508,7 @@ paths:
                 not_found:
                   value:
                     error_code: ROOM_NOT_FOUND
-                    message: 房間不存在
+                    message: Room not found.
         '422':
           description: Business Rule 拒絕
           content:
@@ -1677,7 +1677,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 權限不足
           content:
@@ -1688,7 +1688,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 業主無法設定房間維修狀態
+                    message: Forbidden.
         '404':
           description: 房間不存在
           content:
@@ -1699,7 +1699,7 @@ paths:
                 not_found:
                   value:
                     error_code: ROOM_NOT_FOUND
-                    message: 房間不存在
+                    message: Room not found.
         '422':
           description: Business Rule 拒絕（房間已在維修或出租中）
           content:
@@ -1770,7 +1770,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 無此物業存取權限
           content:
@@ -1781,7 +1781,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 無此物業的存取權限
+                    message: Forbidden.
         '404':
           description: 物業不存在
           content:
@@ -1792,7 +1792,7 @@ paths:
                 not_found:
                   value:
                     error_code: PROPERTY_NOT_FOUND
-                    message: 物業不存在
+                    message: Property not found.
   /tenants:
     get:
       operationId: listTenants
@@ -1854,7 +1854,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 權限不足
           content:
@@ -1865,7 +1865,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 業主無法查看租客資料
+                    message: Forbidden.
     post:
       operationId: createTenant
       summary: 建立租客資料
@@ -1925,7 +1925,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 權限不足
           content:
@@ -1936,7 +1936,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 業主無法建立租客資料
+                    message: Forbidden.
   /tenants/{id}:
     get:
       operationId: getTenant
@@ -1979,7 +1979,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 權限不足
           content:
@@ -1990,7 +1990,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 業主無法查看租客資料
+                    message: Forbidden.
         '404':
           description: 租客不存在
           content:
@@ -2001,7 +2001,7 @@ paths:
                 not_found:
                   value:
                     error_code: TENANT_NOT_FOUND
-                    message: 租客不存在
+                    message: Tenant not found.
     patch:
       operationId: updateTenant
       summary: 更新租客資料（觸發 TenantInfoUpdated event）
@@ -2054,7 +2054,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 權限不足
           content:
@@ -2065,7 +2065,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 業主無法修改租客資料
+                    message: Forbidden.
         '404':
           description: 租客不存在
           content:
@@ -2076,7 +2076,7 @@ paths:
                 not_found:
                   value:
                     error_code: TENANT_NOT_FOUND
-                    message: 租客不存在
+                    message: Tenant not found.
   /tenants/{id}/attachments:
     get:
       operationId: listTenantAttachments
@@ -2230,7 +2230,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '404':
           description: 租客不存在
           content:
@@ -2241,7 +2241,7 @@ paths:
                 not_found:
                   value:
                     error_code: TENANT_NOT_FOUND
-                    message: 租客不存在
+                    message: Tenant not found.
   /leases:
     get:
       operationId: listLeases
@@ -2316,7 +2316,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
     post:
       operationId: createLease
       summary: 建立租約（觸發 LeaseCreated event）
@@ -2393,7 +2393,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 權限不足
           content:
@@ -2404,7 +2404,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 業主無法建立租約
+                    message: Forbidden.
         '404':
           description: 資源不存在
           content:
@@ -2415,7 +2415,7 @@ paths:
                 room_not_found:
                   value:
                     error_code: ROOM_NOT_FOUND
-                    message: 房間不存在
+                    message: Room not found.
         '409':
           description: 樂觀鎖衝突
           content:
@@ -2502,7 +2502,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 無存取權限
           content:
@@ -2513,7 +2513,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 無此物業的存取權限
+                    message: Forbidden.
         '404':
           description: 租約不存在
           content:
@@ -2524,7 +2524,7 @@ paths:
                 not_found:
                   value:
                     error_code: LEASE_NOT_FOUND
-                    message: 租約不存在
+                    message: Lease not found.
     patch:
       operationId: updateLease
       summary: 編輯租約（租金調整，觸發 LeaseConditionChanged event）
@@ -2579,7 +2579,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 權限不足（員工不可調整租金）
           content:
@@ -2590,7 +2590,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 員工角色無法調整租金條件
+                    message: Forbidden.
         '404':
           description: 租約不存在
           content:
@@ -2601,7 +2601,7 @@ paths:
                 not_found:
                   value:
                     error_code: LEASE_NOT_FOUND
-                    message: 租約不存在
+                    message: Lease not found.
         '409':
           description: 樂觀鎖衝突
           content:
@@ -2654,7 +2654,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 權限不足
           content:
@@ -2665,7 +2665,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 員工無法刪除租約
+                    message: Forbidden.
         '404':
           description: 租約不存在
           content:
@@ -2676,7 +2676,7 @@ paths:
                 not_found:
                   value:
                     error_code: LEASE_NOT_FOUND
-                    message: 租約不存在
+                    message: Lease not found.
   /leases/{id}/attachments:
     get:
       operationId: listLeaseAttachments
@@ -2976,7 +2976,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 權限不足
           content:
@@ -2987,7 +2987,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 業主無法執行租約終止
+                    message: Forbidden.
         '404':
           description: 租約不存在
           content:
@@ -2998,7 +2998,7 @@ paths:
                 not_found:
                   value:
                     error_code: LEASE_NOT_FOUND
-                    message: 租約不存在
+                    message: Lease not found.
         '409':
           description: 樂觀鎖衝突
           content:
@@ -3086,7 +3086,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 員工角色無法執行強制終止（BR-14）
           content:
@@ -3109,7 +3109,7 @@ paths:
                 not_found:
                   value:
                     error_code: LEASE_NOT_FOUND
-                    message: 租約不存在
+                    message: Lease not found.
         '422':
           description: Business Rule 拒絕
           content:
@@ -3163,7 +3163,7 @@ paths:
                 not_found:
                   value:
                     error_code: FORCE_TERMINATION_NOT_FOUND
-                    message: 找不到強制終止記錄
+                    message: Force termination not found.
   /leases/{id}/deposit:
     patch:
       operationId: updateLeaseDeposit
@@ -3229,7 +3229,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 權限不足
           content:
@@ -3240,7 +3240,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 業主無法操作押金
+                    message: Forbidden.
         '404':
           description: 租約不存在
           content:
@@ -3251,7 +3251,7 @@ paths:
                 not_found:
                   value:
                     error_code: LEASE_NOT_FOUND
-                    message: 租約不存在
+                    message: Lease not found.
         '422':
           description: Business Rule 拒絕
           content:
@@ -3356,7 +3356,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
   /bills/{id}:
     get:
       operationId: getBill
@@ -3418,7 +3418,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 無存取權限
           content:
@@ -3429,7 +3429,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 無此物業的存取權限
+                    message: Forbidden.
         '404':
           description: 帳單不存在
           content:
@@ -3440,7 +3440,7 @@ paths:
                 not_found:
                   value:
                     error_code: BILL_NOT_FOUND
-                    message: 帳單不存在
+                    message: Bill not found.
   /bills/{id}/attachments:
     get:
       operationId: listBillAttachments
@@ -3612,7 +3612,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 權限不足
           content:
@@ -3623,7 +3623,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 業主無法執行電表抄錄
+                    message: Forbidden.
         '404':
           description: 帳單不存在
           content:
@@ -3634,7 +3634,7 @@ paths:
                 not_found:
                   value:
                     error_code: BILL_NOT_FOUND
-                    message: 帳單不存在
+                    message: Bill not found.
         '409':
           description: 樂觀鎖衝突
           content:
@@ -3735,7 +3735,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 權限不足
           content:
@@ -3746,7 +3746,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 業主無法執行收款確認
+                    message: Forbidden.
         '404':
           description: 帳單不存在
           content:
@@ -3757,7 +3757,7 @@ paths:
                 not_found:
                   value:
                     error_code: BILL_NOT_FOUND
-                    message: 帳單不存在
+                    message: Bill not found.
         '409':
           description: 樂觀鎖衝突
           content:
@@ -3827,7 +3827,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '404':
           description: 物業不存在
           content:
@@ -3838,7 +3838,7 @@ paths:
                 not_found:
                   value:
                     error_code: PROPERTY_NOT_FOUND
-                    message: 物業不存在
+                    message: Property not found.
   /properties/{id}/meter-history:
     get:
       operationId: listPropertyMeterHistory
@@ -3888,7 +3888,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '404':
           description: 物業不存在
           content:
@@ -3899,7 +3899,7 @@ paths:
                 not_found:
                   value:
                     error_code: PROPERTY_NOT_FOUND
-                    message: 物業不存在
+                    message: Property not found.
   /rooms/{id}/meter-history:
     get:
       operationId: listRoomMeterHistory
@@ -3953,7 +3953,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '404':
           description: 房間不存在
           content:
@@ -3964,7 +3964,7 @@ paths:
                 not_found:
                   value:
                     error_code: ROOM_NOT_FOUND
-                    message: 房間不存在
+                    message: Room not found.
   /properties/{id}/financial-report:
     get:
       operationId: getPropertyFinancialReportSummary
@@ -4022,7 +4022,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 無存取權限
           content:
@@ -4033,7 +4033,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 無此物業的存取權限
+                    message: Forbidden.
         '404':
           description: 物業不存在
           content:
@@ -4044,7 +4044,7 @@ paths:
                 not_found:
                   value:
                     error_code: PROPERTY_NOT_FOUND
-                    message: 物業不存在
+                    message: Property not found.
   /properties/{id}/financial-report/{year}/{month}:
     get:
       operationId: getPropertyFinancialReport
@@ -4109,7 +4109,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 無存取權限
           content:
@@ -4120,7 +4120,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 無此物業的存取權限
+                    message: Forbidden.
         '404':
           description: 物業或該月財報不存在
           content:
@@ -4184,7 +4184,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 員工無法執行財報寄送
           content:
@@ -4195,7 +4195,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 財報審核與寄送需要主辦以上角色
+                    message: Forbidden.
         '404':
           description: 財報不存在
           content:
@@ -4279,7 +4279,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
     post:
       operationId: createJournalLog
       summary: 建立日誌（含費用時觸發 JournalExpenseRecorded event）
@@ -4349,7 +4349,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 權限不足
           content:
@@ -4360,7 +4360,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 業主無法建立日誌
+                    message: Forbidden.
   /journal-logs/{id}:
     get:
       operationId: getJournalLog
@@ -4406,7 +4406,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 無存取權限
           content:
@@ -4417,7 +4417,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 無此物業的存取權限
+                    message: Forbidden.
         '404':
           description: 日誌不存在
           content:
@@ -4428,7 +4428,7 @@ paths:
                 not_found:
                   value:
                     error_code: JOURNAL_LOG_NOT_FOUND
-                    message: 日誌不存在
+                    message: Journal log not found.
     patch:
       operationId: updateJournalLog
       summary: 編輯日誌
@@ -4479,7 +4479,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 權限不足
           content:
@@ -4490,7 +4490,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 業主無法編輯日誌
+                    message: Forbidden.
         '404':
           description: 日誌不存在
           content:
@@ -4501,7 +4501,7 @@ paths:
                 not_found:
                   value:
                     error_code: JOURNAL_LOG_NOT_FOUND
-                    message: 日誌不存在
+                    message: Journal log not found.
     delete:
       operationId: deleteJournalLog
       summary: 刪除日誌（軟刪除）
@@ -4531,7 +4531,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 員工無法刪除日誌
           content:
@@ -4542,7 +4542,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 員工無法刪除日誌
+                    message: Forbidden.
         '404':
           description: 日誌不存在
           content:
@@ -4553,7 +4553,7 @@ paths:
                 not_found:
                   value:
                     error_code: JOURNAL_LOG_NOT_FOUND
-                    message: 日誌不存在
+                    message: Journal log not found.
   /journal-logs/{id}/attachments:
     get:
       operationId: listJournalLogAttachments
@@ -4725,7 +4725,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
     post:
       operationId: createRepairRequest
       summary: 建立維修請求
@@ -4787,7 +4787,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 權限不足
           content:
@@ -4798,7 +4798,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 業主無法建立維修請求
+                    message: Forbidden.
   /repair-requests/{id}:
     get:
       operationId: getRepairRequest
@@ -4846,7 +4846,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 無存取權限
           content:
@@ -4857,7 +4857,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 無此物業的存取權限
+                    message: Forbidden.
         '404':
           description: 維修請求不存在
           content:
@@ -4868,7 +4868,7 @@ paths:
                 not_found:
                   value:
                     error_code: REPAIR_REQUEST_NOT_FOUND
-                    message: 維修請求不存在
+                    message: Repair request not found.
     patch:
       operationId: updateRepairRequest
       summary: 編輯維修請求
@@ -4919,7 +4919,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 權限不足
           content:
@@ -4930,7 +4930,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 業主無法編輯維修請求
+                    message: Forbidden.
         '404':
           description: 維修請求不存在
           content:
@@ -4941,7 +4941,7 @@ paths:
                 not_found:
                   value:
                     error_code: REPAIR_REQUEST_NOT_FOUND
-                    message: 維修請求不存在
+                    message: Repair request not found.
     delete:
       operationId: deleteRepairRequest
       summary: 刪除維修請求（軟刪除）
@@ -4971,7 +4971,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 員工無法刪除維修請求
           content:
@@ -4982,7 +4982,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 員工無法刪除維修請求
+                    message: Forbidden.
         '404':
           description: 維修請求不存在
           content:
@@ -4993,7 +4993,7 @@ paths:
                 not_found:
                   value:
                     error_code: REPAIR_REQUEST_NOT_FOUND
-                    message: 維修請求不存在
+                    message: Repair request not found.
   /repair-requests/{id}/attachments:
     get:
       operationId: listRepairRequestAttachments
@@ -5156,7 +5156,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 權限不足
           content:
@@ -5167,7 +5167,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 業主無法執行派工
+                    message: Forbidden.
         '404':
           description: 維修請求不存在
           content:
@@ -5178,7 +5178,7 @@ paths:
                 not_found:
                   value:
                     error_code: REPAIR_REQUEST_NOT_FOUND
-                    message: 維修請求不存在
+                    message: Repair request not found.
         '422':
           description: 狀態機不允許此操作
           content:
@@ -5231,7 +5231,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '404':
           description: 維修請求不存在
           content:
@@ -5242,7 +5242,7 @@ paths:
                 not_found:
                   value:
                     error_code: REPAIR_REQUEST_NOT_FOUND
-                    message: 維修請求不存在
+                    message: Repair request not found.
         '422':
           description: 狀態機不允許此操作
           content:
@@ -5299,7 +5299,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 權限不足
           content:
@@ -5310,7 +5310,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 業主無法完成維修請求
+                    message: Forbidden.
         '404':
           description: 維修請求不存在
           content:
@@ -5321,7 +5321,7 @@ paths:
                 not_found:
                   value:
                     error_code: REPAIR_REQUEST_NOT_FOUND
-                    message: 維修請求不存在
+                    message: Repair request not found.
         '422':
           description: 狀態機不允許此操作
           content:
@@ -5387,7 +5387,7 @@ paths:
                 unauthorized:
                   value:
                     error_code: UNAUTHORIZED
-                    message: 請先登入
+                    message: Unauthorized.
         '403':
           description: 權限不足
           content:
@@ -5398,7 +5398,7 @@ paths:
                 forbidden:
                   value:
                     error_code: FORBIDDEN
-                    message: 業主無法取消維修請求
+                    message: Forbidden.
         '404':
           description: 維修請求不存在
           content:
@@ -5409,7 +5409,7 @@ paths:
                 not_found:
                   value:
                     error_code: REPAIR_REQUEST_NOT_FOUND
-                    message: 維修請求不存在
+                    message: Repair request not found.
         '422':
           description: 狀態機不允許此操作
           content:

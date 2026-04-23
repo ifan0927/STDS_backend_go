@@ -42,7 +42,7 @@ get:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '403':
       description: 權限不足
       content:
@@ -53,7 +53,7 @@ get:
             forbidden:
               value:
                 error_code: FORBIDDEN
-                message: 權限不足
+                message: Forbidden.
     '404':
       description: 使用者不存在
       content:
@@ -64,7 +64,7 @@ get:
             not_found:
               value:
                 error_code: USER_NOT_FOUND
-                message: 使用者不存在
+                message: User not found.
 patch:
   operationId: updateUser
   summary: 更新使用者帳號（管理用途）
@@ -118,7 +118,7 @@ patch:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '403':
       description: 權限不足
       content:
@@ -129,7 +129,7 @@ patch:
             forbidden:
               value:
                 error_code: FORBIDDEN
-                message: 權限不足
+                message: Forbidden.
     '404':
       description: 使用者不存在
       content:
@@ -140,7 +140,7 @@ patch:
             not_found:
               value:
                 error_code: USER_NOT_FOUND
-                message: 使用者不存在
+                message: User not found.
     '422':
       description: Business Rule 拒絕
       content:
@@ -152,4 +152,4 @@ patch:
               summary: BR-13 系統管理員不得降低自己的角色
               value:
                 error_code: ADMIN_CANNOT_DOWNGRADE_SELF
-                message: 系統管理員不得降低自己的角色
+                message: Admin cannot downgrade own role.

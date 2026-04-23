@@ -67,7 +67,7 @@ post:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '403':
       description: 權限不足
       content:
@@ -78,7 +78,7 @@ post:
             forbidden:
               value:
                 error_code: FORBIDDEN
-                message: 業主無法執行租約終止
+                message: Forbidden.
     '404':
       description: 租約不存在
       content:
@@ -89,7 +89,7 @@ post:
             not_found:
               value:
                 error_code: LEASE_NOT_FOUND
-                message: 租約不存在
+                message: Lease not found.
     '409':
       description: 樂觀鎖衝突
       content:

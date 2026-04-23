@@ -45,7 +45,7 @@ get:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '403':
       description: 無存取權限
       content:
@@ -56,7 +56,7 @@ get:
             forbidden:
               value:
                 error_code: FORBIDDEN
-                message: 無此物業的存取權限
+                message: Forbidden.
     '404':
       description: 租約不存在
       content:
@@ -67,7 +67,7 @@ get:
             not_found:
               value:
                 error_code: LEASE_NOT_FOUND
-                message: 租約不存在
+                message: Lease not found.
 patch:
   operationId: updateLease
   summary: 編輯租約（租金調整，觸發 LeaseConditionChanged event）
@@ -125,7 +125,7 @@ patch:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '403':
       description: 權限不足（員工不可調整租金）
       content:
@@ -136,7 +136,7 @@ patch:
             forbidden:
               value:
                 error_code: FORBIDDEN
-                message: 員工角色無法調整租金條件
+                message: Forbidden.
     '404':
       description: 租約不存在
       content:
@@ -147,7 +147,7 @@ patch:
             not_found:
               value:
                 error_code: LEASE_NOT_FOUND
-                message: 租約不存在
+                message: Lease not found.
     '409':
       description: 樂觀鎖衝突
       content:
@@ -200,7 +200,7 @@ delete:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '403':
       description: 權限不足
       content:
@@ -211,7 +211,7 @@ delete:
             forbidden:
               value:
                 error_code: FORBIDDEN
-                message: 員工無法刪除租約
+                message: Forbidden.
     '404':
       description: 租約不存在
       content:
@@ -222,4 +222,4 @@ delete:
             not_found:
               value:
                 error_code: LEASE_NOT_FOUND
-                message: 租約不存在
+                message: Lease not found.

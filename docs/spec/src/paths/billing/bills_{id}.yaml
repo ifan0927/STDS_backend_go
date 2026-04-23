@@ -60,7 +60,7 @@ get:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '403':
       description: 無存取權限
       content:
@@ -71,7 +71,7 @@ get:
             forbidden:
               value:
                 error_code: FORBIDDEN
-                message: 無此物業的存取權限
+                message: Forbidden.
     '404':
       description: 帳單不存在
       content:
@@ -82,4 +82,4 @@ get:
             not_found:
               value:
                 error_code: BILL_NOT_FOUND
-                message: 帳單不存在
+                message: Bill not found.

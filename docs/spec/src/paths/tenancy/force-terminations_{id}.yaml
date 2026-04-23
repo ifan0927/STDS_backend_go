@@ -38,4 +38,4 @@ get:
             not_found:
               value:
                 error_code: FORCE_TERMINATION_NOT_FOUND
-                message: 找不到強制終止記錄
+                message: Force termination not found.

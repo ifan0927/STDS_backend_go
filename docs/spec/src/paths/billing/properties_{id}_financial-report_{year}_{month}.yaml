@@ -61,7 +61,7 @@ get:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '403':
       description: 無存取權限
       content:
@@ -72,7 +72,7 @@ get:
             forbidden:
               value:
                 error_code: FORBIDDEN
-                message: 無此物業的存取權限
+                message: Forbidden.
     '404':
       description: 物業或該月財報不存在
       content:
