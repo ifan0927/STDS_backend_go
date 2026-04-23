@@ -49,7 +49,7 @@ post:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '403':
       description: 員工無法執行財報寄送
       content:
@@ -60,7 +60,7 @@ post:
             forbidden:
               value:
                 error_code: FORBIDDEN
-                message: 財報審核與寄送需要主辦以上角色
+                message: Forbidden.
     '404':
       description: 財報不存在
       content:

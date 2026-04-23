@@ -44,7 +44,7 @@ get:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '403':
       description: 無存取權限
       content:
@@ -55,7 +55,7 @@ get:
             forbidden:
               value:
                 error_code: FORBIDDEN
-                message: 無此物業的存取權限
+                message: Forbidden.
     '404':
       description: 維修請求不存在
       content:
@@ -66,7 +66,7 @@ get:
             not_found:
               value:
                 error_code: REPAIR_REQUEST_NOT_FOUND
-                message: 維修請求不存在
+                message: Repair request not found.
 patch:
   operationId: updateRepairRequest
   summary: 編輯維修請求
@@ -117,7 +117,7 @@ patch:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '403':
       description: 權限不足
       content:
@@ -128,7 +128,7 @@ patch:
             forbidden:
               value:
                 error_code: FORBIDDEN
-                message: 業主無法編輯維修請求
+                message: Forbidden.
     '404':
       description: 維修請求不存在
       content:
@@ -139,7 +139,7 @@ patch:
             not_found:
               value:
                 error_code: REPAIR_REQUEST_NOT_FOUND
-                message: 維修請求不存在
+                message: Repair request not found.
 delete:
   operationId: deleteRepairRequest
   summary: 刪除維修請求（軟刪除）
@@ -169,7 +169,7 @@ delete:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '403':
       description: 員工無法刪除維修請求
       content:
@@ -180,7 +180,7 @@ delete:
             forbidden:
               value:
                 error_code: FORBIDDEN
-                message: 員工無法刪除維修請求
+                message: Forbidden.
     '404':
       description: 維修請求不存在
       content:
@@ -191,4 +191,4 @@ delete:
             not_found:
               value:
                 error_code: REPAIR_REQUEST_NOT_FOUND
-                message: 維修請求不存在
+                message: Repair request not found.

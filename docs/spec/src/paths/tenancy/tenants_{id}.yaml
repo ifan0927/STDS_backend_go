@@ -39,7 +39,7 @@ get:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '403':
       description: 權限不足
       content:
@@ -50,7 +50,7 @@ get:
             forbidden:
               value:
                 error_code: FORBIDDEN
-                message: 業主無法查看租客資料
+                message: Forbidden.
     '404':
       description: 租客不存在
       content:
@@ -61,7 +61,7 @@ get:
             not_found:
               value:
                 error_code: TENANT_NOT_FOUND
-                message: 租客不存在
+                message: Tenant not found.
 patch:
   operationId: updateTenant
   summary: 更新租客資料（觸發 TenantInfoUpdated event）
@@ -114,7 +114,7 @@ patch:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '403':
       description: 權限不足
       content:
@@ -125,7 +125,7 @@ patch:
             forbidden:
               value:
                 error_code: FORBIDDEN
-                message: 業主無法修改租客資料
+                message: Forbidden.
     '404':
       description: 租客不存在
       content:
@@ -136,4 +136,4 @@ patch:
             not_found:
               value:
                 error_code: TENANT_NOT_FOUND
-                message: 租客不存在
+                message: Tenant not found.

@@ -69,7 +69,7 @@ get:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
 post:
   operationId: createJournalLog
   summary: 建立日誌（含費用時觸發 JournalExpenseRecorded event）
@@ -141,7 +141,7 @@ post:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '403':
       description: 權限不足
       content:
@@ -152,4 +152,4 @@ post:
             forbidden:
               value:
                 error_code: FORBIDDEN
-                message: 業主無法建立日誌
+                message: Forbidden.

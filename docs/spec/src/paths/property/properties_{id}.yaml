@@ -41,7 +41,7 @@ get:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '403':
       description: 權限不足（非指派物業）
       content:
@@ -52,7 +52,7 @@ get:
             forbidden:
               value:
                 error_code: FORBIDDEN
-                message: 無此物業的存取權限
+                message: Forbidden.
     '404':
       description: 物業不存在
       content:
@@ -63,7 +63,7 @@ get:
             not_found:
               value:
                 error_code: PROPERTY_NOT_FOUND
-                message: 物業不存在
+                message: Property not found.
 patch:
   operationId: updateProperty
   summary: 編輯物業（含修改電價 BR-17）
@@ -121,7 +121,7 @@ patch:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '403':
       description: 權限不足（員工不可修改電價 BR-17）
       content:
@@ -144,7 +144,7 @@ patch:
             not_found:
               value:
                 error_code: PROPERTY_NOT_FOUND
-                message: 物業不存在
+                message: Property not found.
     '422':
       description: Business Rule 拒絕
       content:
@@ -188,7 +188,7 @@ delete:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '403':
       description: 權限不足
       content:
@@ -199,7 +199,7 @@ delete:
             forbidden:
               value:
                 error_code: FORBIDDEN
-                message: 員工無法刪除物業
+                message: Forbidden.
     '404':
       description: 物業不存在
       content:
@@ -210,7 +210,7 @@ delete:
             not_found:
               value:
                 error_code: PROPERTY_NOT_FOUND
-                message: 物業不存在
+                message: Property not found.
     '422':
       description: Business Rule 拒絕
       content:

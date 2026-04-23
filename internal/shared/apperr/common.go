@@ -39,6 +39,22 @@ const (
 	CodeValidationRoleInvalid = "VALIDATION_ROLE_INVALID"
 	// CodePropertyNotFound identifies requests that reference a missing property.
 	CodePropertyNotFound = "PROPERTY_NOT_FOUND"
+	// CodeRoomNotFound identifies requests that reference a missing room.
+	CodeRoomNotFound = "ROOM_NOT_FOUND"
+	// CodeTenantNotFound identifies requests that reference a missing tenant.
+	CodeTenantNotFound = "TENANT_NOT_FOUND"
+	// CodeLeaseNotFound identifies requests that reference a missing lease.
+	CodeLeaseNotFound = "LEASE_NOT_FOUND"
+	// CodeBillNotFound identifies requests that reference a missing bill.
+	CodeBillNotFound = "BILL_NOT_FOUND"
+	// CodeJournalLogNotFound identifies requests that reference a missing journal log.
+	CodeJournalLogNotFound = "JOURNAL_LOG_NOT_FOUND"
+	// CodeRepairRequestNotFound identifies requests that reference a missing repair request.
+	CodeRepairRequestNotFound = "REPAIR_REQUEST_NOT_FOUND"
+	// CodeAttachmentNotFound identifies requests that reference a missing attachment.
+	CodeAttachmentNotFound = "ATTACHMENT_NOT_FOUND"
+	// CodeForceTerminationNotFound identifies requests that reference a missing force termination.
+	CodeForceTerminationNotFound = "FORCE_TERMINATION_NOT_FOUND"
 	// CodeValidationElectricityPriceInvalid identifies invalid electricity price input.
 	CodeValidationElectricityPriceInvalid = "VALIDATION_ELECTRICITY_PRICE_INVALID"
 	// CodeValidationWindowKeyRequired identifies missing scheduler window keys.
@@ -157,6 +173,54 @@ var (
 		CodePropertyNotFound,
 		http.StatusNotFound,
 		"Property not found.",
+	)
+	// ErrRoomNotFound is returned when a requested room record does not exist.
+	ErrRoomNotFound = New(
+		CodeRoomNotFound,
+		http.StatusNotFound,
+		"Room not found.",
+	)
+	// ErrTenantNotFound is returned when a requested tenant record does not exist.
+	ErrTenantNotFound = New(
+		CodeTenantNotFound,
+		http.StatusNotFound,
+		"Tenant not found.",
+	)
+	// ErrLeaseNotFound is returned when a requested lease record does not exist.
+	ErrLeaseNotFound = New(
+		CodeLeaseNotFound,
+		http.StatusNotFound,
+		"Lease not found.",
+	)
+	// ErrBillNotFound is returned when a requested bill record does not exist.
+	ErrBillNotFound = New(
+		CodeBillNotFound,
+		http.StatusNotFound,
+		"Bill not found.",
+	)
+	// ErrJournalLogNotFound is returned when a requested journal log record does not exist.
+	ErrJournalLogNotFound = New(
+		CodeJournalLogNotFound,
+		http.StatusNotFound,
+		"Journal log not found.",
+	)
+	// ErrRepairRequestNotFound is returned when a requested repair request record does not exist.
+	ErrRepairRequestNotFound = New(
+		CodeRepairRequestNotFound,
+		http.StatusNotFound,
+		"Repair request not found.",
+	)
+	// ErrAttachmentNotFound is returned when a requested attachment record does not exist.
+	ErrAttachmentNotFound = New(
+		CodeAttachmentNotFound,
+		http.StatusNotFound,
+		"Attachment not found.",
+	)
+	// ErrForceTerminationNotFound is returned when a requested force termination record does not exist.
+	ErrForceTerminationNotFound = New(
+		CodeForceTerminationNotFound,
+		http.StatusNotFound,
+		"Force termination not found.",
 	)
 	// ErrValidationElectricityPriceInvalid is returned when electricity price is not positive.
 	ErrValidationElectricityPriceInvalid = New(

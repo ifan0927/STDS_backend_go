@@ -46,7 +46,7 @@ get:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '404':
       description: 物業不存在
       content:
@@ -57,4 +57,4 @@ get:
             not_found:
               value:
                 error_code: PROPERTY_NOT_FOUND
-                message: 物業不存在
+                message: Property not found.

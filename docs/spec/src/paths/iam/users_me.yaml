@@ -38,7 +38,7 @@ get:
               summary: 未提供 token
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
 patch:
   operationId: updateCurrentUser
   summary: 更新自己的帳號資料
@@ -100,7 +100,7 @@ patch:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '404':
       description: 使用者不存在
       content:
@@ -111,4 +111,4 @@ patch:
             not_found:
               value:
                 error_code: USER_NOT_FOUND
-                message: 使用者不存在
+                message: User not found.

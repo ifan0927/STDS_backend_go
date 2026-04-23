@@ -37,3 +37,8 @@ delete:
         application/json:
           schema:
             $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: ATTACHMENT_NOT_FOUND
+                message: Attachment not found.

@@ -59,7 +59,7 @@ post:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '403':
       description: 權限不足
       content:
@@ -70,7 +70,7 @@ post:
             forbidden:
               value:
                 error_code: FORBIDDEN
-                message: 只有系統管理員可執行物業指派
+                message: Forbidden.
     '404':
       description: 使用者或物業不存在
       content:
@@ -81,7 +81,7 @@ post:
             user_not_found:
               value:
                 error_code: USER_NOT_FOUND
-                message: 使用者不存在
+                message: User not found.
     '422':
       description: Business Rule 拒絕
       content:
@@ -93,4 +93,4 @@ post:
               summary: BR-11 指派對象必須為工作室成員
               value:
                 error_code: CANNOT_ASSIGN_PROPERTY_TO_OWNER
-                message: 物業指派對象必須為工作室成員，不可指派給業主
+                message: Property assignment target must be a studio member, not an owner.

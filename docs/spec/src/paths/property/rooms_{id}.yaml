@@ -39,7 +39,7 @@ get:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '403':
       description: 無此物業存取權限
       content:
@@ -50,7 +50,7 @@ get:
             forbidden:
               value:
                 error_code: FORBIDDEN
-                message: 無此物業的存取權限
+                message: Forbidden.
     '404':
       description: 房間不存在
       content:
@@ -61,7 +61,7 @@ get:
             not_found:
               value:
                 error_code: ROOM_NOT_FOUND
-                message: 房間不存在
+                message: Room not found.
 patch:
   operationId: updateRoom
   summary: 編輯房間
@@ -112,7 +112,7 @@ patch:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '403':
       description: 權限不足
       content:
@@ -123,7 +123,7 @@ patch:
             forbidden:
               value:
                 error_code: FORBIDDEN
-                message: 無此物業的存取權限
+                message: Forbidden.
     '404':
       description: 房間不存在
       content:
@@ -134,7 +134,7 @@ patch:
             not_found:
               value:
                 error_code: ROOM_NOT_FOUND
-                message: 房間不存在
+                message: Room not found.
 delete:
   operationId: deleteRoom
   summary: 刪除房間（軟刪除）
@@ -166,7 +166,7 @@ delete:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '403':
       description: 權限不足
       content:
@@ -177,7 +177,7 @@ delete:
             forbidden:
               value:
                 error_code: FORBIDDEN
-                message: 員工無法刪除房間
+                message: Forbidden.
     '404':
       description: 房間不存在
       content:
@@ -188,7 +188,7 @@ delete:
             not_found:
               value:
                 error_code: ROOM_NOT_FOUND
-                message: 房間不存在
+                message: Room not found.
     '422':
       description: Business Rule 拒絕
       content:

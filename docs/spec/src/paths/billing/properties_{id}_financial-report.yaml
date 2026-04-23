@@ -54,7 +54,7 @@ get:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '403':
       description: 無存取權限
       content:
@@ -65,7 +65,7 @@ get:
             forbidden:
               value:
                 error_code: FORBIDDEN
-                message: 無此物業的存取權限
+                message: Forbidden.
     '404':
       description: 物業不存在
       content:
@@ -76,4 +76,4 @@ get:
             not_found:
               value:
                 error_code: PROPERTY_NOT_FOUND
-                message: 物業不存在
+                message: Property not found.

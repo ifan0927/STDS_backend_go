@@ -110,6 +110,11 @@
 
 實務上你要記住的是：**新的 API 通常不需要再碰 middleware 與 server bootstrap，除非你真的引入了新的 cross-cutting concern。**
 
+但有一個例外要特別記住：
+
+- 如果新 API 會透過 existing authorization resolver 先 lookup resource 再做 property scope 驗證，除了掛上 middleware 之外，還要一起定義該 resource 的 not-found semantics
+- 不要把「有掛 `RequirePropertyAccess`」誤解成「404 contract 已經自動正確」
+
 ---
 
 ## Read API 該怎麼做

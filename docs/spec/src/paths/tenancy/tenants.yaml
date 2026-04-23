@@ -58,7 +58,7 @@ get:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '403':
       description: 權限不足
       content:
@@ -69,7 +69,7 @@ get:
             forbidden:
               value:
                 error_code: FORBIDDEN
-                message: 業主無法查看租客資料
+                message: Forbidden.
 post:
   operationId: createTenant
   summary: 建立租客資料
@@ -129,7 +129,7 @@ post:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '403':
       description: 權限不足
       content:
@@ -140,4 +140,4 @@ post:
             forbidden:
               value:
                 error_code: FORBIDDEN
-                message: 業主無法建立租客資料
+                message: Forbidden.

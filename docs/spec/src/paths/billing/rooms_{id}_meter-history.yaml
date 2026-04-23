@@ -50,7 +50,7 @@ get:
             unauthorized:
               value:
                 error_code: UNAUTHORIZED
-                message: 請先登入
+                message: Unauthorized.
     '404':
       description: 房間不存在
       content:
@@ -61,4 +61,4 @@ get:
             not_found:
               value:
                 error_code: ROOM_NOT_FOUND
-                message: 房間不存在
+                message: Room not found.

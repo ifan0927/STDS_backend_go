@@ -37,7 +37,7 @@ post:
               summary: token 無效
               value:
                 error_code: INVALID_FIREBASE_TOKEN
-                message: Firebase ID token 無效或已過期
+                message: Invalid Firebase ID token.
     '404':
       description: 此 firebase_uid 尚未在後端建立帳號
       content:
@@ -49,4 +49,4 @@ post:
               summary: 帳號尚未建立
               value:
                 error_code: USER_NOT_FOUND
-                message: 此 Firebase 帳號尚未在系統中建立，請聯絡管理員
+                message: User not found.
