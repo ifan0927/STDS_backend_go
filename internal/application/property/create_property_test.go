@@ -91,3 +91,19 @@ func TestCreatePropertyServiceValidatesInput(t *testing.T) {
 		t.Fatal("expected validation error, got nil")
 	}
 }
+
+func (a sqlPropertyRepositoryAdapter) FindByID(context.Context, *sql.Tx, string) (*Property, error) {
+	return nil, nil
+}
+
+func (a sqlPropertyRepositoryAdapter) Update(context.Context, *sql.Tx, UpdatePropertyParams) (*Property, error) {
+	return nil, nil
+}
+
+func (a sqlPropertyRepositoryAdapter) ListOccupiedRoomIDs(context.Context, *sql.Tx, string) ([]string, error) {
+	return nil, nil
+}
+
+func (a sqlPropertyRepositoryAdapter) SoftDelete(context.Context, *sql.Tx, string, int) error {
+	return nil
+}

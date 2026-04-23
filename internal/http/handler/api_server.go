@@ -35,6 +35,8 @@ type APIServer struct {
 	jobTriggerService *appjobs.TriggerService
 	propertyQueryRepo dbpropertyquery.Repository
 	createPropertySvc *appproperty.CreatePropertyService
+	updatePropertySvc *appproperty.UpdatePropertyService
+	deletePropertySvc *appproperty.DeletePropertyService
 }
 
 // NewAPIServer returns an API server with only the currently implemented
@@ -50,6 +52,8 @@ func NewAPIServer(
 	jobTriggerService *appjobs.TriggerService,
 	propertyQueryRepo dbpropertyquery.Repository,
 	createPropertySvc *appproperty.CreatePropertyService,
+	updatePropertySvc *appproperty.UpdatePropertyService,
+	deletePropertySvc *appproperty.DeletePropertyService,
 ) *APIServer {
 	return &APIServer{
 		userRepo:          userRepo,
@@ -62,6 +66,8 @@ func NewAPIServer(
 		jobTriggerService: jobTriggerService,
 		propertyQueryRepo: propertyQueryRepo,
 		createPropertySvc: createPropertySvc,
+		updatePropertySvc: updatePropertySvc,
+		deletePropertySvc: deletePropertySvc,
 	}
 }
 
@@ -272,7 +278,16 @@ func (s *APIServer) CreatePropertyAttachment(c *gin.Context, id openapi_types.UU
 }
 
 // DeleteProperty handles property deletion.
-func (s *APIServer) DeleteProperty(c *gin.Context, id string) { writeNotImplemented(c) }
+func (s *APIServer) DeleteProperty(c *gin.Context, id string) {
+	if err := s.deletePropertySvc.Execute(c.Request.Context(), appproperty.DeletePropertyInput{
+		ID: id,
+	}); err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.Status(http.StatusNoContent)
+}
 
 // GetProperty handles property detail retrieval.
 func (s *APIServer) GetProperty(c *gin.Context, id string) {
@@ -291,7 +306,40 @@ func (s *APIServer) GetProperty(c *gin.Context, id string) {
 }
 
 // UpdateProperty handles property updates.
-func (s *APIServer) UpdateProperty(c *gin.Context, id string) { writeNotImplemented(c) }
+func (s *APIServer) UpdateProperty(c *gin.Context, id string) {
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	var request api.UpdatePropertyRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.Error(apperr.ErrBadRequest.WithCause(err))
+		return
+	}
+
+	var cadence *string
+	if request.DefaultElectricityBillingCadence != nil {
+		value := string(*request.DefaultElectricityBillingCadence)
+		cadence = &value
+	}
+
+	property, err := s.updatePropertySvc.Execute(c.Request.Context(), appproperty.UpdatePropertyInput{
+		ID:                               id,
+		ActorRole:                        principal.Role,
+		Name:                             request.Name,
+		Address:                          request.Address,
+		ElectricityUnitPrice:             request.ElectricityUnitPrice,
+		DefaultElectricityBillingCadence: cadence,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toCreatedPropertyResponse(property))
+}
 
 // GetPropertyDashboard handles property dashboard retrieval.
 func (s *APIServer) GetPropertyDashboard(c *gin.Context, id string) { writeNotImplemented(c) }

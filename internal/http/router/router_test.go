@@ -673,7 +673,19 @@ func TestAssignUserPropertiesRejectsOwnerTarget(t *testing.T) {
 func TestTriggerUserPasswordResetReturnsNoContent(t *testing.T) {
 	repo := fakeUserRepo{role: "admin"}
 	notificationSender := &testNotificationSender{}
-	engine := newTestEngineWithNotificationSender(repo, fakeAuthenticator{role: "admin"}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{}, notificationSender, fakePropertyQueryRepo{}, appproperty.NewCreatePropertyService(fakePropertyRepo{}, dbtxrunner.New(nil, nil)))
+	engine := newTestEngineWithNotificationSender(
+		repo,
+		fakeAuthenticator{role: "admin"},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{},
+		"",
+		fakeJobRunsRepo{},
+		notificationSender,
+		fakePropertyQueryRepo{},
+		appproperty.NewCreatePropertyService(fakePropertyRepo{}, dbtxrunner.New(nil, nil)),
+		appproperty.NewUpdatePropertyService(fakePropertyRepo{}, dbtxrunner.New(nil, nil)),
+		appproperty.NewDeletePropertyService(fakePropertyRepo{}, dbtxrunner.New(nil, nil)),
+	)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/user-1/password-reset", nil)
 	req.Header.Set("Authorization", "Bearer valid-token")
@@ -835,6 +847,8 @@ func TestCreateUserReturnsNotificationErrorCodeWhenDispatchFails(t *testing.T) {
 		&testNotificationSender{sendErr: errors.New("resend down")},
 		fakePropertyQueryRepo{},
 		appproperty.NewCreatePropertyService(fakePropertyRepo{}, dbtxrunner.New(nil, nil)),
+		appproperty.NewUpdatePropertyService(fakePropertyRepo{}, dbtxrunner.New(nil, nil)),
+		appproperty.NewDeletePropertyService(fakePropertyRepo{}, dbtxrunner.New(nil, nil)),
 	)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/users", strings.NewReader(`{
@@ -933,7 +947,18 @@ func TestCreatePropertyAcceptsDecimalElectricityPrice(t *testing.T) {
 
 	repo := fakeUserRepo{}
 	createPropertyService := appproperty.NewCreatePropertyService(testSQLPropertyRepositoryAdapter{repo: dbproperties.NewRepository(db)}, dbtxrunner.New(db, nil))
-	engine := newTestEngineWithCreatePropertyService(repo, fakeAuthenticator{}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{}, fakePropertyQueryRepo{}, createPropertyService)
+	engine := newTestEngineWithCreatePropertyService(
+		repo,
+		fakeAuthenticator{},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{},
+		"",
+		fakeJobRunsRepo{},
+		fakePropertyQueryRepo{},
+		createPropertyService,
+		appproperty.NewUpdatePropertyService(fakePropertyRepo{}, dbtxrunner.New(nil, nil)),
+		appproperty.NewDeletePropertyService(fakePropertyRepo{}, dbtxrunner.New(nil, nil)),
+	)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/properties", strings.NewReader(`{
 		"name":"Property A",
@@ -962,6 +987,139 @@ func TestCreatePropertyAcceptsDecimalElectricityPrice(t *testing.T) {
 	}
 	if payload["default_electricity_billing_cadence"] != "monthly" {
 		t.Fatalf("expected default_electricity_billing_cadence monthly, got %v", payload["default_electricity_billing_cadence"])
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestUpdatePropertyRejectsStaffElectricityPriceMutation(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectRollback()
+
+	repo := fakeUserRepo{role: "staff", assignedPropertyIDs: []string{testPropertyID1}}
+	updatePropertyService := appproperty.NewUpdatePropertyService(fakePropertyRepo{
+		propertyByID: map[string]*appproperty.Property{
+			testPropertyID1: {
+				ID:                               testPropertyID1,
+				Name:                             "Property A",
+				Address:                          "Address A",
+				ElectricityUnitPrice:             ptrFloat64(4.0),
+				DefaultElectricityBillingCadence: "monthly",
+				OwnerID:                          "owner-1",
+				Version:                          1,
+			},
+		},
+	}, dbtxrunner.New(db, nil))
+	engine := newTestEngineWithCreatePropertyService(
+		repo,
+		fakeAuthenticator{role: "staff", assignedPropertyIDs: []string{testPropertyID1}},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{},
+		"",
+		fakeJobRunsRepo{},
+		fakePropertyQueryRepo{},
+		appproperty.NewCreatePropertyService(fakePropertyRepo{}, dbtxrunner.New(nil, nil)),
+		updatePropertyService,
+		appproperty.NewDeletePropertyService(fakePropertyRepo{}, dbtxrunner.New(nil, nil)),
+	)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/properties/"+testPropertyID1, strings.NewReader(`{"electricity_unit_price":5}`))
+	req.Header.Set("Authorization", "Bearer valid-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if payload["error_code"] != "FORBIDDEN_ELECTRICITY_PRICE_UPDATE" {
+		t.Fatalf("expected FORBIDDEN_ELECTRICITY_PRICE_UPDATE, got %v", payload["error_code"])
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestDeletePropertyReturnsOccupiedRoomDetails(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectRollback()
+
+	repo := fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}}
+	deletePropertyService := appproperty.NewDeletePropertyService(fakePropertyRepo{
+		propertyByID: map[string]*appproperty.Property{
+			testPropertyID1: {
+				ID:                               testPropertyID1,
+				Name:                             "Property A",
+				Address:                          "Address A",
+				ElectricityUnitPrice:             ptrFloat64(4.0),
+				DefaultElectricityBillingCadence: "monthly",
+				OwnerID:                          "owner-1",
+				Version:                          1,
+			},
+		},
+		occupiedRoomIDs: map[string][]string{
+			testPropertyID1: {"room-1", "room-2"},
+		},
+	}, dbtxrunner.New(db, nil))
+	engine := newTestEngineWithCreatePropertyService(
+		repo,
+		fakeAuthenticator{role: "organizer", assignedPropertyIDs: []string{testPropertyID1}},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{},
+		"",
+		fakeJobRunsRepo{},
+		fakePropertyQueryRepo{},
+		appproperty.NewCreatePropertyService(fakePropertyRepo{}, dbtxrunner.New(nil, nil)),
+		appproperty.NewUpdatePropertyService(fakePropertyRepo{}, dbtxrunner.New(nil, nil)),
+		deletePropertyService,
+	)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/properties/"+testPropertyID1, nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if payload["error_code"] != "PROPERTY_HAS_OCCUPIED_ROOMS" {
+		t.Fatalf("expected PROPERTY_HAS_OCCUPIED_ROOMS, got %v", payload["error_code"])
+	}
+
+	details, ok := payload["details"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected details object, got %T", payload["details"])
+	}
+	ids, ok := details["occupied_room_ids"].([]any)
+	if !ok || len(ids) != 2 {
+		t.Fatalf("expected 2 occupied room ids, got %#v", details["occupied_room_ids"])
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -1611,6 +1769,8 @@ type fakeUserRepo struct {
 
 type fakePropertyRepo struct {
 	ownerByPropertyID map[string]string
+	propertyByID      map[string]*appproperty.Property
+	occupiedRoomIDs   map[string][]string
 }
 
 type fakePropertyQueryRepo struct {
@@ -2004,6 +2164,51 @@ func (f fakePropertyRepo) Create(_ context.Context, _ *sql.Tx, params apppropert
 	}, nil
 }
 
+func (f fakePropertyRepo) FindByID(_ context.Context, _ *sql.Tx, id string) (*appproperty.Property, error) {
+	if property, ok := f.propertyByID[id]; ok {
+		return property, nil
+	}
+
+	electricityUnitPrice := 4.5
+	return &appproperty.Property{
+		ID:                               id,
+		Name:                             "Property",
+		Address:                          "Address",
+		ElectricityUnitPrice:             &electricityUnitPrice,
+		DefaultElectricityBillingCadence: "monthly",
+		OwnerID:                          "owner-1",
+		CreatedAt:                        time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+		UpdatedAt:                        time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+		Version:                          1,
+	}, nil
+}
+
+func (f fakePropertyRepo) Update(_ context.Context, _ *sql.Tx, params appproperty.UpdatePropertyParams) (*appproperty.Property, error) {
+	return &appproperty.Property{
+		ID:                               params.ID,
+		Name:                             params.Name,
+		Address:                          params.Address,
+		ElectricityUnitPrice:             params.ElectricityUnitPrice,
+		DefaultElectricityBillingCadence: params.DefaultElectricityBillingCadence,
+		OwnerID:                          params.OwnerID,
+		CreatedAt:                        time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+		UpdatedAt:                        time.Date(2026, 4, 16, 11, 0, 0, 0, time.UTC),
+		Version:                          params.Version + 1,
+	}, nil
+}
+
+func (f fakePropertyRepo) ListOccupiedRoomIDs(_ context.Context, _ *sql.Tx, propertyID string) ([]string, error) {
+	if ids, ok := f.occupiedRoomIDs[propertyID]; ok {
+		return ids, nil
+	}
+
+	return nil, nil
+}
+
+func (f fakePropertyRepo) SoftDelete(_ context.Context, _ *sql.Tx, _ string, _ int) error {
+	return nil
+}
+
 func (a testSQLPropertyRepositoryAdapter) Create(ctx context.Context, tx *sql.Tx, params appproperty.CreatePropertyParams) (*appproperty.Property, error) {
 	property, err := a.repo.Create(ctx, tx, dbproperties.CreatePropertyParams{
 		Name:                             params.Name,
@@ -2027,6 +2232,60 @@ func (a testSQLPropertyRepositoryAdapter) Create(ctx context.Context, tx *sql.Tx
 		UpdatedAt:                        property.UpdatedAt,
 		Version:                          property.Version,
 	}, nil
+}
+
+func (a testSQLPropertyRepositoryAdapter) FindByID(ctx context.Context, tx *sql.Tx, id string) (*appproperty.Property, error) {
+	property, err := a.repo.FindByID(ctx, tx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	return &appproperty.Property{
+		ID:                               property.ID,
+		Name:                             property.Name,
+		Address:                          property.Address,
+		ElectricityUnitPrice:             property.ElectricityUnitPrice,
+		DefaultElectricityBillingCadence: property.DefaultElectricityBillingCadence,
+		OwnerID:                          property.OwnerID,
+		CreatedAt:                        property.CreatedAt,
+		UpdatedAt:                        property.UpdatedAt,
+		Version:                          property.Version,
+	}, nil
+}
+
+func (a testSQLPropertyRepositoryAdapter) Update(ctx context.Context, tx *sql.Tx, params appproperty.UpdatePropertyParams) (*appproperty.Property, error) {
+	property, err := a.repo.Update(ctx, tx, dbproperties.UpdatePropertyParams{
+		ID:                               params.ID,
+		Name:                             params.Name,
+		Address:                          params.Address,
+		ElectricityUnitPrice:             params.ElectricityUnitPrice,
+		DefaultElectricityBillingCadence: params.DefaultElectricityBillingCadence,
+		OwnerID:                          params.OwnerID,
+		Version:                          params.Version,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &appproperty.Property{
+		ID:                               property.ID,
+		Name:                             property.Name,
+		Address:                          property.Address,
+		ElectricityUnitPrice:             property.ElectricityUnitPrice,
+		DefaultElectricityBillingCadence: property.DefaultElectricityBillingCadence,
+		OwnerID:                          property.OwnerID,
+		CreatedAt:                        property.CreatedAt,
+		UpdatedAt:                        property.UpdatedAt,
+		Version:                          property.Version,
+	}, nil
+}
+
+func (a testSQLPropertyRepositoryAdapter) ListOccupiedRoomIDs(ctx context.Context, tx *sql.Tx, propertyID string) ([]string, error) {
+	return a.repo.ListOccupiedRoomIDs(ctx, tx, propertyID)
+}
+
+func (a testSQLPropertyRepositoryAdapter) SoftDelete(ctx context.Context, tx *sql.Tx, id string, version int) error {
+	return a.repo.SoftDelete(ctx, tx, id, version)
 }
 
 func (f fakePropertyQueryRepo) FindByID(_ context.Context, propertyID string) (*dbpropertyquery.Property, error) {
@@ -2234,10 +2493,12 @@ func newTestEngineWithPropertyQueryRepo(userRepo fakeUserRepo, authenticator fak
 		jobRunsRepo,
 		propertyQueryRepo,
 		appproperty.NewCreatePropertyService(propertyRepo, dbtxrunner.New(nil, nil)),
+		appproperty.NewUpdatePropertyService(propertyRepo, dbtxrunner.New(nil, nil)),
+		appproperty.NewDeletePropertyService(propertyRepo, dbtxrunner.New(nil, nil)),
 	)
 }
 
-func newTestEngineWithCreatePropertyService(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo, propertyQueryRepo dbpropertyquery.Repository, createPropertyService *appproperty.CreatePropertyService) *gin.Engine {
+func newTestEngineWithCreatePropertyService(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo, propertyQueryRepo dbpropertyquery.Repository, createPropertyService *appproperty.CreatePropertyService, updatePropertyService *appproperty.UpdatePropertyService, deletePropertyService *appproperty.DeletePropertyService) *gin.Engine {
 	return newTestEngineWithNotificationSender(
 		userRepo,
 		authenticator,
@@ -2248,10 +2509,12 @@ func newTestEngineWithCreatePropertyService(userRepo fakeUserRepo, authenticator
 		&testNotificationSender{},
 		propertyQueryRepo,
 		createPropertyService,
+		updatePropertyService,
+		deletePropertyService,
 	)
 }
 
-func newTestEngineWithNotificationSender(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo, notificationSender *testNotificationSender, propertyQueryRepo dbpropertyquery.Repository, createPropertyService *appproperty.CreatePropertyService) *gin.Engine {
+func newTestEngineWithNotificationSender(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo, notificationSender *testNotificationSender, propertyQueryRepo dbpropertyquery.Repository, createPropertyService *appproperty.CreatePropertyService, updatePropertyService *appproperty.UpdatePropertyService, deletePropertyService *appproperty.DeletePropertyService) *gin.Engine {
 	repo := &userRepo
 	userAccountRepo := testUserAccountRepositoryAdapter{repo: repo}
 	return New(
@@ -2277,6 +2540,8 @@ func newTestEngineWithNotificationSender(userRepo fakeUserRepo, authenticator fa
 		appjobs.NewTriggerService(jobRunsRepo, nil, time.Minute, 3),
 		propertyQueryRepo,
 		createPropertyService,
+		updatePropertyService,
+		deletePropertyService,
 	)
 }
 
@@ -2312,4 +2577,8 @@ func firstRoleValue(values ...string) string {
 	}
 
 	return "organizer"
+}
+
+func ptrFloat64(value float64) *float64 {
+	return &value
 }

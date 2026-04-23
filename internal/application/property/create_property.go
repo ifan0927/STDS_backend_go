@@ -3,10 +3,11 @@ package property
 import (
 	"context"
 	"database/sql"
-	"strings"
+	"errors"
 	"time"
 
 	domainevents "stds_backend/internal/domain/events"
+	domainproperty "stds_backend/internal/domain/property"
 	"stds_backend/internal/platform/database/txrunner"
 	"stds_backend/internal/shared/apperr"
 )
@@ -39,18 +40,35 @@ func NewCreatePropertyService(propertyRepo Repository, txRunner *txrunner.Runner
 
 // Execute validates input and persists a new property.
 func (s *CreatePropertyService) Execute(ctx context.Context, input CreatePropertyInput) (*Property, error) {
-	if err := validateCreatePropertyInput(input); err != nil {
-		return nil, err
+	aggregate, err := domainproperty.New(domainproperty.State{
+		Name:                             input.Name,
+		Address:                          input.Address,
+		ElectricityUnitPrice:             &input.ElectricityUnitPrice,
+		DefaultElectricityBillingCadence: input.DefaultElectricityBillingCadence,
+		OwnerID:                          input.OwnerID,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, domainproperty.ErrElectricityPriceMustBePositive):
+			return nil, apperr.ErrValidationElectricityPriceInvalid
+		default:
+			return nil, mapDomainError(err)
+		}
 	}
 
+	state := aggregate.State()
 	var created *Property
-	err := s.txRunner.WithinTransaction(ctx, func(ctx context.Context, tx *sql.Tx, recorder *txrunner.EventRecorder) error {
+	err = s.txRunner.WithinTransaction(ctx, func(ctx context.Context, tx *sql.Tx, recorder *txrunner.EventRecorder) error {
+		electricityUnitPrice := 0.0
+		if state.ElectricityUnitPrice != nil {
+			electricityUnitPrice = *state.ElectricityUnitPrice
+		}
 		property, err := s.propertyRepo.Create(ctx, tx, CreatePropertyParams{
-			Name:                             strings.TrimSpace(input.Name),
-			Address:                          strings.TrimSpace(input.Address),
-			ElectricityUnitPrice:             input.ElectricityUnitPrice,
-			DefaultElectricityBillingCadence: strings.TrimSpace(input.DefaultElectricityBillingCadence),
-			OwnerID:                          strings.TrimSpace(input.OwnerID),
+			Name:                             state.Name,
+			Address:                          state.Address,
+			ElectricityUnitPrice:             electricityUnitPrice,
+			DefaultElectricityBillingCadence: state.DefaultElectricityBillingCadence,
+			OwnerID:                          state.OwnerID,
 		})
 		if err != nil {
 			return apperr.ErrInternalServerError.WithCause(err)
@@ -68,21 +86,4 @@ func (s *CreatePropertyService) Execute(ctx context.Context, input CreatePropert
 	}
 
 	return created, nil
-}
-
-func validateCreatePropertyInput(input CreatePropertyInput) error {
-	switch {
-	case strings.TrimSpace(input.Name) == "":
-		return apperr.ErrValidationNameRequired
-	case strings.TrimSpace(input.Address) == "":
-		return apperr.ErrValidationAddressRequired
-	case input.ElectricityUnitPrice <= 0:
-		return apperr.ErrValidationElectricityPriceInvalid
-	case strings.TrimSpace(input.DefaultElectricityBillingCadence) == "":
-		return apperr.ErrBadRequest
-	case strings.TrimSpace(input.OwnerID) == "":
-		return apperr.ErrValidationOwnerIDRequired
-	default:
-		return nil
-	}
 }

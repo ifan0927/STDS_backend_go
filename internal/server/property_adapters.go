@@ -44,6 +44,50 @@ func (a propertyRepositoryAdapter) Create(ctx context.Context, tx *sql.Tx, param
 	return toApplicationProperty(property), nil
 }
 
+func (a propertyRepositoryAdapter) FindByID(ctx context.Context, tx *sql.Tx, id string) (*appproperty.Property, error) {
+	property, err := a.repo.FindByID(ctx, tx, id)
+	if err != nil {
+		if err == dbproperties.ErrNotFound {
+			return nil, appproperty.ErrPropertyNotFound
+		}
+		return nil, err
+	}
+
+	return toApplicationProperty(property), nil
+}
+
+func (a propertyRepositoryAdapter) Update(ctx context.Context, tx *sql.Tx, params appproperty.UpdatePropertyParams) (*appproperty.Property, error) {
+	property, err := a.repo.Update(ctx, tx, dbproperties.UpdatePropertyParams{
+		ID:                               params.ID,
+		Name:                             params.Name,
+		Address:                          params.Address,
+		ElectricityUnitPrice:             params.ElectricityUnitPrice,
+		DefaultElectricityBillingCadence: params.DefaultElectricityBillingCadence,
+		OwnerID:                          params.OwnerID,
+		Version:                          params.Version,
+	})
+	if err != nil {
+		if err == dbproperties.ErrNotFound {
+			return nil, appproperty.ErrPropertyNotFound
+		}
+		return nil, err
+	}
+
+	return toApplicationProperty(property), nil
+}
+
+func (a propertyRepositoryAdapter) ListOccupiedRoomIDs(ctx context.Context, tx *sql.Tx, propertyID string) ([]string, error) {
+	return a.repo.ListOccupiedRoomIDs(ctx, tx, propertyID)
+}
+
+func (a propertyRepositoryAdapter) SoftDelete(ctx context.Context, tx *sql.Tx, id string, version int) error {
+	err := a.repo.SoftDelete(ctx, tx, id, version)
+	if err == dbproperties.ErrNotFound {
+		return appproperty.ErrPropertyNotFound
+	}
+	return err
+}
+
 func toApplicationProperty(property *dbproperties.Property) *appproperty.Property {
 	return &appproperty.Property{
 		ID:                               property.ID,
