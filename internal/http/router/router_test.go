@@ -20,11 +20,13 @@ import (
 	appjobs "stds_backend/internal/application/jobs"
 	appnotification "stds_backend/internal/application/notification"
 	appproperty "stds_backend/internal/application/property"
+	apptenant "stds_backend/internal/application/tenant"
 	"stds_backend/internal/config"
 	domainusers "stds_backend/internal/domain/users"
 	dbproperties "stds_backend/internal/platform/database/properties"
 	dbpropertyquery "stds_backend/internal/platform/database/propertyquery"
 	dbresourceownership "stds_backend/internal/platform/database/resourceownership"
+	dbtenantquery "stds_backend/internal/platform/database/tenantquery"
 	dbtxrunner "stds_backend/internal/platform/database/txrunner"
 	"stds_backend/internal/platform/database/users"
 	platformfirebase "stds_backend/internal/platform/firebase"
@@ -226,6 +228,65 @@ func TestListUsersRejectsOwnerRole(t *testing.T) {
 
 	if resp.Code != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestListTenantsRejectsOwnerRole(t *testing.T) {
+	repo := fakeUserRepo{role: "owner"}
+	engine := newTestEngine(repo, fakeAuthenticator{role: "owner"}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestListTenantsReturnsAccessibleTenants(t *testing.T) {
+	repo := fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}}
+	tenantQueryRepo := fakeTenantQueryRepo{
+		tenants: []dbtenantquery.Tenant{
+			{
+				ID:        "30000000-0000-0000-0000-000000000001",
+				Name:      "Tenant A",
+				Status:    "active",
+				Contacts:  []map[string]interface{}{},
+				CreatedAt: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+				UpdatedAt: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+				Version:   1,
+			},
+		},
+		listCall: &listTenantsCall{},
+	}
+	engine := newTestEngineWithQueryRepos(repo, fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{}, fakePropertyQueryRepo{}, tenantQueryRepo)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants?status=active&page=2&limit=5", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	data, ok := payload["data"].([]any)
+	if !ok || len(data) != 1 {
+		t.Fatalf("expected one tenant entry, got %#v", payload["data"])
+	}
+	if tenantQueryRepo.listCall.status != "active" {
+		t.Fatalf("expected status filter to pass through, got %q", tenantQueryRepo.listCall.status)
+	}
+	if tenantQueryRepo.listCall.limit != 5 || tenantQueryRepo.listCall.offset != 5 {
+		t.Fatalf("expected pagination 5/5, got limit=%d offset=%d", tenantQueryRepo.listCall.limit, tenantQueryRepo.listCall.offset)
 	}
 }
 
@@ -2114,11 +2175,46 @@ type fakePropertyQueryRepo struct {
 	findRoomIDSink *string
 }
 
+type fakeTenantRepo struct {
+	created   *apptenant.Tenant
+	current   *apptenant.Tenant
+	updated   *apptenant.Tenant
+	createErr error
+	findErr   error
+	updateErr error
+}
+
+type fakeTenantQueryRepo struct {
+	tenant     *dbtenantquery.Tenant
+	tenantErr  error
+	tenants    []dbtenantquery.Tenant
+	leases     []dbtenantquery.Lease
+	leasesErr  error
+	listCall   *listTenantsCall
+	leasesCall *listTenantLeasesCall
+}
+
 type listRoomsCall struct {
 	propertyID string
 	status     string
 	limit      int
 	offset     int
+}
+
+type listTenantsCall struct {
+	role                string
+	assignedPropertyIDs []string
+	propertyID          *string
+	status              string
+	limit               int
+	offset              int
+}
+
+type listTenantLeasesCall struct {
+	tenantID            string
+	role                string
+	assignedPropertyIDs []string
+	status              string
 }
 
 type fakeResourceOwnershipRepo struct {
@@ -2888,6 +2984,118 @@ func (f fakePropertyQueryRepo) FindRoomByID(_ context.Context, roomID string) (*
 	}, nil
 }
 
+func (f fakeTenantRepo) Create(_ context.Context, _ *sql.Tx, _ apptenant.CreateTenantParams) (*apptenant.Tenant, error) {
+	if f.createErr != nil {
+		return nil, f.createErr
+	}
+	if f.created != nil {
+		return f.created, nil
+	}
+
+	return &apptenant.Tenant{
+		ID:        "30000000-0000-0000-0000-000000000001",
+		Name:      "Tenant A",
+		Status:    "active",
+		Contacts:  []map[string]interface{}{},
+		CreatedAt: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+		Version:   1,
+	}, nil
+}
+
+func (f fakeTenantRepo) FindByID(_ context.Context, _ *sql.Tx, _ string) (*apptenant.Tenant, error) {
+	if f.findErr != nil {
+		return nil, f.findErr
+	}
+	if f.current != nil {
+		return f.current, nil
+	}
+
+	return &apptenant.Tenant{
+		ID:        "30000000-0000-0000-0000-000000000001",
+		Name:      "Tenant A",
+		Status:    "active",
+		Contacts:  []map[string]interface{}{},
+		Version:   1,
+		CreatedAt: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+	}, nil
+}
+
+func (f fakeTenantRepo) Update(_ context.Context, _ *sql.Tx, _ apptenant.UpdateTenantParams) (*apptenant.Tenant, error) {
+	if f.updateErr != nil {
+		return nil, f.updateErr
+	}
+	if f.updated != nil {
+		return f.updated, nil
+	}
+
+	return &apptenant.Tenant{
+		ID:        "30000000-0000-0000-0000-000000000001",
+		Name:      "Tenant A",
+		Status:    "active",
+		Contacts:  []map[string]interface{}{},
+		Version:   2,
+		CreatedAt: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 4, 17, 10, 0, 0, 0, time.UTC),
+	}, nil
+}
+
+func (f fakeTenantQueryRepo) ListAccessible(_ context.Context, role string, assignedPropertyIDs []string, propertyID *string, status string, limit int, offset int) ([]dbtenantquery.Tenant, error) {
+	if f.listCall != nil {
+		f.listCall.role = role
+		f.listCall.assignedPropertyIDs = assignedPropertyIDs
+		f.listCall.propertyID = propertyID
+		f.listCall.status = status
+		f.listCall.limit = limit
+		f.listCall.offset = offset
+	}
+	if f.tenantErr != nil {
+		return nil, f.tenantErr
+	}
+	if f.tenants != nil {
+		return f.tenants, nil
+	}
+
+	return []dbtenantquery.Tenant{}, nil
+}
+
+func (f fakeTenantQueryRepo) FindByIDAccessible(_ context.Context, _ string, _ string, _ []string) (*dbtenantquery.Tenant, error) {
+	if f.tenantErr != nil {
+		return nil, f.tenantErr
+	}
+	if f.tenant != nil {
+		return f.tenant, nil
+	}
+
+	return &dbtenantquery.Tenant{
+		ID:        "30000000-0000-0000-0000-000000000001",
+		Name:      "Tenant A",
+		Status:    "active",
+		Contacts:  []map[string]interface{}{},
+		CreatedAt: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+		Version:   1,
+	}, nil
+}
+
+func (f fakeTenantQueryRepo) ListLeasesByTenantAccessible(_ context.Context, tenantID string, role string, assignedPropertyIDs []string, status string) ([]dbtenantquery.Lease, error) {
+	if f.leasesCall != nil {
+		f.leasesCall.tenantID = tenantID
+		f.leasesCall.role = role
+		f.leasesCall.assignedPropertyIDs = assignedPropertyIDs
+		f.leasesCall.status = status
+	}
+	if f.leasesErr != nil {
+		return nil, f.leasesErr
+	}
+	if f.leases != nil {
+		return f.leases, nil
+	}
+
+	return []dbtenantquery.Lease{}, nil
+}
+
 func (f fakeResourceOwnershipRepo) FindPropertyIDByRoomID(_ context.Context, roomID string) (string, error) {
 	return lookupPropertyID(f.propertyByRoomID, roomID)
 }
@@ -2951,7 +3159,7 @@ func (fakeJobRunsRepo) Fail(_ context.Context, _ string, _ string) error     { r
 func (fakeJobRunsRepo) Skip(_ context.Context, _ string, _ string) error     { return nil }
 
 func newTestEngine(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo) *gin.Engine {
-	return newTestEngineWithPropertyQueryRepo(
+	return newTestEngineWithQueryRepos(
 		userRepo,
 		authenticator,
 		propertyRepo,
@@ -2959,21 +3167,49 @@ func newTestEngine(userRepo fakeUserRepo, authenticator fakeAuthenticator, prope
 		schedulerKey,
 		jobRunsRepo,
 		fakePropertyQueryRepo{},
+		fakeTenantQueryRepo{},
 	)
 }
 
 func newTestEngineWithPropertyQueryRepo(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo, propertyQueryRepo dbpropertyquery.Repository) *gin.Engine {
-	return newTestEngineWithCreatePropertyService(
-		userRepo,
+	return newTestEngineWithQueryRepos(userRepo, authenticator, propertyRepo, ownershipRepo, schedulerKey, jobRunsRepo, propertyQueryRepo, fakeTenantQueryRepo{})
+}
+
+func newTestEngineWithQueryRepos(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo, propertyQueryRepo dbpropertyquery.Repository, tenantQueryRepo dbtenantquery.Repository) *gin.Engine {
+	repo := &userRepo
+	userAccountRepo := testUserAccountRepositoryAdapter{repo: repo}
+	return New(
+		config.AppConfig{Name: "test", Env: "test", SchedulerKey: schedulerKey, ReadTimeout: time.Second, WriteTimeout: time.Second},
+		testLogger(),
+		nil,
 		authenticator,
-		propertyRepo,
-		ownershipRepo,
-		schedulerKey,
-		jobRunsRepo,
+		repo,
+		AuthorizationRepositories{
+			Properties:        propertyRepo,
+			ResourceOwnership: ownershipRepo,
+		},
+		appiam.NewCreateUserService(userAccountRepo, authenticator, appnotification.NewService(&testNotificationSender{})),
+		appiam.NewSendUserPasswordResetService(userAccountRepo, authenticator, appnotification.NewService(&testNotificationSender{})),
+		appiam.NewSyncAuthService(userAccountRepo, appiam.NewCustomClaimsService(authenticator)),
+		appiam.NewUpdateCurrentUserService(repo),
+		appiam.NewUpdateUserService(userAccountRepo, appiam.NewCustomClaimsService(authenticator)),
+		appiam.NewAssignUserPropertiesService(
+			testManagedUserRepositoryAdapter{repo: repo},
+			testPropertyExistenceChecker{repo: fakePropertyQueryRepo{}},
+			appiam.NewCustomClaimsService(authenticator),
+		),
+		appjobs.NewTriggerService(jobRunsRepo, nil, time.Minute, 3),
 		propertyQueryRepo,
+		tenantQueryRepo,
 		appproperty.NewCreatePropertyService(propertyRepo, dbtxrunner.New(nil, nil)),
 		appproperty.NewUpdatePropertyService(propertyRepo, dbtxrunner.New(nil, nil)),
 		appproperty.NewDeletePropertyService(propertyRepo, dbtxrunner.New(nil, nil)),
+		appproperty.NewCreateRoomService(propertyRepo, dbtxrunner.New(nil, nil)),
+		appproperty.NewUpdateRoomService(propertyRepo, dbtxrunner.New(nil, nil)),
+		appproperty.NewDeleteRoomService(propertyRepo, dbtxrunner.New(nil, nil)),
+		appproperty.NewSetRoomMaintenanceService(propertyRepo, dbtxrunner.New(nil, nil)),
+		apptenant.NewCreateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
+		apptenant.NewUpdateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
 	)
 }
 
@@ -3021,6 +3257,7 @@ func newTestEngineWithNotificationSender(userRepo fakeUserRepo, authenticator fa
 		),
 		appjobs.NewTriggerService(jobRunsRepo, nil, time.Minute, 3),
 		propertyQueryRepo,
+		fakeTenantQueryRepo{},
 		createPropertyService,
 		updatePropertyService,
 		deletePropertyService,
@@ -3028,6 +3265,8 @@ func newTestEngineWithNotificationSender(userRepo fakeUserRepo, authenticator fa
 		appproperty.NewUpdateRoomService(propertyRepo, dbtxrunner.New(nil, nil)),
 		appproperty.NewDeleteRoomService(propertyRepo, dbtxrunner.New(nil, nil)),
 		appproperty.NewSetRoomMaintenanceService(propertyRepo, dbtxrunner.New(nil, nil)),
+		apptenant.NewCreateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
+		apptenant.NewUpdateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
 	)
 }
 
@@ -3056,6 +3295,7 @@ func newTestEngineWithRoomServices(userRepo fakeUserRepo, authenticator fakeAuth
 		),
 		appjobs.NewTriggerService(jobRunsRepo, nil, time.Minute, 3),
 		propertyQueryRepo,
+		fakeTenantQueryRepo{},
 		createPropertyService,
 		updatePropertyService,
 		deletePropertyService,
@@ -3063,6 +3303,8 @@ func newTestEngineWithRoomServices(userRepo fakeUserRepo, authenticator fakeAuth
 		updateRoomService,
 		deleteRoomService,
 		setRoomMaintenanceService,
+		apptenant.NewCreateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
+		apptenant.NewUpdateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
 	)
 }
 

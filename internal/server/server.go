@@ -11,6 +11,7 @@ import (
 	appjobs "stds_backend/internal/application/jobs"
 	appnotification "stds_backend/internal/application/notification"
 	appproperty "stds_backend/internal/application/property"
+	apptenant "stds_backend/internal/application/tenant"
 	"stds_backend/internal/config"
 	"stds_backend/internal/http/router"
 	"stds_backend/internal/platform/database"
@@ -18,6 +19,8 @@ import (
 	dbproperties "stds_backend/internal/platform/database/properties"
 	dbpropertyquery "stds_backend/internal/platform/database/propertyquery"
 	dbresourceownership "stds_backend/internal/platform/database/resourceownership"
+	dbtenantquery "stds_backend/internal/platform/database/tenantquery"
+	dbtenants "stds_backend/internal/platform/database/tenants"
 	dbtxrunner "stds_backend/internal/platform/database/txrunner"
 	dbusers "stds_backend/internal/platform/database/users"
 	"stds_backend/internal/platform/eventbus"
@@ -52,6 +55,8 @@ func New(cfg *config.Config) (*Server, error) {
 	userRepo := dbusers.NewRepository(db)
 	propertyRepo := dbproperties.NewRepository(db)
 	propertyQueryRepo := dbpropertyquery.NewRepository(db)
+	tenantRepo := dbtenants.NewRepository(db)
+	tenantQueryRepo := dbtenantquery.NewRepository(db)
 	resourceOwnershipRepo := dbresourceownership.NewRepository(db)
 	jobRunsRepo := dbjobruns.NewRepository(db)
 
@@ -85,12 +90,14 @@ func New(cfg *config.Config) (*Server, error) {
 	updateRoomService := appproperty.NewUpdateRoomService(propertyRepositoryAdapter{repo: propertyRepo}, txRunner)
 	deleteRoomService := appproperty.NewDeleteRoomService(propertyRepositoryAdapter{repo: propertyRepo}, txRunner)
 	setRoomMaintenanceService := appproperty.NewSetRoomMaintenanceService(propertyRepositoryAdapter{repo: propertyRepo}, txRunner)
+	createTenantService := apptenant.NewCreateTenantService(tenantRepositoryAdapter{repo: tenantRepo}, txRunner)
+	updateTenantService := apptenant.NewUpdateTenantService(tenantRepositoryAdapter{repo: tenantRepo}, txRunner)
 	jobTriggerService := appjobs.NewTriggerService(jobRunStoreAdapter{repo: jobRunsRepo}, nil, cfg.App.SchedulerJobTimeout, cfg.App.SchedulerMaxRetries)
 
 	engine := router.New(cfg.App, logger, db, authenticator, userRepo, router.AuthorizationRepositories{
 		Properties:        propertyRepo,
 		ResourceOwnership: resourceOwnershipRepo,
-	}, createUserService, sendPasswordResetService, syncAuthService, updateCurrentUserService, updateUserService, assignUserPropertiesService, jobTriggerService, propertyQueryRepo, createPropertyService, updatePropertyService, deletePropertyService, createRoomService, updateRoomService, deleteRoomService, setRoomMaintenanceService)
+	}, createUserService, sendPasswordResetService, syncAuthService, updateCurrentUserService, updateUserService, assignUserPropertiesService, jobTriggerService, propertyQueryRepo, tenantQueryRepo, createPropertyService, updatePropertyService, deletePropertyService, createRoomService, updateRoomService, deleteRoomService, setRoomMaintenanceService, createTenantService, updateTenantService)
 
 	return &Server{
 		httpServer: &http.Server{

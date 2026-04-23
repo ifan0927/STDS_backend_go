@@ -9,6 +9,7 @@ import (
 	appiam "stds_backend/internal/application/iam"
 	appjobs "stds_backend/internal/application/jobs"
 	appproperty "stds_backend/internal/application/property"
+	apptenant "stds_backend/internal/application/tenant"
 	"stds_backend/internal/config"
 	"stds_backend/internal/http/api"
 	"stds_backend/internal/http/handler"
@@ -16,6 +17,7 @@ import (
 	dbproperties "stds_backend/internal/platform/database/properties"
 	dbpropertyquery "stds_backend/internal/platform/database/propertyquery"
 	dbresourceownership "stds_backend/internal/platform/database/resourceownership"
+	dbtenantquery "stds_backend/internal/platform/database/tenantquery"
 	"stds_backend/internal/platform/database/users"
 	platformfirebase "stds_backend/internal/platform/firebase"
 	"stds_backend/internal/shared/apperr"
@@ -53,6 +55,7 @@ func New(
 	assignUserPropertiesService *appiam.AssignUserPropertiesService,
 	jobTriggerService *appjobs.TriggerService,
 	propertyQueryRepo dbpropertyquery.Repository,
+	tenantQueryRepo dbtenantquery.Repository,
 	createPropertyService *appproperty.CreatePropertyService,
 	updatePropertyService *appproperty.UpdatePropertyService,
 	deletePropertyService *appproperty.DeletePropertyService,
@@ -60,6 +63,8 @@ func New(
 	updateRoomService *appproperty.UpdateRoomService,
 	deleteRoomService *appproperty.DeleteRoomService,
 	setRoomMaintenanceService *appproperty.SetRoomMaintenanceService,
+	createTenantService *apptenant.CreateTenantService,
+	updateTenantService *apptenant.UpdateTenantService,
 ) *gin.Engine {
 	engine := gin.New()
 	engine.Use(
@@ -76,7 +81,7 @@ func New(
 	engine.GET("/openapi.yaml", docsHandler.OpenAPI)
 	engine.GET("/scalar", docsHandler.Scalar)
 
-	api.RegisterHandlersWithOptions(engine, handler.NewAPIServer(userRepo, createUserService, sendPasswordResetService, syncAuthService, updateCurrentUserService, updateUserService, assignUserPropertiesService, jobTriggerService, propertyQueryRepo, createPropertyService, updatePropertyService, deletePropertyService, createRoomService, updateRoomService, deleteRoomService, setRoomMaintenanceService), api.GinServerOptions{
+	api.RegisterHandlersWithOptions(engine, handler.NewAPIServer(userRepo, createUserService, sendPasswordResetService, syncAuthService, updateCurrentUserService, updateUserService, assignUserPropertiesService, jobTriggerService, propertyQueryRepo, tenantQueryRepo, createPropertyService, updatePropertyService, deletePropertyService, createRoomService, updateRoomService, deleteRoomService, setRoomMaintenanceService, createTenantService, updateTenantService), api.GinServerOptions{
 		BaseURL: "/api/v1",
 		Middlewares: []api.MiddlewareFunc{
 			protectedAPIMiddleware(appCfg, authenticator, userRepo, authzRepos),

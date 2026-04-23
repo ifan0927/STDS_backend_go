@@ -1837,7 +1837,6 @@ paths:
             enum:
               - active
               - inactive
-              - blacklisted
         - name: page
           in: query
           schema:
