@@ -3,10 +3,13 @@ package propertyquery
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
+
+	"stds_backend/internal/shared/apperr"
 )
 
 // ErrNotFound indicates that no active property matched the requested lookup.
@@ -25,10 +28,29 @@ type Property struct {
 	Version                          int
 }
 
+// Room is the read model returned by room queries.
+type Room struct {
+	ID                string
+	PropertyID        string
+	Name              string
+	Status            string
+	Size              *float64
+	Floor             *string
+	RoomType          *string
+	Facilities        *map[string]interface{}
+	DefaultRentAmount *int
+	Notes             *string
+	Zone              *string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
 // Repository serves read-model queries for properties.
 type Repository interface {
 	FindByID(ctx context.Context, propertyID string) (*Property, error)
 	ListAccessible(ctx context.Context, role string, userID string, assignedPropertyIDs []string) ([]Property, error)
+	ListRoomsByProperty(ctx context.Context, propertyID string, status string, limit int, offset int) ([]Room, error)
+	FindRoomByID(ctx context.Context, roomID string) (*Room, error)
 }
 
 // SQLRepository reads properties from PostgreSQL.
@@ -110,6 +132,67 @@ WHERE deleted_at IS NULL
 	return properties, nil
 }
 
+// ListRoomsByProperty returns active rooms for a property with optional status filtering.
+func (r *SQLRepository) ListRoomsByProperty(ctx context.Context, propertyID string, status string, limit int, offset int) ([]Room, error) {
+	base := `
+SELECT id, property_id, name, status, size, floor, room_type, facilities::text, default_rent_amount, notes, zone, created_at, updated_at
+FROM rooms
+WHERE property_id = $1
+  AND deleted_at IS NULL
+`
+	args := []any{propertyID}
+
+	if status != "" {
+		args = append(args, status)
+		base += fmt.Sprintf(" AND status = $%d", len(args))
+	}
+
+	args = append(args, limit, offset)
+	base += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", len(args)-1, len(args))
+
+	rows, err := r.db.QueryContext(ctx, base, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list rooms by property: %w", err)
+	}
+	defer rows.Close()
+
+	rooms := make([]Room, 0)
+	for rows.Next() {
+		room, err := scanRoom(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan room row: %w", err)
+		}
+		rooms = append(rooms, *room)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate rooms rows: %w", err)
+	}
+
+	return rooms, nil
+}
+
+// FindRoomByID returns a single active room.
+func (r *SQLRepository) FindRoomByID(ctx context.Context, roomID string) (*Room, error) {
+	const query = `
+SELECT id, property_id, name, status, size, floor, room_type, facilities::text, default_rent_amount, notes, zone, created_at, updated_at
+FROM rooms
+WHERE id = $1
+  AND deleted_at IS NULL
+LIMIT 1
+`
+
+	room, err := scanRoom(r.db.QueryRowContext(ctx, query, roomID))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, apperr.ErrRoomNotFound
+		}
+		return nil, fmt.Errorf("query room by id: %w", err)
+	}
+
+	return room, nil
+}
+
 type rowScanner interface {
 	Scan(dest ...any) error
 }
@@ -135,4 +218,64 @@ func scanProperty(row rowScanner) (*Property, error) {
 	}
 
 	return &property, nil
+}
+
+func scanRoom(row rowScanner) (*Room, error) {
+	var room Room
+	var size sql.NullFloat64
+	var floor sql.NullString
+	var roomType sql.NullString
+	var facilities sql.NullString
+	var defaultRentAmount sql.NullInt64
+	var notes sql.NullString
+	var zone sql.NullString
+
+	if err := row.Scan(
+		&room.ID,
+		&room.PropertyID,
+		&room.Name,
+		&room.Status,
+		&size,
+		&floor,
+		&roomType,
+		&facilities,
+		&defaultRentAmount,
+		&notes,
+		&zone,
+		&room.CreatedAt,
+		&room.UpdatedAt,
+	); err != nil {
+		return nil, err
+	}
+
+	if size.Valid {
+		room.Size = &size.Float64
+	}
+	if floor.Valid {
+		room.Floor = &floor.String
+	}
+	if roomType.Valid {
+		room.RoomType = &roomType.String
+	}
+	if facilities.Valid {
+		var decoded any
+		if err := json.Unmarshal([]byte(facilities.String), &decoded); err != nil {
+			return nil, fmt.Errorf("decode facilities: %w", err)
+		}
+		if objectValue, ok := decoded.(map[string]interface{}); ok {
+			room.Facilities = &objectValue
+		}
+	}
+	if defaultRentAmount.Valid {
+		value := int(defaultRentAmount.Int64)
+		room.DefaultRentAmount = &value
+	}
+	if notes.Valid {
+		room.Notes = &notes.String
+	}
+	if zone.Valid {
+		room.Zone = &zone.String
+	}
+
+	return &room, nil
 }

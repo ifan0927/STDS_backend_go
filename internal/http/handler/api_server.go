@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -322,7 +323,49 @@ func (s *APIServer) ListPropertyPendingMeters(c *gin.Context, id string) { write
 
 // ListPropertyRooms handles room listing for a property.
 func (s *APIServer) ListPropertyRooms(c *gin.Context, id string, params api.ListPropertyRoomsParams) {
-	writeNotImplemented(c)
+	status := ""
+	if params.Status != nil {
+		status = string(*params.Status)
+		if !isSupportedRoomStatus(status) {
+			c.Error(apperr.ErrBadRequest.WithDetails(map[string]interface{}{
+				"field":  "status",
+				"reason": "must be one of vacant, occupied, maintenance",
+			}))
+			return
+		}
+	}
+
+	pagination, err := queryparams.NormalizePagination(params.Page, params.Limit)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	rooms, err := s.propertyQueryRepo.ListRoomsByProperty(c.Request.Context(), id, status, pagination.Limit, pagination.Offset)
+	if err != nil {
+		c.Error(apperr.ErrInternalServerError.WithCause(err))
+		return
+	}
+
+	if len(rooms) == 0 {
+		_, err := s.propertyQueryRepo.FindByID(c.Request.Context(), id)
+		if err != nil {
+			switch err {
+			case dbpropertyquery.ErrNotFound:
+				c.Error(apperr.ErrPropertyNotFound)
+			default:
+				c.Error(apperr.ErrInternalServerError.WithCause(err))
+			}
+			return
+		}
+	}
+
+	items := make([]api.RoomResponse, 0, len(rooms))
+	for i := range rooms {
+		items = append(items, toRoomResponse(&rooms[i]))
+	}
+
+	c.JSON(http.StatusOK, api.RoomListResponse{Data: &items})
 }
 
 // CreatePropertyRoom handles room creation within a property.
@@ -371,7 +414,20 @@ func (s *APIServer) ProgressRepairRequest(c *gin.Context, id string) { writeNotI
 func (s *APIServer) DeleteRoom(c *gin.Context, id string) { writeNotImplemented(c) }
 
 // GetRoom handles room detail retrieval.
-func (s *APIServer) GetRoom(c *gin.Context, id string) { writeNotImplemented(c) }
+func (s *APIServer) GetRoom(c *gin.Context, id string) {
+	room, err := s.propertyQueryRepo.FindRoomByID(c.Request.Context(), id)
+	if err != nil {
+		switch {
+		case errors.Is(err, apperr.ErrRoomNotFound):
+			c.Error(apperr.ErrRoomNotFound)
+		default:
+			c.Error(apperr.ErrInternalServerError.WithCause(err))
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, toRoomResponse(room))
+}
 
 // ListRoomAttachments handles room attachment listing.
 func (s *APIServer) ListRoomAttachments(c *gin.Context, id openapi_types.UUID) {
@@ -843,6 +899,37 @@ func toPropertyResponse(property *dbpropertyquery.Property) api.PropertyResponse
 	return response
 }
 
+func toRoomResponse(room *dbpropertyquery.Room) api.RoomResponse {
+	id, ok := parseUUID(room.ID)
+	propertyID, propertyOK := parseUUID(room.PropertyID)
+	name := room.Name
+	status := api.RoomResponseStatus(room.Status)
+	createdAt := room.CreatedAt
+	updatedAt := room.UpdatedAt
+
+	response := api.RoomResponse{
+		DefaultRentAmount: room.DefaultRentAmount,
+		Facilities:        room.Facilities,
+		Floor:             room.Floor,
+		Name:              &name,
+		Notes:             room.Notes,
+		RoomType:          room.RoomType,
+		Size:              room.Size,
+		Status:            &status,
+		UpdatedAt:         &updatedAt,
+		Zone:              room.Zone,
+		CreatedAt:         &createdAt,
+	}
+	if ok {
+		response.Id = &id
+	}
+	if propertyOK {
+		response.PropertyId = &propertyID
+	}
+
+	return response
+}
+
 func toCreatedPropertyResponse(property *appproperty.Property) api.PropertyResponse {
 	queryShape := &dbpropertyquery.Property{
 		ID:                               property.ID,
@@ -857,4 +944,13 @@ func toCreatedPropertyResponse(property *appproperty.Property) api.PropertyRespo
 	}
 
 	return toPropertyResponse(queryShape)
+}
+
+func isSupportedRoomStatus(status string) bool {
+	switch status {
+	case "vacant", "occupied", "maintenance":
+		return true
+	default:
+		return false
+	}
 }
