@@ -43,7 +43,7 @@ func TestCreatePropertyServiceCreatesProperty(t *testing.T) {
 	if property.ID != "property-1" {
 		t.Fatalf("expected property-1, got %q", property.ID)
 	}
-	if property.ElectricityUnitPrice != 4.5 {
+	if property.ElectricityUnitPrice == nil || *property.ElectricityUnitPrice != 4.5 {
 		t.Fatalf("expected electricity_unit_price 4.5, got %v", property.ElectricityUnitPrice)
 	}
 	if property.DefaultElectricityBillingCadence != "monthly" {
@@ -75,7 +75,7 @@ func (a sqlPropertyRepositoryAdapter) Create(ctx context.Context, tx *sql.Tx, pa
 		ID:                               property.ID,
 		Name:                             property.Name,
 		Address:                          property.Address,
-		ElectricityUnitPrice:             *property.ElectricityUnitPrice,
+		ElectricityUnitPrice:             property.ElectricityUnitPrice,
 		DefaultElectricityBillingCadence: property.DefaultElectricityBillingCadence,
 		OwnerID:                          property.OwnerID,
 		CreatedAt:                        property.CreatedAt,

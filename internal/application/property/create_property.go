@@ -43,7 +43,7 @@ func (s *CreatePropertyService) Execute(ctx context.Context, input CreatePropert
 	aggregate, err := domainproperty.New(domainproperty.State{
 		Name:                             input.Name,
 		Address:                          input.Address,
-		ElectricityUnitPrice:             input.ElectricityUnitPrice,
+		ElectricityUnitPrice:             &input.ElectricityUnitPrice,
 		DefaultElectricityBillingCadence: input.DefaultElectricityBillingCadence,
 		OwnerID:                          input.OwnerID,
 	})
@@ -59,10 +59,14 @@ func (s *CreatePropertyService) Execute(ctx context.Context, input CreatePropert
 	state := aggregate.State()
 	var created *Property
 	err = s.txRunner.WithinTransaction(ctx, func(ctx context.Context, tx *sql.Tx, recorder *txrunner.EventRecorder) error {
+		electricityUnitPrice := 0.0
+		if state.ElectricityUnitPrice != nil {
+			electricityUnitPrice = *state.ElectricityUnitPrice
+		}
 		property, err := s.propertyRepo.Create(ctx, tx, CreatePropertyParams{
 			Name:                             state.Name,
 			Address:                          state.Address,
-			ElectricityUnitPrice:             state.ElectricityUnitPrice,
+			ElectricityUnitPrice:             electricityUnitPrice,
 			DefaultElectricityBillingCadence: state.DefaultElectricityBillingCadence,
 			OwnerID:                          state.OwnerID,
 		})

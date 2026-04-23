@@ -3,15 +3,19 @@ package property
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"time"
 )
+
+// ErrPropertyNotFound indicates that no active property matched the requested lookup.
+var ErrPropertyNotFound = errors.New("property not found")
 
 // Property is the application-facing property shape for property use cases.
 type Property struct {
 	ID                               string
 	Name                             string
 	Address                          string
-	ElectricityUnitPrice             float64
+	ElectricityUnitPrice             *float64
 	DefaultElectricityBillingCadence string
 	OwnerID                          string
 	CreatedAt                        time.Time
@@ -35,7 +39,7 @@ type UpdatePropertyParams struct {
 	ID                               string
 	Name                             string
 	Address                          string
-	ElectricityUnitPrice             float64
+	ElectricityUnitPrice             *float64
 	DefaultElectricityBillingCadence string
 	OwnerID                          string
 	Version                          int

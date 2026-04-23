@@ -1011,7 +1011,7 @@ func TestUpdatePropertyRejectsStaffElectricityPriceMutation(t *testing.T) {
 				ID:                               testPropertyID1,
 				Name:                             "Property A",
 				Address:                          "Address A",
-				ElectricityUnitPrice:             4.0,
+				ElectricityUnitPrice:             ptrFloat64(4.0),
 				DefaultElectricityBillingCadence: "monthly",
 				OwnerID:                          "owner-1",
 				Version:                          1,
@@ -1072,7 +1072,7 @@ func TestDeletePropertyReturnsOccupiedRoomDetails(t *testing.T) {
 				ID:                               testPropertyID1,
 				Name:                             "Property A",
 				Address:                          "Address A",
-				ElectricityUnitPrice:             4.0,
+				ElectricityUnitPrice:             ptrFloat64(4.0),
 				DefaultElectricityBillingCadence: "monthly",
 				OwnerID:                          "owner-1",
 				Version:                          1,
@@ -2150,11 +2150,12 @@ func (f fakePropertyRepo) FindOwnerIDByPropertyID(_ context.Context, propertyID 
 }
 
 func (f fakePropertyRepo) Create(_ context.Context, _ *sql.Tx, params appproperty.CreatePropertyParams) (*appproperty.Property, error) {
+	electricityUnitPrice := params.ElectricityUnitPrice
 	return &appproperty.Property{
 		ID:                               "property-new",
 		Name:                             params.Name,
 		Address:                          params.Address,
-		ElectricityUnitPrice:             params.ElectricityUnitPrice,
+		ElectricityUnitPrice:             &electricityUnitPrice,
 		DefaultElectricityBillingCadence: params.DefaultElectricityBillingCadence,
 		OwnerID:                          params.OwnerID,
 		CreatedAt:                        time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
@@ -2173,7 +2174,7 @@ func (f fakePropertyRepo) FindByID(_ context.Context, _ *sql.Tx, id string) (*ap
 		ID:                               id,
 		Name:                             "Property",
 		Address:                          "Address",
-		ElectricityUnitPrice:             electricityUnitPrice,
+		ElectricityUnitPrice:             &electricityUnitPrice,
 		DefaultElectricityBillingCadence: "monthly",
 		OwnerID:                          "owner-1",
 		CreatedAt:                        time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
@@ -2224,7 +2225,7 @@ func (a testSQLPropertyRepositoryAdapter) Create(ctx context.Context, tx *sql.Tx
 		ID:                               property.ID,
 		Name:                             property.Name,
 		Address:                          property.Address,
-		ElectricityUnitPrice:             *property.ElectricityUnitPrice,
+		ElectricityUnitPrice:             property.ElectricityUnitPrice,
 		DefaultElectricityBillingCadence: property.DefaultElectricityBillingCadence,
 		OwnerID:                          property.OwnerID,
 		CreatedAt:                        property.CreatedAt,
@@ -2243,7 +2244,7 @@ func (a testSQLPropertyRepositoryAdapter) FindByID(ctx context.Context, tx *sql.
 		ID:                               property.ID,
 		Name:                             property.Name,
 		Address:                          property.Address,
-		ElectricityUnitPrice:             *property.ElectricityUnitPrice,
+		ElectricityUnitPrice:             property.ElectricityUnitPrice,
 		DefaultElectricityBillingCadence: property.DefaultElectricityBillingCadence,
 		OwnerID:                          property.OwnerID,
 		CreatedAt:                        property.CreatedAt,
@@ -2270,7 +2271,7 @@ func (a testSQLPropertyRepositoryAdapter) Update(ctx context.Context, tx *sql.Tx
 		ID:                               property.ID,
 		Name:                             property.Name,
 		Address:                          property.Address,
-		ElectricityUnitPrice:             *property.ElectricityUnitPrice,
+		ElectricityUnitPrice:             property.ElectricityUnitPrice,
 		DefaultElectricityBillingCadence: property.DefaultElectricityBillingCadence,
 		OwnerID:                          property.OwnerID,
 		CreatedAt:                        property.CreatedAt,
@@ -2576,4 +2577,8 @@ func firstRoleValue(values ...string) string {
 	}
 
 	return "organizer"
+}
+
+func ptrFloat64(value float64) *float64 {
+	return &value
 }

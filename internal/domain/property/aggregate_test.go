@@ -6,10 +6,11 @@ import (
 )
 
 func TestNewNormalizesState(t *testing.T) {
+	electricityUnitPrice := 4.5
 	aggregate, err := New(State{
 		Name:                             " Property A ",
 		Address:                          " Address A ",
-		ElectricityUnitPrice:             4.5,
+		ElectricityUnitPrice:             &electricityUnitPrice,
 		DefaultElectricityBillingCadence: " monthly ",
 		OwnerID:                          " owner-1 ",
 	})
@@ -33,11 +34,12 @@ func TestNewNormalizesState(t *testing.T) {
 }
 
 func TestUpdateRejectsStaffElectricityPriceMutation(t *testing.T) {
+	electricityUnitPrice := 4.0
 	aggregate, err := Rehydrate(State{
 		ID:                               "property-1",
 		Name:                             "Property A",
 		Address:                          "Address A",
-		ElectricityUnitPrice:             4.0,
+		ElectricityUnitPrice:             &electricityUnitPrice,
 		DefaultElectricityBillingCadence: BillingCadenceMonthly,
 		OwnerID:                          "owner-1",
 		Version:                          1,
@@ -57,11 +59,12 @@ func TestUpdateRejectsStaffElectricityPriceMutation(t *testing.T) {
 }
 
 func TestEnsureDeletableReturnsOccupiedRooms(t *testing.T) {
+	electricityUnitPrice := 4.0
 	aggregate, err := Rehydrate(State{
 		ID:                               "property-1",
 		Name:                             "Property A",
 		Address:                          "Address A",
-		ElectricityUnitPrice:             4.0,
+		ElectricityUnitPrice:             &electricityUnitPrice,
 		DefaultElectricityBillingCadence: BillingCadenceMonthly,
 		OwnerID:                          "owner-1",
 		Version:                          1,

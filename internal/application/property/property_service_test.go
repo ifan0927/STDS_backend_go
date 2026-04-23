@@ -11,7 +11,6 @@ import (
 
 	domainevents "stds_backend/internal/domain/events"
 	domainproperty "stds_backend/internal/domain/property"
-	dbproperties "stds_backend/internal/platform/database/properties"
 	dbtxrunner "stds_backend/internal/platform/database/txrunner"
 	"stds_backend/internal/shared/apperr"
 )
@@ -74,12 +73,13 @@ func TestCreatePropertyServicePublishesPropertyCreatedAfterCommit(t *testing.T) 
 	mock.ExpectCommit()
 
 	publisher := &recordingPublisher{}
+	electricityUnitPrice := 4.5
 	service := NewCreatePropertyService(propertyRepoStub{
 		created: &Property{
 			ID:                               "property-1",
 			Name:                             "Property A",
 			Address:                          "Address A",
-			ElectricityUnitPrice:             4.5,
+			ElectricityUnitPrice:             &electricityUnitPrice,
 			DefaultElectricityBillingCadence: domainproperty.BillingCadenceMonthly,
 			OwnerID:                          "owner-1",
 			CreatedAt:                        time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
@@ -120,12 +120,13 @@ func TestUpdatePropertyServiceRejectsStaffElectricityPriceMutation(t *testing.T)
 	mock.ExpectBegin()
 	mock.ExpectRollback()
 
+	electricityUnitPrice := 4.0
 	service := NewUpdatePropertyService(propertyRepoStub{
 		current: &Property{
 			ID:                               "property-1",
 			Name:                             "Property A",
 			Address:                          "Address A",
-			ElectricityUnitPrice:             4.0,
+			ElectricityUnitPrice:             &electricityUnitPrice,
 			DefaultElectricityBillingCadence: domainproperty.BillingCadenceMonthly,
 			OwnerID:                          "owner-1",
 			Version:                          1,
@@ -162,12 +163,13 @@ func TestDeletePropertyServiceReturnsOccupiedRoomDetails(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectRollback()
 
+	electricityUnitPrice := 4.0
 	service := NewDeletePropertyService(propertyRepoStub{
 		current: &Property{
 			ID:                               "property-1",
 			Name:                             "Property A",
 			Address:                          "Address A",
-			ElectricityUnitPrice:             4.0,
+			ElectricityUnitPrice:             &electricityUnitPrice,
 			DefaultElectricityBillingCadence: domainproperty.BillingCadenceMonthly,
 			OwnerID:                          "owner-1",
 			Version:                          1,
@@ -209,7 +211,7 @@ func TestDeletePropertyServiceMapsNotFound(t *testing.T) {
 	mock.ExpectRollback()
 
 	service := NewDeletePropertyService(propertyRepoStub{
-		findErr: dbproperties.ErrNotFound,
+		findErr: ErrPropertyNotFound,
 	}, dbtxrunner.New(db, nil))
 
 	err = service.Execute(context.Background(), DeletePropertyInput{ID: "missing"})

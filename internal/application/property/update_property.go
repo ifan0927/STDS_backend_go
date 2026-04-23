@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	domainproperty "stds_backend/internal/domain/property"
-	dbproperties "stds_backend/internal/platform/database/properties"
 	"stds_backend/internal/platform/database/txrunner"
 	"stds_backend/internal/shared/apperr"
 )
@@ -53,13 +52,11 @@ func (s *UpdatePropertyService) Execute(ctx context.Context, input UpdatePropert
 	}
 
 	var updated *Property
-	err := s.txRunner.WithinTransaction(ctx, func(ctx context.Context, tx *sql.Tx, recorder *txrunner.EventRecorder) error {
-		_ = recorder
-
+	err := s.txRunner.WithinTransaction(ctx, func(ctx context.Context, tx *sql.Tx, _ *txrunner.EventRecorder) error {
 		current, err := s.propertyRepo.FindByID(ctx, tx, propertyID)
 		if err != nil {
 			switch {
-			case errors.Is(err, dbproperties.ErrNotFound):
+			case errors.Is(err, ErrPropertyNotFound):
 				return apperr.ErrPropertyNotFound
 			default:
 				return apperr.ErrInternalServerError.WithCause(err)
@@ -101,7 +98,7 @@ func (s *UpdatePropertyService) Execute(ctx context.Context, input UpdatePropert
 		})
 		if err != nil {
 			switch {
-			case errors.Is(err, dbproperties.ErrNotFound):
+			case errors.Is(err, ErrPropertyNotFound):
 				return apperr.ErrPropertyNotFound
 			default:
 				return apperr.ErrInternalServerError.WithCause(err)

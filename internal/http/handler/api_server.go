@@ -979,12 +979,11 @@ func toRoomResponse(room *dbpropertyquery.Room) api.RoomResponse {
 }
 
 func toCreatedPropertyResponse(property *appproperty.Property) api.PropertyResponse {
-	electricityUnitPrice := property.ElectricityUnitPrice
 	queryShape := &dbpropertyquery.Property{
 		ID:                               property.ID,
 		Name:                             property.Name,
 		Address:                          property.Address,
-		ElectricityUnitPrice:             &electricityUnitPrice,
+		ElectricityUnitPrice:             property.ElectricityUnitPrice,
 		DefaultElectricityBillingCadence: property.DefaultElectricityBillingCadence,
 		OwnerID:                          property.OwnerID,
 		CreatedAt:                        property.CreatedAt,

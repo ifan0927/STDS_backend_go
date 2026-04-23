@@ -12,7 +12,7 @@ type State struct {
 	ID                               string
 	Name                             string
 	Address                          string
-	ElectricityUnitPrice             float64
+	ElectricityUnitPrice             *float64
 	DefaultElectricityBillingCadence string
 	OwnerID                          string
 	Version                          int
@@ -34,7 +34,7 @@ type Aggregate struct {
 
 // New creates a property aggregate for create commands.
 func New(state State) (*Aggregate, error) {
-	normalized, err := normalizeState(state)
+	normalized, err := normalizeState(state, true)
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +44,7 @@ func New(state State) (*Aggregate, error) {
 
 // Rehydrate reconstructs an existing aggregate from persisted state.
 func Rehydrate(state State) (*Aggregate, error) {
-	normalized, err := normalizeState(state)
+	normalized, err := normalizeState(state, false)
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +81,8 @@ func (a *Aggregate) Update(input UpdateInput) error {
 		if *input.ElectricityUnitPrice <= 0 {
 			return ErrElectricityPriceMustBePositive
 		}
-		a.state.ElectricityUnitPrice = *input.ElectricityUnitPrice
+		price := *input.ElectricityUnitPrice
+		a.state.ElectricityUnitPrice = &price
 	}
 
 	if input.DefaultElectricityBillingCadence != nil {
@@ -125,7 +126,7 @@ func (a *Aggregate) State() State {
 	return a.state
 }
 
-func normalizeState(state State) (State, error) {
+func normalizeState(state State, requireElectricityPrice bool) (State, error) {
 	state.Name = strings.TrimSpace(state.Name)
 	if state.Name == "" {
 		return State{}, ErrNameRequired
@@ -136,7 +137,11 @@ func normalizeState(state State) (State, error) {
 		return State{}, ErrAddressRequired
 	}
 
-	if state.ElectricityUnitPrice <= 0 {
+	if state.ElectricityUnitPrice == nil {
+		if requireElectricityPrice {
+			return State{}, ErrElectricityPriceMustBePositive
+		}
+	} else if *state.ElectricityUnitPrice <= 0 {
 		return State{}, ErrElectricityPriceMustBePositive
 	}
 

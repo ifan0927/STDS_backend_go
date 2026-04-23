@@ -52,7 +52,7 @@ type UpdatePropertyParams struct {
 	ID                               string
 	Name                             string
 	Address                          string
-	ElectricityUnitPrice             float64
+	ElectricityUnitPrice             *float64
 	DefaultElectricityBillingCadence string
 	OwnerID                          string
 	Version                          int
@@ -202,7 +202,9 @@ ORDER BY id
 	if err != nil {
 		return nil, fmt.Errorf("list occupied rooms by property: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	ids := make([]string, 0)
 	for rows.Next() {
