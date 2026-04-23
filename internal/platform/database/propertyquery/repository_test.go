@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+
+	"stds_backend/internal/shared/apperr"
 )
 
 func TestListRoomsByPropertyReturnsActiveRoomsWithStatusFilterAndPagination(t *testing.T) {
@@ -85,7 +87,7 @@ LIMIT 1`)).
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if errors.Is(err, ErrRoomNotFound) {
+	if errors.Is(err, apperr.ErrRoomNotFound) {
 		t.Fatalf("expected wrapped query error, got not found")
 	}
 
@@ -114,8 +116,59 @@ LIMIT 1`)).
 		}))
 
 	_, err = repo.FindRoomByID(context.Background(), "20000000-0000-0000-0000-000000000099")
-	if !errors.Is(err, ErrRoomNotFound) {
+	if !errors.Is(err, apperr.ErrRoomNotFound) {
 		t.Fatalf("expected ErrRoomNotFound, got %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestListRoomsByPropertyIgnoresNonObjectFacilities(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewRepository(db)
+	now := time.Date(2026, 4, 20, 10, 0, 0, 0, time.UTC)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, property_id, name, status, size, floor, room_type, facilities::text, default_rent_amount, notes, zone, created_at, updated_at
+FROM rooms
+WHERE property_id = $1
+  AND deleted_at IS NULL
+ ORDER BY created_at DESC LIMIT $2 OFFSET $3`)).
+		WithArgs("10000000-0000-0000-0000-000000000001", 20, 0).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "property_id", "name", "status", "size", "floor", "room_type", "facilities", "default_rent_amount", "notes", "zone", "created_at", "updated_at",
+		}).AddRow(
+			"20000000-0000-0000-0000-000000000001",
+			"10000000-0000-0000-0000-000000000001",
+			"101 Room",
+			"vacant",
+			nil,
+			nil,
+			nil,
+			`["ac","desk"]`,
+			nil,
+			nil,
+			nil,
+			now,
+			now,
+		))
+
+	rooms, err := repo.ListRoomsByProperty(context.Background(), "10000000-0000-0000-0000-000000000001", "", 20, 0)
+	if err != nil {
+		t.Fatalf("ListRoomsByProperty: %v", err)
+	}
+
+	if len(rooms) != 1 {
+		t.Fatalf("expected 1 room, got %d", len(rooms))
+	}
+	if rooms[0].Facilities != nil {
+		t.Fatalf("expected facilities nil for non-object json, got %#v", rooms[0].Facilities)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {

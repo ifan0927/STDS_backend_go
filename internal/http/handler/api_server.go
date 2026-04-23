@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -360,8 +361,8 @@ func (s *APIServer) ListPropertyRooms(c *gin.Context, id string, params api.List
 	}
 
 	items := make([]api.RoomResponse, 0, len(rooms))
-	for _, room := range rooms {
-		items = append(items, toRoomResponse(&room))
+	for i := range rooms {
+		items = append(items, toRoomResponse(&rooms[i]))
 	}
 
 	c.JSON(http.StatusOK, api.RoomListResponse{Data: &items})
@@ -416,8 +417,8 @@ func (s *APIServer) DeleteRoom(c *gin.Context, id string) { writeNotImplemented(
 func (s *APIServer) GetRoom(c *gin.Context, id string) {
 	room, err := s.propertyQueryRepo.FindRoomByID(c.Request.Context(), id)
 	if err != nil {
-		switch err {
-		case dbpropertyquery.ErrRoomNotFound:
+		switch {
+		case errors.Is(err, apperr.ErrRoomNotFound):
 			c.Error(apperr.ErrRoomNotFound)
 		default:
 			c.Error(apperr.ErrInternalServerError.WithCause(err))

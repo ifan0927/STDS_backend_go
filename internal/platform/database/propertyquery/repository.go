@@ -8,13 +8,12 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"stds_backend/internal/shared/apperr"
 )
 
 // ErrNotFound indicates that no active property matched the requested lookup.
 var ErrNotFound = errors.New("property query not found")
-
-// ErrRoomNotFound indicates that no active room matched the requested lookup.
-var ErrRoomNotFound = errors.New("room query not found")
 
 // Property is the read model returned by property queries.
 type Property struct {
@@ -186,7 +185,7 @@ LIMIT 1
 	room, err := scanRoom(r.db.QueryRowContext(ctx, query, roomID))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrRoomNotFound
+			return nil, apperr.ErrRoomNotFound
 		}
 		return nil, fmt.Errorf("query room by id: %w", err)
 	}
@@ -259,12 +258,12 @@ func scanRoom(row rowScanner) (*Room, error) {
 		room.RoomType = &roomType.String
 	}
 	if facilities.Valid {
-		var decoded map[string]interface{}
+		var decoded any
 		if err := json.Unmarshal([]byte(facilities.String), &decoded); err != nil {
 			return nil, fmt.Errorf("decode facilities: %w", err)
 		}
-		if decoded != nil {
-			room.Facilities = &decoded
+		if objectValue, ok := decoded.(map[string]interface{}); ok {
+			room.Facilities = &objectValue
 		}
 	}
 	if defaultRentAmount.Valid {
