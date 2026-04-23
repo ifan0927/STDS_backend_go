@@ -299,6 +299,48 @@ func TestRequirePropertyAccessReturnsBadRequestForInvalidPropertyID(t *testing.T
 	assertErrorCode(t, resp, http.StatusBadRequest, "BAD_REQUEST")
 }
 
+func TestRequirePropertyAccessReturnsBadRequestForInvalidPropertyIDAsAdmin(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	engine := gin.New()
+	engine.Use(RequestID(), ErrorHandler(testLoggerBuffer(nil)))
+	engine.GET("/properties/:id", func(c *gin.Context) {
+		requestctx.SetPrincipal(c, requestctx.Principal{Role: "admin"})
+		c.Next()
+	}, RequirePropertyAccess(ParamPropertyID("id"), fakePropertyRepo{}), func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/properties/not-a-uuid", nil)
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	assertErrorCode(t, resp, http.StatusBadRequest, "BAD_REQUEST")
+}
+
+func TestRequirePropertyAccessReturnsRoomNotFoundForMissingRoomLookupAsAdmin(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	engine := gin.New()
+	engine.Use(RequestID(), ErrorHandler(testLoggerBuffer(nil)))
+	engine.GET("/rooms/:id", func(c *gin.Context) {
+		requestctx.SetPrincipal(c, requestctx.Principal{Role: "admin"})
+		c.Next()
+	}, RequirePropertyAccess(ResourcePropertyIDWithNotFound("id", func(_ context.Context, _ string) (string, error) {
+		return "", dbresourceownership.ErrNotFound
+	}, apperr.ErrRoomNotFound), fakePropertyRepo{}), func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/rooms/"+testMissingRoomID, nil)
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	assertErrorCode(t, resp, http.StatusNotFound, "ROOM_NOT_FOUND")
+}
+
 func TestRequirePropertyAccessReturnsPropertyNotFoundForMissingProperty(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

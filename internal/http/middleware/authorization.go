@@ -59,11 +59,6 @@ func RequirePropertyAccess(resolvePropertyID PropertyIDResolver, propertyRepo db
 			return
 		}
 
-		if principal.Role == "admin" {
-			c.Next()
-			return
-		}
-
 		propertyID, err := resolvePropertyID(c)
 		if err != nil {
 			c.Error(mapPropertyResolverError(err))
@@ -77,6 +72,11 @@ func RequirePropertyAccess(resolvePropertyID PropertyIDResolver, propertyRepo db
 		}
 
 		requestctx.SetPropertyID(c, propertyID)
+
+		if principal.Role == "admin" {
+			c.Next()
+			return
+		}
 
 		if principal.Role == "owner" {
 			ownerID, err := propertyRepo.FindOwnerIDByPropertyID(c.Request.Context(), propertyID)

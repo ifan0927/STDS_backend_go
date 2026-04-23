@@ -110,6 +110,48 @@ func TestPropertyScopedRoutesRejectInvalidPropertyID(t *testing.T) {
 	}
 }
 
+func TestPropertyScopedRoutesRejectInvalidPropertyIDForAdmin(t *testing.T) {
+	paths := []struct {
+		name   string
+		method string
+		path   string
+		body   io.Reader
+	}{
+		{name: "get property", method: http.MethodGet, path: "/api/v1/properties/not-a-uuid"},
+		{name: "patch property", method: http.MethodPatch, path: "/api/v1/properties/not-a-uuid", body: strings.NewReader(`{}`)},
+		{name: "delete property", method: http.MethodDelete, path: "/api/v1/properties/not-a-uuid"},
+	}
+
+	for _, tc := range paths {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := fakeUserRepo{role: "admin"}
+			engine := newTestEngine(repo, fakeAuthenticator{role: "admin"}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+
+			req := httptest.NewRequest(tc.method, tc.path, tc.body)
+			req.Header.Set("Authorization", "Bearer valid-token")
+			if tc.body != nil {
+				req.Header.Set("Content-Type", "application/json")
+			}
+			resp := httptest.NewRecorder()
+
+			engine.ServeHTTP(resp, req)
+
+			if resp.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d: %s", resp.Code, resp.Body.String())
+			}
+
+			payload := map[string]any{}
+			if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+				t.Fatalf("unmarshal response: %v", err)
+			}
+
+			if payload["error_code"] != apperr.CodeBadRequest {
+				t.Fatalf("expected %s, got %v", apperr.CodeBadRequest, payload["error_code"])
+			}
+		})
+	}
+}
+
 func TestPropertyAttachmentWrapperRejectsInvalidUUIDWithStandardErrorResponse(t *testing.T) {
 	repo := fakeUserRepo{}
 	engine := newTestEngine(repo, fakeAuthenticator{}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
@@ -1035,6 +1077,43 @@ func TestProtectedRoutesReturnResourceSpecificNotFoundCodes(t *testing.T) {
 
 			if resp.Code != tt.expectedHTTP {
 				t.Fatalf("expected %d, got %d: %s", tt.expectedHTTP, resp.Code, resp.Body.String())
+			}
+
+			payload := map[string]any{}
+			if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+				t.Fatalf("unmarshal response: %v", err)
+			}
+
+			if payload["error_code"] != tt.expectedCode {
+				t.Fatalf("expected error_code %s, got %v", tt.expectedCode, payload["error_code"])
+			}
+		})
+	}
+}
+
+func TestAdminResourceRoutesReturnResourceSpecificNotFoundCodes(t *testing.T) {
+	tests := []struct {
+		name         string
+		path         string
+		expectedCode string
+	}{
+		{name: "room detail missing room", path: "/api/v1/rooms/" + testMissingRoomID, expectedCode: apperr.CodeRoomNotFound},
+		{name: "bill detail missing bill", path: "/api/v1/bills/" + testMissingBillID, expectedCode: apperr.CodeBillNotFound},
+		{name: "lease detail missing lease", path: "/api/v1/leases/" + testMissingLeaseID, expectedCode: apperr.CodeLeaseNotFound},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			engine := newTestEngine(fakeUserRepo{role: "admin"}, fakeAuthenticator{role: "admin"}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			req.Header.Set("Authorization", "Bearer valid-token")
+			resp := httptest.NewRecorder()
+
+			engine.ServeHTTP(resp, req)
+
+			if resp.Code != http.StatusNotFound {
+				t.Fatalf("expected 404, got %d: %s", resp.Code, resp.Body.String())
 			}
 
 			payload := map[string]any{}
