@@ -94,7 +94,12 @@ func (a *Aggregate) State() State {
 		return State{}
 	}
 
-	return a.state
+	snapshot := a.state
+	snapshot.Email = cloneStringPtr(a.state.Email)
+	snapshot.Phone = cloneStringPtr(a.state.Phone)
+	snapshot.Contacts = cloneContacts(a.state.Contacts)
+
+	return snapshot
 }
 
 func normalizeState(state State, requireEmail bool) (State, error) {
@@ -164,6 +169,15 @@ func normalizeOptionalString(value string) *string {
 	}
 
 	return &trimmed
+}
+
+func cloneStringPtr(value *string) *string {
+	if value == nil {
+		return nil
+	}
+
+	cloned := *value
+	return &cloned
 }
 
 func cloneContacts(contacts []map[string]interface{}) []map[string]interface{} {
