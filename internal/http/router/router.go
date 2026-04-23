@@ -248,7 +248,7 @@ func routePolicies(authzRepos AuthorizationRepositories) []routePolicy {
 		{method: "POST", path: "/api/v1/rooms/:id/maintenance", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyIDWithNotFound("id", ownership.FindPropertyIDByRoomID, apperr.ErrRoomNotFound)},
 		{method: "GET", path: "/api/v1/rooms/:id/meter-history", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyIDWithNotFound("id", ownership.FindPropertyIDByRoomID, apperr.ErrRoomNotFound)},
 
-		{method: "GET", path: "/api/v1/tenants", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
+		{method: "GET", path: "/api/v1/tenants", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.QueryPropertyID("property_id")},
 		{method: "POST", path: "/api/v1/tenants", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
 		{method: "GET", path: "/api/v1/tenants/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyIDWithNotFound("id", ownership.FindPropertyIDByTenantID, apperr.ErrTenantNotFound)},
 		{method: "POST", path: "/api/v1/tenants/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyIDWithNotFound("id", ownership.FindPropertyIDByTenantID, apperr.ErrTenantNotFound)},

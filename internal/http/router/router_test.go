@@ -290,6 +290,286 @@ func TestListTenantsReturnsAccessibleTenants(t *testing.T) {
 	}
 }
 
+func TestListTenantsRejectsUnassignedPropertyFilter(t *testing.T) {
+	engine := newTestEngineWithQueryRepos(
+		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID2}},
+		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID2}},
+		fakePropertyRepo{
+			ownerByPropertyID: map[string]string{
+				testPropertyID1: "owner-1",
+			},
+		},
+		fakeResourceOwnershipRepo{},
+		"",
+		fakeJobRunsRepo{},
+		fakePropertyQueryRepo{},
+		fakeTenantQueryRepo{},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants?property_id="+testPropertyID1, nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if payload["error_code"] != apperr.CodeForbidden {
+		t.Fatalf("expected FORBIDDEN, got %v", payload["error_code"])
+	}
+}
+
+func TestCreateTenantReturnsCreatedTenant(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+
+	engine := newTestEngineWithTenantServices(
+		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
+		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{},
+		"",
+		fakeJobRunsRepo{},
+		fakePropertyQueryRepo{},
+		fakeTenantQueryRepo{},
+		apptenant.NewCreateTenantService(fakeTenantRepo{}, dbtxrunner.New(db, nil)),
+		apptenant.NewUpdateTenantService(fakeTenantRepo{}, dbtxrunner.New(db, nil)),
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tenants", strings.NewReader(`{
+		"name":"Tenant A",
+		"email":"tenant@example.com",
+		"phone":"0912-345-678",
+		"contacts":[]
+	}`))
+	req.Header.Set("Authorization", "Bearer valid-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if payload["id"] != "30000000-0000-0000-0000-000000000001" {
+		t.Fatalf("expected created tenant id, got %v", payload["id"])
+	}
+	if payload["status"] != "active" {
+		t.Fatalf("expected active status, got %v", payload["status"])
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestGetTenantReturnsAccessibleTenant(t *testing.T) {
+	engine := newTestEngineWithQueryRepos(
+		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
+		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{
+			propertyByTenantID: map[string]string{
+				"30000000-0000-0000-0000-000000000001": testPropertyID1,
+			},
+		},
+		"",
+		fakeJobRunsRepo{},
+		fakePropertyQueryRepo{},
+		fakeTenantQueryRepo{
+			tenant: &dbtenantquery.Tenant{
+				ID:        "30000000-0000-0000-0000-000000000001",
+				Name:      "Tenant A",
+				Status:    "active",
+				Contacts:  []map[string]interface{}{},
+				CreatedAt: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+				UpdatedAt: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+				Version:   1,
+			},
+		},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants/30000000-0000-0000-0000-000000000001", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if payload["id"] != "30000000-0000-0000-0000-000000000001" {
+		t.Fatalf("expected tenant id, got %v", payload["id"])
+	}
+}
+
+func TestGetTenantReturnsNotFoundForMissingTenant(t *testing.T) {
+	engine := newTestEngineWithQueryRepos(
+		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
+		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{},
+		"",
+		fakeJobRunsRepo{},
+		fakePropertyQueryRepo{},
+		fakeTenantQueryRepo{tenantErr: dbtenantquery.ErrNotFound},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants/30000000-0000-0000-0000-000000000099", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if payload["error_code"] != apperr.CodeTenantNotFound {
+		t.Fatalf("expected TENANT_NOT_FOUND, got %v", payload["error_code"])
+	}
+}
+
+func TestUpdateTenantReturnsUpdatedTenant(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+
+	engine := newTestEngineWithTenantServices(
+		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
+		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{
+			propertyByTenantID: map[string]string{
+				"30000000-0000-0000-0000-000000000001": testPropertyID1,
+			},
+		},
+		"",
+		fakeJobRunsRepo{},
+		fakePropertyQueryRepo{},
+		fakeTenantQueryRepo{},
+		apptenant.NewCreateTenantService(fakeTenantRepo{}, dbtxrunner.New(db, nil)),
+		apptenant.NewUpdateTenantService(fakeTenantRepo{}, dbtxrunner.New(db, nil)),
+	)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/tenants/30000000-0000-0000-0000-000000000001", strings.NewReader(`{
+		"phone":"0987-654-321"
+	}`))
+	req.Header.Set("Authorization", "Bearer valid-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if payload["version"] != float64(2) {
+		t.Fatalf("expected version 2, got %v", payload["version"])
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestListTenantLeasesReturnsLeaseHistory(t *testing.T) {
+	leasesCall := &listTenantLeasesCall{}
+	engine := newTestEngineWithQueryRepos(
+		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
+		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{
+			propertyByTenantID: map[string]string{
+				"30000000-0000-0000-0000-000000000001": testPropertyID1,
+			},
+		},
+		"",
+		fakeJobRunsRepo{},
+		fakePropertyQueryRepo{},
+		fakeTenantQueryRepo{
+			leasesCall: leasesCall,
+			leases: []dbtenantquery.Lease{
+				{
+					ID:                        "40000000-0000-0000-0000-000000000001",
+					TenantID:                  "30000000-0000-0000-0000-000000000001",
+					PropertyID:                testPropertyID1,
+					RoomID:                    testRoomID1,
+					RentAmount:                12000,
+					StartDate:                 time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+					EndDate:                   time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+					ElectricityBillingCadence: "monthly",
+					Status:                    "active",
+					DepositAmount:             24000,
+					DepositStatus:             "held",
+					CreatedAt:                 time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+					UpdatedAt:                 time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+					Version:                   1,
+				},
+			},
+		},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants/30000000-0000-0000-0000-000000000001/leases?status=active", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	if leasesCall.status != "active" || leasesCall.tenantID != "30000000-0000-0000-0000-000000000001" {
+		t.Fatalf("unexpected leases call: %+v", *leasesCall)
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	data, ok := payload["data"].([]any)
+	if !ok || len(data) != 1 {
+		t.Fatalf("expected one lease entry, got %#v", payload["data"])
+	}
+}
+
 func TestListUsersReturnsActiveUsers(t *testing.T) {
 	repo := fakeUserRepo{
 		listUsers: []users.User{
@@ -3176,6 +3456,21 @@ func newTestEngineWithPropertyQueryRepo(userRepo fakeUserRepo, authenticator fak
 }
 
 func newTestEngineWithQueryRepos(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo, propertyQueryRepo dbpropertyquery.Repository, tenantQueryRepo dbtenantquery.Repository) *gin.Engine {
+	return newTestEngineWithTenantServices(
+		userRepo,
+		authenticator,
+		propertyRepo,
+		ownershipRepo,
+		schedulerKey,
+		jobRunsRepo,
+		propertyQueryRepo,
+		tenantQueryRepo,
+		apptenant.NewCreateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
+		apptenant.NewUpdateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
+	)
+}
+
+func newTestEngineWithTenantServices(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo, propertyQueryRepo dbpropertyquery.Repository, tenantQueryRepo dbtenantquery.Repository, createTenantService *apptenant.CreateTenantService, updateTenantService *apptenant.UpdateTenantService) *gin.Engine {
 	repo := &userRepo
 	userAccountRepo := testUserAccountRepositoryAdapter{repo: repo}
 	return New(
@@ -3208,8 +3503,8 @@ func newTestEngineWithQueryRepos(userRepo fakeUserRepo, authenticator fakeAuthen
 		appproperty.NewUpdateRoomService(propertyRepo, dbtxrunner.New(nil, nil)),
 		appproperty.NewDeleteRoomService(propertyRepo, dbtxrunner.New(nil, nil)),
 		appproperty.NewSetRoomMaintenanceService(propertyRepo, dbtxrunner.New(nil, nil)),
-		apptenant.NewCreateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
-		apptenant.NewUpdateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
+		createTenantService,
+		updateTenantService,
 	)
 }
 

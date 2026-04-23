@@ -319,6 +319,29 @@ func TestRequirePropertyAccessReturnsBadRequestForInvalidPropertyIDAsAdmin(t *te
 	assertErrorCode(t, resp, http.StatusBadRequest, "BAD_REQUEST")
 }
 
+func TestRequirePropertyAccessReturnsBadRequestForInvalidQueryPropertyID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	engine := gin.New()
+	engine.Use(RequestID(), ErrorHandler(testLoggerBuffer(nil)))
+	engine.GET("/tenants", func(c *gin.Context) {
+		requestctx.SetPrincipal(c, requestctx.Principal{
+			Role:                "organizer",
+			AssignedPropertyIDs: []string{testPropertyID1},
+		})
+		c.Next()
+	}, RequirePropertyAccess(QueryPropertyID("property_id"), fakePropertyRepo{}), func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/tenants?property_id=not-a-uuid", nil)
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	assertErrorCode(t, resp, http.StatusBadRequest, "BAD_REQUEST")
+}
+
 func TestRequirePropertyAccessReturnsRoomNotFoundForMissingRoomLookupAsAdmin(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
