@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/gin-gonic/gin"
@@ -128,6 +129,31 @@ func ParamPropertyID(param string) PropertyIDResolver {
 		}
 
 		return propertyID, nil
+	}
+}
+
+// QueryPropertyID returns a resolver that reads an optional property ID from
+// the given query parameter.
+func QueryPropertyID(param string) PropertyIDResolver {
+	return func(c *gin.Context) (string, error) {
+		if param == "" {
+			return "", apperr.ErrBadRequest.WithDetails(map[string]interface{}{
+				"parameter": "property_id",
+			})
+		}
+
+		value := strings.TrimSpace(c.Query(param))
+		if value == "" {
+			return "", nil
+		}
+
+		if _, err := uuid.Parse(value); err != nil {
+			return "", apperr.ErrBadRequest.WithDetails(map[string]interface{}{
+				"parameter": param,
+			}).WithCause(err)
+		}
+
+		return value, nil
 	}
 }
 

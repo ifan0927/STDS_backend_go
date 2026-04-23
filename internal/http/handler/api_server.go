@@ -11,11 +11,13 @@ import (
 	appiam "stds_backend/internal/application/iam"
 	appjobs "stds_backend/internal/application/jobs"
 	appproperty "stds_backend/internal/application/property"
+	apptenant "stds_backend/internal/application/tenant"
 	domainusers "stds_backend/internal/domain/users"
 	"stds_backend/internal/http/api"
 	"stds_backend/internal/http/queryparams"
 	"stds_backend/internal/http/requestctx"
 	dbpropertyquery "stds_backend/internal/platform/database/propertyquery"
+	dbtenantquery "stds_backend/internal/platform/database/tenantquery"
 	"stds_backend/internal/platform/database/users"
 	"stds_backend/internal/shared/apperr"
 )
@@ -34,6 +36,7 @@ type APIServer struct {
 	assignProperties  *appiam.AssignUserPropertiesService
 	jobTriggerService *appjobs.TriggerService
 	propertyQueryRepo dbpropertyquery.Repository
+	tenantQueryRepo   dbtenantquery.Repository
 	createPropertySvc *appproperty.CreatePropertyService
 	updatePropertySvc *appproperty.UpdatePropertyService
 	deletePropertySvc *appproperty.DeletePropertyService
@@ -41,6 +44,8 @@ type APIServer struct {
 	updateRoomSvc     *appproperty.UpdateRoomService
 	deleteRoomSvc     *appproperty.DeleteRoomService
 	setMaintenanceSvc *appproperty.SetRoomMaintenanceService
+	createTenantSvc   *apptenant.CreateTenantService
+	updateTenantSvc   *apptenant.UpdateTenantService
 }
 
 // NewAPIServer returns an API server with only the currently implemented
@@ -55,6 +60,7 @@ func NewAPIServer(
 	assignProperties *appiam.AssignUserPropertiesService,
 	jobTriggerService *appjobs.TriggerService,
 	propertyQueryRepo dbpropertyquery.Repository,
+	tenantQueryRepo dbtenantquery.Repository,
 	createPropertySvc *appproperty.CreatePropertyService,
 	updatePropertySvc *appproperty.UpdatePropertyService,
 	deletePropertySvc *appproperty.DeletePropertyService,
@@ -62,6 +68,8 @@ func NewAPIServer(
 	updateRoomSvc *appproperty.UpdateRoomService,
 	deleteRoomSvc *appproperty.DeleteRoomService,
 	setMaintenanceSvc *appproperty.SetRoomMaintenanceService,
+	createTenantSvc *apptenant.CreateTenantService,
+	updateTenantSvc *apptenant.UpdateTenantService,
 ) *APIServer {
 	return &APIServer{
 		userRepo:          userRepo,
@@ -73,6 +81,7 @@ func NewAPIServer(
 		assignProperties:  assignProperties,
 		jobTriggerService: jobTriggerService,
 		propertyQueryRepo: propertyQueryRepo,
+		tenantQueryRepo:   tenantQueryRepo,
 		createPropertySvc: createPropertySvc,
 		updatePropertySvc: updatePropertySvc,
 		deletePropertySvc: deletePropertySvc,
@@ -80,6 +89,8 @@ func NewAPIServer(
 		updateRoomSvc:     updateRoomSvc,
 		deleteRoomSvc:     deleteRoomSvc,
 		setMaintenanceSvc: setMaintenanceSvc,
+		createTenantSvc:   createTenantSvc,
+		updateTenantSvc:   updateTenantSvc,
 	}
 }
 
@@ -580,10 +591,65 @@ func (s *APIServer) ListRoomMeterHistory(c *gin.Context, id string, params api.L
 }
 
 // ListTenants handles the tenant listing endpoint.
-func (s *APIServer) ListTenants(c *gin.Context, params api.ListTenantsParams) { writeNotImplemented(c) }
+func (s *APIServer) ListTenants(c *gin.Context, params api.ListTenantsParams) {
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	pagination, err := queryparams.NormalizePagination(params.Page, params.Limit)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	status := ""
+	if params.Status != nil {
+		status = string(*params.Status)
+	}
+
+	tenants, err := s.tenantQueryRepo.ListAccessible(c.Request.Context(), principal.Role, principal.AssignedPropertyIDs, params.PropertyId, status, pagination.Limit, pagination.Offset)
+	if err != nil {
+		c.Error(apperr.ErrInternalServerError.WithCause(err))
+		return
+	}
+
+	items := make([]api.TenantResponse, 0, len(tenants))
+	for _, tenant := range tenants {
+		items = append(items, toTenantResponse(&tenant))
+	}
+
+	c.JSON(http.StatusOK, api.TenantListResponse{Data: &items})
+}
 
 // CreateTenant handles tenant creation.
-func (s *APIServer) CreateTenant(c *gin.Context) { writeNotImplemented(c) }
+func (s *APIServer) CreateTenant(c *gin.Context) {
+	var request api.CreateTenantRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.Error(apperr.ErrBadRequest.WithCause(err))
+		return
+	}
+
+	var phone *string
+	if request.Phone != nil {
+		value := *request.Phone
+		phone = &value
+	}
+
+	tenant, err := s.createTenantSvc.Execute(c.Request.Context(), apptenant.CreateTenantInput{
+		Name:     request.Name,
+		Email:    string(request.Email),
+		Phone:    phone,
+		Contacts: request.Contacts,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusCreated, toCreatedTenantResponse(tenant))
+}
 
 // ListTenantAttachments handles tenant attachment listing.
 func (s *APIServer) ListTenantAttachments(c *gin.Context, id openapi_types.UUID) {
@@ -596,14 +662,86 @@ func (s *APIServer) CreateTenantAttachment(c *gin.Context, id openapi_types.UUID
 }
 
 // GetTenant handles tenant detail retrieval.
-func (s *APIServer) GetTenant(c *gin.Context, id string) { writeNotImplemented(c) }
+func (s *APIServer) GetTenant(c *gin.Context, id string) {
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	tenant, err := s.tenantQueryRepo.FindByIDAccessible(c.Request.Context(), id, principal.Role, principal.AssignedPropertyIDs)
+	if err != nil {
+		switch {
+		case errors.Is(err, dbtenantquery.ErrNotFound):
+			c.Error(apperr.ErrTenantNotFound)
+		default:
+			c.Error(apperr.ErrInternalServerError.WithCause(err))
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, toTenantResponse(tenant))
+}
 
 // UpdateTenant handles tenant updates.
-func (s *APIServer) UpdateTenant(c *gin.Context, id string) { writeNotImplemented(c) }
+func (s *APIServer) UpdateTenant(c *gin.Context, id string) {
+	var request api.UpdateTenantRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.Error(apperr.ErrBadRequest.WithCause(err))
+		return
+	}
+
+	var email *string
+	if request.Email != nil {
+		value := string(*request.Email)
+		email = &value
+	}
+
+	tenant, err := s.updateTenantSvc.Execute(c.Request.Context(), apptenant.UpdateTenantInput{
+		ID:       id,
+		Name:     request.Name,
+		Email:    email,
+		Phone:    request.Phone,
+		Contacts: request.Contacts,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toCreatedTenantResponse(tenant))
+}
 
 // ListTenantLeases handles lease listing for a tenant.
 func (s *APIServer) ListTenantLeases(c *gin.Context, id string, params api.ListTenantLeasesParams) {
-	writeNotImplemented(c)
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	status := ""
+	if params.Status != nil {
+		status = string(*params.Status)
+	}
+
+	leases, err := s.tenantQueryRepo.ListLeasesByTenantAccessible(c.Request.Context(), id, principal.Role, principal.AssignedPropertyIDs, status)
+	if err != nil {
+		switch {
+		case errors.Is(err, dbtenantquery.ErrNotFound):
+			c.Error(apperr.ErrTenantNotFound)
+		default:
+			c.Error(apperr.ErrInternalServerError.WithCause(err))
+		}
+		return
+	}
+
+	items := make([]api.LeaseResponse, 0, len(leases))
+	for _, lease := range leases {
+		items = append(items, toTenantLeaseResponse(&lease))
+	}
+
+	c.JSON(http.StatusOK, api.LeaseListResponse{Data: &items})
 }
 
 // ListUsers handles the user listing endpoint.
@@ -1086,6 +1224,111 @@ func toCreatedRoomResponse(room *appproperty.Room) api.RoomResponse {
 	}
 
 	return toRoomResponse(queryShape)
+}
+
+func toTenantResponse(tenant *dbtenantquery.Tenant) api.TenantResponse {
+	id, ok := parseUUID(tenant.ID)
+	name := tenant.Name
+	status := api.TenantResponseStatus(tenant.Status)
+	createdAt := tenant.CreatedAt
+	updatedAt := tenant.UpdatedAt
+	version := tenant.Version
+
+	response := api.TenantResponse{
+		Address:    tenant.Address,
+		Contacts:   &tenant.Contacts,
+		CreatedAt:  &createdAt,
+		Name:       &name,
+		NationalId: tenant.NationalID,
+		Occupation: tenant.Occupation,
+		Phone:      tenant.Phone,
+		Status:     &status,
+		UpdatedAt:  &updatedAt,
+		Version:    &version,
+	}
+	if tenant.BirthDate != nil {
+		birthDate := openapi_types.Date{Time: *tenant.BirthDate}
+		response.BirthDate = &birthDate
+	}
+	if tenant.Email != nil {
+		email := openapi_types.Email(*tenant.Email)
+		response.Email = &email
+	}
+	if ok {
+		response.Id = &id
+	}
+
+	return response
+}
+
+func toCreatedTenantResponse(tenant *apptenant.Tenant) api.TenantResponse {
+	queryShape := &dbtenantquery.Tenant{
+		ID:         tenant.ID,
+		Name:       tenant.Name,
+		Email:      tenant.Email,
+		Phone:      tenant.Phone,
+		Contacts:   tenant.Contacts,
+		BirthDate:  tenant.BirthDate,
+		NationalID: tenant.NationalID,
+		Address:    tenant.Address,
+		Occupation: tenant.Occupation,
+		Status:     tenant.Status,
+		CreatedAt:  tenant.CreatedAt,
+		UpdatedAt:  tenant.UpdatedAt,
+		Version:    tenant.Version,
+	}
+
+	return toTenantResponse(queryShape)
+}
+
+func toTenantLeaseResponse(lease *dbtenantquery.Lease) api.LeaseResponse {
+	id, ok := parseUUID(lease.ID)
+	tenantID, tenantOK := parseUUID(lease.TenantID)
+	propertyID, propertyOK := parseUUID(lease.PropertyID)
+	roomID, roomOK := parseUUID(lease.RoomID)
+	startDate := openapi_types.Date{Time: lease.StartDate}
+	endDate := openapi_types.Date{Time: lease.EndDate}
+	status := api.LeaseResponseStatus(lease.Status)
+	depositStatus := api.LeaseResponseDepositStatus(lease.DepositStatus)
+	cadence := api.LeaseResponseElectricityBillingCadence(lease.ElectricityBillingCadence)
+	rentAmount := lease.RentAmount
+	depositAmount := lease.DepositAmount
+	createdAt := lease.CreatedAt
+	updatedAt := lease.UpdatedAt
+	version := lease.Version
+
+	response := api.LeaseResponse{
+		CreatedAt:                 &createdAt,
+		DepositAmount:             &depositAmount,
+		DepositDeductionAmount:    lease.DepositDeductionAmount,
+		DepositDeductionReason:    lease.DepositDeductionReason,
+		DepositRefundAmount:       lease.DepositRefundAmount,
+		DepositStatus:             &depositStatus,
+		ElectricityBillingCadence: &cadence,
+		EndDate:                   &endDate,
+		RentAmount:                &rentAmount,
+		StartDate:                 &startDate,
+		Status:                    &status,
+		Notes:                     lease.Notes,
+		SettlementDetail:          lease.SettlementDetail,
+		TerminationReason:         lease.TerminationReason,
+		UpdatedAt:                 &updatedAt,
+		Version:                   &version,
+	}
+	if ok {
+		response.Id = &id
+	}
+	if tenantOK {
+		response.TenantId = &tenantID
+	}
+	if propertyOK {
+		response.PropertyId = &propertyID
+	}
+	if roomOK {
+		response.RoomId = &roomID
+	}
+
+	return response
 }
 
 func toRepairRequestResponse(repairRequest *appproperty.RepairRequest) api.RepairRequestResponse {

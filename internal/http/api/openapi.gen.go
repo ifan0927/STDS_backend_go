@@ -266,9 +266,8 @@ const (
 
 // Defines values for ListTenantsParamsStatus.
 const (
-	ListTenantsParamsStatusActive      ListTenantsParamsStatus = "active"
-	ListTenantsParamsStatusBlacklisted ListTenantsParamsStatus = "blacklisted"
-	ListTenantsParamsStatusInactive    ListTenantsParamsStatus = "inactive"
+	ListTenantsParamsStatusActive   ListTenantsParamsStatus = "active"
+	ListTenantsParamsStatusInactive ListTenantsParamsStatus = "inactive"
 )
 
 // Defines values for ListTenantLeasesParamsStatus.
