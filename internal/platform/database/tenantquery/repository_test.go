@@ -15,7 +15,14 @@ func TestListAccessibleReturnsAssignedPropertyTenants(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock.New: %v", err)
 	}
-	defer db.Close()
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Fatalf("db.Close: %v", err)
+		}
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Fatalf("ExpectationsWereMet: %v", err)
+		}
+	})
 
 	repo := NewRepository(db)
 	now := time.Date(2026, 4, 20, 10, 0, 0, 0, time.UTC)
@@ -58,6 +65,7 @@ ORDER BY t.created_at DESC LIMIT $3 OFFSET $4`)).
 			now,
 			1,
 		))
+	mock.ExpectClose()
 
 	tenants, err := repo.ListAccessible(context.Background(), "organizer", []string{"10000000-0000-0000-0000-000000000001"}, nil, "active", 10, 20)
 	if err != nil {
@@ -73,9 +81,6 @@ ORDER BY t.created_at DESC LIMIT $3 OFFSET $4`)).
 		t.Fatalf("expected contacts to decode, got %#v", tenants[0].Contacts)
 	}
 
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("ExpectationsWereMet: %v", err)
-	}
 }
 
 func TestFindByIDAccessibleMapsNoRowsToErrNotFound(t *testing.T) {
@@ -83,7 +88,14 @@ func TestFindByIDAccessibleMapsNoRowsToErrNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock.New: %v", err)
 	}
-	defer db.Close()
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Fatalf("db.Close: %v", err)
+		}
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Fatalf("ExpectationsWereMet: %v", err)
+		}
+	})
 
 	repo := NewRepository(db)
 
@@ -111,15 +123,13 @@ LIMIT 1`)).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "name", "email", "phone", "contacts", "birth_date", "national_id", "address", "occupation", "status", "created_at", "updated_at", "version",
 		}))
+	mock.ExpectClose()
 
 	_, err = repo.FindByIDAccessible(context.Background(), "30000000-0000-0000-0000-000000000099", "organizer", []string{"10000000-0000-0000-0000-000000000001"})
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("ExpectationsWereMet: %v", err)
-	}
 }
 
 func TestListLeasesByTenantAccessibleReturnsLeaseHistory(t *testing.T) {
@@ -127,7 +137,14 @@ func TestListLeasesByTenantAccessibleReturnsLeaseHistory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock.New: %v", err)
 	}
-	defer db.Close()
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Fatalf("db.Close: %v", err)
+		}
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Fatalf("ExpectationsWereMet: %v", err)
+		}
+	})
 
 	repo := NewRepository(db)
 	now := time.Date(2026, 4, 20, 10, 0, 0, 0, time.UTC)
@@ -213,6 +230,7 @@ ORDER BY l.created_at DESC`)).
 			now,
 			1,
 		))
+	mock.ExpectClose()
 
 	leases, err := repo.ListLeasesByTenantAccessible(context.Background(), "30000000-0000-0000-0000-000000000001", "organizer", []string{"10000000-0000-0000-0000-000000000001"}, "active")
 	if err != nil {
@@ -225,7 +243,4 @@ ORDER BY l.created_at DESC`)).
 		t.Fatalf("expected monthly cadence, got %s", leases[0].ElectricityBillingCadence)
 	}
 
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatalf("ExpectationsWereMet: %v", err)
-	}
 }

@@ -161,7 +161,6 @@ func TestUpdateTenantServiceMapsNotFound(t *testing.T) {
 	}, dbtxrunner.New(db, nil))
 
 	name := "Tenant A"
-	err = nil
 	_, err = service.Execute(context.Background(), UpdateTenantInput{
 		ID:   "missing",
 		Name: &name,

@@ -140,7 +140,9 @@ FROM tenants t
 	if err != nil {
 		return nil, fmt.Errorf("list accessible tenants: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	tenants := make([]Tenant, 0)
 	for rows.Next() {
@@ -273,7 +275,9 @@ WHERE l.tenant_id = $1
 	if err != nil {
 		return nil, fmt.Errorf("list tenant leases: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	leases := make([]Lease, 0)
 	for rows.Next() {

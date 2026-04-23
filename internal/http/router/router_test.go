@@ -264,7 +264,7 @@ func TestListTenantsReturnsAccessibleTenants(t *testing.T) {
 	}
 	engine := newTestEngineWithQueryRepos(repo, fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{}, fakePropertyQueryRepo{}, tenantQueryRepo)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants?status=active&page=2&limit=5", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants?status=active&page=2&limit=5&property_id="+testPropertyID1, nil)
 	req.Header.Set("Authorization", "Bearer valid-token")
 	resp := httptest.NewRecorder()
 
@@ -284,6 +284,9 @@ func TestListTenantsReturnsAccessibleTenants(t *testing.T) {
 	}
 	if tenantQueryRepo.listCall.status != "active" {
 		t.Fatalf("expected status filter to pass through, got %q", tenantQueryRepo.listCall.status)
+	}
+	if tenantQueryRepo.listCall.propertyID == nil || *tenantQueryRepo.listCall.propertyID != testPropertyID1 {
+		t.Fatalf("expected property_id %s, got %#v", testPropertyID1, tenantQueryRepo.listCall.propertyID)
 	}
 	if tenantQueryRepo.listCall.limit != 5 || tenantQueryRepo.listCall.offset != 5 {
 		t.Fatalf("expected pagination 5/5, got limit=%d offset=%d", tenantQueryRepo.listCall.limit, tenantQueryRepo.listCall.offset)

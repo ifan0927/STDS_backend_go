@@ -3,6 +3,7 @@ package tenant
 import (
 	"net/mail"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -120,7 +121,7 @@ func validateName(name string) error {
 	if name == "" {
 		return ErrNameRequired
 	}
-	if len(name) > 100 {
+	if utf8.RuneCountInString(name) > 100 {
 		return ErrNameTooLong
 	}
 	return nil

@@ -671,8 +671,8 @@ func (s *APIServer) GetTenant(c *gin.Context, id string) {
 
 	tenant, err := s.tenantQueryRepo.FindByIDAccessible(c.Request.Context(), id, principal.Role, principal.AssignedPropertyIDs)
 	if err != nil {
-		switch err {
-		case dbtenantquery.ErrNotFound:
+		switch {
+		case errors.Is(err, dbtenantquery.ErrNotFound):
 			c.Error(apperr.ErrTenantNotFound)
 		default:
 			c.Error(apperr.ErrInternalServerError.WithCause(err))
@@ -727,8 +727,8 @@ func (s *APIServer) ListTenantLeases(c *gin.Context, id string, params api.ListT
 
 	leases, err := s.tenantQueryRepo.ListLeasesByTenantAccessible(c.Request.Context(), id, principal.Role, principal.AssignedPropertyIDs, status)
 	if err != nil {
-		switch err {
-		case dbtenantquery.ErrNotFound:
+		switch {
+		case errors.Is(err, dbtenantquery.ErrNotFound):
 			c.Error(apperr.ErrTenantNotFound)
 		default:
 			c.Error(apperr.ErrInternalServerError.WithCause(err))
