@@ -3,8 +3,8 @@ package middleware
 import (
 	"context"
 	"errors"
-	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/gin-gonic/gin"
 
 	"stds_backend/internal/http/requestctx"
@@ -122,11 +122,12 @@ func RequirePropertyAccess(resolvePropertyID PropertyIDResolver, propertyRepo db
 // route parameter.
 func ParamPropertyID(param string) PropertyIDResolver {
 	return func(c *gin.Context) (string, error) {
-		if param == "" {
-			return "", errors.New("property param is required")
+		propertyID, err := resolveUUIDParam(c, param)
+		if err != nil {
+			return "", err
 		}
 
-		return c.Param(param), nil
+		return propertyID, nil
 	}
 }
 
@@ -150,8 +151,8 @@ func ResourcePropertyIDWithNotFound(param string, lookup PropertyLookup, notFoun
 		}
 
 		resourceID := c.Param(param)
-		if resourceID == "" {
-			return "", fmt.Errorf("resource param %q is empty", param)
+		if _, err := resolveUUIDParam(c, param); err != nil {
+			return "", err
 		}
 
 		propertyID, err := lookup(c.Request.Context(), resourceID)
@@ -165,6 +166,29 @@ func ResourcePropertyIDWithNotFound(param string, lookup PropertyLookup, notFoun
 
 		return propertyID, nil
 	}
+}
+
+func resolveUUIDParam(c *gin.Context, param string) (string, error) {
+	if param == "" {
+		return "", apperr.ErrBadRequest.WithDetails(map[string]interface{}{
+			"parameter": "id",
+		})
+	}
+
+	value := c.Param(param)
+	if value == "" {
+		return "", apperr.ErrBadRequest.WithDetails(map[string]interface{}{
+			"parameter": param,
+		})
+	}
+
+	if _, err := uuid.Parse(value); err != nil {
+		return "", apperr.ErrBadRequest.WithDetails(map[string]interface{}{
+			"parameter": param,
+		}).WithCause(err)
+	}
+
+	return value, nil
 }
 
 func mapPropertyResolverError(err error) error {

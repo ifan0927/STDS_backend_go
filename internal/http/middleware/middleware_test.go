@@ -21,6 +21,16 @@ import (
 	"stds_backend/internal/shared/apperr"
 )
 
+const (
+	testPropertyID1       = "10000000-0000-0000-0000-000000000001"
+	testPropertyID2       = "10000000-0000-0000-0000-000000000002"
+	testPropertyID9       = "10000000-0000-0000-0000-000000000009"
+	testMissingPropertyID = "10000000-0000-0000-0000-000000000099"
+	testRoomID1           = "20000000-0000-0000-0000-000000000001"
+	testMissingRoomID     = "20000000-0000-0000-0000-000000000099"
+	testBillID1           = "30000000-0000-0000-0000-000000000001"
+)
+
 func TestProtectedMiddlewareChain(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -39,7 +49,7 @@ func TestProtectedMiddlewareChain(t *testing.T) {
 		},
 	)
 
-	req := httptest.NewRequest(http.MethodGet, "/properties/property-1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/properties/"+testPropertyID1, nil)
 	req.Header.Set("Authorization", "Bearer valid-token")
 	resp := httptest.NewRecorder()
 
@@ -58,7 +68,7 @@ func TestProtectedMiddlewareChain(t *testing.T) {
 		`"user_id":"user-1"`,
 		`"firebase_uid":"uid-1"`,
 		`"role":"organizer"`,
-		`"property_id":"property-1"`,
+		`"property_id":"` + testPropertyID1 + `"`,
 	} {
 		if !bytes.Contains([]byte(logOutput), []byte(fragment)) {
 			t.Fatalf("expected log output to contain %q, got %s", fragment, logOutput)
@@ -79,18 +89,18 @@ func TestProtectedMiddlewareLogsResolvedPropertyIDForResourceRoute(t *testing.T)
 		Auth(fakeAuthenticator{}, fakeUserRepo{}),
 		RequireRoles("admin", "organizer", "staff"),
 		RequirePropertyAccess(ResourcePropertyID("id", func(_ context.Context, resourceID string) (string, error) {
-			if resourceID != "bill-1" {
+			if resourceID != testBillID1 {
 				return "", errors.New("unexpected bill id")
 			}
 
-			return "property-1", nil
+			return testPropertyID1, nil
 		}), fakePropertyRepo{}),
 		func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"ok": true})
 		},
 	)
 
-	req := httptest.NewRequest(http.MethodGet, "/bills/bill-1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/bills/"+testBillID1, nil)
 	req.Header.Set("Authorization", "Bearer valid-token")
 	resp := httptest.NewRecorder()
 
@@ -101,10 +111,10 @@ func TestProtectedMiddlewareLogsResolvedPropertyIDForResourceRoute(t *testing.T)
 	}
 
 	logOutput := buffer.String()
-	if !bytes.Contains([]byte(logOutput), []byte(`"property_id":"property-1"`)) {
+	if !bytes.Contains([]byte(logOutput), []byte(`"property_id":"`+testPropertyID1+`"`)) {
 		t.Fatalf("expected log output to contain resolved property id, got %s", logOutput)
 	}
-	if bytes.Contains([]byte(logOutput), []byte(`"property_id":"bill-1"`)) {
+	if bytes.Contains([]byte(logOutput), []byte(`"property_id":"`+testBillID1+`"`)) {
 		t.Fatalf("expected log output not to contain resource id as property id, got %s", logOutput)
 	}
 }
@@ -165,7 +175,7 @@ func TestAuthUsesDBPrincipalInsteadOfClaims(t *testing.T) {
 	engine.Use(RequestID(), ErrorHandler(testLoggerBuffer(nil)))
 	engine.GET("/secure", Auth(fakeAuthenticator{
 		role:                "owner",
-		assignedPropertyIDs: []string{"property-9"},
+		assignedPropertyIDs: []string{testPropertyID9},
 	}, fakeUserRepo{}), func(c *gin.Context) {
 		principal, ok := requestctx.GetPrincipal(c)
 		if !ok {
@@ -248,22 +258,45 @@ func TestRequirePropertyAccessReturnsForbidden(t *testing.T) {
 	engine.GET("/properties/:id", func(c *gin.Context) {
 		requestctx.SetPrincipal(c, requestctx.Principal{
 			Role:                "organizer",
-			AssignedPropertyIDs: []string{"property-2"},
+			AssignedPropertyIDs: []string{testPropertyID2},
 		})
 		c.Next()
 	}, RequirePropertyAccess(ParamPropertyID("id"), fakePropertyRepo{
 		ownerByPropertyID: map[string]string{
-			"property-1": "owner-1",
+			testPropertyID1: "owner-1",
 		},
 	}), func(c *gin.Context) {
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/properties/property-1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/properties/"+testPropertyID1, nil)
 	resp := httptest.NewRecorder()
 	engine.ServeHTTP(resp, req)
 
 	assertErrorCode(t, resp, http.StatusForbidden, "FORBIDDEN")
+}
+
+func TestRequirePropertyAccessReturnsBadRequestForInvalidPropertyID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	engine := gin.New()
+	engine.Use(RequestID(), ErrorHandler(testLoggerBuffer(nil)))
+	engine.GET("/properties/:id", func(c *gin.Context) {
+		requestctx.SetPrincipal(c, requestctx.Principal{
+			Role:                "organizer",
+			AssignedPropertyIDs: []string{testPropertyID2},
+		})
+		c.Next()
+	}, RequirePropertyAccess(ParamPropertyID("id"), fakePropertyRepo{}), func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/properties/not-a-uuid", nil)
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	assertErrorCode(t, resp, http.StatusBadRequest, "BAD_REQUEST")
 }
 
 func TestRequirePropertyAccessReturnsPropertyNotFoundForMissingProperty(t *testing.T) {
@@ -274,14 +307,14 @@ func TestRequirePropertyAccessReturnsPropertyNotFoundForMissingProperty(t *testi
 	engine.GET("/properties/:id", func(c *gin.Context) {
 		requestctx.SetPrincipal(c, requestctx.Principal{
 			Role:                "organizer",
-			AssignedPropertyIDs: []string{"property-2"},
+			AssignedPropertyIDs: []string{testPropertyID2},
 		})
 		c.Next()
 	}, RequirePropertyAccess(ParamPropertyID("id"), fakePropertyRepo{}), func(c *gin.Context) {
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/properties/property-missing", nil)
+	req := httptest.NewRequest(http.MethodGet, "/properties/"+testMissingPropertyID, nil)
 	resp := httptest.NewRecorder()
 	engine.ServeHTTP(resp, req)
 
@@ -296,20 +329,20 @@ func TestRequirePropertyAccessReturnsRoomNotFoundForMissingRoomLookup(t *testing
 	engine.GET("/rooms/:id", func(c *gin.Context) {
 		requestctx.SetPrincipal(c, requestctx.Principal{
 			Role:                "organizer",
-			AssignedPropertyIDs: []string{"property-1"},
+			AssignedPropertyIDs: []string{testPropertyID1},
 		})
 		c.Next()
 	}, RequirePropertyAccess(ResourcePropertyIDWithNotFound("id", func(_ context.Context, _ string) (string, error) {
 		return "", dbresourceownership.ErrNotFound
 	}, apperr.ErrRoomNotFound), fakePropertyRepo{
 		ownerByPropertyID: map[string]string{
-			"property-1": "owner-1",
+			testPropertyID1: "owner-1",
 		},
 	}), func(c *gin.Context) {
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/rooms/room-missing", nil)
+	req := httptest.NewRequest(http.MethodGet, "/rooms/"+testMissingRoomID, nil)
 	resp := httptest.NewRecorder()
 	engine.ServeHTTP(resp, req)
 
@@ -324,20 +357,20 @@ func TestRequirePropertyAccessReturnsInternalServerErrorForUnexpectedResolverFai
 	engine.GET("/rooms/:id", func(c *gin.Context) {
 		requestctx.SetPrincipal(c, requestctx.Principal{
 			Role:                "organizer",
-			AssignedPropertyIDs: []string{"property-1"},
+			AssignedPropertyIDs: []string{testPropertyID1},
 		})
 		c.Next()
 	}, RequirePropertyAccess(ResourcePropertyID("id", func(_ context.Context, _ string) (string, error) {
 		return "", errors.New("db down")
 	}), fakePropertyRepo{
 		ownerByPropertyID: map[string]string{
-			"property-1": "owner-1",
+			testPropertyID1: "owner-1",
 		},
 	}), func(c *gin.Context) {
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/rooms/room-1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/rooms/"+testRoomID1, nil)
 	resp := httptest.NewRecorder()
 	engine.ServeHTTP(resp, req)
 
@@ -357,13 +390,13 @@ func TestRequirePropertyAccessAllowsOwnerForOwnedProperty(t *testing.T) {
 		c.Next()
 	}, RequirePropertyAccess(ParamPropertyID("id"), fakePropertyRepo{
 		ownerByPropertyID: map[string]string{
-			"property-1": "owner-1",
+			testPropertyID1: "owner-1",
 		},
 	}), func(c *gin.Context) {
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/properties/property-1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/properties/"+testPropertyID1, nil)
 	resp := httptest.NewRecorder()
 	engine.ServeHTTP(resp, req)
 
@@ -385,13 +418,13 @@ func TestRequirePropertyAccessRejectsOwnerForOtherProperty(t *testing.T) {
 		c.Next()
 	}, RequirePropertyAccess(ParamPropertyID("id"), fakePropertyRepo{
 		ownerByPropertyID: map[string]string{
-			"property-1": "owner-2",
+			testPropertyID1: "owner-2",
 		},
 	}), func(c *gin.Context) {
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/properties/property-1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/properties/"+testPropertyID1, nil)
 	resp := httptest.NewRecorder()
 	engine.ServeHTTP(resp, req)
 
@@ -449,7 +482,7 @@ func (f fakeAuthenticator) VerifyIDToken(_ context.Context, token string) (*plat
 
 	assignedPropertyIDs := f.assignedPropertyIDs
 	if len(assignedPropertyIDs) == 0 {
-		assignedPropertyIDs = []string{"property-1"}
+		assignedPropertyIDs = []string{testPropertyID1}
 	}
 
 	return &platformfirebase.Claims{
@@ -474,7 +507,7 @@ func (fakeUserRepo) FindByFirebaseUID(_ context.Context, firebaseUID string) (*u
 		ID:                  "user-1",
 		FirebaseUID:         "uid-1",
 		Role:                "organizer",
-		AssignedPropertyIDs: []string{"property-1"},
+		AssignedPropertyIDs: []string{testPropertyID1},
 	}, nil
 }
 
@@ -483,7 +516,7 @@ func (fakeUserRepo) FindByID(_ context.Context, id string) (*users.User, error) 
 		ID:                  id,
 		FirebaseUID:         "uid-1",
 		Role:                "organizer",
-		AssignedPropertyIDs: []string{"property-1"},
+		AssignedPropertyIDs: []string{testPropertyID1},
 	}, nil
 }
 
@@ -508,7 +541,7 @@ func (fakeUserRepo) UpdateCurrentUser(_ context.Context, id string, params users
 		FirebaseUID:         "uid-1",
 		Name:                params.Name,
 		Role:                "organizer",
-		AssignedPropertyIDs: []string{"property-1"},
+		AssignedPropertyIDs: []string{testPropertyID1},
 	}, nil
 }
 
@@ -518,7 +551,7 @@ func (fakeUserRepo) UpdateManagedUser(_ context.Context, id string, params users
 		FirebaseUID:         "uid-1",
 		Name:                params.Name,
 		Role:                params.Role,
-		AssignedPropertyIDs: []string{"property-1"},
+		AssignedPropertyIDs: []string{testPropertyID1},
 	}, nil
 }
 
