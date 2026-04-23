@@ -2,6 +2,7 @@ package tenant
 
 import (
 	"net/mail"
+	"reflect"
 	"strings"
 	"unicode/utf8"
 )
@@ -210,17 +211,64 @@ func cloneContacts(contacts []map[string]interface{}) []map[string]interface{} {
 }
 
 func deepCloneValue(value interface{}) interface{} {
-	switch v := value.(type) {
-	case map[string]interface{}:
-		cloned := make(map[string]interface{}, len(v))
-		for key, child := range v {
-			cloned[key] = deepCloneValue(child)
+	if value == nil {
+		return nil
+	}
+
+	return deepCloneReflectValue(reflect.ValueOf(value)).Interface()
+}
+
+func deepCloneReflectValue(value reflect.Value) reflect.Value {
+	if !value.IsValid() {
+		return value
+	}
+
+	switch value.Kind() {
+	case reflect.Interface:
+		if value.IsNil() {
+			return reflect.Zero(value.Type())
+		}
+
+		cloned := deepCloneReflectValue(value.Elem())
+		wrapped := reflect.New(value.Type()).Elem()
+		wrapped.Set(cloned)
+		return wrapped
+	case reflect.Ptr:
+		if value.IsNil() {
+			return reflect.Zero(value.Type())
+		}
+
+		cloned := reflect.New(value.Type().Elem())
+		cloned.Elem().Set(deepCloneReflectValue(value.Elem()))
+		return cloned
+	case reflect.Map:
+		if value.IsNil() {
+			return reflect.Zero(value.Type())
+		}
+
+		cloned := reflect.MakeMapWithSize(value.Type(), value.Len())
+		iter := value.MapRange()
+		for iter.Next() {
+			cloned.SetMapIndex(
+				deepCloneReflectValue(iter.Key()),
+				deepCloneReflectValue(iter.Value()),
+			)
 		}
 		return cloned
-	case []interface{}:
-		cloned := make([]interface{}, len(v))
-		for index, item := range v {
-			cloned[index] = deepCloneValue(item)
+	case reflect.Slice:
+		if value.IsNil() {
+			return reflect.Zero(value.Type())
+		}
+
+		cloned := reflect.MakeSlice(value.Type(), value.Len(), value.Len())
+		for index := 0; index < value.Len(); index++ {
+			cloned.Index(index).Set(deepCloneReflectValue(value.Index(index)))
+		}
+		return cloned
+	case reflect.Array:
+		cloned := reflect.New(value.Type()).Elem()
+		for index := 0; index < value.Len(); index++ {
+			cloned.Index(index).Set(deepCloneReflectValue(value.Index(index)))
 		}
 		return cloned
 	default:

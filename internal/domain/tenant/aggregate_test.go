@@ -8,6 +8,7 @@ import (
 func TestAggregateStateReturnsDefensiveCopy(t *testing.T) {
 	email := "tenant@example.com"
 	phone := "0912345678"
+	nickname := "VIP"
 	aggregate, err := Rehydrate(State{
 		ID:    "tenant-1",
 		Name:  "Tenant One",
@@ -20,6 +21,13 @@ func TestAggregateStateReturnsDefensiveCopy(t *testing.T) {
 				"meta": map[string]interface{}{
 					"tags": []interface{}{"vip", "renewal"},
 				},
+				"typed_tags": []map[string]interface{}{
+					{"label": "Priority"},
+				},
+				"source": map[string]string{
+					"channel": "agent",
+				},
+				"nickname": &nickname,
 			},
 		},
 		Status:  StatusActive,
@@ -38,6 +46,9 @@ func TestAggregateStateReturnsDefensiveCopy(t *testing.T) {
 		snapshot.Contacts[0]["meta"].(map[string]interface{})["tags"].([]interface{}),
 		"extra",
 	)
+	snapshot.Contacts[0]["typed_tags"].([]map[string]interface{})[0]["label"] = "Mutated"
+	snapshot.Contacts[0]["source"].(map[string]string)["channel"] = "portal"
+	*snapshot.Contacts[0]["nickname"].(*string) = "Changed"
 	snapshot.Contacts = append(snapshot.Contacts, map[string]interface{}{"name": "Extra"})
 
 	current := aggregate.State()
@@ -57,6 +68,17 @@ func TestAggregateStateReturnsDefensiveCopy(t *testing.T) {
 	}
 	if len(tags) != 2 {
 		t.Fatalf("State().Contacts nested slice length = %d, want 2", len(tags))
+	}
+	typedTags := current.Contacts[0]["typed_tags"].([]map[string]interface{})
+	if got := typedTags[0]["label"]; got != "Priority" {
+		t.Fatalf("State().Contacts typed slice mutated aggregate state, got %v", got)
+	}
+	source := current.Contacts[0]["source"].(map[string]string)
+	if got := source["channel"]; got != "agent" {
+		t.Fatalf("State().Contacts typed map mutated aggregate state, got %v", got)
+	}
+	if got := *current.Contacts[0]["nickname"].(*string); got != "VIP" {
+		t.Fatalf("State().Contacts pointer mutated aggregate state, got %v", got)
 	}
 	if len(current.Contacts) != 1 {
 		t.Fatalf("State().Contacts length = %d, want 1", len(current.Contacts))
