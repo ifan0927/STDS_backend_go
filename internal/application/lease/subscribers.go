@@ -43,3 +43,39 @@ func (h *ActivateTenantOnLeaseCreatedHandler) HandleLeaseCreated(ctx context.Con
 		return h.repo.ActivateTenant(ctx, tx, event.TenantID)
 	})
 }
+
+// ReleaseRoomOnLeaseTerminatedHandler frees a room after lease termination.
+type ReleaseRoomOnLeaseTerminatedHandler struct {
+	repo     Repository
+	txRunner *txrunner.Runner
+}
+
+// NewReleaseRoomOnLeaseTerminatedHandler returns a room release handler.
+func NewReleaseRoomOnLeaseTerminatedHandler(repo Repository, txRunner *txrunner.Runner) *ReleaseRoomOnLeaseTerminatedHandler {
+	return &ReleaseRoomOnLeaseTerminatedHandler{repo: repo, txRunner: txRunner}
+}
+
+// HandleLeaseTerminated marks the terminated lease room as vacant.
+func (h *ReleaseRoomOnLeaseTerminatedHandler) HandleLeaseTerminated(ctx context.Context, event domainevents.LeaseTerminated) error {
+	return h.txRunner.WithinTransaction(ctx, func(ctx context.Context, tx *sql.Tx, _ *txrunner.EventRecorder) error {
+		return h.repo.MarkRoomVacant(ctx, tx, event.RoomID)
+	})
+}
+
+// DeactivateTenantOnLeaseTerminatedHandler deactivates tenants with no remaining leases.
+type DeactivateTenantOnLeaseTerminatedHandler struct {
+	repo     Repository
+	txRunner *txrunner.Runner
+}
+
+// NewDeactivateTenantOnLeaseTerminatedHandler returns a tenant deactivation handler.
+func NewDeactivateTenantOnLeaseTerminatedHandler(repo Repository, txRunner *txrunner.Runner) *DeactivateTenantOnLeaseTerminatedHandler {
+	return &DeactivateTenantOnLeaseTerminatedHandler{repo: repo, txRunner: txRunner}
+}
+
+// HandleLeaseTerminated marks the tenant inactive when no active or expired leases remain.
+func (h *DeactivateTenantOnLeaseTerminatedHandler) HandleLeaseTerminated(ctx context.Context, event domainevents.LeaseTerminated) error {
+	return h.txRunner.WithinTransaction(ctx, func(ctx context.Context, tx *sql.Tx, _ *txrunner.EventRecorder) error {
+		return h.repo.DeactivateTenantIfNoActiveLeases(ctx, tx, event.TenantID)
+	})
+}

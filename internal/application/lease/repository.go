@@ -8,9 +8,10 @@ import (
 )
 
 var (
-	ErrLeaseNotFound  = errors.New("lease not found")
-	ErrTenantNotFound = errors.New("tenant not found")
-	ErrRoomNotFound   = errors.New("room not found")
+	ErrLeaseNotFound            = errors.New("lease not found")
+	ErrTenantNotFound           = errors.New("tenant not found")
+	ErrRoomNotFound             = errors.New("room not found")
+	ErrForceTerminationNotFound = errors.New("force termination not found")
 )
 
 // Lease is the application-facing lease shape.
@@ -87,6 +88,25 @@ type Bill struct {
 	PeriodEnd   time.Time
 }
 
+// ForceTermination captures force-termination progress state.
+type ForceTermination struct {
+	ID              string
+	LeaseID         string
+	Status          string
+	InitiatedBy     string
+	Reason          string
+	DepositHandling string
+	Bills           []ForceTerminationBill
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+// ForceTerminationBill captures per-bill force-termination progress.
+type ForceTerminationBill struct {
+	BillID string
+	Status string
+}
+
 // UpdateLeaseParams contains supported normal lease-condition updates.
 type UpdateLeaseParams struct {
 	LeaseID    string
@@ -108,6 +128,21 @@ type TerminateLeaseParams struct {
 	TerminationReason string
 }
 
+// ForceTerminateLeaseParams contains fields for forced termination.
+type ForceTerminateLeaseParams struct {
+	LeaseID           string
+	TerminationReason string
+	DepositStatus     string
+}
+
+// CreateForceTerminationParams contains fields for force-termination progress creation.
+type CreateForceTerminationParams struct {
+	LeaseID         string
+	InitiatedBy     string
+	Reason          string
+	DepositHandling string
+}
+
 // Repository defines persistence required by lease use cases and subscribers.
 type Repository interface {
 	FindTenantByID(ctx context.Context, tx *sql.Tx, tenantID string) (*Tenant, error)
@@ -117,11 +152,20 @@ type Repository interface {
 	UpdateLeaseConditions(ctx context.Context, tx *sql.Tx, params UpdateLeaseParams) (*Lease, error)
 	SettleDeposit(ctx context.Context, tx *sql.Tx, params SettleDepositParams) (*Lease, error)
 	TerminateLease(ctx context.Context, tx *sql.Tx, params TerminateLeaseParams) (*Lease, error)
+	ForceTerminateLease(ctx context.Context, tx *sql.Tx, params ForceTerminateLeaseParams) (*Lease, error)
 	ListBillsByLeaseIDForUpdate(ctx context.Context, tx *sql.Tx, leaseID string) ([]Bill, error)
+	CreateForceTermination(ctx context.Context, tx *sql.Tx, params CreateForceTerminationParams) (*ForceTermination, error)
+	CreateForceTerminationBills(ctx context.Context, tx *sql.Tx, forceTerminationID string, billIDs []string) error
+	WriteOffBills(ctx context.Context, tx *sql.Tx, billIDs []string, reason string) error
+	MarkForceTerminationBillsDone(ctx context.Context, tx *sql.Tx, forceTerminationID string, billIDs []string) error
+	CompleteForceTermination(ctx context.Context, tx *sql.Tx, forceTerminationID string) error
+	FindForceTerminationByID(ctx context.Context, tx *sql.Tx, forceTerminationID string) (*ForceTermination, error)
 	HasLockedRentBillsFromDueDate(ctx context.Context, tx *sql.Tx, leaseID string, dueDate time.Time) (bool, error)
 	VoidRentBillsFromDueDate(ctx context.Context, tx *sql.Tx, leaseID string, dueDate time.Time) error
 	VoidBillsOverlappingOrAfter(ctx context.Context, tx *sql.Tx, leaseID string, boundary time.Time) error
 	CreateBills(ctx context.Context, tx *sql.Tx, params []CreateBillParams) error
 	MarkRoomOccupied(ctx context.Context, tx *sql.Tx, roomID string) error
+	MarkRoomVacant(ctx context.Context, tx *sql.Tx, roomID string) error
 	ActivateTenant(ctx context.Context, tx *sql.Tx, tenantID string) error
+	DeactivateTenantIfNoActiveLeases(ctx context.Context, tx *sql.Tx, tenantID string) error
 }

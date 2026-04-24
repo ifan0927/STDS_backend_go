@@ -62,9 +62,9 @@ Lease 於建立時決定 `electricityBillingCadence`（`monthly | bimonthly`）�
 
 收款確認後產生 `AccountingEntry`，透過 `BillPaid` event 寫入 `PropertyAccount`。
 
-**LeaseTerminated 後的處理**：Billing BC 訂閱 `LeaseTerminated` 後，void 該租約所有剩餘 `pending_payment` 和 `pending_meter` 狀態的帳單（狀態改為 `voided`）。正常終止時帳單應已全清，此步驟主要處理強制終止後尚未 written_off 的預產帳單。
+**LeaseTerminated 後的處理**：Billing BC 訂閱 `LeaseTerminated` 後，void 該租約所有剩餘 `pending_payment` 和 `pending_meter` 狀態的預產帳單（狀態改為 `voided`）。正常終止時帳單應已全清；強制終止時已到期未結清帳單在 command 內同步標記 `written_off`，此步驟只處理仍不應收取的剩餘預產帳單。
 
-**強制終止租約**（呆帳情境）：由主辦以上角色執行，流程記錄於 `force_terminations` table（Billing BC），未結清帳單標記為 `written_off`，強制發出 `LeaseTerminated`。
+**強制終止租約**（呆帳情境）：由主辦以上角色執行，流程記錄於 `force_terminations` table（Billing BC），在同一 command 中同步將未結清帳單標記為 `written_off`、記錄 `deposit_handling` 決策、完成 ForceTermination，並發出 `LeaseTerminated`。
 
 ### Journal
 
@@ -459,12 +459,12 @@ PropertyOwnerView
 | Tenant Index | `(status)` on tenants table |
 | 維修 Index | `(property_id, status)` on repair_requests table |
 | 日誌 Index | `(property_id, created_at)` on journal_logs table |
-| ForceTermination table | 欄位：`id, lease_id, initiated_by, reason, status: in_progress \| completed, created_at`（bill_ids[] 移除，改用 force_termination_bills table） |
+| ForceTermination table | 欄位：`id, lease_id, initiated_by, reason, deposit_handling: write_off \| keep_held, status: completed, created_at`（bill_ids[] 移除，改用 force_termination_bills table；`in_progress` 為已棄用的補償流程歷史狀態） |
 | PropertyAccount 架構 | 月結快照拆兩層：summary + entries |
 | monthly_snapshots table（summary） | 欄位：`id, property_id, year, month, total_income, total_expense, net`；Index：`(property_id, year, month)` |
 | monthly_snapshot_entries table（明細） | 欄位：`id, snapshot_id, category, description, amount, source_ref`；Index：`(snapshot_id, category)` |
 | MonthlySnapshot 排程 | 排除軟刪除物業：加 `AND deleted_at IS NULL` filter |
-| force_termination_bills table | 欄位：`id, force_termination_id, bill_id, status: pending \| done`；Index：`(force_termination_id, status)`；補償排程查 `WHERE status = pending` |
+| force_termination_bills table | 欄位：`id, force_termination_id, bill_id, status: pending \| done`；Index：`(force_termination_id, status)`；同步完成後所有追蹤帳單應為 `done` |
 | voided / written_off 帳單 | 狀態轉換（非軟刪除），查詢加 `AND status NOT IN ('voided', 'written_off')` |
 | 資料量預估 | 50 房間 × 24 個月 = 1200 筆預產帳單，現有 Index 足夠，不需分表 |
 | users table 認證欄位 | 存 `firebase_uid VARCHAR(128) UNIQUE NOT NULL`，不存 `password_hash`；密碼由 Firebase 管理 |
@@ -490,10 +490,10 @@ PropertyOwnerView
 
 ```
 主辦以上角色發起強制終止，填寫原因
-  → 記錄 ForceTerminationStarted（leaseId, billIds[], reason）
-  → 逐一將未結清帳單標記為 written_off，每筆成功記錄進度
-  → 若中途失敗 → 排程任務掃描未完成的 ForceTermination，繼續補償
-  → 全部 written_off 完成 → 押金標記 settled 或 written_off（人工決定）
+  → 建立 ForceTermination 記錄（leaseId, billIds[], reason, deposit_handling）
+  → 同步將未結清帳單標記為 written_off，每筆成功記錄進度
+  → 全部成功後將 ForceTermination 標記 completed
+  → 全部 written_off 完成 → 依 deposit_handling 人工決定將押金標記 written_off，或維持 held 等待後續押金處理
   → LeaseTerminated event（forced: true）
   → Property BC 訂閱 → Room 狀態改為 vacant
   → Notification BC 訂閱 → 寄送強制終止通知
@@ -606,7 +606,7 @@ attachment_upload_tokens(
 | 租約到期掃描 | 每日凌晨 | 掃描 `end_date < today AND status = active AND deleted_at IS NULL`，批次更新 Lease status 為 `expired`，Room 維持 `occupied`，不自動終止。 |
 | 租約到期提醒 | 每日凌晨 | 掃描 `end_date = today + 30 days AND status = active`，寄送提醒 Email 給主辦和員工。 |
 | 月結快照產出 | 每月最後一天 23:59 | 將 PropertyAccount 當月 AccountingEntry 封存為 `monthly_snapshot_entries`，排除軟刪除物業（`deleted_at IS NULL`），清空當月暫存資料。 |
-| 強制終止補償 | 每日凌晨 | 掃描 `force_terminations WHERE status = in_progress`，續行未完成的 written_off 操作。 |
+| 強制終止補償 | 已棄用 | 舊設計掃描 `force_terminations WHERE status = in_progress` 續行 written_off；目前強制終止 command 同步完成 write-off 與 ForceTermination completion。 |
 | Upload token 清理 | 每日凌晨 | 清除 `attachment_upload_tokens WHERE expires_at < now`。 |
 | GCS 附件清理 | 每日凌晨 | 掃描 `*_attachments WHERE deleted_at < now - INTERVAL '90 days'`，刪除對應 GCS 物件後硬刪除 DB 記錄。 |
 
@@ -628,7 +628,7 @@ attachment_upload_tokens(
 | 代管費 | 超出範圍 | 工作室財務另外處理，不在 STDS 範圍內 |
 | 跨 BC 傳遞 | In-process event bus | 單一服務架構，無需 message queue |
 | 軟刪除 | 全部軟刪除，所有查詢加 deleted_at IS NULL filter | 歷史帳單和日誌需保留關聯，不可真刪除 |
-| 強制終止租約 | 支援補償機制（saga 雛形），ForceTerminationStarted 記錄進度 | 跨多個 Bill Aggregate，中途失敗可由排程續行 |
+| 強制終止租約 | 同步完成 ForceTermination，保留已棄用補償式 `in_progress` 語意作歷史參考 | 目前事件匯流排為 in-process，強制終止 command 在交易內同步完成帳單 write-off、`deposit_handling` 記錄與 `completed` 狀態，避免引入尚未需要的排程補償流程 |
 | Room 競態防護 | 建立租約時對 Room 取悲觀鎖（select for update）再檢查 BR-12 | 防止兩個請求同時對同一 Room 建立租約 |
 | maintenance → vacant 條件 | 該 Room 所有 RepairRequest 均 completed 或 cancelled 才轉回 vacant | 多個 RepairRequest 場景下避免過早開放房間 |
 | BR-09 移除 | 移除，BR-04 已完整涵蓋 | 退租流程統一由 BR-04 把關，不重複檢查 |

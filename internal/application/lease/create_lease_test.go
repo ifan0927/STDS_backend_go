@@ -342,26 +342,29 @@ func TestCreateLeaseServiceRejectsBusinessRuleViolationsAndMissingReferences(t *
 }
 
 type leaseRepositoryStub struct {
-	tenant             *Tenant
-	tenantErr          error
-	room               *Room
-	roomErr            error
-	lease              *Lease
-	leaseErr           error
-	createdLease       *Lease
-	createLeaseErr     error
-	createBillsErr     error
-	updatedLease       *Lease
-	settledLease       *Lease
-	lockedRentBills    bool
-	voidRentDueDate    *time.Time
-	createLeaseParams  *CreateLeaseParams
-	terminateCalls     int
-	voidBillsBoundary  *time.Time
-	updateLeaseCalls   int
-	settleDepositCalls int
-	createdBills       []CreateBillParams
-	replacementBills   []Bill
+	tenant              *Tenant
+	tenantErr           error
+	room                *Room
+	roomErr             error
+	lease               *Lease
+	leaseErr            error
+	createdLease        *Lease
+	createLeaseErr      error
+	createBillsErr      error
+	updatedLease        *Lease
+	settledLease        *Lease
+	lockedRentBills     bool
+	voidRentDueDate     *time.Time
+	createLeaseParams   *CreateLeaseParams
+	terminateCalls      int
+	forceTerminateCalls int
+	forceTermination    *ForceTermination
+	voidBillsBoundary   *time.Time
+	updateLeaseCalls    int
+	settleDepositCalls  int
+	writeOffBillIDs     []string
+	createdBills        []CreateBillParams
+	replacementBills    []Bill
 }
 
 func (s *leaseRepositoryStub) FindTenantByID(context.Context, *sql.Tx, string) (*Tenant, error) {
@@ -436,8 +439,74 @@ func (s *leaseRepositoryStub) TerminateLease(_ context.Context, _ *sql.Tx, param
 	return s.lease, nil
 }
 
+func (s *leaseRepositoryStub) ForceTerminateLease(_ context.Context, _ *sql.Tx, params ForceTerminateLeaseParams) (*Lease, error) {
+	s.forceTerminateCalls++
+	if s.lease == nil {
+		return nil, ErrLeaseNotFound
+	}
+	s.lease.Status = "force_terminated"
+	s.lease.TerminationReason = &params.TerminationReason
+	s.lease.DepositStatus = params.DepositStatus
+	return s.lease, nil
+}
+
 func (s *leaseRepositoryStub) ListBillsByLeaseIDForUpdate(context.Context, *sql.Tx, string) ([]Bill, error) {
 	return s.replacementBills, nil
+}
+
+func (s *leaseRepositoryStub) CreateForceTermination(_ context.Context, _ *sql.Tx, params CreateForceTerminationParams) (*ForceTermination, error) {
+	s.forceTermination = &ForceTermination{
+		ID:              "80000000-0000-0000-0000-000000000001",
+		LeaseID:         params.LeaseID,
+		Status:          "in_progress",
+		InitiatedBy:     params.InitiatedBy,
+		Reason:          params.Reason,
+		DepositHandling: params.DepositHandling,
+		CreatedAt:       time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
+		UpdatedAt:       time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
+	}
+	return s.forceTermination, nil
+}
+
+func (s *leaseRepositoryStub) CreateForceTerminationBills(_ context.Context, _ *sql.Tx, forceTerminationID string, billIDs []string) error {
+	if s.forceTermination != nil && s.forceTermination.ID == forceTerminationID {
+		for _, billID := range billIDs {
+			s.forceTermination.Bills = append(s.forceTermination.Bills, ForceTerminationBill{BillID: billID, Status: "pending"})
+		}
+	}
+	return nil
+}
+
+func (s *leaseRepositoryStub) WriteOffBills(_ context.Context, _ *sql.Tx, billIDs []string, _ string) error {
+	s.writeOffBillIDs = append([]string(nil), billIDs...)
+	return nil
+}
+
+func (s *leaseRepositoryStub) MarkForceTerminationBillsDone(_ context.Context, _ *sql.Tx, forceTerminationID string, billIDs []string) error {
+	if s.forceTermination != nil && s.forceTermination.ID == forceTerminationID {
+		for i := range s.forceTermination.Bills {
+			for _, billID := range billIDs {
+				if s.forceTermination.Bills[i].BillID == billID {
+					s.forceTermination.Bills[i].Status = "done"
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (s *leaseRepositoryStub) CompleteForceTermination(context.Context, *sql.Tx, string) error {
+	if s.forceTermination != nil {
+		s.forceTermination.Status = "completed"
+	}
+	return nil
+}
+
+func (s *leaseRepositoryStub) FindForceTerminationByID(context.Context, *sql.Tx, string) (*ForceTermination, error) {
+	if s.forceTermination == nil {
+		return nil, ErrForceTerminationNotFound
+	}
+	return s.forceTermination, nil
 }
 
 func (s *leaseRepositoryStub) HasLockedRentBillsFromDueDate(context.Context, *sql.Tx, string, time.Time) (bool, error) {
@@ -463,7 +532,15 @@ func (s *leaseRepositoryStub) MarkRoomOccupied(context.Context, *sql.Tx, string)
 	return nil
 }
 
+func (s *leaseRepositoryStub) MarkRoomVacant(context.Context, *sql.Tx, string) error {
+	return nil
+}
+
 func (s *leaseRepositoryStub) ActivateTenant(context.Context, *sql.Tx, string) error {
+	return nil
+}
+
+func (s *leaseRepositoryStub) DeactivateTenantIfNoActiveLeases(context.Context, *sql.Tx, string) error {
 	return nil
 }
 

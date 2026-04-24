@@ -16,6 +16,11 @@ properties:
     format: uuid
   reason:
     type: string
+  deposit_handling:
+    type: string
+    enum:
+      - write_off
+      - keep_held
   bills:
     type: array
     items:

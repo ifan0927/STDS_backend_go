@@ -200,6 +200,87 @@ func TestSettleDepositRejectsIncompleteSettlement(t *testing.T) {
 	}
 }
 
+func TestTerminateAllowsActiveAndExpiredLeases(t *testing.T) {
+	for _, status := range []string{StatusActive, StatusExpired} {
+		t.Run(status, func(t *testing.T) {
+			aggregate, err := Rehydrate(validExistingState(status))
+			if err != nil {
+				t.Fatalf("Rehydrate: %v", err)
+			}
+
+			if err := aggregate.Terminate(); err != nil {
+				t.Fatalf("Terminate: %v", err)
+			}
+			if aggregate.State().Status != StatusTerminated {
+				t.Fatalf("Status = %q, want terminated", aggregate.State().Status)
+			}
+		})
+	}
+}
+
+func TestTerminateRejectsNonTerminableLease(t *testing.T) {
+	aggregate, err := Rehydrate(validExistingState(StatusTerminated))
+	if err != nil {
+		t.Fatalf("Rehydrate: %v", err)
+	}
+
+	if err := aggregate.Terminate(); !errors.Is(err, ErrLeaseNotActive) {
+		t.Fatalf("expected ErrLeaseNotActive, got %v", err)
+	}
+}
+
+func TestForceTerminateRequiresReasonAndTerminableStatus(t *testing.T) {
+	aggregate, err := Rehydrate(validExistingState(StatusActive))
+	if err != nil {
+		t.Fatalf("Rehydrate: %v", err)
+	}
+
+	if err := aggregate.ForceTerminate("tenant unreachable", ForceTerminationDepositWriteOff); err != nil {
+		t.Fatalf("ForceTerminate: %v", err)
+	}
+	if aggregate.State().Status != StatusForceTerminated {
+		t.Fatalf("Status = %q, want force_terminated", aggregate.State().Status)
+	}
+	if aggregate.State().DepositStatus != DepositStatusWrittenOff {
+		t.Fatalf("DepositStatus = %q, want written_off", aggregate.State().DepositStatus)
+	}
+
+	aggregate, err = Rehydrate(validExistingState(StatusActive))
+	if err != nil {
+		t.Fatalf("Rehydrate blank: %v", err)
+	}
+	if err := aggregate.ForceTerminate("   ", ForceTerminationDepositWriteOff); !errors.Is(err, ErrTerminationReasonRequired) {
+		t.Fatalf("expected ErrTerminationReasonRequired, got %v", err)
+	}
+
+	aggregate, err = Rehydrate(validExistingState(StatusActive))
+	if err != nil {
+		t.Fatalf("Rehydrate invalid deposit handling: %v", err)
+	}
+	if err := aggregate.ForceTerminate("tenant unreachable", ""); !errors.Is(err, ErrInvalidForceTerminationDepositHandling) {
+		t.Fatalf("expected ErrInvalidForceTerminationDepositHandling, got %v", err)
+	}
+
+	aggregate, err = Rehydrate(validExistingState(StatusActive))
+	if err != nil {
+		t.Fatalf("Rehydrate keep held: %v", err)
+	}
+	if err := aggregate.ForceTerminate("tenant unreachable", ForceTerminationDepositKeepHeld); err != nil {
+		t.Fatalf("ForceTerminate keep held: %v", err)
+	}
+	if aggregate.State().DepositStatus != DepositStatusHeld {
+		t.Fatalf("DepositStatus = %q, want held", aggregate.State().DepositStatus)
+	}
+
+	aggregate, err = Rehydrate(validExistingState(StatusForceTerminated))
+	if err != nil {
+		t.Fatalf("Rehydrate already forced: %v", err)
+	}
+	if err := aggregate.ForceTerminate("tenant unreachable", ForceTerminationDepositWriteOff); !errors.Is(err, ErrLeaseNotActive) {
+		t.Fatalf("expected ErrLeaseNotActive, got %v", err)
+	}
+}
+
 func TestSettleDepositRejectsNegativeSettlementAmounts(t *testing.T) {
 	aggregate, err := Rehydrate(State{
 		TenantID:                  "tenant-1",
@@ -219,6 +300,21 @@ func TestSettleDepositRejectsNegativeSettlementAmounts(t *testing.T) {
 
 	if err := aggregate.SettleDeposit(-1, 0, nil); !errors.Is(err, ErrSettlementNegative) {
 		t.Fatalf("expected ErrSettlementNegative, got %v", err)
+	}
+}
+
+func validExistingState(status string) State {
+	return State{
+		TenantID:                  "tenant-1",
+		RoomID:                    "room-1",
+		PropertyID:                "property-1",
+		RentAmount:                18000,
+		StartDate:                 date(2026, 5, 1),
+		EndDate:                   date(2026, 12, 31),
+		ElectricityBillingCadence: BillingCadenceMonthly,
+		Status:                    status,
+		DepositAmount:             36000,
+		DepositStatus:             DepositStatusHeld,
 	}
 }
 

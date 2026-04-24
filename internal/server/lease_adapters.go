@@ -100,6 +100,24 @@ func (a leaseRepositoryAdapter) TerminateLease(ctx context.Context, tx *sql.Tx, 
 	return toApplicationLease(lease), nil
 }
 
+func (a leaseRepositoryAdapter) ForceTerminateLease(ctx context.Context, tx *sql.Tx, params applease.ForceTerminateLeaseParams) (*applease.Lease, error) {
+	lease, err := a.repo.ForceTerminateLease(ctx, tx, dbleases.ForceTerminateLeaseParams{
+		LeaseID:           params.LeaseID,
+		TerminationReason: params.TerminationReason,
+		DepositStatus:     params.DepositStatus,
+	})
+	if err != nil {
+		switch err {
+		case dbleases.ErrLeaseNotFound:
+			return nil, applease.ErrLeaseNotFound
+		default:
+			return nil, err
+		}
+	}
+
+	return toApplicationLease(lease), nil
+}
+
 func (a leaseRepositoryAdapter) ListBillsByLeaseIDForUpdate(ctx context.Context, tx *sql.Tx, leaseID string) ([]applease.Bill, error) {
 	bills, err := a.repo.ListBillsByLeaseIDForUpdate(ctx, tx, leaseID)
 	if err != nil {
@@ -118,6 +136,50 @@ func (a leaseRepositoryAdapter) ListBillsByLeaseIDForUpdate(ctx context.Context,
 	}
 
 	return items, nil
+}
+
+func (a leaseRepositoryAdapter) CreateForceTermination(ctx context.Context, tx *sql.Tx, params applease.CreateForceTerminationParams) (*applease.ForceTermination, error) {
+	forceTermination, err := a.repo.CreateForceTermination(ctx, tx, dbleases.CreateForceTerminationParams{
+		LeaseID:         params.LeaseID,
+		InitiatedBy:     params.InitiatedBy,
+		Reason:          params.Reason,
+		DepositHandling: params.DepositHandling,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return toApplicationForceTermination(forceTermination), nil
+}
+
+func (a leaseRepositoryAdapter) CreateForceTerminationBills(ctx context.Context, tx *sql.Tx, forceTerminationID string, billIDs []string) error {
+	return a.repo.CreateForceTerminationBills(ctx, tx, forceTerminationID, billIDs)
+}
+
+func (a leaseRepositoryAdapter) WriteOffBills(ctx context.Context, tx *sql.Tx, billIDs []string, reason string) error {
+	return a.repo.WriteOffBills(ctx, tx, billIDs, reason)
+}
+
+func (a leaseRepositoryAdapter) MarkForceTerminationBillsDone(ctx context.Context, tx *sql.Tx, forceTerminationID string, billIDs []string) error {
+	return a.repo.MarkForceTerminationBillsDone(ctx, tx, forceTerminationID, billIDs)
+}
+
+func (a leaseRepositoryAdapter) CompleteForceTermination(ctx context.Context, tx *sql.Tx, forceTerminationID string) error {
+	return a.repo.CompleteForceTermination(ctx, tx, forceTerminationID)
+}
+
+func (a leaseRepositoryAdapter) FindForceTerminationByID(ctx context.Context, tx *sql.Tx, forceTerminationID string) (*applease.ForceTermination, error) {
+	forceTermination, err := a.repo.FindForceTerminationByID(ctx, tx, forceTerminationID)
+	if err != nil {
+		switch err {
+		case dbleases.ErrForceTerminationNotFound:
+			return nil, applease.ErrForceTerminationNotFound
+		default:
+			return nil, err
+		}
+	}
+
+	return toApplicationForceTermination(forceTermination), nil
 }
 
 func (a leaseRepositoryAdapter) UpdateLeaseConditions(ctx context.Context, tx *sql.Tx, params applease.UpdateLeaseParams) (*applease.Lease, error) {
@@ -192,8 +254,38 @@ func (a leaseRepositoryAdapter) MarkRoomOccupied(ctx context.Context, tx *sql.Tx
 	return a.repo.MarkRoomOccupied(ctx, tx, roomID)
 }
 
+func (a leaseRepositoryAdapter) MarkRoomVacant(ctx context.Context, tx *sql.Tx, roomID string) error {
+	return a.repo.MarkRoomVacant(ctx, tx, roomID)
+}
+
 func (a leaseRepositoryAdapter) ActivateTenant(ctx context.Context, tx *sql.Tx, tenantID string) error {
 	return a.repo.ActivateTenant(ctx, tx, tenantID)
+}
+
+func (a leaseRepositoryAdapter) DeactivateTenantIfNoActiveLeases(ctx context.Context, tx *sql.Tx, tenantID string) error {
+	return a.repo.DeactivateTenantIfNoActiveLeases(ctx, tx, tenantID)
+}
+
+func toApplicationForceTermination(forceTermination *dbleases.ForceTermination) *applease.ForceTermination {
+	bills := make([]applease.ForceTerminationBill, 0, len(forceTermination.Bills))
+	for _, bill := range forceTermination.Bills {
+		bills = append(bills, applease.ForceTerminationBill{
+			BillID: bill.BillID,
+			Status: bill.Status,
+		})
+	}
+
+	return &applease.ForceTermination{
+		ID:              forceTermination.ID,
+		LeaseID:         forceTermination.LeaseID,
+		Status:          forceTermination.Status,
+		InitiatedBy:     forceTermination.InitiatedBy,
+		Reason:          forceTermination.Reason,
+		DepositHandling: forceTermination.DepositHandling,
+		Bills:           bills,
+		CreatedAt:       forceTermination.CreatedAt,
+		UpdatedAt:       forceTermination.UpdatedAt,
+	}
 }
 
 func toApplicationLease(lease *dbleases.Lease) *applease.Lease {

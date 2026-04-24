@@ -19,6 +19,8 @@ const (
 
 	billStatusPendingPayment = "pending_payment"
 	billStatusPendingMeter   = "pending_meter"
+	billStatusVoided         = "voided"
+	billStatusWrittenOff     = "written_off"
 
 	zeroUUID = "00000000-0000-0000-0000-000000000000"
 )
