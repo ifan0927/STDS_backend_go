@@ -641,6 +641,42 @@ func TestListLeasesReturnsAccessibleLeases(t *testing.T) {
 	}
 }
 
+func TestListLeasesRejectsUnassignedPropertyFilter(t *testing.T) {
+	engine := newTestEngineWithAllQueryRepos(
+		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID2}},
+		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID2}},
+		fakePropertyRepo{
+			ownerByPropertyID: map[string]string{
+				testPropertyID1: "owner-1",
+			},
+		},
+		fakeResourceOwnershipRepo{},
+		"",
+		fakeJobRunsRepo{},
+		fakePropertyQueryRepo{},
+		fakeLeaseQueryRepo{},
+		fakeTenantQueryRepo{},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/leases?property_id="+testPropertyID1, nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if payload["error_code"] != apperr.CodeForbidden {
+		t.Fatalf("expected FORBIDDEN, got %v", payload["error_code"])
+	}
+}
+
 func TestGetLeaseReturnsAccessibleLease(t *testing.T) {
 	engine := newTestEngineWithAllQueryRepos(
 		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
