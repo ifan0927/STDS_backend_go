@@ -16,6 +16,13 @@ const (
 	codeLeaseInvalidDateRange       = "LEASE_INVALID_DATE_RANGE"
 	codeLeaseRentAmountNonPositive  = "LEASE_RENT_AMOUNT_NON_POSITIVE"
 	codeLeaseDepositNegative        = "LEASE_DEPOSIT_NEGATIVE"
+	codeSettlementNegative          = "LEASE_SETTLEMENT_NEGATIVE"
+	codeLeaseUnsupportedUpdate      = "LEASE_UNSUPPORTED_UPDATE"
+	codeDepositDeductionReason      = "DEPOSIT_DEDUCTION_REASON_REQUIRED"
+	codeDepositSettlementMismatch   = "DEPOSIT_SETTLEMENT_AMOUNT_MISMATCH"
+	codeDepositNotHeld              = "DEPOSIT_NOT_HELD"
+	codeLeaseUpdateLockedBills      = "LEASE_UPDATE_HAS_LOCKED_FUTURE_BILLS"
+	codeLeaseNotActive              = "LEASE_NOT_ACTIVE"
 	codeRoomNotVacant               = "ROOM_NOT_VACANT"
 )
 
@@ -55,6 +62,41 @@ var (
 		http.StatusUnprocessableEntity,
 		"Lease deposit amount must not be negative.",
 	)
+	errSettlementNegative = apperr.New(
+		codeSettlementNegative,
+		http.StatusUnprocessableEntity,
+		"Deposit settlement amounts must not be negative.",
+	)
+	errLeaseUnsupportedUpdate = apperr.New(
+		codeLeaseUnsupportedUpdate,
+		http.StatusUnprocessableEntity,
+		"Unsupported lease update field.",
+	)
+	errDepositDeductionReasonRequired = apperr.New(
+		codeDepositDeductionReason,
+		http.StatusUnprocessableEntity,
+		"Deposit deduction reason is required.",
+	)
+	errDepositSettlementAmountMismatch = apperr.New(
+		codeDepositSettlementMismatch,
+		http.StatusUnprocessableEntity,
+		"Deposit refund and deduction amounts must match the deposit amount.",
+	)
+	errDepositNotHeld = apperr.New(
+		codeDepositNotHeld,
+		http.StatusUnprocessableEntity,
+		"Deposit is not held.",
+	)
+	errLeaseUpdateHasLockedBills = apperr.New(
+		codeLeaseUpdateLockedBills,
+		http.StatusUnprocessableEntity,
+		"Lease update has locked future bills.",
+	)
+	errLeaseNotActive = apperr.New(
+		codeLeaseNotActive,
+		http.StatusUnprocessableEntity,
+		"Lease is not active.",
+	)
 	errRoomNotVacant = apperr.New(
 		codeRoomNotVacant,
 		http.StatusUnprocessableEntity,
@@ -74,6 +116,16 @@ func mapDomainError(err error) error {
 		return errLeaseRentAmountNonPositive
 	case errors.Is(err, domainlease.ErrDepositNegative):
 		return errLeaseDepositNegative
+	case errors.Is(err, domainlease.ErrSettlementNegative):
+		return errSettlementNegative
+	case errors.Is(err, domainlease.ErrDepositReasonRequired):
+		return errDepositDeductionReasonRequired
+	case errors.Is(err, domainlease.ErrDepositSettlementSum):
+		return errDepositSettlementAmountMismatch
+	case errors.Is(err, domainlease.ErrDepositNotHeld):
+		return errDepositNotHeld
+	case errors.Is(err, domainlease.ErrLeaseNotActive):
+		return errLeaseNotActive
 	case errors.Is(err, domainlease.ErrInvalidCadence):
 		return apperr.ErrBadRequest.WithDetails(map[string]interface{}{
 			"field": "electricity_billing_cadence",

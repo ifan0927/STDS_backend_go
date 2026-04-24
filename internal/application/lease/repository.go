@@ -77,11 +77,30 @@ type CreateBillParams struct {
 	Status      string
 }
 
+// UpdateLeaseParams contains supported normal lease-condition updates.
+type UpdateLeaseParams struct {
+	LeaseID    string
+	RentAmount int
+}
+
+// SettleDepositParams contains deposit settlement fields.
+type SettleDepositParams struct {
+	LeaseID                string
+	RefundAmount           int
+	DeductionAmount        int
+	DepositDeductionReason *string
+}
+
 // Repository defines persistence required by lease use cases and subscribers.
 type Repository interface {
 	FindTenantByID(ctx context.Context, tx *sql.Tx, tenantID string) (*Tenant, error)
 	FindRoomByIDForUpdate(ctx context.Context, tx *sql.Tx, roomID string) (*Room, error)
+	FindLeaseByIDForUpdate(ctx context.Context, tx *sql.Tx, leaseID string) (*Lease, error)
 	CreateLease(ctx context.Context, tx *sql.Tx, params CreateLeaseParams) (*Lease, error)
+	UpdateLeaseConditions(ctx context.Context, tx *sql.Tx, params UpdateLeaseParams) (*Lease, error)
+	SettleDeposit(ctx context.Context, tx *sql.Tx, params SettleDepositParams) (*Lease, error)
+	HasLockedRentBillsFromDueDate(ctx context.Context, tx *sql.Tx, leaseID string, dueDate time.Time) (bool, error)
+	VoidRentBillsFromDueDate(ctx context.Context, tx *sql.Tx, leaseID string, dueDate time.Time) error
 	CreateBills(ctx context.Context, tx *sql.Tx, params []CreateBillParams) error
 	MarkRoomOccupied(ctx context.Context, tx *sql.Tx, roomID string) error
 	ActivateTenant(ctx context.Context, tx *sql.Tx, tenantID string) error

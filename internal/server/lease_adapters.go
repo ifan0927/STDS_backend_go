@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	applease "stds_backend/internal/application/lease"
 	dbleases "stds_backend/internal/platform/database/leases"
@@ -48,6 +49,20 @@ func (a leaseRepositoryAdapter) FindRoomByIDForUpdate(ctx context.Context, tx *s
 	}, nil
 }
 
+func (a leaseRepositoryAdapter) FindLeaseByIDForUpdate(ctx context.Context, tx *sql.Tx, leaseID string) (*applease.Lease, error) {
+	lease, err := a.repo.FindLeaseByIDForUpdate(ctx, tx, leaseID)
+	if err != nil {
+		switch err {
+		case dbleases.ErrLeaseNotFound:
+			return nil, applease.ErrLeaseNotFound
+		default:
+			return nil, err
+		}
+	}
+
+	return toApplicationLease(lease), nil
+}
+
 func (a leaseRepositoryAdapter) CreateLease(ctx context.Context, tx *sql.Tx, params applease.CreateLeaseParams) (*applease.Lease, error) {
 	lease, err := a.repo.CreateLease(ctx, tx, dbleases.CreateLeaseParams{
 		TenantID:                  params.TenantID,
@@ -64,6 +79,50 @@ func (a leaseRepositoryAdapter) CreateLease(ctx context.Context, tx *sql.Tx, par
 	}
 
 	return toApplicationLease(lease), nil
+}
+
+func (a leaseRepositoryAdapter) UpdateLeaseConditions(ctx context.Context, tx *sql.Tx, params applease.UpdateLeaseParams) (*applease.Lease, error) {
+	lease, err := a.repo.UpdateLeaseConditions(ctx, tx, dbleases.UpdateLeaseParams{
+		LeaseID:    params.LeaseID,
+		RentAmount: params.RentAmount,
+	})
+	if err != nil {
+		switch err {
+		case dbleases.ErrLeaseNotFound:
+			return nil, applease.ErrLeaseNotFound
+		default:
+			return nil, err
+		}
+	}
+
+	return toApplicationLease(lease), nil
+}
+
+func (a leaseRepositoryAdapter) SettleDeposit(ctx context.Context, tx *sql.Tx, params applease.SettleDepositParams) (*applease.Lease, error) {
+	lease, err := a.repo.SettleDeposit(ctx, tx, dbleases.SettleDepositParams{
+		LeaseID:                params.LeaseID,
+		RefundAmount:           params.RefundAmount,
+		DeductionAmount:        params.DeductionAmount,
+		DepositDeductionReason: params.DepositDeductionReason,
+	})
+	if err != nil {
+		switch err {
+		case dbleases.ErrLeaseNotFound:
+			return nil, applease.ErrLeaseNotFound
+		default:
+			return nil, err
+		}
+	}
+
+	return toApplicationLease(lease), nil
+}
+
+func (a leaseRepositoryAdapter) HasLockedRentBillsFromDueDate(ctx context.Context, tx *sql.Tx, leaseID string, dueDate time.Time) (bool, error) {
+	return a.repo.HasLockedRentBillsFromDueDate(ctx, tx, leaseID, dueDate)
+}
+
+func (a leaseRepositoryAdapter) VoidRentBillsFromDueDate(ctx context.Context, tx *sql.Tx, leaseID string, dueDate time.Time) error {
+	return a.repo.VoidRentBillsFromDueDate(ctx, tx, leaseID, dueDate)
 }
 
 func (a leaseRepositoryAdapter) CreateBills(ctx context.Context, tx *sql.Tx, params []applease.CreateBillParams) error {

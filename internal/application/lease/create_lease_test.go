@@ -342,15 +342,23 @@ func TestCreateLeaseServiceRejectsBusinessRuleViolationsAndMissingReferences(t *
 }
 
 type leaseRepositoryStub struct {
-	tenant            *Tenant
-	tenantErr         error
-	room              *Room
-	roomErr           error
-	createdLease      *Lease
-	createLeaseErr    error
-	createBillsErr    error
-	createLeaseParams *CreateLeaseParams
-	createdBills      []CreateBillParams
+	tenant             *Tenant
+	tenantErr          error
+	room               *Room
+	roomErr            error
+	lease              *Lease
+	leaseErr           error
+	createdLease       *Lease
+	createLeaseErr     error
+	createBillsErr     error
+	updatedLease       *Lease
+	settledLease       *Lease
+	lockedRentBills    bool
+	voidRentDueDate    *time.Time
+	createLeaseParams  *CreateLeaseParams
+	updateLeaseCalls   int
+	settleDepositCalls int
+	createdBills       []CreateBillParams
 }
 
 func (s *leaseRepositoryStub) FindTenantByID(context.Context, *sql.Tx, string) (*Tenant, error) {
@@ -367,12 +375,60 @@ func (s *leaseRepositoryStub) FindRoomByIDForUpdate(context.Context, *sql.Tx, st
 	return s.room, nil
 }
 
+func (s *leaseRepositoryStub) FindLeaseByIDForUpdate(context.Context, *sql.Tx, string) (*Lease, error) {
+	if s.leaseErr != nil {
+		return nil, s.leaseErr
+	}
+	return s.lease, nil
+}
+
 func (s *leaseRepositoryStub) CreateLease(_ context.Context, _ *sql.Tx, params CreateLeaseParams) (*Lease, error) {
 	s.createLeaseParams = &params
 	if s.createLeaseErr != nil {
 		return nil, s.createLeaseErr
 	}
 	return s.createdLease, nil
+}
+
+func (s *leaseRepositoryStub) UpdateLeaseConditions(_ context.Context, _ *sql.Tx, params UpdateLeaseParams) (*Lease, error) {
+	s.updateLeaseCalls++
+	if s.updatedLease != nil {
+		s.updatedLease.RentAmount = params.RentAmount
+		return s.updatedLease, nil
+	}
+	if s.lease == nil {
+		return nil, ErrLeaseNotFound
+	}
+	s.lease.RentAmount = params.RentAmount
+	return s.lease, nil
+}
+
+func (s *leaseRepositoryStub) SettleDeposit(_ context.Context, _ *sql.Tx, params SettleDepositParams) (*Lease, error) {
+	s.settleDepositCalls++
+	if s.settledLease != nil {
+		s.settledLease.DepositRefundAmount = &params.RefundAmount
+		s.settledLease.DepositDeductionAmount = &params.DeductionAmount
+		s.settledLease.DepositDeductionReason = params.DepositDeductionReason
+		s.settledLease.DepositStatus = "settled"
+		return s.settledLease, nil
+	}
+	if s.lease == nil {
+		return nil, ErrLeaseNotFound
+	}
+	s.lease.DepositRefundAmount = &params.RefundAmount
+	s.lease.DepositDeductionAmount = &params.DeductionAmount
+	s.lease.DepositDeductionReason = params.DepositDeductionReason
+	s.lease.DepositStatus = "settled"
+	return s.lease, nil
+}
+
+func (s *leaseRepositoryStub) HasLockedRentBillsFromDueDate(context.Context, *sql.Tx, string, time.Time) (bool, error) {
+	return s.lockedRentBills, nil
+}
+
+func (s *leaseRepositoryStub) VoidRentBillsFromDueDate(_ context.Context, _ *sql.Tx, _ string, dueDate time.Time) error {
+	s.voidRentDueDate = &dueDate
+	return nil
 }
 
 func (s *leaseRepositoryStub) CreateBills(_ context.Context, _ *sql.Tx, params []CreateBillParams) error {

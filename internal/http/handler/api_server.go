@@ -3,6 +3,7 @@ package handler
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -50,6 +51,14 @@ type APIServer struct {
 	createTenantSvc   *apptenant.CreateTenantService
 	updateTenantSvc   *apptenant.UpdateTenantService
 	createLeaseSvc    *applease.CreateLeaseService
+	updateLeaseSvc    *applease.UpdateLeaseService
+	updateDepositSvc  *applease.UpdateDepositService
+}
+
+// LeaseCommandServices groups optional lease command services beyond creation.
+type LeaseCommandServices struct {
+	UpdateLease   *applease.UpdateLeaseService
+	UpdateDeposit *applease.UpdateDepositService
 }
 
 // NewAPIServer returns an API server with only the currently implemented
@@ -76,8 +85,9 @@ func NewAPIServer(
 	createTenantSvc *apptenant.CreateTenantService,
 	updateTenantSvc *apptenant.UpdateTenantService,
 	createLeaseSvc *applease.CreateLeaseService,
+	leaseCommands ...LeaseCommandServices,
 ) *APIServer {
-	return &APIServer{
+	server := &APIServer{
 		userRepo:          userRepo,
 		createUserService: createUserService,
 		sendPasswordReset: sendPasswordReset,
@@ -100,6 +110,12 @@ func NewAPIServer(
 		updateTenantSvc:   updateTenantSvc,
 		createLeaseSvc:    createLeaseSvc,
 	}
+	if len(leaseCommands) > 0 {
+		server.updateLeaseSvc = leaseCommands[0].UpdateLease
+		server.updateDepositSvc = leaseCommands[0].UpdateDeposit
+	}
+
+	return server
 }
 
 func writeNotImplemented(c *gin.Context) {
@@ -331,10 +347,79 @@ func (s *APIServer) GetLease(c *gin.Context, id string) {
 }
 
 // UpdateLease handles lease updates.
-func (s *APIServer) UpdateLease(c *gin.Context, id string) { writeNotImplemented(c) }
+func (s *APIServer) UpdateLease(c *gin.Context, id string) {
+	if s.updateLeaseSvc == nil {
+		writeNotImplemented(c)
+		return
+	}
+
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	var request api.UpdateLeaseRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.Error(apperr.ErrBadRequest.WithCause(err))
+		return
+	}
+
+	var endDate *time.Time
+	if request.EndDate != nil {
+		value := request.EndDate.Time
+		endDate = &value
+	}
+
+	lease, err := s.updateLeaseSvc.Execute(c.Request.Context(), applease.UpdateLeaseInput{
+		ActorRole:           principal.Role,
+		AssignedPropertyIDs: principal.AssignedPropertyIDs,
+		LeaseID:             id,
+		RentAmount:          request.RentAmount,
+		EndDate:             endDate,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toCreatedLeaseResponse(lease))
+}
 
 // UpdateLeaseDeposit handles lease deposit updates.
-func (s *APIServer) UpdateLeaseDeposit(c *gin.Context, id string) { writeNotImplemented(c) }
+func (s *APIServer) UpdateLeaseDeposit(c *gin.Context, id string) {
+	if s.updateDepositSvc == nil {
+		writeNotImplemented(c)
+		return
+	}
+
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	var request api.UpdateDepositRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.Error(apperr.ErrBadRequest.WithCause(err))
+		return
+	}
+
+	lease, err := s.updateDepositSvc.Execute(c.Request.Context(), applease.UpdateDepositInput{
+		ActorRole:           principal.Role,
+		AssignedPropertyIDs: principal.AssignedPropertyIDs,
+		LeaseID:             id,
+		RefundAmount:        request.RefundAmount,
+		DeductionAmount:     request.DeductionAmount,
+		DeductionReason:     request.DeductionReason,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toCreatedLeaseResponse(lease))
+}
 
 // ReplaceLease handles lease replacement.
 func (s *APIServer) ReplaceLease(c *gin.Context, id string) { writeNotImplemented(c) }

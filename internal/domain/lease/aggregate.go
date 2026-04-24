@@ -31,7 +31,10 @@ type State struct {
 	ElectricityBillingCadence string
 	Status                    string
 	DepositAmount             int
+	DepositRefundAmount       *int
+	DepositDeductionAmount    *int
 	DepositStatus             string
+	DepositDeductionReason    *string
 	Version                   int
 }
 
@@ -67,6 +70,47 @@ func (a *Aggregate) State() State {
 	}
 
 	return a.state
+}
+
+// ChangeRent updates the normal, non-structural lease condition supported by
+// PATCH /leases/{id}.
+func (a *Aggregate) ChangeRent(rentAmount int) error {
+	if a.state.Status != StatusActive {
+		return ErrLeaseNotActive
+	}
+	if rentAmount <= 0 {
+		return ErrRentAmountNonPositive
+	}
+
+	a.state.RentAmount = rentAmount
+	return nil
+}
+
+// SettleDeposit records a complete deposit settlement.
+func (a *Aggregate) SettleDeposit(refundAmount int, deductionAmount int, deductionReason *string) error {
+	if a.state.DepositStatus != DepositStatusHeld {
+		return ErrDepositNotHeld
+	}
+	if refundAmount < 0 || deductionAmount < 0 {
+		return ErrSettlementNegative
+	}
+	if deductionAmount > 0 && strings.TrimSpace(stringValue(deductionReason)) == "" {
+		return ErrDepositReasonRequired
+	}
+	if refundAmount+deductionAmount != a.state.DepositAmount {
+		return ErrDepositSettlementSum
+	}
+
+	var reason *string
+	if deductionAmount > 0 {
+		reason = trimmedStringPtr(deductionReason)
+	}
+	a.state.DepositRefundAmount = &refundAmount
+	a.state.DepositDeductionAmount = &deductionAmount
+	a.state.DepositDeductionReason = reason
+	a.state.DepositStatus = DepositStatusSettled
+
+	return nil
 }
 
 func normalizeState(state State, creating bool) (State, error) {
@@ -107,4 +151,21 @@ func isValidCadence(cadence string) bool {
 	default:
 		return false
 	}
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+
+	return *value
+}
+
+func trimmedStringPtr(value *string) *string {
+	trimmed := strings.TrimSpace(stringValue(value))
+	if trimmed == "" {
+		return nil
+	}
+
+	return &trimmed
 }

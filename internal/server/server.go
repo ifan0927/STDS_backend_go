@@ -14,6 +14,7 @@ import (
 	appproperty "stds_backend/internal/application/property"
 	apptenant "stds_backend/internal/application/tenant"
 	"stds_backend/internal/config"
+	"stds_backend/internal/http/handler"
 	"stds_backend/internal/http/router"
 	"stds_backend/internal/platform/database"
 	dbjobruns "stds_backend/internal/platform/database/jobruns"
@@ -98,6 +99,8 @@ func New(cfg *config.Config) (*Server, error) {
 	createTenantService := apptenant.NewCreateTenantService(tenantRepositoryAdapter{repo: tenantRepo}, txRunner)
 	updateTenantService := apptenant.NewUpdateTenantService(tenantRepositoryAdapter{repo: tenantRepo}, txRunner)
 	createLeaseService := applease.NewCreateLeaseService(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
+	updateLeaseService := applease.NewUpdateLeaseService(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
+	updateDepositService := applease.NewUpdateDepositService(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
 	occupyRoomOnLeaseCreated := applease.NewOccupyRoomOnLeaseCreatedHandler(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
 	activateTenantOnLeaseCreated := applease.NewActivateTenantOnLeaseCreatedHandler(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
 	jobTriggerService := appjobs.NewTriggerService(jobRunStoreAdapter{repo: jobRunsRepo}, nil, cfg.App.SchedulerJobTimeout, cfg.App.SchedulerMaxRetries)
@@ -107,7 +110,10 @@ func New(cfg *config.Config) (*Server, error) {
 	engine := router.New(cfg.App, logger, db, authenticator, userRepo, router.AuthorizationRepositories{
 		Properties:        propertyRepo,
 		ResourceOwnership: resourceOwnershipRepo,
-	}, createUserService, sendPasswordResetService, syncAuthService, updateCurrentUserService, updateUserService, assignUserPropertiesService, jobTriggerService, propertyQueryRepo, leaseQueryRepo, tenantQueryRepo, createPropertyService, updatePropertyService, deletePropertyService, createRoomService, updateRoomService, deleteRoomService, setRoomMaintenanceService, createTenantService, updateTenantService, createLeaseService)
+	}, createUserService, sendPasswordResetService, syncAuthService, updateCurrentUserService, updateUserService, assignUserPropertiesService, jobTriggerService, propertyQueryRepo, leaseQueryRepo, tenantQueryRepo, createPropertyService, updatePropertyService, deletePropertyService, createRoomService, updateRoomService, deleteRoomService, setRoomMaintenanceService, createTenantService, updateTenantService, createLeaseService, handler.LeaseCommandServices{
+		UpdateLease:   updateLeaseService,
+		UpdateDeposit: updateDepositService,
+	})
 
 	return &Server{
 		httpServer: &http.Server{
