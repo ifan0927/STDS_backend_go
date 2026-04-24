@@ -73,12 +73,51 @@ func (a leaseRepositoryAdapter) CreateLease(ctx context.Context, tx *sql.Tx, par
 		EndDate:                   params.EndDate,
 		ElectricityBillingCadence: params.ElectricityBillingCadence,
 		DepositAmount:             params.DepositAmount,
+		Notes:                     params.Notes,
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	return toApplicationLease(lease), nil
+}
+
+func (a leaseRepositoryAdapter) TerminateLease(ctx context.Context, tx *sql.Tx, params applease.TerminateLeaseParams) (*applease.Lease, error) {
+	lease, err := a.repo.TerminateLease(ctx, tx, dbleases.TerminateLeaseParams{
+		LeaseID:           params.LeaseID,
+		EndDate:           params.EndDate,
+		TerminationReason: params.TerminationReason,
+	})
+	if err != nil {
+		switch err {
+		case dbleases.ErrLeaseNotFound:
+			return nil, applease.ErrLeaseNotFound
+		default:
+			return nil, err
+		}
+	}
+
+	return toApplicationLease(lease), nil
+}
+
+func (a leaseRepositoryAdapter) ListBillsByLeaseIDForUpdate(ctx context.Context, tx *sql.Tx, leaseID string) ([]applease.Bill, error) {
+	bills, err := a.repo.ListBillsByLeaseIDForUpdate(ctx, tx, leaseID)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]applease.Bill, 0, len(bills))
+	for _, bill := range bills {
+		items = append(items, applease.Bill{
+			ID:          bill.ID,
+			Type:        bill.Type,
+			Status:      bill.Status,
+			PeriodStart: bill.PeriodStart,
+			PeriodEnd:   bill.PeriodEnd,
+		})
+	}
+
+	return items, nil
 }
 
 func (a leaseRepositoryAdapter) UpdateLeaseConditions(ctx context.Context, tx *sql.Tx, params applease.UpdateLeaseParams) (*applease.Lease, error) {
@@ -123,6 +162,10 @@ func (a leaseRepositoryAdapter) HasLockedRentBillsFromDueDate(ctx context.Contex
 
 func (a leaseRepositoryAdapter) VoidRentBillsFromDueDate(ctx context.Context, tx *sql.Tx, leaseID string, dueDate time.Time) error {
 	return a.repo.VoidRentBillsFromDueDate(ctx, tx, leaseID, dueDate)
+}
+
+func (a leaseRepositoryAdapter) VoidBillsOverlappingOrAfter(ctx context.Context, tx *sql.Tx, leaseID string, boundary time.Time) error {
+	return a.repo.VoidBillsOverlappingOrAfter(ctx, tx, leaseID, boundary)
 }
 
 func (a leaseRepositoryAdapter) CreateBills(ctx context.Context, tx *sql.Tx, params []applease.CreateBillParams) error {

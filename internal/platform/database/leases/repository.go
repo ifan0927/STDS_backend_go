@@ -24,8 +24,11 @@ type CommandRepository interface {
 	CreateLease(ctx context.Context, tx *sql.Tx, params CreateLeaseParams) (*Lease, error)
 	UpdateLeaseConditions(ctx context.Context, tx *sql.Tx, params UpdateLeaseParams) (*Lease, error)
 	SettleDeposit(ctx context.Context, tx *sql.Tx, params SettleDepositParams) (*Lease, error)
+	TerminateLease(ctx context.Context, tx *sql.Tx, params TerminateLeaseParams) (*Lease, error)
+	ListBillsByLeaseIDForUpdate(ctx context.Context, tx *sql.Tx, leaseID string) ([]Bill, error)
 	HasLockedRentBillsFromDueDate(ctx context.Context, tx *sql.Tx, leaseID string, dueDate time.Time) (bool, error)
 	VoidRentBillsFromDueDate(ctx context.Context, tx *sql.Tx, leaseID string, dueDate time.Time) error
+	VoidBillsOverlappingOrAfter(ctx context.Context, tx *sql.Tx, leaseID string, boundary time.Time) error
 	CreateBills(ctx context.Context, tx *sql.Tx, params []CreateBillParams) error
 	MarkRoomOccupied(ctx context.Context, tx *sql.Tx, roomID string) error
 	ActivateTenant(ctx context.Context, tx *sql.Tx, tenantID string) error
@@ -79,6 +82,7 @@ type CreateLeaseParams struct {
 	EndDate                   time.Time
 	ElectricityBillingCadence string
 	DepositAmount             int
+	Notes                     *string
 }
 
 // CreateBillParams contains the writable fields required to pre-generate a bill.
@@ -95,6 +99,15 @@ type CreateBillParams struct {
 	Status      string
 }
 
+// Bill is the persisted bill state required by replacement rules.
+type Bill struct {
+	ID          string
+	Type        string
+	Status      string
+	PeriodStart time.Time
+	PeriodEnd   time.Time
+}
+
 // UpdateLeaseParams contains supported normal lease-condition update fields.
 type UpdateLeaseParams struct {
 	LeaseID    string
@@ -107,6 +120,13 @@ type SettleDepositParams struct {
 	RefundAmount           int
 	DeductionAmount        int
 	DepositDeductionReason *string
+}
+
+// TerminateLeaseParams contains fields for predecessor termination.
+type TerminateLeaseParams struct {
+	LeaseID           string
+	EndDate           time.Time
+	TerminationReason string
 }
 
 // SQLRepository persists lease writes in PostgreSQL.
@@ -221,8 +241,9 @@ INSERT INTO leases (
 	end_date,
 	electricity_billing_cadence,
 	deposit_amount,
-	deposit_status
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'held')
+	deposit_status,
+	notes
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'held', $9)
 RETURNING
 	id,
 	tenant_id,
@@ -255,12 +276,90 @@ RETURNING
 		params.EndDate,
 		params.ElectricityBillingCadence,
 		params.DepositAmount,
+		params.Notes,
 	))
 	if err != nil {
 		return nil, fmt.Errorf("create lease: %w", err)
 	}
 
 	return lease, nil
+}
+
+func (r *SQLRepository) TerminateLease(ctx context.Context, tx *sql.Tx, params TerminateLeaseParams) (*Lease, error) {
+	const query = `
+UPDATE leases
+SET status = 'terminated',
+	end_date = $2,
+	termination_reason = $3,
+	updated_at = now(),
+	version = version + 1
+WHERE id = $1
+  AND deleted_at IS NULL
+RETURNING
+	id,
+	tenant_id,
+	property_id,
+	room_id,
+	rent_amount,
+	start_date,
+	end_date,
+	electricity_billing_cadence,
+	status,
+	deposit_amount,
+	deposit_refund_amount,
+	deposit_deduction_amount,
+	deposit_status,
+	deposit_deduction_reason,
+	notes,
+	termination_reason,
+	settlement_detail::text,
+	created_at,
+	updated_at,
+	version
+`
+
+	lease, err := scanLease(tx.QueryRowContext(ctx, query, params.LeaseID, params.EndDate, params.TerminationReason))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrLeaseNotFound
+		}
+		return nil, fmt.Errorf("terminate lease: %w", err)
+	}
+
+	return lease, nil
+}
+
+func (r *SQLRepository) ListBillsByLeaseIDForUpdate(ctx context.Context, tx *sql.Tx, leaseID string) ([]Bill, error) {
+	const query = `
+SELECT id, type, status, period_start, period_end
+FROM bills
+WHERE lease_id = $1
+  AND deleted_at IS NULL
+ORDER BY period_start ASC, type ASC
+FOR UPDATE
+`
+
+	rows, err := tx.QueryContext(ctx, query, leaseID)
+	if err != nil {
+		return nil, fmt.Errorf("list bills by lease id for update: %w", err)
+	}
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	bills := make([]Bill, 0)
+	for rows.Next() {
+		var bill Bill
+		if err := rows.Scan(&bill.ID, &bill.Type, &bill.Status, &bill.PeriodStart, &bill.PeriodEnd); err != nil {
+			return nil, fmt.Errorf("scan replacement bill: %w", err)
+		}
+		bills = append(bills, bill)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate replacement bills: %w", err)
+	}
+
+	return bills, nil
 }
 
 func (r *SQLRepository) UpdateLeaseConditions(ctx context.Context, tx *sql.Tx, params UpdateLeaseParams) (*Lease, error) {
@@ -395,6 +494,25 @@ WHERE lease_id = $1
 
 	if _, err := tx.ExecContext(ctx, query, leaseID, dueDate); err != nil {
 		return fmt.Errorf("void rent bills from due date: %w", err)
+	}
+
+	return nil
+}
+
+func (r *SQLRepository) VoidBillsOverlappingOrAfter(ctx context.Context, tx *sql.Tx, leaseID string, boundary time.Time) error {
+	const query = `
+UPDATE bills
+SET status = 'voided',
+	updated_at = now(),
+	version = version + 1
+WHERE lease_id = $1
+  AND period_end >= $2
+  AND status IN ('pending_payment', 'pending_meter')
+  AND deleted_at IS NULL
+`
+
+	if _, err := tx.ExecContext(ctx, query, leaseID, boundary); err != nil {
+		return fmt.Errorf("void bills overlapping or after boundary: %w", err)
 	}
 
 	return nil

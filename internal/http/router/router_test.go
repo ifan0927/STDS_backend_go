@@ -3807,11 +3807,38 @@ func (f fakeLeaseRepo) SettleDeposit(_ context.Context, _ *sql.Tx, params applea
 	return lease, nil
 }
 
+func (f fakeLeaseRepo) TerminateLease(_ context.Context, _ *sql.Tx, params applease.TerminateLeaseParams) (*applease.Lease, error) {
+	lease, err := f.FindLeaseByIDForUpdate(context.Background(), nil, params.LeaseID)
+	if err != nil {
+		return nil, err
+	}
+	lease.Status = "terminated"
+	lease.EndDate = params.EndDate
+	lease.TerminationReason = &params.TerminationReason
+	return lease, nil
+}
+
+func (f fakeLeaseRepo) ListBillsByLeaseIDForUpdate(_ context.Context, _ *sql.Tx, _ string) ([]applease.Bill, error) {
+	return []applease.Bill{
+		{
+			ID:          "50000000-0000-0000-0000-000000000001",
+			Type:        "electricity",
+			Status:      "paid",
+			PeriodStart: time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+			PeriodEnd:   time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC),
+		},
+	}, nil
+}
+
 func (f fakeLeaseRepo) HasLockedRentBillsFromDueDate(_ context.Context, _ *sql.Tx, _ string, _ time.Time) (bool, error) {
 	return false, nil
 }
 
 func (f fakeLeaseRepo) VoidRentBillsFromDueDate(_ context.Context, _ *sql.Tx, _ string, _ time.Time) error {
+	return nil
+}
+
+func (f fakeLeaseRepo) VoidBillsOverlappingOrAfter(_ context.Context, _ *sql.Tx, _ string, _ time.Time) error {
 	return nil
 }
 

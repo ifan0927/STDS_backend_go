@@ -356,9 +356,12 @@ type leaseRepositoryStub struct {
 	lockedRentBills    bool
 	voidRentDueDate    *time.Time
 	createLeaseParams  *CreateLeaseParams
+	terminateCalls     int
+	voidBillsBoundary  *time.Time
 	updateLeaseCalls   int
 	settleDepositCalls int
 	createdBills       []CreateBillParams
+	replacementBills   []Bill
 }
 
 func (s *leaseRepositoryStub) FindTenantByID(context.Context, *sql.Tx, string) (*Tenant, error) {
@@ -422,12 +425,32 @@ func (s *leaseRepositoryStub) SettleDeposit(_ context.Context, _ *sql.Tx, params
 	return s.lease, nil
 }
 
+func (s *leaseRepositoryStub) TerminateLease(_ context.Context, _ *sql.Tx, params TerminateLeaseParams) (*Lease, error) {
+	s.terminateCalls++
+	if s.lease == nil {
+		return nil, ErrLeaseNotFound
+	}
+	s.lease.Status = "terminated"
+	s.lease.EndDate = params.EndDate
+	s.lease.TerminationReason = &params.TerminationReason
+	return s.lease, nil
+}
+
+func (s *leaseRepositoryStub) ListBillsByLeaseIDForUpdate(context.Context, *sql.Tx, string) ([]Bill, error) {
+	return s.replacementBills, nil
+}
+
 func (s *leaseRepositoryStub) HasLockedRentBillsFromDueDate(context.Context, *sql.Tx, string, time.Time) (bool, error) {
 	return s.lockedRentBills, nil
 }
 
 func (s *leaseRepositoryStub) VoidRentBillsFromDueDate(_ context.Context, _ *sql.Tx, _ string, dueDate time.Time) error {
 	s.voidRentDueDate = &dueDate
+	return nil
+}
+
+func (s *leaseRepositoryStub) VoidBillsOverlappingOrAfter(_ context.Context, _ *sql.Tx, _ string, boundary time.Time) error {
+	s.voidBillsBoundary = &boundary
 	return nil
 }
 

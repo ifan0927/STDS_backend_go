@@ -61,6 +61,7 @@ type CreateLeaseParams struct {
 	EndDate                   time.Time
 	ElectricityBillingCadence string
 	DepositAmount             int
+	Notes                     *string
 }
 
 // CreateBillParams contains the pre-generated bill fields.
@@ -77,6 +78,15 @@ type CreateBillParams struct {
 	Status      string
 }
 
+// Bill captures bill state required by replacement rules.
+type Bill struct {
+	ID          string
+	Type        string
+	Status      string
+	PeriodStart time.Time
+	PeriodEnd   time.Time
+}
+
 // UpdateLeaseParams contains supported normal lease-condition updates.
 type UpdateLeaseParams struct {
 	LeaseID    string
@@ -91,6 +101,13 @@ type SettleDepositParams struct {
 	DepositDeductionReason *string
 }
 
+// TerminateLeaseParams contains fields for predecessor termination.
+type TerminateLeaseParams struct {
+	LeaseID           string
+	EndDate           time.Time
+	TerminationReason string
+}
+
 // Repository defines persistence required by lease use cases and subscribers.
 type Repository interface {
 	FindTenantByID(ctx context.Context, tx *sql.Tx, tenantID string) (*Tenant, error)
@@ -99,8 +116,11 @@ type Repository interface {
 	CreateLease(ctx context.Context, tx *sql.Tx, params CreateLeaseParams) (*Lease, error)
 	UpdateLeaseConditions(ctx context.Context, tx *sql.Tx, params UpdateLeaseParams) (*Lease, error)
 	SettleDeposit(ctx context.Context, tx *sql.Tx, params SettleDepositParams) (*Lease, error)
+	TerminateLease(ctx context.Context, tx *sql.Tx, params TerminateLeaseParams) (*Lease, error)
+	ListBillsByLeaseIDForUpdate(ctx context.Context, tx *sql.Tx, leaseID string) ([]Bill, error)
 	HasLockedRentBillsFromDueDate(ctx context.Context, tx *sql.Tx, leaseID string, dueDate time.Time) (bool, error)
 	VoidRentBillsFromDueDate(ctx context.Context, tx *sql.Tx, leaseID string, dueDate time.Time) error
+	VoidBillsOverlappingOrAfter(ctx context.Context, tx *sql.Tx, leaseID string, boundary time.Time) error
 	CreateBills(ctx context.Context, tx *sql.Tx, params []CreateBillParams) error
 	MarkRoomOccupied(ctx context.Context, tx *sql.Tx, roomID string) error
 	ActivateTenant(ctx context.Context, tx *sql.Tx, tenantID string) error
