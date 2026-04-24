@@ -7,14 +7,16 @@ import (
 	"time"
 
 	appbilling "stds_backend/internal/application/billing"
+	domainevents "stds_backend/internal/domain/events"
 	"stds_backend/internal/http/handler"
 	dbbilling "stds_backend/internal/platform/database/billing"
 	dbtxrunner "stds_backend/internal/platform/database/txrunner"
 )
 
-func newBillingServices(db *sql.DB, txRunner *dbtxrunner.Runner) handler.BillingServices {
+func newBillingServices(db *sql.DB, txRunner *dbtxrunner.Runner, publisher domainevents.Publisher) handler.BillingServices {
 	repo := dbbilling.NewRepository(db)
 	billingRepo := billingRepositoryAdapter{repo: repo}
+	reportRepo := billingReportRepositoryAdapter{repo: repo}
 	accountingRepo := billingAccountingRepositoryAdapter{repo: repo}
 
 	return handler.BillingServices{
@@ -22,8 +24,11 @@ func newBillingServices(db *sql.DB, txRunner *dbtxrunner.Runner) handler.Billing
 			listBills: appbilling.NewListBillsService(billingRepo),
 			getBill:   appbilling.NewGetBillService(billingRepo),
 		},
-		Meter:   billingMeterServiceAdapter{service: appbilling.NewRecordMeterService(billingRepo, txRunner)},
-		Payment: billingPaymentServiceAdapter{service: appbilling.NewRecordPaymentService(billingRepo, accountingRepo, txRunner)},
+		Meter:            billingMeterServiceAdapter{service: appbilling.NewRecordMeterService(billingRepo, txRunner)},
+		Payment:          billingPaymentServiceAdapter{service: appbilling.NewRecordPaymentService(billingRepo, accountingRepo, txRunner)},
+		PropertyMeters:   billingPropertyMeterServiceAdapter{pendingMeters: appbilling.NewListPendingMeterService(reportRepo), meterHistory: appbilling.NewListPropertyMeterHistoryService(reportRepo)},
+		RoomMeters:       billingRoomMeterServiceAdapter{meterHistory: appbilling.NewListRoomMeterHistoryService(reportRepo)},
+		FinancialReports: billingFinancialReportServiceAdapter{summaries: appbilling.NewListFinancialReportSummariesService(reportRepo), get: appbilling.NewGetFinancialReportService(reportRepo, nil), send: appbilling.NewSendFinancialReportService(reportRepo, publisher, nil)},
 	}
 }
 
@@ -105,6 +110,113 @@ func (a billingPaymentServiceAdapter) RecordBillPayment(ctx context.Context, inp
 	}
 
 	return toHandlerBill(*bill), nil
+}
+
+type billingPropertyMeterServiceAdapter struct {
+	pendingMeters *appbilling.ListPendingMeterService
+	meterHistory  *appbilling.ListPropertyMeterHistoryService
+}
+
+func (a billingPropertyMeterServiceAdapter) ListPropertyPendingMeters(ctx context.Context, input handler.BillingPropertyMetersInput) ([]handler.BillingBill, error) {
+	bills, err := a.pendingMeters.Execute(ctx, appbilling.ListPendingMeterInput{
+		ActorRole:           input.ActorRole,
+		ActorUserID:         input.ActorUserID,
+		AssignedPropertyIDs: input.AssignedPropertyIDs,
+		PropertyID:          input.PropertyID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return toHandlerBills(bills), nil
+}
+
+func (a billingPropertyMeterServiceAdapter) ListPropertyMeterHistory(ctx context.Context, input handler.BillingPropertyMeterHistoryInput) ([]handler.BillingBill, error) {
+	bills, err := a.meterHistory.Execute(ctx, appbilling.ListPropertyMeterHistoryInput{
+		ActorRole:           input.ActorRole,
+		ActorUserID:         input.ActorUserID,
+		AssignedPropertyIDs: input.AssignedPropertyIDs,
+		PropertyID:          input.PropertyID,
+		Year:                input.Year,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return toHandlerBills(bills), nil
+}
+
+type billingRoomMeterServiceAdapter struct {
+	meterHistory *appbilling.ListRoomMeterHistoryService
+}
+
+func (a billingRoomMeterServiceAdapter) ListRoomMeterHistory(ctx context.Context, input handler.BillingRoomMeterHistoryInput) ([]handler.BillingBill, error) {
+	bills, err := a.meterHistory.Execute(ctx, appbilling.ListRoomMeterHistoryInput{
+		ActorRole:           input.ActorRole,
+		ActorUserID:         input.ActorUserID,
+		AssignedPropertyIDs: input.AssignedPropertyIDs,
+		RoomID:              input.RoomID,
+		Year:                input.Year,
+		Month:               input.Month,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return toHandlerBills(bills), nil
+}
+
+type billingFinancialReportServiceAdapter struct {
+	summaries *appbilling.ListFinancialReportSummariesService
+	get       *appbilling.GetFinancialReportService
+	send      *appbilling.SendFinancialReportService
+}
+
+func (a billingFinancialReportServiceAdapter) ListFinancialReportSummaries(ctx context.Context, input handler.BillingFinancialReportSummaryInput) ([]handler.BillingFinancialReportSummary, error) {
+	summaries, err := a.summaries.Execute(ctx, appbilling.ListFinancialReportSummariesInput{
+		ActorRole:           input.ActorRole,
+		ActorUserID:         input.ActorUserID,
+		AssignedPropertyIDs: input.AssignedPropertyIDs,
+		PropertyID:          input.PropertyID,
+		Year:                input.Year,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return toHandlerFinancialReportSummaries(summaries), nil
+}
+
+func (a billingFinancialReportServiceAdapter) GetFinancialReport(ctx context.Context, input handler.BillingFinancialReportInput) (*handler.BillingFinancialReport, error) {
+	report, err := a.get.Execute(ctx, appbilling.GetFinancialReportInput{
+		ActorRole:           input.ActorRole,
+		ActorUserID:         input.ActorUserID,
+		AssignedPropertyIDs: input.AssignedPropertyIDs,
+		PropertyID:          input.PropertyID,
+		Year:                input.Year,
+		Month:               input.Month,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return toHandlerFinancialReport(*report), nil
+}
+
+func (a billingFinancialReportServiceAdapter) SendFinancialReport(ctx context.Context, input handler.BillingFinancialReportInput) (*handler.BillingFinancialReport, error) {
+	report, err := a.send.Execute(ctx, appbilling.SendFinancialReportInput{
+		ActorRole:           input.ActorRole,
+		ActorUserID:         input.ActorUserID,
+		AssignedPropertyIDs: input.AssignedPropertyIDs,
+		PropertyID:          input.PropertyID,
+		Year:                input.Year,
+		Month:               input.Month,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return toHandlerFinancialReport(*report), nil
 }
 
 type billingRepositoryAdapter struct {
@@ -214,6 +326,88 @@ func (a billingRepositoryAdapter) UpdateBillPayment(ctx context.Context, tx *sql
 	return a.FindBillByIDForUpdate(ctx, tx, params.BillID)
 }
 
+type billingReportRepositoryAdapter struct {
+	repo *dbbilling.SQLRepository
+}
+
+func (a billingReportRepositoryAdapter) ListPendingMeterBills(ctx context.Context, query appbilling.PendingMeterQuery) ([]appbilling.Bill, error) {
+	bills, err := a.repo.ListPropertyPendingMeters(ctx, dbbilling.Scope{
+		Role:                query.ActorRole,
+		UserID:              query.ActorUserID,
+		AssignedPropertyIDs: query.AssignedPropertyIDs,
+	}, query.PropertyID)
+	if err != nil {
+		return nil, mapBillingReportRepositoryError(err)
+	}
+
+	return toAppBills(bills), nil
+}
+
+func (a billingReportRepositoryAdapter) ListPropertyMeterHistory(ctx context.Context, query appbilling.MeterHistoryQuery) ([]appbilling.Bill, error) {
+	bills, err := a.repo.ListPropertyMeterHistory(ctx, dbbilling.Scope{
+		Role:                query.ActorRole,
+		UserID:              query.ActorUserID,
+		AssignedPropertyIDs: query.AssignedPropertyIDs,
+	}, query.PropertyID, query.Year)
+	if err != nil {
+		return nil, mapBillingReportRepositoryError(err)
+	}
+
+	return toAppBills(bills), nil
+}
+
+func (a billingReportRepositoryAdapter) ListRoomMeterHistory(ctx context.Context, query appbilling.MeterHistoryQuery) ([]appbilling.Bill, error) {
+	bills, err := a.repo.ListRoomMeterHistory(ctx, dbbilling.Scope{
+		Role:                query.ActorRole,
+		UserID:              query.ActorUserID,
+		AssignedPropertyIDs: query.AssignedPropertyIDs,
+	}, query.RoomID, query.Year, query.Month)
+	if err != nil {
+		return nil, mapBillingReportRepositoryError(err)
+	}
+
+	return toAppBills(bills), nil
+}
+
+func (a billingReportRepositoryAdapter) ListFinancialReportSummaries(ctx context.Context, query appbilling.FinancialReportSummaryQuery) ([]appbilling.FinancialReportSummary, error) {
+	summaries, err := a.repo.ListFinancialReportSummaries(ctx, dbbilling.Scope{
+		Role:                query.ActorRole,
+		UserID:              query.ActorUserID,
+		AssignedPropertyIDs: query.AssignedPropertyIDs,
+	}, query.PropertyID, query.Year, query.CurrentYear, query.CurrentMonth)
+	if err != nil {
+		return nil, mapBillingReportRepositoryError(err)
+	}
+
+	return toAppFinancialReportSummaries(summaries), nil
+}
+
+func (a billingReportRepositoryAdapter) FindLiveFinancialReport(ctx context.Context, query appbilling.FinancialReportQuery) (*appbilling.FinancialReport, error) {
+	report, err := a.repo.GetFinancialReport(ctx, dbbilling.Scope{
+		Role:                query.ActorRole,
+		UserID:              query.ActorUserID,
+		AssignedPropertyIDs: query.AssignedPropertyIDs,
+	}, query.PropertyID, query.Year, query.Month, true)
+	if err != nil {
+		return nil, mapBillingReportRepositoryError(err)
+	}
+
+	return toAppFinancialReport(*report), nil
+}
+
+func (a billingReportRepositoryAdapter) FindSnapshotFinancialReport(ctx context.Context, query appbilling.FinancialReportQuery) (*appbilling.FinancialReport, error) {
+	report, err := a.repo.GetFinancialReport(ctx, dbbilling.Scope{
+		Role:                query.ActorRole,
+		UserID:              query.ActorUserID,
+		AssignedPropertyIDs: query.AssignedPropertyIDs,
+	}, query.PropertyID, query.Year, query.Month, false)
+	if err != nil {
+		return nil, mapBillingReportRepositoryError(err)
+	}
+
+	return toAppFinancialReport(*report), nil
+}
+
 type billingAccountingRepositoryAdapter struct {
 	repo *dbbilling.SQLRepository
 }
@@ -247,6 +441,17 @@ func mapBillingRepositoryError(err error) error {
 		return appbilling.ErrBillNotFound
 	case errors.Is(err, dbbilling.ErrConcurrentUpdate):
 		return appbilling.ErrConcurrentUpdateConflict
+	default:
+		return err
+	}
+}
+
+func mapBillingReportRepositoryError(err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, dbbilling.ErrNotFound):
+		return appbilling.ErrFinancialReportNotFoundRepository
 	default:
 		return err
 	}
@@ -289,6 +494,43 @@ func toAppBill(bill dbbilling.Bill) *appbilling.Bill {
 	}
 }
 
+func toAppFinancialReportSummaries(summaries []dbbilling.FinancialReportSummary) []appbilling.FinancialReportSummary {
+	result := make([]appbilling.FinancialReportSummary, 0, len(summaries))
+	for i := range summaries {
+		result = append(result, appbilling.FinancialReportSummary{
+			Year:         summaries[i].Year,
+			Month:        summaries[i].Month,
+			TotalIncome:  summaries[i].TotalIncome,
+			TotalExpense: summaries[i].TotalExpense,
+			Net:          summaries[i].Net,
+		})
+	}
+
+	return result
+}
+
+func toAppFinancialReport(report dbbilling.FinancialReport) *appbilling.FinancialReport {
+	entries := make([]appbilling.FinancialReportEntry, 0, len(report.Entries))
+	for i := range report.Entries {
+		entries = append(entries, appbilling.FinancialReportEntry{
+			Category:    report.Entries[i].Category,
+			Description: report.Entries[i].Description,
+			Amount:      report.Entries[i].Amount,
+		})
+	}
+
+	return &appbilling.FinancialReport{
+		PropertyID:   report.PropertyID,
+		Year:         report.Year,
+		Month:        report.Month,
+		TotalIncome:  report.TotalIncome,
+		TotalExpense: report.TotalExpense,
+		Net:          report.Net,
+		IsFinalized:  report.IsFinalized,
+		Entries:      entries,
+	}
+}
+
 func toHandlerBills(bills []appbilling.Bill) []handler.BillingBill {
 	result := make([]handler.BillingBill, 0, len(bills))
 	for i := range bills {
@@ -323,5 +565,42 @@ func toHandlerBill(bill appbilling.Bill) *handler.BillingBill {
 		CreatedAt:            bill.CreatedAt,
 		UpdatedAt:            bill.UpdatedAt,
 		Version:              bill.Version,
+	}
+}
+
+func toHandlerFinancialReportSummaries(summaries []appbilling.FinancialReportSummary) []handler.BillingFinancialReportSummary {
+	result := make([]handler.BillingFinancialReportSummary, 0, len(summaries))
+	for i := range summaries {
+		result = append(result, handler.BillingFinancialReportSummary{
+			Year:         summaries[i].Year,
+			Month:        summaries[i].Month,
+			TotalIncome:  summaries[i].TotalIncome,
+			TotalExpense: summaries[i].TotalExpense,
+			Net:          summaries[i].Net,
+		})
+	}
+
+	return result
+}
+
+func toHandlerFinancialReport(report appbilling.FinancialReport) *handler.BillingFinancialReport {
+	entries := make([]handler.BillingFinancialReportEntry, 0, len(report.Entries))
+	for i := range report.Entries {
+		entries = append(entries, handler.BillingFinancialReportEntry{
+			Category:    report.Entries[i].Category,
+			Description: report.Entries[i].Description,
+			Amount:      report.Entries[i].Amount,
+		})
+	}
+
+	return &handler.BillingFinancialReport{
+		PropertyID:   report.PropertyID,
+		Year:         report.Year,
+		Month:        report.Month,
+		TotalIncome:  report.TotalIncome,
+		TotalExpense: report.TotalExpense,
+		Net:          report.Net,
+		IsFinalized:  report.IsFinalized,
+		Entries:      entries,
 	}
 }

@@ -76,9 +76,12 @@ type LeaseCommandServices struct {
 // BillingServices groups the billing application entry points used by the
 // transport layer.
 type BillingServices struct {
-	Query   BillingQueryService
-	Meter   BillingMeterService
-	Payment BillingPaymentService
+	Query            BillingQueryService
+	Meter            BillingMeterService
+	Payment          BillingPaymentService
+	PropertyMeters   BillingPropertyMeterService
+	RoomMeters       BillingRoomMeterService
+	FinancialReports BillingFinancialReportService
 }
 
 type BillingQueryService interface {
@@ -92,6 +95,21 @@ type BillingMeterService interface {
 
 type BillingPaymentService interface {
 	RecordBillPayment(ctx context.Context, input BillingPaymentInput) (*BillingBill, error)
+}
+
+type BillingPropertyMeterService interface {
+	ListPropertyPendingMeters(ctx context.Context, input BillingPropertyMetersInput) ([]BillingBill, error)
+	ListPropertyMeterHistory(ctx context.Context, input BillingPropertyMeterHistoryInput) ([]BillingBill, error)
+}
+
+type BillingRoomMeterService interface {
+	ListRoomMeterHistory(ctx context.Context, input BillingRoomMeterHistoryInput) ([]BillingBill, error)
+}
+
+type BillingFinancialReportService interface {
+	ListFinancialReportSummaries(ctx context.Context, input BillingFinancialReportSummaryInput) ([]BillingFinancialReportSummary, error)
+	GetFinancialReport(ctx context.Context, input BillingFinancialReportInput) (*BillingFinancialReport, error)
+	SendFinancialReport(ctx context.Context, input BillingFinancialReportInput) (*BillingFinancialReport, error)
 }
 
 type BillingListInput struct {
@@ -130,6 +148,47 @@ type BillingPaymentInput struct {
 	PaidAt              *time.Time
 }
 
+type BillingPropertyMetersInput struct {
+	ActorRole           string
+	ActorUserID         string
+	AssignedPropertyIDs []string
+	PropertyID          string
+}
+
+type BillingPropertyMeterHistoryInput struct {
+	ActorRole           string
+	ActorUserID         string
+	AssignedPropertyIDs []string
+	PropertyID          string
+	Year                *int
+}
+
+type BillingRoomMeterHistoryInput struct {
+	ActorRole           string
+	ActorUserID         string
+	AssignedPropertyIDs []string
+	RoomID              string
+	Year                *int
+	Month               *int
+}
+
+type BillingFinancialReportSummaryInput struct {
+	ActorRole           string
+	ActorUserID         string
+	AssignedPropertyIDs []string
+	PropertyID          string
+	Year                *int
+}
+
+type BillingFinancialReportInput struct {
+	ActorRole           string
+	ActorUserID         string
+	AssignedPropertyIDs []string
+	PropertyID          string
+	Year                int
+	Month               int
+}
+
 type BillingBill struct {
 	ID                   string
 	LeaseID              string
@@ -154,6 +213,31 @@ type BillingBill struct {
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
 	Version              int
+}
+
+type BillingFinancialReportSummary struct {
+	Year         int
+	Month        int
+	TotalIncome  int
+	TotalExpense int
+	Net          int
+}
+
+type BillingFinancialReport struct {
+	PropertyID   string
+	Year         int
+	Month        int
+	TotalIncome  int
+	TotalExpense int
+	Net          int
+	IsFinalized  bool
+	Entries      []BillingFinancialReportEntry
+}
+
+type BillingFinancialReportEntry struct {
+	Category    string
+	Description *string
+	Amount      int
 }
 
 // NewAPIServer returns an API server with only the currently implemented
@@ -929,27 +1013,164 @@ func (s *APIServer) GetPropertyDashboard(c *gin.Context, id string) { writeNotIm
 // GetPropertyFinancialReportSummary handles financial report summary retrieval
 // for a property.
 func (s *APIServer) GetPropertyFinancialReportSummary(c *gin.Context, id string, params api.GetPropertyFinancialReportSummaryParams) {
-	writeNotImplemented(c)
+	if s.billing.FinancialReports == nil {
+		c.Error(apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "billing_financial_reports"}))
+		return
+	}
+
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	summaries, err := s.billing.FinancialReports.ListFinancialReportSummaries(c.Request.Context(), BillingFinancialReportSummaryInput{
+		ActorRole:           principal.Role,
+		ActorUserID:         principal.UserID,
+		AssignedPropertyIDs: principal.AssignedPropertyIDs,
+		PropertyID:          id,
+		Year:                params.Year,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	items := make([]api.FinancialReportSummaryItem, 0, len(summaries))
+	for i := range summaries {
+		items = append(items, toFinancialReportSummaryItem(summaries[i]))
+	}
+
+	c.JSON(http.StatusOK, api.FinancialReportListResponse{Data: &items})
 }
 
 // GetPropertyFinancialReport handles financial report retrieval for a property
 // month.
 func (s *APIServer) GetPropertyFinancialReport(c *gin.Context, id string, year int, month int) {
-	writeNotImplemented(c)
+	if s.billing.FinancialReports == nil {
+		c.Error(apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "billing_financial_reports"}))
+		return
+	}
+	if !isValidMonth(month) {
+		c.Error(apperr.ErrBadRequest.WithDetails(map[string]interface{}{
+			"field":  "month",
+			"reason": "must be between 1 and 12",
+		}))
+		return
+	}
+
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	report, err := s.billing.FinancialReports.GetFinancialReport(c.Request.Context(), BillingFinancialReportInput{
+		ActorRole:           principal.Role,
+		ActorUserID:         principal.UserID,
+		AssignedPropertyIDs: principal.AssignedPropertyIDs,
+		PropertyID:          id,
+		Year:                year,
+		Month:               month,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toFinancialReportResponse(report))
 }
 
 // SendPropertyFinancialReport handles sending a property's financial report.
 func (s *APIServer) SendPropertyFinancialReport(c *gin.Context, id string, year int, month int) {
-	writeNotImplemented(c)
+	if s.billing.FinancialReports == nil {
+		c.Error(apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "billing_financial_reports"}))
+		return
+	}
+	if !isValidMonth(month) {
+		c.Error(apperr.ErrBadRequest.WithDetails(map[string]interface{}{
+			"field":  "month",
+			"reason": "must be between 1 and 12",
+		}))
+		return
+	}
+
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	report, err := s.billing.FinancialReports.SendFinancialReport(c.Request.Context(), BillingFinancialReportInput{
+		ActorRole:           principal.Role,
+		ActorUserID:         principal.UserID,
+		AssignedPropertyIDs: principal.AssignedPropertyIDs,
+		PropertyID:          id,
+		Year:                year,
+		Month:               month,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toFinancialReportResponse(report))
 }
 
 // ListPropertyMeterHistory handles property meter history retrieval.
 func (s *APIServer) ListPropertyMeterHistory(c *gin.Context, id string, params api.ListPropertyMeterHistoryParams) {
-	writeNotImplemented(c)
+	if s.billing.PropertyMeters == nil {
+		c.Error(apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "billing_property_meters"}))
+		return
+	}
+
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	bills, err := s.billing.PropertyMeters.ListPropertyMeterHistory(c.Request.Context(), BillingPropertyMeterHistoryInput{
+		ActorRole:           principal.Role,
+		ActorUserID:         principal.UserID,
+		AssignedPropertyIDs: principal.AssignedPropertyIDs,
+		PropertyID:          id,
+		Year:                params.Year,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toBillListResponse(bills))
 }
 
 // ListPropertyPendingMeters handles pending meter retrieval for a property.
-func (s *APIServer) ListPropertyPendingMeters(c *gin.Context, id string) { writeNotImplemented(c) }
+func (s *APIServer) ListPropertyPendingMeters(c *gin.Context, id string) {
+	if s.billing.PropertyMeters == nil {
+		c.Error(apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "billing_property_meters"}))
+		return
+	}
+
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	bills, err := s.billing.PropertyMeters.ListPropertyPendingMeters(c.Request.Context(), BillingPropertyMetersInput{
+		ActorRole:           principal.Role,
+		ActorUserID:         principal.UserID,
+		AssignedPropertyIDs: principal.AssignedPropertyIDs,
+		PropertyID:          id,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toBillListResponse(bills))
+}
 
 // ListPropertyRooms handles room listing for a property.
 func (s *APIServer) ListPropertyRooms(c *gin.Context, id string, params api.ListPropertyRoomsParams) {
@@ -1146,7 +1367,47 @@ func (s *APIServer) CreateRoomMaintenance(c *gin.Context, id string) {
 
 // ListRoomMeterHistory handles room meter history retrieval.
 func (s *APIServer) ListRoomMeterHistory(c *gin.Context, id string, params api.ListRoomMeterHistoryParams) {
-	writeNotImplemented(c)
+	if params.Month != nil && params.Year == nil {
+		c.Error(apperr.ErrBadRequest.WithDetails(map[string]interface{}{
+			"field":  "year",
+			"reason": "is required when month is provided",
+		}))
+		c.Status(http.StatusBadRequest)
+		return
+	}
+	if params.Month != nil && !isValidMonth(*params.Month) {
+		c.Error(apperr.ErrBadRequest.WithDetails(map[string]interface{}{
+			"field":  "month",
+			"reason": "must be between 1 and 12",
+		}))
+		c.Status(http.StatusBadRequest)
+		return
+	}
+	if s.billing.RoomMeters == nil {
+		c.Error(apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "billing_room_meters"}))
+		return
+	}
+
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	bills, err := s.billing.RoomMeters.ListRoomMeterHistory(c.Request.Context(), BillingRoomMeterHistoryInput{
+		ActorRole:           principal.Role,
+		ActorUserID:         principal.UserID,
+		AssignedPropertyIDs: principal.AssignedPropertyIDs,
+		RoomID:              id,
+		Year:                params.Year,
+		Month:               params.Month,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toBillListResponse(bills))
 }
 
 // ListTenants handles the tenant listing endpoint.
@@ -1642,6 +1903,19 @@ func parseUUID(value string) (openapi_types.UUID, bool) {
 	return parsed, true
 }
 
+func isValidMonth(month int) bool {
+	return month >= 1 && month <= 12
+}
+
+func toBillListResponse(bills []BillingBill) api.BillListResponse {
+	items := make([]api.BillResponse, 0, len(bills))
+	for i := range bills {
+		items = append(items, toBillResponse(&bills[i]))
+	}
+
+	return api.BillListResponse{Data: &items}
+}
+
 func toBillResponse(bill *BillingBill) api.BillResponse {
 	id, idOK := parseUUID(bill.ID)
 	leaseID, leaseOK := parseUUID(bill.LeaseID)
@@ -1698,6 +1972,62 @@ func toBillResponse(bill *BillingBill) api.BillResponse {
 	}
 
 	return response
+}
+
+func toFinancialReportSummaryItem(summary BillingFinancialReportSummary) api.FinancialReportSummaryItem {
+	year := summary.Year
+	month := summary.Month
+	totalIncome := summary.TotalIncome
+	totalExpense := summary.TotalExpense
+	net := summary.Net
+
+	return api.FinancialReportSummaryItem{
+		Year:         &year,
+		Month:        &month,
+		TotalIncome:  &totalIncome,
+		TotalExpense: &totalExpense,
+		Net:          &net,
+	}
+}
+
+func toFinancialReportResponse(report *BillingFinancialReport) api.FinancialReportResponse {
+	propertyID, propertyOK := parseUUID(report.PropertyID)
+	year := report.Year
+	month := report.Month
+	totalIncome := report.TotalIncome
+	totalExpense := report.TotalExpense
+	net := report.Net
+	isFinalized := report.IsFinalized
+	entries := make([]api.FinancialReportEntryItem, 0, len(report.Entries))
+	for i := range report.Entries {
+		entries = append(entries, toFinancialReportEntryItem(report.Entries[i]))
+	}
+
+	response := api.FinancialReportResponse{
+		Year:         &year,
+		Month:        &month,
+		TotalIncome:  &totalIncome,
+		TotalExpense: &totalExpense,
+		Net:          &net,
+		IsFinalized:  &isFinalized,
+		Entries:      &entries,
+	}
+	if propertyOK {
+		response.PropertyId = &propertyID
+	}
+
+	return response
+}
+
+func toFinancialReportEntryItem(entry BillingFinancialReportEntry) api.FinancialReportEntryItem {
+	amount := entry.Amount
+	category := api.FinancialReportEntryItemCategory(entry.Category)
+
+	return api.FinancialReportEntryItem{
+		Amount:      &amount,
+		Category:    &category,
+		Description: entry.Description,
+	}
 }
 
 func (s *APIServer) runJob(c *gin.Context, jobKey appjobs.JobKey, windowKey string) {
