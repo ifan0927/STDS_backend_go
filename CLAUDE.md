@@ -40,7 +40,7 @@ Every authenticated request passes through three sequential middleware layers, c
 
 1. **Authenticate** – verifies the Firebase Bearer token via `platformfirebase.Authenticator`, then resolves the caller to a DB `users.User`. The resolved DB record (not Firebase custom claims) is the source of truth for role and assigned property IDs.
 2. **RequireRoles** – checks the DB principal's role against the route's `allowedRoles` list.
-3. **RequirePropertyAccess** – resolves a property ID from the request (either a route param or a DB ownership lookup), then verifies the principal has access. `admin` bypasses this check; `owner` access is verified against `properties.owner_id`; all other roles are checked against `users.assigned_property_ids`.
+3. **RequirePropertyAccess** – resolves a property ID from the request (either a route param or a DB ownership lookup), then verifies the principal has access. The resolver still runs for `admin` so UUID validation and resource-specific not-found mapping stay consistent; `admin` bypasses only the access comparison. `owner` access is verified against `properties.owner_id`; all other roles are checked against `users.assigned_property_ids`.
 
 Route policies are declared as a plain slice of `routePolicy` structs in `routePolicies()`. Adding a new route means appending to that slice — no middleware wiring required elsewhere.
 
@@ -60,11 +60,11 @@ HTTP handler signatures are generated from `docs/spec/openapi.yaml` into `intern
 
 ### Application layer
 
-Application services live in `internal/application/` and have no HTTP or database imports — they depend on repository interfaces. This makes them straightforward to unit-test with fake implementations (see `router_test.go` for the fake pattern used throughout tests).
+Application services live in `internal/application/` and have no HTTP imports or concrete database adapter imports. Transactional use cases may depend on `internal/platform/database/txrunner.Runner` and pass `*sql.Tx` through application-owned repository ports, matching the current project pattern. A broader refactor would be required before replacing this with an application-owned transaction abstraction.
 
 ### Error handling
 
-All errors flow through `internal/shared/apperr`. Use `apperr.New(code, httpStatus, message)` for sentinel errors in `internal/shared/apperr/common.go`. Use `.WithCause(err)` and `.WithDetails(map)` for context. The `middleware.ErrorHandler` translates these to JSON responses.
+API-facing errors flow through `internal/shared/apperr`. Check `internal/shared/apperr/common.go` before creating a reusable cross-package application error; package-specific application errors may live in the owning application package. Domain-layer sentinel errors stay transport-neutral, usually with `errors.New`, and are mapped to `apperr` at the application or HTTP boundary. Use `.WithCause(err)` and `.WithDetails(map)` for context. The `middleware.ErrorHandler` translates these to JSON responses. API-facing error messages are written in English.
 
 ### Firebase emulator
 
