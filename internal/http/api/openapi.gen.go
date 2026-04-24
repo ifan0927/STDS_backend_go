@@ -103,6 +103,12 @@ const (
 	RentPayment        FinancialReportEntryItemCategory = "rent_payment"
 )
 
+// Defines values for ForceTerminateRequestDepositHandling.
+const (
+	KeepHeld ForceTerminateRequestDepositHandling = "keep_held"
+	WriteOff ForceTerminateRequestDepositHandling = "write_off"
+)
+
 // Defines values for ForceTerminationResponseBillsStatus.
 const (
 	Done    ForceTerminationResponseBillsStatus = "done"
@@ -530,8 +536,13 @@ type FinancialReportSummaryItem struct {
 
 // ForceTerminateRequest defines model for ForceTerminateRequest.
 type ForceTerminateRequest struct {
-	Reason string `json:"reason"`
+	// DepositHandling 強制終止時的押金處理決策；write_off 會將押金狀態標記為 written_off，keep_held 則保留 held 等待後續人工處理。
+	DepositHandling ForceTerminateRequestDepositHandling `json:"deposit_handling"`
+	Reason          string                               `json:"reason"`
 }
+
+// ForceTerminateRequestDepositHandling 強制終止時的押金處理決策；write_off 會將押金狀態標記為 written_off，keep_held 則保留 held 等待後續人工處理。
+type ForceTerminateRequestDepositHandling string
 
 // ForceTerminationResponse defines model for ForceTerminationResponse.
 type ForceTerminationResponse struct {

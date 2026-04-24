@@ -3056,7 +3056,7 @@ paths:
       summary: 強制終止租約（觸發 LeaseTerminated event，forced=true）
       description: |
         x-required-role: admin, organizer（BR-14：主辦以上）
-        流程：ForceTermination 記錄 → 帳單標記 written_off → LeaseTerminated（forced: true）
+        流程：ForceTermination 記錄 → 未結清帳單同步標記 written_off → ForceTermination 標記 completed → LeaseTerminated（forced: true）
         觸發 LeaseTerminated（forced: true）→ Property BC（Room 改 vacant）+ Notification BC（寄強制終止通知）
         BR-14：需主辦以上角色並填寫原因。
       tags:
@@ -3081,9 +3081,10 @@ paths:
               default:
                 value:
                   reason: 租客失聯，連續 3 個月未繳租金
+                  deposit_handling: write_off
       responses:
         '202':
-          description: 強制終止流程已啟動（非同步補償，force_termination 記錄已建立）
+          description: 強制終止完成（force_termination 記錄已建立，未結清帳單已同步 written_off）
           content:
             application/json:
               schema:
@@ -3093,7 +3094,10 @@ paths:
                   value:
                     id: 80000000-0000-0000-0000-000000000001
                     lease_id: 40000000-0000-0000-0000-000000000003
-                    status: in_progress
+                    status: completed
+                    bills:
+                      - bill_id: 50000000-0000-0000-0000-000000000010
+                        status: done
                     created_at: '2026-04-15T17:00:00Z'
         '401':
           description: 未認證
@@ -3141,6 +3145,11 @@ paths:
                   value:
                     error_code: FORCE_TERMINATION_REASON_REQUIRED
                     message: 強制終止租約必須填寫原因
+                deposit_handling_required:
+                  summary: 強制終止必須指定押金處理方式
+                  value:
+                    error_code: FORCE_TERMINATION_DEPOSIT_HANDLING_REQUIRED
+                    message: 強制終止租約必須指定押金處理方式
   /force-terminations/{id}:
     get:
       operationId: getForceTermination
@@ -6600,9 +6609,16 @@ components:
       type: object
       required:
         - reason
+        - deposit_handling
       properties:
         reason:
           type: string
+        deposit_handling:
+          type: string
+          description: 強制終止時的押金處理決策；write_off 會將押金狀態標記為 written_off，keep_held 則保留 held 等待後續人工處理。
+          enum:
+            - write_off
+            - keep_held
     ForceTerminationResponse:
       type: object
       properties:

@@ -3818,6 +3818,17 @@ func (f fakeLeaseRepo) TerminateLease(_ context.Context, _ *sql.Tx, params apple
 	return lease, nil
 }
 
+func (f fakeLeaseRepo) ForceTerminateLease(_ context.Context, _ *sql.Tx, params applease.ForceTerminateLeaseParams) (*applease.Lease, error) {
+	lease, err := f.FindLeaseByIDForUpdate(context.Background(), nil, params.LeaseID)
+	if err != nil {
+		return nil, err
+	}
+	lease.Status = "force_terminated"
+	lease.TerminationReason = &params.TerminationReason
+	lease.DepositStatus = params.DepositStatus
+	return lease, nil
+}
+
 func (f fakeLeaseRepo) ListBillsByLeaseIDForUpdate(_ context.Context, _ *sql.Tx, _ string) ([]applease.Bill, error) {
 	return []applease.Bill{
 		{
@@ -3827,6 +3838,49 @@ func (f fakeLeaseRepo) ListBillsByLeaseIDForUpdate(_ context.Context, _ *sql.Tx,
 			PeriodStart: time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
 			PeriodEnd:   time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC),
 		},
+	}, nil
+}
+
+func (f fakeLeaseRepo) CreateForceTermination(_ context.Context, _ *sql.Tx, params applease.CreateForceTerminationParams) (*applease.ForceTermination, error) {
+	return &applease.ForceTermination{
+		ID:          "80000000-0000-0000-0000-000000000001",
+		LeaseID:     params.LeaseID,
+		Status:      "in_progress",
+		InitiatedBy: params.InitiatedBy,
+		Reason:      params.Reason,
+		CreatedAt:   time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
+		UpdatedAt:   time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
+	}, nil
+}
+
+func (f fakeLeaseRepo) CreateForceTerminationBills(context.Context, *sql.Tx, string, []string) error {
+	return nil
+}
+
+func (f fakeLeaseRepo) WriteOffBills(context.Context, *sql.Tx, []string, string) error {
+	return nil
+}
+
+func (f fakeLeaseRepo) MarkForceTerminationBillsDone(context.Context, *sql.Tx, string, []string) error {
+	return nil
+}
+
+func (f fakeLeaseRepo) CompleteForceTermination(context.Context, *sql.Tx, string) error {
+	return nil
+}
+
+func (f fakeLeaseRepo) FindForceTerminationByID(_ context.Context, _ *sql.Tx, forceTerminationID string) (*applease.ForceTermination, error) {
+	return &applease.ForceTermination{
+		ID:          forceTerminationID,
+		LeaseID:     "40000000-0000-0000-0000-000000000001",
+		Status:      "completed",
+		InitiatedBy: "20000000-0000-0000-0000-000000000001",
+		Reason:      "tenant unreachable",
+		Bills: []applease.ForceTerminationBill{
+			{BillID: "50000000-0000-0000-0000-000000000001", Status: "done"},
+		},
+		CreatedAt: time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
 	}, nil
 }
 

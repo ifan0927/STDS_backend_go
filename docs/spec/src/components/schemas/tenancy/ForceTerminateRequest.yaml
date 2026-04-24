@@ -1,6 +1,13 @@
 type: object
 required:
   - reason
+  - deposit_handling
 properties:
   reason:
     type: string
+  deposit_handling:
+    type: string
+    description: 強制終止時的押金處理決策；write_off 會將押金狀態標記為 written_off，keep_held 則保留 held 等待後續人工處理。
+    enum:
+      - write_off
+      - keep_held

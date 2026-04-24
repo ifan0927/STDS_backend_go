@@ -491,9 +491,9 @@ PropertyOwnerView
 ```
 主辦以上角色發起強制終止，填寫原因
   → 記錄 ForceTerminationStarted（leaseId, billIds[], reason）
-  → 逐一將未結清帳單標記為 written_off，每筆成功記錄進度
-  → 若中途失敗 → 排程任務掃描未完成的 ForceTermination，繼續補償
-  → 全部 written_off 完成 → 押金標記 settled 或 written_off（人工決定）
+  → 同步將未結清帳單標記為 written_off，每筆成功記錄進度
+  → 全部成功後將 ForceTermination 標記 completed
+  → 全部 written_off 完成 → 依 deposit_handling 人工決定將押金標記 written_off，或維持 held 等待後續押金處理
   → LeaseTerminated event（forced: true）
   → Property BC 訂閱 → Room 狀態改為 vacant
   → Notification BC 訂閱 → 寄送強制終止通知

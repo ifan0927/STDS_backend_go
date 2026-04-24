@@ -55,13 +55,19 @@ type APIServer struct {
 	updateLeaseSvc    *applease.UpdateLeaseService
 	updateDepositSvc  *applease.UpdateDepositService
 	replaceLeaseSvc   *applease.ReplaceLeaseService
+	terminateLeaseSvc *applease.TerminateLeaseService
+	forceTerminateSvc *applease.ForceTerminateLeaseService
+	getForceTermSvc   *applease.GetForceTerminationService
 }
 
 // LeaseCommandServices groups optional lease command services beyond creation.
 type LeaseCommandServices struct {
-	UpdateLease   *applease.UpdateLeaseService
-	UpdateDeposit *applease.UpdateDepositService
-	ReplaceLease  *applease.ReplaceLeaseService
+	UpdateLease         *applease.UpdateLeaseService
+	UpdateDeposit       *applease.UpdateDepositService
+	ReplaceLease        *applease.ReplaceLeaseService
+	TerminateLease      *applease.TerminateLeaseService
+	ForceTerminateLease *applease.ForceTerminateLeaseService
+	GetForceTermination *applease.GetForceTerminationService
 }
 
 // NewAPIServer returns an API server with only the currently implemented
@@ -117,6 +123,9 @@ func NewAPIServer(
 		server.updateLeaseSvc = leaseCommands[0].UpdateLease
 		server.updateDepositSvc = leaseCommands[0].UpdateDeposit
 		server.replaceLeaseSvc = leaseCommands[0].ReplaceLease
+		server.terminateLeaseSvc = leaseCommands[0].TerminateLease
+		server.forceTerminateSvc = leaseCommands[0].ForceTerminateLease
+		server.getForceTermSvc = leaseCommands[0].GetForceTermination
 	}
 
 	return server
@@ -176,7 +185,22 @@ func (s *APIServer) RecordBillPayment(c *gin.Context, id string) { writeNotImple
 
 // GetForceTermination handles force-termination detail retrieval.
 func (s *APIServer) GetForceTermination(c *gin.Context, id openapi_types.UUID) {
-	writeNotImplemented(c)
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	forceTermination, err := s.getForceTermSvc.Execute(c.Request.Context(), applease.GetForceTerminationInput{
+		ActorRole:          principal.Role,
+		ForceTerminationID: id.String(),
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toForceTerminationResponse(forceTermination))
 }
 
 // RunForceTerminationCompensationJob handles the force-termination compensation job trigger.
@@ -473,10 +497,64 @@ func (s *APIServer) ReplaceLease(c *gin.Context, id string) {
 }
 
 // ForceTerminateLease handles forced lease termination.
-func (s *APIServer) ForceTerminateLease(c *gin.Context, id string) { writeNotImplemented(c) }
+func (s *APIServer) ForceTerminateLease(c *gin.Context, id string) {
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	var request api.ForceTerminateRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.Error(apperr.ErrBadRequest.WithCause(err))
+		return
+	}
+
+	forceTermination, err := s.forceTerminateSvc.Execute(c.Request.Context(), applease.ForceTerminateLeaseInput{
+		ActorRole:           principal.Role,
+		ActorUserID:         principal.UserID,
+		AssignedPropertyIDs: principal.AssignedPropertyIDs,
+		LeaseID:             id,
+		Reason:              request.Reason,
+		DepositHandling:     string(request.DepositHandling),
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusAccepted, toForceTerminationResponse(forceTermination))
+}
 
 // TerminateLease handles lease termination.
-func (s *APIServer) TerminateLease(c *gin.Context, id string) { writeNotImplemented(c) }
+func (s *APIServer) TerminateLease(c *gin.Context, id string) {
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	var request api.TerminateLeaseRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.Error(apperr.ErrBadRequest.WithCause(err))
+		return
+	}
+
+	lease, err := s.terminateLeaseSvc.Execute(c.Request.Context(), applease.TerminateLeaseInput{
+		ActorRole:           principal.Role,
+		AssignedPropertyIDs: principal.AssignedPropertyIDs,
+		LeaseID:             id,
+		RefundAmount:        request.RefundAmount,
+		DeductionAmount:     request.DeductionAmount,
+		DeductionReason:     request.DepositDeductionReason,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toCreatedLeaseResponse(lease))
+}
 
 // ListProperties handles the property listing endpoint.
 func (s *APIServer) ListProperties(c *gin.Context) {
@@ -1614,6 +1692,54 @@ func toCreatedLeaseResponse(lease *applease.Lease) api.LeaseResponse {
 		UpdatedAt:                 lease.UpdatedAt,
 		Version:                   lease.Version,
 	})
+}
+
+func toForceTerminationResponse(forceTermination *applease.ForceTermination) api.ForceTerminationResponse {
+	id, idOK := parseUUID(forceTermination.ID)
+	leaseID, leaseOK := parseUUID(forceTermination.LeaseID)
+	initiatedBy, initiatedByOK := parseUUID(forceTermination.InitiatedBy)
+	status := api.ForceTerminationResponseStatus(forceTermination.Status)
+	reason := forceTermination.Reason
+	createdAt := forceTermination.CreatedAt
+	updatedAt := forceTermination.UpdatedAt
+
+	bills := make([]struct {
+		BillId *openapi_types.UUID                      `json:"bill_id,omitempty"`
+		Status *api.ForceTerminationResponseBillsStatus `json:"status,omitempty"`
+	}, 0, len(forceTermination.Bills))
+	for _, bill := range forceTermination.Bills {
+		billID, billIDOK := parseUUID(bill.BillID)
+		billStatus := api.ForceTerminationResponseBillsStatus(bill.Status)
+		item := struct {
+			BillId *openapi_types.UUID                      `json:"bill_id,omitempty"`
+			Status *api.ForceTerminationResponseBillsStatus `json:"status,omitempty"`
+		}{
+			Status: &billStatus,
+		}
+		if billIDOK {
+			item.BillId = &billID
+		}
+		bills = append(bills, item)
+	}
+
+	response := api.ForceTerminationResponse{
+		Bills:     &bills,
+		CreatedAt: &createdAt,
+		Reason:    &reason,
+		Status:    &status,
+		UpdatedAt: &updatedAt,
+	}
+	if idOK {
+		response.Id = &id
+	}
+	if leaseOK {
+		response.LeaseId = &leaseID
+	}
+	if initiatedByOK {
+		response.InitiatedBy = &initiatedBy
+	}
+
+	return response
 }
 
 func toLeaseReplaceResponse(result *applease.ReplaceLeaseResult) api.LeaseReplaceResponse {

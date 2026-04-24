@@ -21,6 +21,10 @@ const (
 	codeDepositDeductionReason        = "DEPOSIT_DEDUCTION_REASON_REQUIRED"
 	codeDepositSettlementMismatch     = "DEPOSIT_SETTLEMENT_AMOUNT_MISMATCH"
 	codeDepositNotHeld                = "DEPOSIT_NOT_HELD"
+	codeLeaseHasUnpaidBills           = "LEASE_HAS_UNPAID_BILLS"
+	codeForbiddenForceTermination     = "FORBIDDEN_FORCE_TERMINATION"
+	codeForceTerminationReason        = "FORCE_TERMINATION_REASON_REQUIRED"
+	codeForceTerminationDeposit       = "FORCE_TERMINATION_DEPOSIT_HANDLING_REQUIRED"
 	codeLeaseUpdateLockedBills        = "LEASE_UPDATE_HAS_LOCKED_FUTURE_BILLS"
 	codeLeaseNotActive                = "LEASE_NOT_ACTIVE"
 	codeRoomNotVacant                 = "ROOM_NOT_VACANT"
@@ -91,6 +95,26 @@ var (
 		http.StatusUnprocessableEntity,
 		"Deposit is not held.",
 	)
+	errLeaseHasUnpaidBills = apperr.New(
+		codeLeaseHasUnpaidBills,
+		http.StatusUnprocessableEntity,
+		"Lease has unpaid bills.",
+	)
+	errForbiddenForceTermination = apperr.New(
+		codeForbiddenForceTermination,
+		http.StatusForbidden,
+		"Force termination requires organizer or admin role.",
+	)
+	errForceTerminationReasonRequired = apperr.New(
+		codeForceTerminationReason,
+		http.StatusUnprocessableEntity,
+		"Force termination reason is required.",
+	)
+	errForceTerminationDepositHandlingRequired = apperr.New(
+		codeForceTerminationDeposit,
+		http.StatusUnprocessableEntity,
+		"Force termination deposit handling is required.",
+	)
 	errLeaseUpdateHasLockedBills = apperr.New(
 		codeLeaseUpdateLockedBills,
 		http.StatusUnprocessableEntity,
@@ -150,6 +174,10 @@ func mapDomainError(err error) error {
 		return errDepositNotHeld
 	case errors.Is(err, domainlease.ErrLeaseNotActive):
 		return errLeaseNotActive
+	case errors.Is(err, domainlease.ErrTerminationReasonRequired):
+		return errForceTerminationReasonRequired
+	case errors.Is(err, domainlease.ErrInvalidForceTerminationDepositHandling):
+		return apperr.ErrBadRequest.WithDetails(map[string]interface{}{"field": "deposit_handling"})
 	case errors.Is(err, domainlease.ErrInvalidCadence):
 		return apperr.ErrBadRequest.WithDetails(map[string]interface{}{
 			"field": "electricity_billing_cadence",

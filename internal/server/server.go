@@ -102,6 +102,9 @@ func New(cfg *config.Config) (*Server, error) {
 	updateLeaseService := applease.NewUpdateLeaseService(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
 	updateDepositService := applease.NewUpdateDepositService(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
 	replaceLeaseService := applease.NewReplaceLeaseService(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
+	terminateLeaseService := applease.NewTerminateLeaseService(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
+	forceTerminateLeaseService := applease.NewForceTerminateLeaseService(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
+	getForceTerminationService := applease.NewGetForceTerminationService(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
 	occupyRoomOnLeaseCreated := applease.NewOccupyRoomOnLeaseCreatedHandler(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
 	activateTenantOnLeaseCreated := applease.NewActivateTenantOnLeaseCreatedHandler(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
 	jobTriggerService := appjobs.NewTriggerService(jobRunStoreAdapter{repo: jobRunsRepo}, nil, cfg.App.SchedulerJobTimeout, cfg.App.SchedulerMaxRetries)
@@ -112,9 +115,12 @@ func New(cfg *config.Config) (*Server, error) {
 		Properties:        propertyRepo,
 		ResourceOwnership: resourceOwnershipRepo,
 	}, createUserService, sendPasswordResetService, syncAuthService, updateCurrentUserService, updateUserService, assignUserPropertiesService, jobTriggerService, propertyQueryRepo, leaseQueryRepo, tenantQueryRepo, createPropertyService, updatePropertyService, deletePropertyService, createRoomService, updateRoomService, deleteRoomService, setRoomMaintenanceService, createTenantService, updateTenantService, createLeaseService, handler.LeaseCommandServices{
-		UpdateLease:   updateLeaseService,
-		UpdateDeposit: updateDepositService,
-		ReplaceLease:  replaceLeaseService,
+		UpdateLease:         updateLeaseService,
+		UpdateDeposit:       updateDepositService,
+		ReplaceLease:        replaceLeaseService,
+		TerminateLease:      terminateLeaseService,
+		ForceTerminateLease: forceTerminateLeaseService,
+		GetForceTermination: getForceTerminationService,
 	})
 
 	return &Server{

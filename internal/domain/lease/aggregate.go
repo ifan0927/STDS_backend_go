@@ -17,6 +17,9 @@ const (
 
 	BillingCadenceMonthly   = "monthly"
 	BillingCadenceBimonthly = "bimonthly"
+
+	ForceTerminationDepositWriteOff = "write_off"
+	ForceTerminationDepositKeepHeld = "keep_held"
 )
 
 // State is the persisted lease aggregate snapshot.
@@ -113,6 +116,37 @@ func (a *Aggregate) SettleDeposit(refundAmount int, deductionAmount int, deducti
 	return nil
 }
 
+// Terminate marks an active or expired lease as normally terminated.
+func (a *Aggregate) Terminate() error {
+	if !isTerminableStatus(a.state.Status) {
+		return ErrLeaseNotActive
+	}
+
+	a.state.Status = StatusTerminated
+	return nil
+}
+
+// ForceTerminate marks an active or expired lease as force-terminated and applies the deposit decision.
+func (a *Aggregate) ForceTerminate(reason string, depositHandling string) error {
+	if !isTerminableStatus(a.state.Status) {
+		return ErrLeaseNotActive
+	}
+	if strings.TrimSpace(reason) == "" {
+		return ErrTerminationReasonRequired
+	}
+
+	switch strings.TrimSpace(depositHandling) {
+	case ForceTerminationDepositWriteOff:
+		a.state.DepositStatus = DepositStatusWrittenOff
+	case ForceTerminationDepositKeepHeld:
+	default:
+		return ErrInvalidForceTerminationDepositHandling
+	}
+
+	a.state.Status = StatusForceTerminated
+	return nil
+}
+
 func normalizeState(state State, creating bool) (State, error) {
 	state.TenantID = strings.TrimSpace(state.TenantID)
 	state.RoomID = strings.TrimSpace(state.RoomID)
@@ -142,6 +176,10 @@ func normalizeState(state State, creating bool) (State, error) {
 	}
 
 	return state, nil
+}
+
+func isTerminableStatus(status string) bool {
+	return status == StatusActive || status == StatusExpired
 }
 
 func isValidCadence(cadence string) bool {
