@@ -11,7 +11,8 @@ properties:
       - other
   paid_amount:
     type: integer
+    description: Payment amount. Must exactly equal the bill amount; partial or overpayments are not supported.
   paid_at:
     type: string
     format: date-time
-    description: 付款時間（選填，預設為伺服器時間）
+    description: Payment timestamp. Optional; defaults to the server time.

@@ -1,6 +1,10 @@
 package queryparams
 
-import "stds_backend/internal/shared/apperr"
+import (
+	"time"
+
+	"stds_backend/internal/shared/apperr"
+)
 
 const (
 	// DefaultPage is the default 1-based page number for list endpoints.
@@ -49,4 +53,14 @@ func NormalizePagination(page *int, limit *int) (Pagination, error) {
 	normalized.Offset = (normalized.Page - 1) * normalized.Limit
 
 	return normalized, nil
+}
+
+// IsYYYYMM reports whether value uses the YYYY-MM month format.
+func IsYYYYMM(value string) bool {
+	if len(value) != len("2006-01") || value[4] != '-' {
+		return false
+	}
+
+	_, err := time.Parse("2006-01", value)
+	return err == nil
 }

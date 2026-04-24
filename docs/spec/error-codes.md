@@ -60,6 +60,19 @@ Go 層共用型別：
 
 ## 後續擴充規則
 
+## Billing error code decisions
+
+Issue #18 實作帳單讀取、抄表與收款時，Billing BC 需新增下列業務錯誤：
+
+| Code | HTTP Status | 用途 |
+|------|-------------|------|
+| `BILL_ALREADY_PAID` | `422` | 帳單已收款，拒絕重複收款 |
+| `BILL_STATUS_NOT_PAYABLE` | `422` | 帳單狀態不是 `pending_payment` 或 `overdue`，不可收款 |
+| `BILL_PAID_AMOUNT_MISMATCH` | `422` | `paid_amount` 不等於帳單 `amount`；不支援部分收款或溢收 |
+| `METER_READING_LESS_THAN_PREVIOUS` | `422` | 抄表讀數小於上一個已完成 billing period 的讀數 |
+| `BILL_NOT_ELECTRICITY_TYPE` | `422` | 非電費帳單不可抄表 |
+| `BILL_STATUS_NOT_RECORDABLE` | `422` | 電費帳單狀態不是 `pending_meter`，不可抄表 |
+
 ### 可以先放進 shared 的錯誤
 
 - auth / middleware / transport 層共用
@@ -83,4 +96,3 @@ Go 層共用型別：
 2. 建立 HTTP error mapping middleware / helper
 3. 各 BC 開始實作時，再新增各自的 `errors.go`
 4. 新增 BC error 時，同步對齊 OpenAPI `error_code` 與 task 驗收條件
-

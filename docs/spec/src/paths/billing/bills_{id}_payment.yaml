@@ -4,8 +4,9 @@ post:
   description: |
     x-required-role: admin, organizer, staff
     BR-05：帳單不得重複收款（已 paid 狀態拒絕）
+    paid_amount 必須等於帳單 amount；不支援部分收款或溢收。
+    僅 pending_payment / overdue 狀態可收款，允許 overdue → paid 轉換。
     觸發 BillPaid event → PropertyAccount 新增 AccountingEntry
-    允許 overdue → paid 轉換
   tags:
     - Billing
   x-required-role:
@@ -111,4 +112,17 @@ post:
               summary: BR-05 帳單已收款不得重複
               value:
                 error_code: BILL_ALREADY_PAID
-                message: 此帳單已完成收款，不得重複收款
+                message: Bill is already paid.
+            status_not_payable:
+              summary: 帳單狀態不可收款
+              value:
+                error_code: BILL_STATUS_NOT_PAYABLE
+                message: Bill status is not payable.
+            amount_mismatch:
+              summary: 收款金額必須等於帳單金額
+              value:
+                error_code: BILL_PAID_AMOUNT_MISMATCH
+                message: Paid amount must equal bill amount.
+                details:
+                  expected_amount: 18000
+                  submitted_amount: 17000

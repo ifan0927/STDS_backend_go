@@ -61,6 +61,7 @@ Lease 於建立時決定 `electricityBillingCadence`（`monthly | bimonthly`）�
 每日排程任務掃描逾期帳單（`due_date < today AND status = pending_payment`），批次更新為 `overdue`。允許 `overdue → paid` 轉換（逾期帳單仍可收款）。
 
 收款確認後產生 `AccountingEntry`，透過 `BillPaid` event 寫入 `PropertyAccount`。
+收款金額必須等於帳單金額；系統不支援部分收款或溢收。可收款狀態限 `pending_payment` 與 `overdue`，其中 `overdue → paid` 明確允許。
 
 **LeaseTerminated 後的處理**：Billing BC 訂閱 `LeaseTerminated` 後，void 該租約所有剩餘 `pending_payment` 和 `pending_meter` 狀態的預產帳單（狀態改為 `voided`）。正常終止時帳單應已全清；強制終止時已到期未結清帳單在 command 內同步標記 `written_off`，此步驟只處理仍不應收取的剩餘預產帳單。
 
@@ -172,6 +173,7 @@ Lease 於建立時決定 `electricityBillingCadence`（`monthly | bimonthly`）�
   - 電費帳單：`pending_meter → pending_payment → paid | overdue | voided | written_off`
   - 補充轉換：`overdue → paid`（逾期帳單仍可收款）
 - **一致性邊界**：收款確認後產生 `AccountingEntry`，不可重複收款
+- **收款規則**：`paidAmount` 必須等於帳單 `amount`；不支援部分收款或溢收
 - **金額儲存**：台幣整數（無小數）
 - **電費換算規則**：`rawAmount = usage × MeterReading.unitPrice`，`amount = round(rawAmount)`（四捨五入為最終帳單金額）
 - **併發策略**：樂觀鎖（逾期掃描與付款衝突時，樂觀鎖讓一方失敗，付款方優先，批次任務跳過衝突帳單）
