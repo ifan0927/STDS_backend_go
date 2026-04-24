@@ -92,7 +92,7 @@ func (a *Aggregate) SettleDeposit(refundAmount int, deductionAmount int, deducti
 		return ErrDepositNotHeld
 	}
 	if refundAmount < 0 || deductionAmount < 0 {
-		return ErrDepositNegative
+		return ErrSettlementNegative
 	}
 	if deductionAmount > 0 && strings.TrimSpace(stringValue(deductionReason)) == "" {
 		return ErrDepositReasonRequired

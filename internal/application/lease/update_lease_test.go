@@ -101,6 +101,81 @@ func TestUpdateLeaseServiceRejectsEndDateUpdate(t *testing.T) {
 	}
 }
 
+func TestUpdateLeaseServiceRejectsMalformedLeaseID(t *testing.T) {
+	service := NewUpdateLeaseService(nil, nil)
+	rentAmount := 20000
+
+	_, err := service.Execute(context.Background(), UpdateLeaseInput{
+		ActorRole:  "admin",
+		LeaseID:    "not-a-uuid",
+		RentAmount: &rentAmount,
+	})
+	var appErr *apperr.Error
+	if !errors.As(err, &appErr) || appErr.Code != apperr.CodeBadRequest {
+		t.Fatalf("expected bad request, got %v", err)
+	}
+}
+
+func TestUpdateLeaseServiceTreatsUnchangedRentAsNoOp(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+
+	publisher := &recordingPublisher{}
+	repo := &leaseRepositoryStub{
+		lease: &Lease{
+			ID:                        updateLeaseTestLeaseID,
+			TenantID:                  "tenant-1",
+			PropertyID:                "property-1",
+			RoomID:                    "room-1",
+			RentAmount:                18000,
+			StartDate:                 time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+			EndDate:                   time.Date(2026, 7, 31, 0, 0, 0, 0, time.UTC),
+			ElectricityBillingCadence: "monthly",
+			Status:                    "active",
+			DepositAmount:             36000,
+			DepositStatus:             "held",
+		},
+	}
+	service := NewUpdateLeaseService(repo, dbtxrunner.New(db, publisher))
+
+	rentAmount := 18000
+	lease, err := service.Execute(context.Background(), UpdateLeaseInput{
+		ActorRole:           "organizer",
+		AssignedPropertyIDs: []string{"property-1"},
+		LeaseID:             updateLeaseTestLeaseID,
+		RentAmount:          &rentAmount,
+		OperationDate:       time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if lease != repo.lease {
+		t.Fatalf("lease pointer changed for no-op update")
+	}
+	if repo.updateLeaseCalls != 0 {
+		t.Fatalf("UpdateLeaseConditions calls = %d, want 0", repo.updateLeaseCalls)
+	}
+	if repo.voidRentDueDate != nil {
+		t.Fatalf("voidRentDueDate = %v, want nil", repo.voidRentDueDate)
+	}
+	if len(repo.createdBills) != 0 {
+		t.Fatalf("created bills = %d, want 0", len(repo.createdBills))
+	}
+	if len(publisher.events) != 0 {
+		t.Fatalf("events = %d, want 0", len(publisher.events))
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
 func TestUpdateLeaseServiceRejectsLockedFutureRentBills(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -282,6 +357,52 @@ func TestUpdateDepositServiceRejectsDeductionWithoutReason(t *testing.T) {
 	})
 	if !errors.Is(err, errDepositDeductionReasonRequired) {
 		t.Fatalf("expected errDepositDeductionReasonRequired, got %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestUpdateDepositServiceRejectsNegativeSettlementAmount(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectRollback()
+
+	repo := &leaseRepositoryStub{
+		lease: &Lease{
+			ID:                        updateLeaseTestLeaseID,
+			TenantID:                  "tenant-1",
+			PropertyID:                "property-1",
+			RoomID:                    "room-1",
+			RentAmount:                18000,
+			StartDate:                 time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+			EndDate:                   time.Date(2026, 7, 31, 0, 0, 0, 0, time.UTC),
+			ElectricityBillingCadence: "monthly",
+			Status:                    "active",
+			DepositAmount:             36000,
+			DepositStatus:             "held",
+		},
+	}
+	service := NewUpdateDepositService(repo, dbtxrunner.New(db, nil))
+
+	refundAmount := -1
+	_, err = service.Execute(context.Background(), UpdateDepositInput{
+		ActorRole:           "admin",
+		AssignedPropertyIDs: []string{"property-1"},
+		LeaseID:             updateLeaseTestLeaseID,
+		RefundAmount:        &refundAmount,
+	})
+	if !errors.Is(err, errSettlementNegative) {
+		t.Fatalf("expected errSettlementNegative, got %v", err)
+	}
+	if repo.settleDepositCalls != 0 {
+		t.Fatalf("SettleDeposit calls = %d, want 0", repo.settleDepositCalls)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {

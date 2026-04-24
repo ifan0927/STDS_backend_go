@@ -16,6 +16,7 @@ const (
 	codeLeaseInvalidDateRange       = "LEASE_INVALID_DATE_RANGE"
 	codeLeaseRentAmountNonPositive  = "LEASE_RENT_AMOUNT_NON_POSITIVE"
 	codeLeaseDepositNegative        = "LEASE_DEPOSIT_NEGATIVE"
+	codeSettlementNegative          = "LEASE_SETTLEMENT_NEGATIVE"
 	codeLeaseUnsupportedUpdate      = "LEASE_UNSUPPORTED_UPDATE"
 	codeDepositDeductionReason      = "DEPOSIT_DEDUCTION_REASON_REQUIRED"
 	codeDepositSettlementMismatch   = "DEPOSIT_SETTLEMENT_AMOUNT_MISMATCH"
@@ -60,6 +61,11 @@ var (
 		codeLeaseDepositNegative,
 		http.StatusUnprocessableEntity,
 		"Lease deposit amount must not be negative.",
+	)
+	errSettlementNegative = apperr.New(
+		codeSettlementNegative,
+		http.StatusUnprocessableEntity,
+		"Deposit settlement amounts must not be negative.",
 	)
 	errLeaseUnsupportedUpdate = apperr.New(
 		codeLeaseUnsupportedUpdate,
@@ -110,6 +116,8 @@ func mapDomainError(err error) error {
 		return errLeaseRentAmountNonPositive
 	case errors.Is(err, domainlease.ErrDepositNegative):
 		return errLeaseDepositNegative
+	case errors.Is(err, domainlease.ErrSettlementNegative):
+		return errSettlementNegative
 	case errors.Is(err, domainlease.ErrDepositReasonRequired):
 		return errDepositDeductionReasonRequired
 	case errors.Is(err, domainlease.ErrDepositSettlementSum):

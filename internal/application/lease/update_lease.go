@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	domainevents "stds_backend/internal/domain/events"
 	domainlease "stds_backend/internal/domain/lease"
 	"stds_backend/internal/platform/database/txrunner"
@@ -39,6 +41,9 @@ func (s *UpdateLeaseService) Execute(ctx context.Context, input UpdateLeaseInput
 	leaseID := strings.TrimSpace(input.LeaseID)
 	if leaseID == "" || leaseID == zeroUUID {
 		return nil, apperr.ErrLeaseNotFound
+	}
+	if _, err := uuid.Parse(leaseID); err != nil {
+		return nil, apperr.ErrBadRequest.WithDetails(map[string]interface{}{"field": "lease_id"})
 	}
 	if input.EndDate != nil {
 		return nil, errLeaseUnsupportedUpdate.WithDetails(map[string]interface{}{"field": "end_date"})
@@ -93,6 +98,10 @@ func (s *UpdateLeaseService) Execute(ctx context.Context, input UpdateLeaseInput
 		}
 		if err := aggregate.ChangeRent(*input.RentAmount); err != nil {
 			return mapDomainError(err)
+		}
+		if current.RentAmount == aggregate.State().RentAmount {
+			updated = current
+			return nil
 		}
 
 		nextPaymentDate := domainlease.NextPaymentDateAfter(current.StartDate, operationDate)

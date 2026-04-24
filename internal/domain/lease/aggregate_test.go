@@ -200,6 +200,28 @@ func TestSettleDepositRejectsIncompleteSettlement(t *testing.T) {
 	}
 }
 
+func TestSettleDepositRejectsNegativeSettlementAmounts(t *testing.T) {
+	aggregate, err := Rehydrate(State{
+		TenantID:                  "tenant-1",
+		RoomID:                    "room-1",
+		PropertyID:                "property-1",
+		RentAmount:                18000,
+		StartDate:                 date(2026, 5, 1),
+		EndDate:                   date(2026, 12, 31),
+		ElectricityBillingCadence: BillingCadenceMonthly,
+		Status:                    StatusActive,
+		DepositAmount:             36000,
+		DepositStatus:             DepositStatusHeld,
+	})
+	if err != nil {
+		t.Fatalf("Rehydrate: %v", err)
+	}
+
+	if err := aggregate.SettleDeposit(-1, 0, nil); !errors.Is(err, ErrSettlementNegative) {
+		t.Fatalf("expected ErrSettlementNegative, got %v", err)
+	}
+}
+
 func TestSettleDepositClearsReasonWhenThereIsNoDeduction(t *testing.T) {
 	aggregate, err := Rehydrate(State{
 		TenantID:                  "tenant-1",
@@ -288,6 +310,13 @@ func TestBuildBillingPeriodsMonthlyDetailedCases(t *testing.T) {
 			{PeriodStart: date(2028, 2, 29), PeriodEnd: date(2028, 3, 30), DueDate: date(2028, 2, 29)},
 		})
 	})
+}
+
+func TestBuildMonthlyBillingPeriodsFromAnchorRejectsInvalidAnchorDay(t *testing.T) {
+	_, err := BuildMonthlyBillingPeriodsFromAnchor(date(2026, 5, 1), date(2026, 5, 31), 0)
+	if !errors.Is(err, ErrInvalidBillingAnchor) {
+		t.Fatalf("expected ErrInvalidBillingAnchor, got %v", err)
+	}
 }
 
 func TestBuildBillingPeriodsNaturalBimonthlyDetailedCases(t *testing.T) {

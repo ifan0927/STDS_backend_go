@@ -55,6 +55,9 @@ func BuildMonthlyBillingPeriodsFromAnchor(startDate time.Time, endDate time.Time
 	if startDate.After(endDate) {
 		return nil, ErrInvalidDateRange
 	}
+	if anchorDay < 1 || anchorDay > 31 {
+		return nil, ErrInvalidBillingAnchor
+	}
 
 	return buildMonthlyPeriods(startDate, endDate, anchorDay), nil
 }

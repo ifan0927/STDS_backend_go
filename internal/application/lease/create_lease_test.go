@@ -342,21 +342,23 @@ func TestCreateLeaseServiceRejectsBusinessRuleViolationsAndMissingReferences(t *
 }
 
 type leaseRepositoryStub struct {
-	tenant            *Tenant
-	tenantErr         error
-	room              *Room
-	roomErr           error
-	lease             *Lease
-	leaseErr          error
-	createdLease      *Lease
-	createLeaseErr    error
-	createBillsErr    error
-	updatedLease      *Lease
-	settledLease      *Lease
-	lockedRentBills   bool
-	voidRentDueDate   *time.Time
-	createLeaseParams *CreateLeaseParams
-	createdBills      []CreateBillParams
+	tenant             *Tenant
+	tenantErr          error
+	room               *Room
+	roomErr            error
+	lease              *Lease
+	leaseErr           error
+	createdLease       *Lease
+	createLeaseErr     error
+	createBillsErr     error
+	updatedLease       *Lease
+	settledLease       *Lease
+	lockedRentBills    bool
+	voidRentDueDate    *time.Time
+	createLeaseParams  *CreateLeaseParams
+	updateLeaseCalls   int
+	settleDepositCalls int
+	createdBills       []CreateBillParams
 }
 
 func (s *leaseRepositoryStub) FindTenantByID(context.Context, *sql.Tx, string) (*Tenant, error) {
@@ -389,21 +391,29 @@ func (s *leaseRepositoryStub) CreateLease(_ context.Context, _ *sql.Tx, params C
 }
 
 func (s *leaseRepositoryStub) UpdateLeaseConditions(_ context.Context, _ *sql.Tx, params UpdateLeaseParams) (*Lease, error) {
+	s.updateLeaseCalls++
 	if s.updatedLease != nil {
 		s.updatedLease.RentAmount = params.RentAmount
 		return s.updatedLease, nil
+	}
+	if s.lease == nil {
+		return nil, ErrLeaseNotFound
 	}
 	s.lease.RentAmount = params.RentAmount
 	return s.lease, nil
 }
 
 func (s *leaseRepositoryStub) SettleDeposit(_ context.Context, _ *sql.Tx, params SettleDepositParams) (*Lease, error) {
+	s.settleDepositCalls++
 	if s.settledLease != nil {
 		s.settledLease.DepositRefundAmount = &params.RefundAmount
 		s.settledLease.DepositDeductionAmount = &params.DeductionAmount
 		s.settledLease.DepositDeductionReason = params.DepositDeductionReason
 		s.settledLease.DepositStatus = "settled"
 		return s.settledLease, nil
+	}
+	if s.lease == nil {
+		return nil, ErrLeaseNotFound
 	}
 	s.lease.DepositRefundAmount = &params.RefundAmount
 	s.lease.DepositDeductionAmount = &params.DeductionAmount
