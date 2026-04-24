@@ -9,6 +9,7 @@ import (
 
 	appiam "stds_backend/internal/application/iam"
 	appjobs "stds_backend/internal/application/jobs"
+	applease "stds_backend/internal/application/lease"
 	appnotification "stds_backend/internal/application/notification"
 	appproperty "stds_backend/internal/application/property"
 	apptenant "stds_backend/internal/application/tenant"
@@ -16,6 +17,8 @@ import (
 	"stds_backend/internal/http/router"
 	"stds_backend/internal/platform/database"
 	dbjobruns "stds_backend/internal/platform/database/jobruns"
+	dbleasequery "stds_backend/internal/platform/database/leasequery"
+	dbleases "stds_backend/internal/platform/database/leases"
 	dbproperties "stds_backend/internal/platform/database/properties"
 	dbpropertyquery "stds_backend/internal/platform/database/propertyquery"
 	dbresourceownership "stds_backend/internal/platform/database/resourceownership"
@@ -54,7 +57,9 @@ func New(cfg *config.Config) (*Server, error) {
 
 	userRepo := dbusers.NewRepository(db)
 	propertyRepo := dbproperties.NewRepository(db)
+	leaseRepo := dbleases.NewRepository(db)
 	propertyQueryRepo := dbpropertyquery.NewRepository(db)
+	leaseQueryRepo := dbleasequery.NewRepository(db)
 	tenantRepo := dbtenants.NewRepository(db)
 	tenantQueryRepo := dbtenantquery.NewRepository(db)
 	resourceOwnershipRepo := dbresourceownership.NewRepository(db)
@@ -92,12 +97,17 @@ func New(cfg *config.Config) (*Server, error) {
 	setRoomMaintenanceService := appproperty.NewSetRoomMaintenanceService(propertyRepositoryAdapter{repo: propertyRepo}, txRunner)
 	createTenantService := apptenant.NewCreateTenantService(tenantRepositoryAdapter{repo: tenantRepo}, txRunner)
 	updateTenantService := apptenant.NewUpdateTenantService(tenantRepositoryAdapter{repo: tenantRepo}, txRunner)
+	createLeaseService := applease.NewCreateLeaseService(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
+	occupyRoomOnLeaseCreated := applease.NewOccupyRoomOnLeaseCreatedHandler(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
+	activateTenantOnLeaseCreated := applease.NewActivateTenantOnLeaseCreatedHandler(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
 	jobTriggerService := appjobs.NewTriggerService(jobRunStoreAdapter{repo: jobRunsRepo}, nil, cfg.App.SchedulerJobTimeout, cfg.App.SchedulerMaxRetries)
+	eventbus.Subscribe(bus, occupyRoomOnLeaseCreated.HandleLeaseCreated)
+	eventbus.Subscribe(bus, activateTenantOnLeaseCreated.HandleLeaseCreated)
 
 	engine := router.New(cfg.App, logger, db, authenticator, userRepo, router.AuthorizationRepositories{
 		Properties:        propertyRepo,
 		ResourceOwnership: resourceOwnershipRepo,
-	}, createUserService, sendPasswordResetService, syncAuthService, updateCurrentUserService, updateUserService, assignUserPropertiesService, jobTriggerService, propertyQueryRepo, tenantQueryRepo, createPropertyService, updatePropertyService, deletePropertyService, createRoomService, updateRoomService, deleteRoomService, setRoomMaintenanceService, createTenantService, updateTenantService)
+	}, createUserService, sendPasswordResetService, syncAuthService, updateCurrentUserService, updateUserService, assignUserPropertiesService, jobTriggerService, propertyQueryRepo, leaseQueryRepo, tenantQueryRepo, createPropertyService, updatePropertyService, deletePropertyService, createRoomService, updateRoomService, deleteRoomService, setRoomMaintenanceService, createTenantService, updateTenantService, createLeaseService)
 
 	return &Server{
 		httpServer: &http.Server{

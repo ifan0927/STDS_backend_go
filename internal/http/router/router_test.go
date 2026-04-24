@@ -18,11 +18,13 @@ import (
 
 	appiam "stds_backend/internal/application/iam"
 	appjobs "stds_backend/internal/application/jobs"
+	applease "stds_backend/internal/application/lease"
 	appnotification "stds_backend/internal/application/notification"
 	appproperty "stds_backend/internal/application/property"
 	apptenant "stds_backend/internal/application/tenant"
 	"stds_backend/internal/config"
 	domainusers "stds_backend/internal/domain/users"
+	dbleasequery "stds_backend/internal/platform/database/leasequery"
 	dbproperties "stds_backend/internal/platform/database/properties"
 	dbpropertyquery "stds_backend/internal/platform/database/propertyquery"
 	dbresourceownership "stds_backend/internal/platform/database/resourceownership"
@@ -570,6 +572,240 @@ func TestListTenantLeasesReturnsLeaseHistory(t *testing.T) {
 	data, ok := payload["data"].([]any)
 	if !ok || len(data) != 1 {
 		t.Fatalf("expected one lease entry, got %#v", payload["data"])
+	}
+}
+
+func TestListLeasesReturnsAccessibleLeases(t *testing.T) {
+	leaseCall := &listLeasesCall{}
+	engine := newTestEngineWithAllQueryRepos(
+		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
+		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{},
+		"",
+		fakeJobRunsRepo{},
+		fakePropertyQueryRepo{},
+		fakeLeaseQueryRepo{
+			listCall: leaseCall,
+			leases: []dbleasequery.Lease{
+				{
+					ID:                        "40000000-0000-0000-0000-000000000001",
+					TenantID:                  "30000000-0000-0000-0000-000000000001",
+					PropertyID:                testPropertyID1,
+					RoomID:                    testRoomID1,
+					RentAmount:                18000,
+					StartDate:                 time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+					EndDate:                   time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+					ElectricityBillingCadence: "monthly",
+					Status:                    "active",
+					DepositAmount:             36000,
+					DepositStatus:             "held",
+					CreatedAt:                 time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
+					UpdatedAt:                 time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
+					Version:                   1,
+				},
+			},
+		},
+		fakeTenantQueryRepo{},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/leases?status=active&page=2&limit=5&property_id="+testPropertyID1+"&room_id="+testRoomID1, nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	data, ok := payload["data"].([]any)
+	if !ok || len(data) != 1 {
+		t.Fatalf("expected one lease entry, got %#v", payload["data"])
+	}
+	if leaseCall.params.Status != "active" {
+		t.Fatalf("expected status active, got %q", leaseCall.params.Status)
+	}
+	if leaseCall.params.PropertyID == nil || *leaseCall.params.PropertyID != testPropertyID1 {
+		t.Fatalf("expected property filter %s, got %#v", testPropertyID1, leaseCall.params.PropertyID)
+	}
+	if leaseCall.params.RoomID == nil || *leaseCall.params.RoomID != testRoomID1 {
+		t.Fatalf("expected room filter %s, got %#v", testRoomID1, leaseCall.params.RoomID)
+	}
+	if leaseCall.params.Limit != 5 || leaseCall.params.Offset != 5 {
+		t.Fatalf("expected pagination 5/5, got limit=%d offset=%d", leaseCall.params.Limit, leaseCall.params.Offset)
+	}
+}
+
+func TestGetLeaseReturnsAccessibleLease(t *testing.T) {
+	engine := newTestEngineWithAllQueryRepos(
+		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
+		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{
+			propertyByLeaseID: map[string]string{
+				"40000000-0000-0000-0000-000000000001": testPropertyID1,
+			},
+		},
+		"",
+		fakeJobRunsRepo{},
+		fakePropertyQueryRepo{},
+		fakeLeaseQueryRepo{
+			lease: &dbleasequery.Lease{
+				ID:                        "40000000-0000-0000-0000-000000000001",
+				TenantID:                  "30000000-0000-0000-0000-000000000001",
+				PropertyID:                testPropertyID1,
+				RoomID:                    testRoomID1,
+				RentAmount:                18000,
+				StartDate:                 time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+				EndDate:                   time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+				ElectricityBillingCadence: "monthly",
+				Status:                    "active",
+				DepositAmount:             36000,
+				DepositStatus:             "held",
+				CreatedAt:                 time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
+				UpdatedAt:                 time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
+				Version:                   1,
+			},
+		},
+		fakeTenantQueryRepo{},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/leases/40000000-0000-0000-0000-000000000001", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if payload["id"] != "40000000-0000-0000-0000-000000000001" {
+		t.Fatalf("expected lease id, got %v", payload["id"])
+	}
+}
+
+func TestCreateLeaseReturnsCreatedLease(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+
+	engine := newTestEngineWithAllServices(
+		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
+		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{},
+		"",
+		fakeJobRunsRepo{},
+		fakePropertyQueryRepo{},
+		fakeLeaseQueryRepo{},
+		fakeTenantQueryRepo{},
+		apptenant.NewCreateTenantService(fakeTenantRepo{}, dbtxrunner.New(db, nil)),
+		apptenant.NewUpdateTenantService(fakeTenantRepo{}, dbtxrunner.New(db, nil)),
+		applease.NewCreateLeaseService(fakeLeaseRepo{}, dbtxrunner.New(db, nil)),
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/leases", strings.NewReader(`{
+		"tenant_id":"30000000-0000-0000-0000-000000000001",
+		"room_id":"20000000-0000-0000-0000-000000000001",
+		"rent_amount":18000,
+		"start_date":"2026-05-01",
+		"end_date":"2026-12-31",
+		"deposit_amount":36000
+	}`))
+	req.Header.Set("Authorization", "Bearer valid-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if payload["id"] != "40000000-0000-0000-0000-000000000001" {
+		t.Fatalf("expected created lease id, got %v", payload["id"])
+	}
+	if payload["status"] != "active" {
+		t.Fatalf("expected active status, got %v", payload["status"])
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestCreateLeaseRejectsUnassignedRoomProperty(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectRollback()
+
+	engine := newTestEngineWithAllServices(
+		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID2}},
+		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID2}},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{},
+		"",
+		fakeJobRunsRepo{},
+		fakePropertyQueryRepo{},
+		fakeLeaseQueryRepo{},
+		fakeTenantQueryRepo{},
+		apptenant.NewCreateTenantService(fakeTenantRepo{}, dbtxrunner.New(db, nil)),
+		apptenant.NewUpdateTenantService(fakeTenantRepo{}, dbtxrunner.New(db, nil)),
+		applease.NewCreateLeaseService(fakeLeaseRepo{
+			tenant: &applease.Tenant{ID: "tenant-1", Status: "active"},
+			room: &applease.Room{
+				ID:                               "room-1",
+				PropertyID:                       testPropertyID1,
+				Status:                           "vacant",
+				DefaultElectricityBillingCadence: "monthly",
+			},
+		}, dbtxrunner.New(db, nil)),
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/leases", strings.NewReader(`{
+		"tenant_id":"30000000-0000-0000-0000-000000000001",
+		"room_id":"20000000-0000-0000-0000-000000000001",
+		"rent_amount":18000,
+		"start_date":"2026-05-01",
+		"end_date":"2026-12-31",
+		"deposit_amount":36000
+	}`))
+	req.Header.Set("Authorization", "Bearer valid-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
 	}
 }
 
@@ -2477,6 +2713,23 @@ type fakeTenantQueryRepo struct {
 	leasesCall *listTenantLeasesCall
 }
 
+type fakeLeaseRepo struct {
+	tenant       *applease.Tenant
+	tenantErr    error
+	room         *applease.Room
+	roomErr      error
+	createdLease *applease.Lease
+	createErr    error
+	billsErr     error
+}
+
+type fakeLeaseQueryRepo struct {
+	lease    *dbleasequery.Lease
+	leaseErr error
+	leases   []dbleasequery.Lease
+	listCall *listLeasesCall
+}
+
 type listRoomsCall struct {
 	propertyID string
 	status     string
@@ -2498,6 +2751,12 @@ type listTenantLeasesCall struct {
 	role                string
 	assignedPropertyIDs []string
 	status              string
+}
+
+type listLeasesCall struct {
+	role                string
+	assignedPropertyIDs []string
+	params              dbleasequery.ListParams
 }
 
 type fakeResourceOwnershipRepo struct {
@@ -3324,6 +3583,71 @@ func (f fakeTenantRepo) Update(_ context.Context, _ *sql.Tx, _ apptenant.UpdateT
 	}, nil
 }
 
+func (f fakeLeaseRepo) FindTenantByID(_ context.Context, _ *sql.Tx, _ string) (*applease.Tenant, error) {
+	if f.tenantErr != nil {
+		return nil, f.tenantErr
+	}
+	if f.tenant != nil {
+		return f.tenant, nil
+	}
+
+	return &applease.Tenant{ID: "tenant-1", Status: "active"}, nil
+}
+
+func (f fakeLeaseRepo) FindRoomByIDForUpdate(_ context.Context, _ *sql.Tx, _ string) (*applease.Room, error) {
+	if f.roomErr != nil {
+		return nil, f.roomErr
+	}
+	if f.room != nil {
+		return f.room, nil
+	}
+
+	return &applease.Room{
+		ID:                               "room-1",
+		PropertyID:                       testPropertyID1,
+		Status:                           "vacant",
+		DefaultElectricityBillingCadence: "monthly",
+	}, nil
+}
+
+func (f fakeLeaseRepo) CreateLease(_ context.Context, _ *sql.Tx, _ applease.CreateLeaseParams) (*applease.Lease, error) {
+	if f.createErr != nil {
+		return nil, f.createErr
+	}
+	if f.createdLease != nil {
+		return f.createdLease, nil
+	}
+
+	return &applease.Lease{
+		ID:                        "40000000-0000-0000-0000-000000000001",
+		TenantID:                  "30000000-0000-0000-0000-000000000001",
+		PropertyID:                testPropertyID1,
+		RoomID:                    testRoomID1,
+		RentAmount:                18000,
+		StartDate:                 time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+		EndDate:                   time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+		ElectricityBillingCadence: "monthly",
+		Status:                    "active",
+		DepositAmount:             36000,
+		DepositStatus:             "held",
+		CreatedAt:                 time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
+		UpdatedAt:                 time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
+		Version:                   1,
+	}, nil
+}
+
+func (f fakeLeaseRepo) CreateBills(_ context.Context, _ *sql.Tx, _ []applease.CreateBillParams) error {
+	return f.billsErr
+}
+
+func (f fakeLeaseRepo) MarkRoomOccupied(_ context.Context, _ *sql.Tx, _ string) error {
+	return nil
+}
+
+func (f fakeLeaseRepo) ActivateTenant(_ context.Context, _ *sql.Tx, _ string) error {
+	return nil
+}
+
 func (f fakeTenantQueryRepo) ListAccessible(_ context.Context, role string, assignedPropertyIDs []string, propertyID *string, status string, limit int, offset int) ([]dbtenantquery.Tenant, error) {
 	if f.listCall != nil {
 		f.listCall.role = role
@@ -3377,6 +3701,48 @@ func (f fakeTenantQueryRepo) ListLeasesByTenantAccessible(_ context.Context, ten
 	}
 
 	return []dbtenantquery.Lease{}, nil
+}
+
+func (f fakeLeaseQueryRepo) ListAccessible(_ context.Context, role string, assignedPropertyIDs []string, params dbleasequery.ListParams) ([]dbleasequery.Lease, error) {
+	if f.listCall != nil {
+		f.listCall.role = role
+		f.listCall.assignedPropertyIDs = assignedPropertyIDs
+		f.listCall.params = params
+	}
+	if f.leaseErr != nil {
+		return nil, f.leaseErr
+	}
+	if f.leases != nil {
+		return f.leases, nil
+	}
+
+	return []dbleasequery.Lease{}, nil
+}
+
+func (f fakeLeaseQueryRepo) FindByIDAccessible(_ context.Context, _ string, _ string, _ []string) (*dbleasequery.Lease, error) {
+	if f.leaseErr != nil {
+		return nil, f.leaseErr
+	}
+	if f.lease != nil {
+		return f.lease, nil
+	}
+
+	return &dbleasequery.Lease{
+		ID:                        "40000000-0000-0000-0000-000000000001",
+		TenantID:                  "30000000-0000-0000-0000-000000000001",
+		PropertyID:                testPropertyID1,
+		RoomID:                    testRoomID1,
+		RentAmount:                18000,
+		StartDate:                 time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+		EndDate:                   time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+		ElectricityBillingCadence: "monthly",
+		Status:                    "active",
+		DepositAmount:             36000,
+		DepositStatus:             "held",
+		CreatedAt:                 time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
+		UpdatedAt:                 time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
+		Version:                   1,
+	}, nil
 }
 
 func (f fakeResourceOwnershipRepo) FindPropertyIDByRoomID(_ context.Context, roomID string) (string, error) {
@@ -3442,7 +3808,7 @@ func (fakeJobRunsRepo) Fail(_ context.Context, _ string, _ string) error     { r
 func (fakeJobRunsRepo) Skip(_ context.Context, _ string, _ string) error     { return nil }
 
 func newTestEngine(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo) *gin.Engine {
-	return newTestEngineWithQueryRepos(
+	return newTestEngineWithAllQueryRepos(
 		userRepo,
 		authenticator,
 		propertyRepo,
@@ -3450,16 +3816,17 @@ func newTestEngine(userRepo fakeUserRepo, authenticator fakeAuthenticator, prope
 		schedulerKey,
 		jobRunsRepo,
 		fakePropertyQueryRepo{},
+		fakeLeaseQueryRepo{},
 		fakeTenantQueryRepo{},
 	)
 }
 
 func newTestEngineWithPropertyQueryRepo(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo, propertyQueryRepo dbpropertyquery.Repository) *gin.Engine {
-	return newTestEngineWithQueryRepos(userRepo, authenticator, propertyRepo, ownershipRepo, schedulerKey, jobRunsRepo, propertyQueryRepo, fakeTenantQueryRepo{})
+	return newTestEngineWithAllQueryRepos(userRepo, authenticator, propertyRepo, ownershipRepo, schedulerKey, jobRunsRepo, propertyQueryRepo, fakeLeaseQueryRepo{}, fakeTenantQueryRepo{})
 }
 
 func newTestEngineWithQueryRepos(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo, propertyQueryRepo dbpropertyquery.Repository, tenantQueryRepo dbtenantquery.Repository) *gin.Engine {
-	return newTestEngineWithTenantServices(
+	return newTestEngineWithAllQueryRepos(
 		userRepo,
 		authenticator,
 		propertyRepo,
@@ -3467,13 +3834,46 @@ func newTestEngineWithQueryRepos(userRepo fakeUserRepo, authenticator fakeAuthen
 		schedulerKey,
 		jobRunsRepo,
 		propertyQueryRepo,
+		fakeLeaseQueryRepo{},
+		tenantQueryRepo,
+	)
+}
+
+func newTestEngineWithAllQueryRepos(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo, propertyQueryRepo dbpropertyquery.Repository, leaseQueryRepo dbleasequery.Repository, tenantQueryRepo dbtenantquery.Repository) *gin.Engine {
+	return newTestEngineWithAllServices(
+		userRepo,
+		authenticator,
+		propertyRepo,
+		ownershipRepo,
+		schedulerKey,
+		jobRunsRepo,
+		propertyQueryRepo,
+		leaseQueryRepo,
 		tenantQueryRepo,
 		apptenant.NewCreateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
 		apptenant.NewUpdateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
+		applease.NewCreateLeaseService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil)),
 	)
 }
 
 func newTestEngineWithTenantServices(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo, propertyQueryRepo dbpropertyquery.Repository, tenantQueryRepo dbtenantquery.Repository, createTenantService *apptenant.CreateTenantService, updateTenantService *apptenant.UpdateTenantService) *gin.Engine {
+	return newTestEngineWithAllServices(
+		userRepo,
+		authenticator,
+		propertyRepo,
+		ownershipRepo,
+		schedulerKey,
+		jobRunsRepo,
+		propertyQueryRepo,
+		fakeLeaseQueryRepo{},
+		tenantQueryRepo,
+		createTenantService,
+		updateTenantService,
+		applease.NewCreateLeaseService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil)),
+	)
+}
+
+func newTestEngineWithAllServices(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo, propertyQueryRepo dbpropertyquery.Repository, leaseQueryRepo dbleasequery.Repository, tenantQueryRepo dbtenantquery.Repository, createTenantService *apptenant.CreateTenantService, updateTenantService *apptenant.UpdateTenantService, createLeaseService *applease.CreateLeaseService) *gin.Engine {
 	repo := &userRepo
 	userAccountRepo := testUserAccountRepositoryAdapter{repo: repo}
 	return New(
@@ -3498,6 +3898,7 @@ func newTestEngineWithTenantServices(userRepo fakeUserRepo, authenticator fakeAu
 		),
 		appjobs.NewTriggerService(jobRunsRepo, nil, time.Minute, 3),
 		propertyQueryRepo,
+		leaseQueryRepo,
 		tenantQueryRepo,
 		appproperty.NewCreatePropertyService(propertyRepo, dbtxrunner.New(nil, nil)),
 		appproperty.NewUpdatePropertyService(propertyRepo, dbtxrunner.New(nil, nil)),
@@ -3508,6 +3909,7 @@ func newTestEngineWithTenantServices(userRepo fakeUserRepo, authenticator fakeAu
 		appproperty.NewSetRoomMaintenanceService(propertyRepo, dbtxrunner.New(nil, nil)),
 		createTenantService,
 		updateTenantService,
+		createLeaseService,
 	)
 }
 
@@ -3555,6 +3957,7 @@ func newTestEngineWithNotificationSender(userRepo fakeUserRepo, authenticator fa
 		),
 		appjobs.NewTriggerService(jobRunsRepo, nil, time.Minute, 3),
 		propertyQueryRepo,
+		fakeLeaseQueryRepo{},
 		fakeTenantQueryRepo{},
 		createPropertyService,
 		updatePropertyService,
@@ -3565,6 +3968,7 @@ func newTestEngineWithNotificationSender(userRepo fakeUserRepo, authenticator fa
 		appproperty.NewSetRoomMaintenanceService(propertyRepo, dbtxrunner.New(nil, nil)),
 		apptenant.NewCreateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
 		apptenant.NewUpdateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
+		applease.NewCreateLeaseService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil)),
 	)
 }
 
@@ -3593,6 +3997,7 @@ func newTestEngineWithRoomServices(userRepo fakeUserRepo, authenticator fakeAuth
 		),
 		appjobs.NewTriggerService(jobRunsRepo, nil, time.Minute, 3),
 		propertyQueryRepo,
+		fakeLeaseQueryRepo{},
 		fakeTenantQueryRepo{},
 		createPropertyService,
 		updatePropertyService,
@@ -3603,6 +4008,7 @@ func newTestEngineWithRoomServices(userRepo fakeUserRepo, authenticator fakeAuth
 		setRoomMaintenanceService,
 		apptenant.NewCreateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
 		apptenant.NewUpdateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
+		applease.NewCreateLeaseService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil)),
 	)
 }
 
