@@ -66,9 +66,9 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 - Use GoLang
 - Use Gin
-- Follow [`docs/coding-style.md`](docs/coding-style.md) for layer boundaries,
+- Follow [`coding-style.md`](coding-style.md) for layer boundaries,
   error handling, shared utility reuse, and testing rules.
 - Keep project-specific implementation aligned with idiomatic Go and the
-  established patterns in `docs/coding-style.md`.
+  established patterns in `coding-style.md`.
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
