@@ -135,6 +135,26 @@ func TestReplaceLeaseServiceRejectsUnsupportedDepositHandling(t *testing.T) {
 	}
 }
 
+func TestReplaceLeaseServiceRejectsScopeMismatch(t *testing.T) {
+	repo := replacementRepoStub()
+	repo.room.PropertyID = "property-2"
+	service := NewReplaceLeaseService(repo, txRunnerForRollback(t))
+
+	_, err := service.Execute(context.Background(), ReplaceLeaseInput{
+		ActorRole:          "admin",
+		LeaseID:            replaceLeaseTestLeaseID,
+		Reason:             "cadence_change",
+		EffectiveStartDate: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		DepositHandling:    "carry_over",
+		NewEndDate:         time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+		NewRentAmount:      20000,
+		NewCadence:         "bimonthly",
+	})
+	if !errors.Is(err, errReplacementScopeMismatch) {
+		t.Fatalf("expected errReplacementScopeMismatch, got %v", err)
+	}
+}
+
 func TestReplaceLeaseServiceVoidsBillsOverlappingBoundary(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -241,6 +261,9 @@ func txRunnerForRollback(t *testing.T) *dbtxrunner.Runner {
 		t.Fatalf("sqlmock.New: %v", err)
 	}
 	t.Cleanup(func() {
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Fatalf("ExpectationsWereMet: %v", err)
+		}
 		_ = db.Close()
 	})
 	mock.ExpectBegin()

@@ -129,7 +129,7 @@ func (s *ReplaceLeaseService) Execute(ctx context.Context, input ReplaceLeaseInp
 				return apperr.ErrInternalServerError.WithCause(err)
 			}
 		}
-		if room.ID != current.RoomID || room.PropertyID != current.PropertyID {
+		if room.PropertyID != current.PropertyID {
 			return errReplacementScopeMismatch
 		}
 

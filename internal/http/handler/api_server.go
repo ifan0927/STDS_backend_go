@@ -447,7 +447,9 @@ func (s *APIServer) ReplaceLease(c *gin.Context, id string) {
 	var notes *string
 	if request.NewLease.Notes != nil {
 		value := strings.TrimSpace(*request.NewLease.Notes)
-		notes = &value
+		if value != "" {
+			notes = &value
+		}
 	}
 
 	result, err := s.replaceLeaseSvc.Execute(c.Request.Context(), applease.ReplaceLeaseInput{
