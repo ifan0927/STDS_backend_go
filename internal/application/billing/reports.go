@@ -400,9 +400,6 @@ type SendFinancialReportService struct {
 
 // NewSendFinancialReportService returns a SendFinancialReportService.
 func NewSendFinancialReportService(repo ReportRepository, publisher domainevents.Publisher, clock Clock) *SendFinancialReportService {
-	if publisher == nil {
-		publisher = domainevents.NoopPublisher{}
-	}
 	if clock == nil {
 		clock = systemClock{}
 	}
@@ -419,6 +416,9 @@ func (s *SendFinancialReportService) Execute(ctx context.Context, input SendFina
 	report, err := s.findFinancialReport(ctx, query)
 	if err != nil {
 		return nil, err
+	}
+	if s.publisher == nil {
+		return nil, apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "financial_report_publisher"})
 	}
 	if err := s.publisher.Publish(ctx, domainevents.FinancialReportSendRequested{
 		PropertyID: query.PropertyID,

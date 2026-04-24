@@ -241,6 +241,58 @@ func TestSendFinancialReportEmitsEventWhenReportExists(t *testing.T) {
 	}
 }
 
+func TestSendFinancialReportUsesCurrentMonthLivePath(t *testing.T) {
+	occurredAt := time.Date(2026, 4, 24, 10, 30, 0, 0, time.UTC)
+	repo := &reportRepositoryStub{
+		liveReport:     reportForTest(2026, 4, false),
+		snapshotReport: reportForTest(2026, 4, true),
+	}
+	publisher := &recordingPublisher{}
+	service := NewSendFinancialReportService(repo, publisher, fixedClock{now: occurredAt})
+
+	report, err := service.Execute(context.Background(), SendFinancialReportInput{
+		ActorRole:  "organizer",
+		PropertyID: testPropertyID,
+		Year:       2026,
+		Month:      4,
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if report == nil || report.IsFinalized {
+		t.Fatalf("unexpected report: %+v", report)
+	}
+	if repo.liveReportQuery == nil || repo.liveReportQuery.Year != 2026 || repo.liveReportQuery.Month != 4 {
+		t.Fatalf("expected live query for current month, got %+v", repo.liveReportQuery)
+	}
+	if repo.snapshotReportQuery != nil {
+		t.Fatalf("unexpected snapshot query: %+v", repo.snapshotReportQuery)
+	}
+	if len(publisher.events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(publisher.events))
+	}
+	event, ok := publisher.events[0].(domainevents.FinancialReportSendRequested)
+	if !ok {
+		t.Fatalf("expected FinancialReportSendRequested, got %T", publisher.events[0])
+	}
+	if event.PropertyID != testPropertyID || event.Year != 2026 || event.Month != 4 || !event.OccurredAt.Equal(occurredAt) {
+		t.Fatalf("unexpected event: %+v", event)
+	}
+}
+
+func TestSendFinancialReportRequiresPublisher(t *testing.T) {
+	repo := &reportRepositoryStub{snapshotReport: reportForTest(2026, 3, true)}
+	service := NewSendFinancialReportService(repo, nil, fixedClock{now: time.Date(2026, 4, 24, 10, 30, 0, 0, time.UTC)})
+
+	_, err := service.Execute(context.Background(), SendFinancialReportInput{
+		ActorRole:  "organizer",
+		PropertyID: testPropertyID,
+		Year:       2026,
+		Month:      3,
+	})
+	assertAppErrorCode(t, err, apperr.CodeInternalServerError)
+}
+
 type reportRepositoryStub struct {
 	pendingMeterBills         []Bill
 	pendingMeterQuery         *PendingMeterQuery

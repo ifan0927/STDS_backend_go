@@ -462,6 +462,9 @@ func TestSendPropertyFinancialReportReturnsReportResponse(t *testing.T) {
 	if reports.sendInput.PropertyID != "10000000-0000-0000-0000-000000000001" || reports.sendInput.ActorRole != "organizer" {
 		t.Fatalf("unexpected send input: %+v", reports.sendInput)
 	}
+	if reports.sendInput.Year != 2026 || reports.sendInput.Month != 4 {
+		t.Fatalf("unexpected send period: %+v", reports.sendInput)
+	}
 
 	var response api.FinancialReportResponse
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {

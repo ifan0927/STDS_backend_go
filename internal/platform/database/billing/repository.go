@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 )
@@ -634,22 +635,35 @@ INSERT INTO accounting_entries (
 
 // ListFinancialReportSummaries returns finalized summaries and the requested current live summary.
 func (r *SQLRepository) ListFinancialReportSummaries(ctx context.Context, scope Scope, propertyID string, year *int, currentYear int, currentMonth int) ([]FinancialReportSummary, error) {
-	summaries := make([]FinancialReportSummary, 0)
-
 	finalized, err := r.listFinalizedFinancialReportSummaries(ctx, scope, propertyID, year)
 	if err != nil {
 		return nil, err
 	}
-	summaries = append(summaries, finalized...)
+	byMonth := make(map[string]FinancialReportSummary, len(finalized)+1)
+	for _, summary := range finalized {
+		byMonth[financialReportSummaryKey(summary.Year, summary.Month)] = summary
+	}
 
 	if year == nil || *year == currentYear {
 		live, err := r.listLiveFinancialReportSummaries(ctx, scope, propertyID, currentYear, currentMonth)
 		if err != nil {
 			return nil, err
 		}
-		summaries = append(summaries, live...)
+		for _, summary := range live {
+			byMonth[financialReportSummaryKey(summary.Year, summary.Month)] = summary
+		}
 	}
 
+	summaries := make([]FinancialReportSummary, 0, len(byMonth))
+	for _, summary := range byMonth {
+		summaries = append(summaries, summary)
+	}
+	sort.Slice(summaries, func(i, j int) bool {
+		if summaries[i].Year != summaries[j].Year {
+			return summaries[i].Year > summaries[j].Year
+		}
+		return summaries[i].Month > summaries[j].Month
+	})
 	return summaries, nil
 }
 
@@ -706,17 +720,19 @@ WHERE ms.property_id = $1
 func (r *SQLRepository) listLiveFinancialReportSummaries(ctx context.Context, scope Scope, propertyID string, year int, month int) (summaries []FinancialReportSummary, err error) {
 	query := `
 SELECT
-	ae.year,
-	ae.month,
+	$2::int AS year,
+	$3::int AS month,
 	COALESCE(SUM(CASE WHEN ae.category IN ('rent_payment', 'electricity_payment', 'deposit_deduction') THEN ABS(ae.amount) ELSE 0 END), 0) AS total_income,
-	COALESCE(SUM(CASE WHEN ae.category IN ('deposit_refund', 'journal_expense') THEN ABS(ae.amount) ELSE 0 END), 0) AS total_expense
+	COALESCE(SUM(CASE WHEN ae.category IN ('deposit_refund', 'journal_expense') THEN ABS(ae.amount) ELSE 0 END), 0) AS total_expense,
+	COALESCE(SUM(CASE WHEN ae.category IN ('rent_payment', 'electricity_payment', 'deposit_deduction') THEN ABS(ae.amount) ELSE 0 END), 0)
+		- COALESCE(SUM(CASE WHEN ae.category IN ('deposit_refund', 'journal_expense') THEN ABS(ae.amount) ELSE 0 END), 0) AS net
 FROM property_accounts pa
 JOIN properties p ON p.id = pa.property_id AND p.deleted_at IS NULL
-JOIN accounting_entries ae ON ae.property_account_id = pa.id
-WHERE pa.property_id = $1
-  AND pa.deleted_at IS NULL
+LEFT JOIN accounting_entries ae ON ae.property_account_id = pa.id
   AND ae.year = $2
   AND ae.month = $3
+WHERE pa.property_id = $1
+  AND pa.deleted_at IS NULL
 `
 	args := []any{propertyID, year, month}
 	var ok bool
@@ -724,7 +740,7 @@ WHERE pa.property_id = $1
 	if !ok {
 		return []FinancialReportSummary{}, nil
 	}
-	query += "GROUP BY ae.year, ae.month\nORDER BY ae.year DESC, ae.month DESC\n"
+	query += "GROUP BY pa.property_id\n"
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -739,10 +755,9 @@ WHERE pa.property_id = $1
 	summaries = make([]FinancialReportSummary, 0)
 	for rows.Next() {
 		var summary FinancialReportSummary
-		if err := rows.Scan(&summary.Year, &summary.Month, &summary.TotalIncome, &summary.TotalExpense); err != nil {
+		if err := rows.Scan(&summary.Year, &summary.Month, &summary.TotalIncome, &summary.TotalExpense, &summary.Net); err != nil {
 			return nil, fmt.Errorf("scan live financial report summary row: %w", err)
 		}
-		summary.Net = summary.TotalIncome - summary.TotalExpense
 		summaries = append(summaries, summary)
 	}
 	if err := rows.Err(); err != nil {
@@ -760,7 +775,7 @@ func (r *SQLRepository) GetFinancialReport(ctx context.Context, scope Scope, pro
 	return r.getFinalizedFinancialReport(ctx, scope, propertyID, year, month)
 }
 
-func (r *SQLRepository) getFinalizedFinancialReport(ctx context.Context, scope Scope, propertyID string, year int, month int) (*FinancialReport, error) {
+func (r *SQLRepository) getFinalizedFinancialReport(ctx context.Context, scope Scope, propertyID string, year int, month int) (report *FinancialReport, err error) {
 	query := `
 SELECT
 	ms.property_id,
@@ -794,9 +809,12 @@ WHERE ms.property_id = $1
 	if err != nil {
 		return nil, fmt.Errorf("get finalized financial report: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close finalized financial report rows: %w", cerr)
+		}
+	}()
 
-	var report *FinancialReport
 	for rows.Next() {
 		entry, hasEntry, rowReport, err := scanFinalizedFinancialReportRow(rows)
 		if err != nil {
@@ -819,7 +837,7 @@ WHERE ms.property_id = $1
 	return report, nil
 }
 
-func (r *SQLRepository) getLiveFinancialReport(ctx context.Context, scope Scope, propertyID string, year int, month int) (*FinancialReport, error) {
+func (r *SQLRepository) getLiveFinancialReport(ctx context.Context, scope Scope, propertyID string, year int, month int) (report *FinancialReport, err error) {
 	query := `
 SELECT
 	pa.property_id,
@@ -851,9 +869,12 @@ WHERE pa.property_id = $1
 	if err != nil {
 		return nil, fmt.Errorf("get live financial report: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close live financial report rows: %w", cerr)
+		}
+	}()
 
-	var report *FinancialReport
 	for rows.Next() {
 		if report == nil {
 			report = &FinancialReport{
@@ -994,6 +1015,10 @@ func appendPropertyScope(query string, args []any, scope Scope, propertyAlias st
 	default:
 		return "", nil, false
 	}
+}
+
+func financialReportSummaryKey(year int, month int) string {
+	return fmt.Sprintf("%04d-%02d", year, month)
 }
 
 func scanBill(row rowScanner) (*Bill, error) {
