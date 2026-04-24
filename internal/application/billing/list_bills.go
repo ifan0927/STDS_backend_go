@@ -10,6 +10,8 @@ import (
 	"stds_backend/internal/shared/apperr"
 )
 
+const maxListBillsLimit = 100
+
 // ListBillsInput is the use-case input for bill listing.
 type ListBillsInput struct {
 	ActorRole           string
@@ -62,10 +64,10 @@ func (s *ListBillsService) Execute(ctx context.Context, input ListBillsInput) ([
 		return nil, err
 	}
 
-	if input.Limit < 0 {
+	if input.Limit < 1 || input.Limit > maxListBillsLimit {
 		return nil, apperr.ErrBadRequest.WithDetails(map[string]interface{}{
 			"field":  "limit",
-			"reason": "must be greater than or equal to 0",
+			"reason": "must be between 1 and 100",
 		})
 	}
 	if input.Offset < 0 {

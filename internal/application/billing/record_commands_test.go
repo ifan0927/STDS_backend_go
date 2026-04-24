@@ -50,15 +50,20 @@ func TestGetBillServicePassesActorScopeToRepository(t *testing.T) {
 	}
 }
 
-func TestListBillsServiceRejectsNegativePagination(t *testing.T) {
+func TestListBillsServiceRejectsInvalidPagination(t *testing.T) {
 	tests := []struct {
 		name  string
 		input ListBillsInput
 		field string
 	}{
 		{
-			name:  "negative limit",
-			input: ListBillsInput{ActorRole: "staff", Limit: -1},
+			name:  "zero limit",
+			input: ListBillsInput{ActorRole: "staff", Limit: 0},
+			field: "limit",
+		},
+		{
+			name:  "limit too large",
+			input: ListBillsInput{ActorRole: "staff", Limit: 101},
 			field: "limit",
 		},
 		{
