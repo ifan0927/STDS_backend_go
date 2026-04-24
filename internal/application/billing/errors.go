@@ -15,6 +15,7 @@ const (
 	CodeBillStatusNotRecordable      = "BILL_STATUS_NOT_RECORDABLE"
 	CodeBillStatusNotPayable         = "BILL_STATUS_NOT_PAYABLE"
 	CodeBillPaidAmountMismatch       = "BILL_PAID_AMOUNT_MISMATCH"
+	CodeFinancialReportNotFound      = "FINANCIAL_REPORT_NOT_FOUND"
 )
 
 var (
@@ -47,6 +48,11 @@ var (
 		CodeBillPaidAmountMismatch,
 		http.StatusUnprocessableEntity,
 		"Paid amount must equal bill amount.",
+	)
+	ErrFinancialReportNotFound = apperr.New(
+		CodeFinancialReportNotFound,
+		http.StatusNotFound,
+		"Financial report not found.",
 	)
 )
 

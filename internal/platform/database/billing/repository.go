@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 )
@@ -98,6 +99,38 @@ type CreateAccountingEntryParams struct {
 	SourceRef         map[string]any
 	Year              int
 	Month             int
+}
+
+// FinancialReportSummary is one monthly financial report summary row.
+type FinancialReportSummary struct {
+	Year         int
+	Month        int
+	TotalIncome  int
+	TotalExpense int
+	Net          int
+	IsFinalized  bool
+}
+
+// FinancialReport is one monthly financial report with detail entries.
+type FinancialReport struct {
+	PropertyID   string
+	Year         int
+	Month        int
+	TotalIncome  int
+	TotalExpense int
+	Net          int
+	IsFinalized  bool
+	Entries      []FinancialReportEntry
+}
+
+// FinancialReportEntry is one financial report detail entry.
+type FinancialReportEntry struct {
+	ID          string
+	Category    string
+	Description *string
+	Amount      int
+	SourceRef   json.RawMessage
+	CreatedAt   time.Time
 }
 
 // SQLRepository persists and reads billing data from PostgreSQL.
@@ -252,6 +285,189 @@ LIMIT 1
 	}
 
 	return reading, nil
+}
+
+// ListPropertyPendingMeters returns active pending electricity meter bills for one property.
+func (r *SQLRepository) ListPropertyPendingMeters(ctx context.Context, scope Scope, propertyID string) (bills []Bill, err error) {
+	query := `
+SELECT
+	b.id,
+	b.lease_id,
+	b.tenant_id,
+	b.room_id,
+	b.property_id,
+	b.type,
+	b.amount,
+	b.period_start,
+	b.period_end,
+	b.due_date,
+	b.status,
+	b.payment_method,
+	b.paid_at,
+	b.paid_amount,
+	b.meter_previous_reading,
+	b.meter_current_reading,
+	b.meter_unit_price,
+	b.meter_recorded_at,
+	b.written_off_reason,
+	b.overdue_notice_count,
+	b.created_at,
+	b.updated_at,
+	b.version
+FROM bills b
+JOIN properties p ON p.id = b.property_id AND p.deleted_at IS NULL
+WHERE b.property_id = $1
+  AND b.type = 'electricity'
+  AND b.status = 'pending_meter'
+  AND b.deleted_at IS NULL
+`
+	args := []any{propertyID}
+	var ok bool
+	query, args, ok = appendPropertyScope(query, args, scope, "p")
+	if !ok {
+		return []Bill{}, nil
+	}
+	query += "ORDER BY b.period_start ASC, b.period_end ASC, b.created_at ASC\n"
+
+	return r.listBills(ctx, query, "list property pending meters", args...)
+}
+
+// ListPropertyMeterHistory returns recorded electricity bills for a property.
+func (r *SQLRepository) ListPropertyMeterHistory(ctx context.Context, scope Scope, propertyID string, year *int) ([]Bill, error) {
+	query := `
+SELECT
+	b.id,
+	b.lease_id,
+	b.tenant_id,
+	b.room_id,
+	b.property_id,
+	b.type,
+	b.amount,
+	b.period_start,
+	b.period_end,
+	b.due_date,
+	b.status,
+	b.payment_method,
+	b.paid_at,
+	b.paid_amount,
+	b.meter_previous_reading,
+	b.meter_current_reading,
+	b.meter_unit_price,
+	b.meter_recorded_at,
+	b.written_off_reason,
+	b.overdue_notice_count,
+	b.created_at,
+	b.updated_at,
+	b.version
+FROM bills b
+JOIN properties p ON p.id = b.property_id AND p.deleted_at IS NULL
+WHERE b.property_id = $1
+  AND b.type = 'electricity'
+  AND b.meter_current_reading IS NOT NULL
+  AND b.status NOT IN ('voided', 'written_off')
+  AND b.deleted_at IS NULL
+`
+	args := []any{propertyID}
+	var ok bool
+	query, args, ok = appendPropertyScope(query, args, scope, "p")
+	if !ok {
+		return []Bill{}, nil
+	}
+	if year != nil {
+		periodStart := time.Date(*year, 1, 1, 0, 0, 0, 0, time.UTC)
+		periodEnd := periodStart.AddDate(1, 0, 0)
+		args = append(args, periodEnd, periodStart)
+		query += fmt.Sprintf("  AND b.period_start < $%d\n  AND b.period_end >= $%d\n", len(args)-1, len(args))
+	}
+	query += "ORDER BY b.period_start DESC, b.period_end DESC, b.created_at DESC\n"
+
+	return r.listBills(ctx, query, "list property meter history", args...)
+}
+
+// ListRoomMeterHistory returns recorded electricity bills for a room.
+func (r *SQLRepository) ListRoomMeterHistory(ctx context.Context, scope Scope, roomID string, year *int, month *int) ([]Bill, error) {
+	query := `
+SELECT
+	b.id,
+	b.lease_id,
+	b.tenant_id,
+	b.room_id,
+	b.property_id,
+	b.type,
+	b.amount,
+	b.period_start,
+	b.period_end,
+	b.due_date,
+	b.status,
+	b.payment_method,
+	b.paid_at,
+	b.paid_amount,
+	b.meter_previous_reading,
+	b.meter_current_reading,
+	b.meter_unit_price,
+	b.meter_recorded_at,
+	b.written_off_reason,
+	b.overdue_notice_count,
+	b.created_at,
+	b.updated_at,
+	b.version
+FROM bills b
+JOIN properties p ON p.id = b.property_id AND p.deleted_at IS NULL
+WHERE b.room_id = $1
+  AND b.type = 'electricity'
+  AND b.meter_current_reading IS NOT NULL
+  AND b.status NOT IN ('voided', 'written_off')
+  AND b.deleted_at IS NULL
+`
+	args := []any{roomID}
+	var ok bool
+	query, args, ok = appendPropertyScope(query, args, scope, "p")
+	if !ok {
+		return []Bill{}, nil
+	}
+	if year != nil || month != nil {
+		filterYear := time.Now().UTC().Year()
+		if year != nil {
+			filterYear = *year
+		}
+		periodStart := time.Date(filterYear, 1, 1, 0, 0, 0, 0, time.UTC)
+		periodEnd := periodStart.AddDate(1, 0, 0)
+		if month != nil {
+			periodStart = time.Date(filterYear, time.Month(*month), 1, 0, 0, 0, 0, time.UTC)
+			periodEnd = periodStart.AddDate(0, 1, 0)
+		}
+		args = append(args, periodEnd, periodStart)
+		query += fmt.Sprintf("  AND b.period_start < $%d\n  AND b.period_end >= $%d\n", len(args)-1, len(args))
+	}
+	query += "ORDER BY b.period_start DESC, b.period_end DESC, b.created_at DESC\n"
+
+	return r.listBills(ctx, query, "list room meter history", args...)
+}
+
+func (r *SQLRepository) listBills(ctx context.Context, query string, operation string, args ...any) (bills []Bill, err error) {
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", operation, err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close bill rows: %w", cerr)
+		}
+	}()
+
+	bills = make([]Bill, 0)
+	for rows.Next() {
+		bill, err := scanBill(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan bill row: %w", err)
+		}
+		bills = append(bills, *bill)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate bill rows: %w", err)
+	}
+
+	return bills, nil
 }
 
 // FindPropertyElectricityUnitPrice returns the active property's unit price, preserving NULL as nil.
@@ -418,6 +634,274 @@ INSERT INTO accounting_entries (
 	return nil
 }
 
+// ListFinancialReportSummaries returns finalized summaries and the requested current live summary.
+func (r *SQLRepository) ListFinancialReportSummaries(ctx context.Context, scope Scope, propertyID string, year *int, currentYear int, currentMonth int) ([]FinancialReportSummary, error) {
+	finalized, err := r.listFinalizedFinancialReportSummaries(ctx, scope, propertyID, year)
+	if err != nil {
+		return nil, err
+	}
+	byMonth := make(map[string]FinancialReportSummary, len(finalized)+1)
+	for _, summary := range finalized {
+		byMonth[financialReportSummaryKey(summary.Year, summary.Month)] = summary
+	}
+
+	if year == nil || *year == currentYear {
+		live, err := r.listLiveFinancialReportSummaries(ctx, scope, propertyID, currentYear, currentMonth)
+		if err != nil {
+			return nil, err
+		}
+		for _, summary := range live {
+			byMonth[financialReportSummaryKey(summary.Year, summary.Month)] = summary
+		}
+	}
+
+	summaries := make([]FinancialReportSummary, 0, len(byMonth))
+	for _, summary := range byMonth {
+		summaries = append(summaries, summary)
+	}
+	sort.Slice(summaries, func(i, j int) bool {
+		if summaries[i].Year != summaries[j].Year {
+			return summaries[i].Year > summaries[j].Year
+		}
+		return summaries[i].Month > summaries[j].Month
+	})
+	return summaries, nil
+}
+
+func (r *SQLRepository) listFinalizedFinancialReportSummaries(ctx context.Context, scope Scope, propertyID string, year *int) (summaries []FinancialReportSummary, err error) {
+	query := `
+SELECT
+	ms.year,
+	ms.month,
+	ms.total_income,
+	ms.total_expense,
+	ms.net
+FROM monthly_snapshots ms
+JOIN properties p ON p.id = ms.property_id AND p.deleted_at IS NULL
+WHERE ms.property_id = $1
+`
+	args := []any{propertyID}
+	var ok bool
+	query, args, ok = appendPropertyScope(query, args, scope, "p")
+	if !ok {
+		return []FinancialReportSummary{}, nil
+	}
+	if year != nil {
+		args = append(args, *year)
+		query += fmt.Sprintf("  AND ms.year = $%d\n", len(args))
+	}
+	query += "ORDER BY ms.year DESC, ms.month DESC\n"
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list finalized financial report summaries: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close finalized financial report summary rows: %w", cerr)
+		}
+	}()
+
+	summaries = make([]FinancialReportSummary, 0)
+	for rows.Next() {
+		var summary FinancialReportSummary
+		if err := rows.Scan(&summary.Year, &summary.Month, &summary.TotalIncome, &summary.TotalExpense, &summary.Net); err != nil {
+			return nil, fmt.Errorf("scan finalized financial report summary row: %w", err)
+		}
+		summary.IsFinalized = true
+		summaries = append(summaries, summary)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate finalized financial report summary rows: %w", err)
+	}
+
+	return summaries, nil
+}
+
+func (r *SQLRepository) listLiveFinancialReportSummaries(ctx context.Context, scope Scope, propertyID string, year int, month int) (summaries []FinancialReportSummary, err error) {
+	query := `
+SELECT
+	$2::int AS year,
+	$3::int AS month,
+	COALESCE(SUM(CASE WHEN ae.category IN ('rent_payment', 'electricity_payment', 'deposit_deduction') THEN ABS(ae.amount) ELSE 0 END), 0) AS total_income,
+	COALESCE(SUM(CASE WHEN ae.category IN ('deposit_refund', 'journal_expense') THEN ABS(ae.amount) ELSE 0 END), 0) AS total_expense,
+	COALESCE(SUM(CASE WHEN ae.category IN ('rent_payment', 'electricity_payment', 'deposit_deduction') THEN ABS(ae.amount) ELSE 0 END), 0)
+		- COALESCE(SUM(CASE WHEN ae.category IN ('deposit_refund', 'journal_expense') THEN ABS(ae.amount) ELSE 0 END), 0) AS net
+FROM property_accounts pa
+JOIN properties p ON p.id = pa.property_id AND p.deleted_at IS NULL
+LEFT JOIN accounting_entries ae ON ae.property_account_id = pa.id
+  AND ae.year = $2
+  AND ae.month = $3
+WHERE pa.property_id = $1
+  AND pa.deleted_at IS NULL
+`
+	args := []any{propertyID, year, month}
+	var ok bool
+	query, args, ok = appendPropertyScope(query, args, scope, "p")
+	if !ok {
+		return []FinancialReportSummary{}, nil
+	}
+	query += "GROUP BY pa.property_id\n"
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list live financial report summaries: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close live financial report summary rows: %w", cerr)
+		}
+	}()
+
+	summaries = make([]FinancialReportSummary, 0)
+	for rows.Next() {
+		var summary FinancialReportSummary
+		if err := rows.Scan(&summary.Year, &summary.Month, &summary.TotalIncome, &summary.TotalExpense, &summary.Net); err != nil {
+			return nil, fmt.Errorf("scan live financial report summary row: %w", err)
+		}
+		summaries = append(summaries, summary)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate live financial report summary rows: %w", err)
+	}
+
+	return summaries, nil
+}
+
+// GetFinancialReport returns one finalized or live monthly report with entries.
+func (r *SQLRepository) GetFinancialReport(ctx context.Context, scope Scope, propertyID string, year int, month int, live bool) (*FinancialReport, error) {
+	if live {
+		return r.getLiveFinancialReport(ctx, scope, propertyID, year, month)
+	}
+	return r.getFinalizedFinancialReport(ctx, scope, propertyID, year, month)
+}
+
+func (r *SQLRepository) getFinalizedFinancialReport(ctx context.Context, scope Scope, propertyID string, year int, month int) (report *FinancialReport, err error) {
+	query := `
+SELECT
+	ms.property_id,
+	ms.year,
+	ms.month,
+	ms.total_income,
+	ms.total_expense,
+	ms.net,
+	mse.id,
+	mse.category,
+	mse.description,
+	mse.amount,
+	mse.source_ref,
+	mse.created_at
+FROM monthly_snapshots ms
+JOIN properties p ON p.id = ms.property_id AND p.deleted_at IS NULL
+LEFT JOIN monthly_snapshot_entries mse ON mse.snapshot_id = ms.id
+WHERE ms.property_id = $1
+  AND ms.year = $2
+  AND ms.month = $3
+`
+	args := []any{propertyID, year, month}
+	var ok bool
+	query, args, ok = appendPropertyScope(query, args, scope, "p")
+	if !ok {
+		return nil, ErrNotFound
+	}
+	query += "ORDER BY mse.created_at ASC, mse.id ASC\n"
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("get finalized financial report: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close finalized financial report rows: %w", cerr)
+		}
+	}()
+
+	for rows.Next() {
+		entry, hasEntry, rowReport, err := scanFinalizedFinancialReportRow(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan finalized financial report row: %w", err)
+		}
+		if report == nil {
+			report = rowReport
+		}
+		if hasEntry {
+			report.Entries = append(report.Entries, entry)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate finalized financial report rows: %w", err)
+	}
+	if report == nil {
+		return nil, ErrNotFound
+	}
+
+	return report, nil
+}
+
+func (r *SQLRepository) getLiveFinancialReport(ctx context.Context, scope Scope, propertyID string, year int, month int) (report *FinancialReport, err error) {
+	query := `
+SELECT
+	pa.property_id,
+	$2::int AS year,
+	$3::int AS month,
+	ae.id,
+	ae.category,
+	ae.description,
+	ae.amount,
+	ae.source_ref,
+	ae.created_at
+FROM property_accounts pa
+JOIN properties p ON p.id = pa.property_id AND p.deleted_at IS NULL
+LEFT JOIN accounting_entries ae ON ae.property_account_id = pa.id
+  AND ae.year = $2
+  AND ae.month = $3
+WHERE pa.property_id = $1
+  AND pa.deleted_at IS NULL
+`
+	args := []any{propertyID, year, month}
+	var ok bool
+	query, args, ok = appendPropertyScope(query, args, scope, "p")
+	if !ok {
+		return nil, ErrNotFound
+	}
+	query += "ORDER BY ae.created_at ASC, ae.id ASC\n"
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("get live financial report: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close live financial report rows: %w", cerr)
+		}
+	}()
+
+	for rows.Next() {
+		if report == nil {
+			report = &FinancialReport{
+				Entries: make([]FinancialReportEntry, 0),
+			}
+		}
+		entry, hasEntry, err := scanLiveFinancialReportRow(rows, report)
+		if err != nil {
+			return nil, fmt.Errorf("scan live financial report row: %w", err)
+		}
+		if hasEntry {
+			report.Entries = append(report.Entries, entry)
+			addFinancialReportAmount(report, entry.Category, entry.Amount)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate live financial report rows: %w", err)
+	}
+	if report == nil {
+		return nil, ErrNotFound
+	}
+	report.Net = report.TotalIncome - report.TotalExpense
+
+	return report, nil
+}
+
 func buildAccessibleBillQuery(scope Scope, filter BillFilter, single bool, billID *string) (string, []any, bool) {
 	base := `
 SELECT
@@ -510,6 +994,34 @@ FROM bills b
 	return base, args, true
 }
 
+func appendPropertyScope(query string, args []any, scope Scope, propertyAlias string) (string, []any, bool) {
+	switch strings.TrimSpace(scope.Role) {
+	case "admin":
+		return query, args, true
+	case "organizer", "staff":
+		if len(scope.AssignedPropertyIDs) == 0 {
+			return "", nil, false
+		}
+		placeholders := make([]string, 0, len(scope.AssignedPropertyIDs))
+		for _, id := range scope.AssignedPropertyIDs {
+			args = append(args, id)
+			placeholders = append(placeholders, fmt.Sprintf("$%d", len(args)))
+		}
+		query += "  AND " + propertyAlias + ".id IN (" + strings.Join(placeholders, ", ") + ")\n"
+		return query, args, true
+	case "owner":
+		args = append(args, strings.TrimSpace(scope.UserID))
+		query += fmt.Sprintf("  AND %s.owner_id = $%d\n", propertyAlias, len(args))
+		return query, args, true
+	default:
+		return "", nil, false
+	}
+}
+
+func financialReportSummaryKey(year int, month int) string {
+	return fmt.Sprintf("%04d-%02d", year, month)
+}
+
 func scanBill(row rowScanner) (*Bill, error) {
 	var bill Bill
 	var amount sql.NullInt64
@@ -583,6 +1095,118 @@ func scanBill(row rowScanner) (*Bill, error) {
 	}
 
 	return &bill, nil
+}
+
+func scanFinalizedFinancialReportRow(row rowScanner) (FinancialReportEntry, bool, *FinancialReport, error) {
+	var report FinancialReport
+	var entry FinancialReportEntry
+	var entryID sql.NullString
+	var category sql.NullString
+	var description sql.NullString
+	var amount sql.NullInt64
+	var sourceRef sql.NullString
+	var createdAt sql.NullTime
+
+	if err := row.Scan(
+		&report.PropertyID,
+		&report.Year,
+		&report.Month,
+		&report.TotalIncome,
+		&report.TotalExpense,
+		&report.Net,
+		&entryID,
+		&category,
+		&description,
+		&amount,
+		&sourceRef,
+		&createdAt,
+	); err != nil {
+		return FinancialReportEntry{}, false, nil, err
+	}
+	hasEntry := entryID.Valid
+	if entryID.Valid {
+		entry.ID = entryID.String
+	}
+	if category.Valid {
+		entry.Category = category.String
+	}
+	if description.Valid {
+		entry.Description = &description.String
+	}
+	if amount.Valid {
+		entry.Amount = int(amount.Int64)
+	}
+	if sourceRef.Valid {
+		entry.SourceRef = json.RawMessage(sourceRef.String)
+	}
+	if createdAt.Valid {
+		entry.CreatedAt = createdAt.Time
+	}
+	report.IsFinalized = true
+	report.Entries = make([]FinancialReportEntry, 0)
+
+	return entry, hasEntry, &report, nil
+}
+
+func scanLiveFinancialReportRow(row rowScanner, report *FinancialReport) (FinancialReportEntry, bool, error) {
+	var entry FinancialReportEntry
+	var entryID sql.NullString
+	var category sql.NullString
+	var description sql.NullString
+	var amount sql.NullInt64
+	var sourceRef sql.NullString
+	var createdAt sql.NullTime
+
+	if err := row.Scan(
+		&report.PropertyID,
+		&report.Year,
+		&report.Month,
+		&entryID,
+		&category,
+		&description,
+		&amount,
+		&sourceRef,
+		&createdAt,
+	); err != nil {
+		return FinancialReportEntry{}, false, err
+	}
+	hasEntry := entryID.Valid
+	if entryID.Valid {
+		entry.ID = entryID.String
+	}
+	if category.Valid {
+		entry.Category = category.String
+	}
+	if description.Valid {
+		entry.Description = &description.String
+	}
+	if amount.Valid {
+		entry.Amount = int(amount.Int64)
+	}
+	if sourceRef.Valid {
+		entry.SourceRef = json.RawMessage(sourceRef.String)
+	}
+	if createdAt.Valid {
+		entry.CreatedAt = createdAt.Time
+	}
+
+	return entry, hasEntry, nil
+}
+
+func addFinancialReportAmount(report *FinancialReport, category string, amount int) {
+	switch category {
+	case "rent_payment", "electricity_payment", "deposit_deduction":
+		report.TotalIncome += absInt(amount)
+	case "deposit_refund", "journal_expense":
+		report.TotalExpense += absInt(amount)
+	}
+}
+
+func absInt(value int) int {
+	if value < 0 {
+		return -value
+	}
+	return value
 }
 
 type rowScanner interface {

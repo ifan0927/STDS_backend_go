@@ -2173,6 +2173,148 @@ func TestGetBillResolvesPropertyAccessThroughOwnershipQuery(t *testing.T) {
 	}
 }
 
+func TestFinancialReportReadAllowsOwnerOwningProperty(t *testing.T) {
+	engine := newTestEngine(
+		fakeUserRepo{role: "owner", userID: "owner-1"},
+		fakeAuthenticator{role: "owner"},
+		fakePropertyRepo{
+			ownerByPropertyID: map[string]string{
+				testPropertyID1: "owner-1",
+			},
+		},
+		fakeResourceOwnershipRepo{},
+		"",
+		fakeJobRunsRepo{},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/properties/"+testPropertyID1+"/financial-report/2026/4", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code == http.StatusUnauthorized || resp.Code == http.StatusForbidden {
+		t.Fatalf("expected owner read to pass policy, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestMeterRoutesRejectOwnerRole(t *testing.T) {
+	paths := []struct {
+		name string
+		path string
+	}{
+		{name: "property pending meters", path: "/api/v1/properties/" + testPropertyID1 + "/pending-meter"},
+		{name: "property meter history", path: "/api/v1/properties/" + testPropertyID1 + "/meter-history"},
+	}
+
+	for _, tc := range paths {
+		t.Run(tc.name, func(t *testing.T) {
+			engine := newTestEngine(
+				fakeUserRepo{role: "owner", userID: "owner-1"},
+				fakeAuthenticator{role: "owner"},
+				fakePropertyRepo{
+					ownerByPropertyID: map[string]string{
+						testPropertyID1: "owner-1",
+					},
+				},
+				fakeResourceOwnershipRepo{},
+				"",
+				fakeJobRunsRepo{},
+			)
+
+			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			req.Header.Set("Authorization", "Bearer valid-token")
+			resp := httptest.NewRecorder()
+
+			engine.ServeHTTP(resp, req)
+
+			if resp.Code != http.StatusForbidden {
+				t.Fatalf("expected 403, got %d: %s", resp.Code, resp.Body.String())
+			}
+		})
+	}
+}
+
+func TestSendFinancialReportPolicyAllowsAdminAndOrganizerOnly(t *testing.T) {
+	tests := []struct {
+		name          string
+		role          string
+		assigned      []string
+		wantForbidden bool
+	}{
+		{name: "admin", role: "admin"},
+		{name: "organizer", role: "organizer", assigned: []string{testPropertyID1}},
+		{name: "staff", role: "staff", assigned: []string{testPropertyID1}, wantForbidden: true},
+		{name: "owner", role: "owner", wantForbidden: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			engine := newTestEngine(
+				fakeUserRepo{role: tt.role, assignedPropertyIDs: tt.assigned},
+				fakeAuthenticator{role: tt.role, assignedPropertyIDs: tt.assigned},
+				fakePropertyRepo{
+					ownerByPropertyID: map[string]string{
+						testPropertyID1: "user-1",
+					},
+				},
+				fakeResourceOwnershipRepo{},
+				"",
+				fakeJobRunsRepo{},
+			)
+
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/properties/"+testPropertyID1+"/financial-report/2026/4/send", nil)
+			req.Header.Set("Authorization", "Bearer valid-token")
+			resp := httptest.NewRecorder()
+
+			engine.ServeHTTP(resp, req)
+
+			if tt.wantForbidden {
+				if resp.Code != http.StatusForbidden {
+					t.Fatalf("expected 403, got %d: %s", resp.Code, resp.Body.String())
+				}
+				return
+			}
+			if resp.Code == http.StatusUnauthorized || resp.Code == http.StatusForbidden {
+				t.Fatalf("expected send to pass policy, got %d: %s", resp.Code, resp.Body.String())
+			}
+		})
+	}
+}
+
+func TestRoomMeterHistoryUsesRoomPropertyResolverAndReturnsRoomNotFound(t *testing.T) {
+	var capturedRoomID string
+	engine := newTestEngine(
+		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
+		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{roomIDLookup: &capturedRoomID},
+		"",
+		fakeJobRunsRepo{},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/rooms/"+testMissingRoomID+"/meter-history", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if capturedRoomID != testMissingRoomID {
+		t.Fatalf("room resolver id = %q, want %q", capturedRoomID, testMissingRoomID)
+	}
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if payload["error_code"] != apperr.CodeRoomNotFound {
+		t.Fatalf("expected %s, got %v", apperr.CodeRoomNotFound, payload["error_code"])
+	}
+}
+
 func TestListBillsRejectsUnassignedPropertyFilter(t *testing.T) {
 	engine := newTestEngine(
 		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID2}},
@@ -2977,6 +3119,7 @@ type findLeaseCall struct {
 
 type fakeResourceOwnershipRepo struct {
 	propertyByRoomID             map[string]string
+	roomIDLookup                 *string
 	propertyByTenantID           map[string]string
 	propertyByLeaseID            map[string]string
 	propertyByBillID             map[string]string
@@ -4135,6 +4278,9 @@ func (f fakeLeaseQueryRepo) FindByIDAccessible(_ context.Context, id string, rol
 }
 
 func (f fakeResourceOwnershipRepo) FindPropertyIDByRoomID(_ context.Context, roomID string) (string, error) {
+	if f.roomIDLookup != nil {
+		*f.roomIDLookup = roomID
+	}
 	return lookupPropertyID(f.propertyByRoomID, roomID)
 }
 

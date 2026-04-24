@@ -230,6 +230,79 @@ FOR UPDATE
 	}
 }
 
+func TestListPropertyPendingMetersFiltersPendingMeterAndReturnsPeriodBounds(t *testing.T) {
+	db, mock, repo := newBillingRepoTest(t)
+	defer closeBillingDB(t, db)
+
+	periodStart := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	periodEnd := time.Date(2026, 4, 30, 0, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC)
+	mock.ExpectQuery(`(?s)FROM bills b\s+JOIN properties p ON p.id = b.property_id AND p.deleted_at IS NULL\s+WHERE b.property_id = \$1\s+AND b.type = 'electricity'\s+AND b.status = 'pending_meter'\s+AND b.deleted_at IS NULL`).
+		WithArgs("property-1").
+		WillReturnRows(billRows().AddRow(
+			"bill-1", "lease-1", "tenant-1", "room-1", "property-1", "electricity", nil,
+			periodStart, periodEnd, now, "pending_meter", nil, nil, nil, nil, nil, nil, nil, nil, 0, now, now, 1,
+		))
+
+	bills, err := repo.ListPropertyPendingMeters(context.Background(), Scope{Role: "admin"}, "property-1")
+	if err != nil {
+		t.Fatalf("ListPropertyPendingMeters: %v", err)
+	}
+	if len(bills) != 1 {
+		t.Fatalf("expected 1 bill, got %d", len(bills))
+	}
+	if !bills[0].PeriodStart.Equal(periodStart) || !bills[0].PeriodEnd.Equal(periodEnd) {
+		t.Fatalf("period = %s..%s, want %s..%s", bills[0].PeriodStart, bills[0].PeriodEnd, periodStart, periodEnd)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestListPropertyMeterHistoryYearFilterUsesPeriodOverlap(t *testing.T) {
+	db, mock, repo := newBillingRepoTest(t)
+	defer closeBillingDB(t, db)
+
+	year := 2026
+	rangeStart := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	rangeEnd := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
+	mock.ExpectQuery(`(?s)b.property_id = \$1\s+AND b.type = 'electricity'\s+AND b.meter_current_reading IS NOT NULL\s+AND b.status NOT IN \('voided', 'written_off'\)\s+AND b.deleted_at IS NULL\s+AND b.period_start < \$2\s+AND b.period_end >= \$3`).
+		WithArgs("property-1", rangeEnd, rangeStart).
+		WillReturnRows(billRows())
+
+	_, err := repo.ListPropertyMeterHistory(context.Background(), Scope{Role: "admin"}, "property-1", &year)
+	if err != nil {
+		t.Fatalf("ListPropertyMeterHistory: %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestListRoomMeterHistoryMonthFilterUsesPeriodOverlap(t *testing.T) {
+	db, mock, repo := newBillingRepoTest(t)
+	defer closeBillingDB(t, db)
+
+	year := 2026
+	month := 4
+	rangeStart := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	rangeEnd := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	mock.ExpectQuery(`(?s)b.room_id = \$1\s+AND b.type = 'electricity'\s+AND b.meter_current_reading IS NOT NULL\s+AND b.status NOT IN \('voided', 'written_off'\)\s+AND b.deleted_at IS NULL\s+AND b.period_start < \$2\s+AND b.period_end >= \$3`).
+		WithArgs("room-1", rangeEnd, rangeStart).
+		WillReturnRows(billRows())
+
+	_, err := repo.ListRoomMeterHistory(context.Background(), Scope{Role: "admin"}, "room-1", &year, &month)
+	if err != nil {
+		t.Fatalf("ListRoomMeterHistory: %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
 func TestFindPropertyElectricityUnitPriceForUpdateUsesTransaction(t *testing.T) {
 	db, mock, repo := newBillingRepoTest(t)
 	defer closeBillingDB(t, db)
@@ -356,6 +429,204 @@ func TestInsertAccountingEntryWritesCategoryAmountSourceRefYearAndMonth(t *testi
 	}
 }
 
+func TestGetFinancialReportFinalizedMapsSnapshotEntries(t *testing.T) {
+	db, mock, repo := newBillingRepoTest(t)
+	defer closeBillingDB(t, db)
+
+	createdAt := time.Date(2026, 4, 30, 23, 0, 0, 0, time.UTC)
+	mock.ExpectQuery(`(?s)FROM monthly_snapshots ms\s+JOIN properties p ON p.id = ms.property_id AND p.deleted_at IS NULL\s+LEFT JOIN monthly_snapshot_entries mse ON mse.snapshot_id = ms.id\s+WHERE ms.property_id = \$1\s+AND ms.year = \$2\s+AND ms.month = \$3`).
+		WithArgs("property-1", 2026, 4).
+		WillReturnRows(financialReportFinalizedRows().
+			AddRow("property-1", 2026, 4, 13000, 1500, 11500, "entry-1", "rent_payment", "rent", 12000, []byte(`{"bill_id":"bill-1"}`), createdAt).
+			AddRow("property-1", 2026, 4, 13000, 1500, 11500, "entry-2", "journal_expense", nil, 1500, []byte(`{"journal_log_id":"journal-1"}`), createdAt))
+
+	report, err := repo.GetFinancialReport(context.Background(), Scope{Role: "admin"}, "property-1", 2026, 4, false)
+	if err != nil {
+		t.Fatalf("GetFinancialReport finalized: %v", err)
+	}
+	if !report.IsFinalized {
+		t.Fatalf("IsFinalized = false, want true")
+	}
+	if report.TotalIncome != 13000 || report.TotalExpense != 1500 || report.Net != 11500 {
+		t.Fatalf("totals = income %d expense %d net %d, want 13000 1500 11500", report.TotalIncome, report.TotalExpense, report.Net)
+	}
+	if len(report.Entries) != 2 {
+		t.Fatalf("entries = %d, want 2", len(report.Entries))
+	}
+	if report.Entries[0].Category != "rent_payment" || report.Entries[0].Description == nil || *report.Entries[0].Description != "rent" {
+		t.Fatalf("first entry = %+v, want rent_payment with description", report.Entries[0])
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestGetFinancialReportLiveMapsAccountingEntriesAndAggregatesTotals(t *testing.T) {
+	db, mock, repo := newBillingRepoTest(t)
+	defer closeBillingDB(t, db)
+
+	createdAt := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
+	mock.ExpectQuery(`(?s)FROM property_accounts pa\s+JOIN properties p ON p.id = pa.property_id AND p.deleted_at IS NULL\s+LEFT JOIN accounting_entries ae ON ae.property_account_id = pa.id\s+AND ae.year = \$2\s+AND ae.month = \$3\s+WHERE pa.property_id = \$1\s+AND pa.deleted_at IS NULL`).
+		WithArgs("property-1", 2026, 4).
+		WillReturnRows(financialReportLiveRows().
+			AddRow("property-1", 2026, 4, "entry-1", "rent_payment", "rent", 12000, []byte(`{"bill_id":"bill-1"}`), createdAt).
+			AddRow("property-1", 2026, 4, "entry-2", "electricity_payment", nil, 1000, []byte(`{"bill_id":"bill-2"}`), createdAt).
+			AddRow("property-1", 2026, 4, "entry-3", "deposit_refund", "refund", -3000, []byte(`{"lease_id":"lease-1"}`), createdAt).
+			AddRow("property-1", 2026, 4, "entry-4", "journal_expense", nil, 500, []byte(`{"journal_log_id":"journal-1"}`), createdAt))
+
+	report, err := repo.GetFinancialReport(context.Background(), Scope{Role: "admin"}, "property-1", 2026, 4, true)
+	if err != nil {
+		t.Fatalf("GetFinancialReport live: %v", err)
+	}
+	if report.IsFinalized {
+		t.Fatalf("IsFinalized = true, want false")
+	}
+	if report.TotalIncome != 13000 || report.TotalExpense != 3500 || report.Net != 9500 {
+		t.Fatalf("totals = income %d expense %d net %d, want 13000 3500 9500", report.TotalIncome, report.TotalExpense, report.Net)
+	}
+	if len(report.Entries) != 4 {
+		t.Fatalf("entries = %d, want 4", len(report.Entries))
+	}
+	if report.Entries[2].Amount != -3000 {
+		t.Fatalf("deposit refund amount = %d, want stored -3000", report.Entries[2].Amount)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestGetFinancialReportFinalizedAllowsEmptyEntries(t *testing.T) {
+	db, mock, repo := newBillingRepoTest(t)
+	defer closeBillingDB(t, db)
+
+	mock.ExpectQuery(`(?s)FROM monthly_snapshots ms\s+JOIN properties p ON p.id = ms.property_id AND p.deleted_at IS NULL\s+LEFT JOIN monthly_snapshot_entries mse ON mse.snapshot_id = ms.id\s+WHERE ms.property_id = \$1\s+AND ms.year = \$2\s+AND ms.month = \$3`).
+		WithArgs("property-1", 2026, 4).
+		WillReturnRows(financialReportFinalizedRows().
+			AddRow("property-1", 2026, 4, 0, 0, 0, nil, nil, nil, nil, nil, nil))
+
+	report, err := repo.GetFinancialReport(context.Background(), Scope{Role: "admin"}, "property-1", 2026, 4, false)
+	if err != nil {
+		t.Fatalf("GetFinancialReport finalized: %v", err)
+	}
+	if len(report.Entries) != 0 {
+		t.Fatalf("entries = %d, want 0", len(report.Entries))
+	}
+	if !report.IsFinalized || report.TotalIncome != 0 || report.TotalExpense != 0 || report.Net != 0 {
+		t.Fatalf("unexpected empty finalized report: %+v", report)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestGetFinancialReportLiveAllowsEmptyEntries(t *testing.T) {
+	db, mock, repo := newBillingRepoTest(t)
+	defer closeBillingDB(t, db)
+
+	mock.ExpectQuery(`(?s)FROM property_accounts pa\s+JOIN properties p ON p.id = pa.property_id AND p.deleted_at IS NULL\s+LEFT JOIN accounting_entries ae ON ae.property_account_id = pa.id\s+AND ae.year = \$2\s+AND ae.month = \$3\s+WHERE pa.property_id = \$1\s+AND pa.deleted_at IS NULL`).
+		WithArgs("property-1", 2026, 4).
+		WillReturnRows(financialReportLiveRows().
+			AddRow("property-1", 2026, 4, nil, nil, nil, nil, nil, nil))
+
+	report, err := repo.GetFinancialReport(context.Background(), Scope{Role: "admin"}, "property-1", 2026, 4, true)
+	if err != nil {
+		t.Fatalf("GetFinancialReport live: %v", err)
+	}
+	if len(report.Entries) != 0 {
+		t.Fatalf("entries = %d, want 0", len(report.Entries))
+	}
+	if report.IsFinalized || report.TotalIncome != 0 || report.TotalExpense != 0 || report.Net != 0 {
+		t.Fatalf("unexpected empty live report: %+v", report)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestGetFinancialReportLiveNoPropertyAccountReturnsNotFound(t *testing.T) {
+	db, mock, repo := newBillingRepoTest(t)
+	defer closeBillingDB(t, db)
+
+	mock.ExpectQuery(`(?s)FROM property_accounts pa\s+JOIN properties p ON p.id = pa.property_id AND p.deleted_at IS NULL\s+LEFT JOIN accounting_entries ae ON ae.property_account_id = pa.id\s+AND ae.year = \$2\s+AND ae.month = \$3\s+WHERE pa.property_id = \$1\s+AND pa.deleted_at IS NULL`).
+		WithArgs("property-1", 2026, 4).
+		WillReturnRows(financialReportLiveRows())
+
+	_, err := repo.GetFinancialReport(context.Background(), Scope{Role: "admin"}, "property-1", 2026, 4, true)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestListFinancialReportSummariesDeduplicatesAndSortsLiveOverSnapshot(t *testing.T) {
+	db, mock, repo := newBillingRepoTest(t)
+	defer closeBillingDB(t, db)
+
+	mock.ExpectQuery(`(?s)FROM monthly_snapshots ms\s+JOIN properties p ON p.id = ms.property_id AND p.deleted_at IS NULL\s+WHERE ms.property_id = \$1\s+ORDER BY ms.year DESC, ms.month DESC`).
+		WithArgs("property-1").
+		WillReturnRows(financialReportSummaryRows().
+			AddRow(2026, 4, 1000, 100, 900).
+			AddRow(2026, 3, 3000, 300, 2700))
+	mock.ExpectQuery(`(?s)FROM property_accounts pa\s+JOIN properties p ON p.id = pa.property_id AND p.deleted_at IS NULL\s+LEFT JOIN accounting_entries ae ON ae.property_account_id = pa.id\s+AND ae.year = \$2\s+AND ae.month = \$3\s+WHERE pa.property_id = \$1\s+AND pa.deleted_at IS NULL\s+GROUP BY pa.property_id`).
+		WithArgs("property-1", 2026, 4).
+		WillReturnRows(financialReportSummaryRows().
+			AddRow(2026, 4, 5000, 200, 4800))
+
+	summaries, err := repo.ListFinancialReportSummaries(context.Background(), Scope{Role: "admin"}, "property-1", nil, 2026, 4)
+	if err != nil {
+		t.Fatalf("ListFinancialReportSummaries: %v", err)
+	}
+	if len(summaries) != 2 {
+		t.Fatalf("summaries = %d, want 2", len(summaries))
+	}
+	if summaries[0].Year != 2026 || summaries[0].Month != 4 || summaries[0].TotalIncome != 5000 || summaries[0].Net != 4800 {
+		t.Fatalf("unexpected current summary: %+v", summaries[0])
+	}
+	if summaries[1].Year != 2026 || summaries[1].Month != 3 {
+		t.Fatalf("unexpected second summary: %+v", summaries[1])
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestListFinancialReportSummariesIncludesEmptyLiveMonthWhenAccountExists(t *testing.T) {
+	db, mock, repo := newBillingRepoTest(t)
+	defer closeBillingDB(t, db)
+
+	year := 2026
+	mock.ExpectQuery(`(?s)FROM monthly_snapshots ms\s+JOIN properties p ON p.id = ms.property_id AND p.deleted_at IS NULL\s+WHERE ms.property_id = \$1\s+AND ms.year = \$2\s+ORDER BY ms.year DESC, ms.month DESC`).
+		WithArgs("property-1", 2026).
+		WillReturnRows(financialReportSummaryRows())
+	mock.ExpectQuery(`(?s)FROM property_accounts pa\s+JOIN properties p ON p.id = pa.property_id AND p.deleted_at IS NULL\s+LEFT JOIN accounting_entries ae ON ae.property_account_id = pa.id\s+AND ae.year = \$2\s+AND ae.month = \$3\s+WHERE pa.property_id = \$1\s+AND pa.deleted_at IS NULL\s+GROUP BY pa.property_id`).
+		WithArgs("property-1", 2026, 4).
+		WillReturnRows(financialReportSummaryRows().
+			AddRow(2026, 4, 0, 0, 0))
+
+	summaries, err := repo.ListFinancialReportSummaries(context.Background(), Scope{Role: "admin"}, "property-1", &year, 2026, 4)
+	if err != nil {
+		t.Fatalf("ListFinancialReportSummaries: %v", err)
+	}
+	if len(summaries) != 1 {
+		t.Fatalf("summaries = %d, want 1", len(summaries))
+	}
+	if summaries[0].Year != 2026 || summaries[0].Month != 4 || summaries[0].TotalIncome != 0 || summaries[0].TotalExpense != 0 || summaries[0].Net != 0 {
+		t.Fatalf("unexpected empty live summary: %+v", summaries[0])
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
 func newBillingRepoTest(t *testing.T) (*sql.DB, sqlmock.Sqlmock, *SQLRepository) {
 	t.Helper()
 
@@ -411,5 +682,46 @@ func billRows() *sqlmock.Rows {
 		"created_at",
 		"updated_at",
 		"version",
+	})
+}
+
+func financialReportFinalizedRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{
+		"property_id",
+		"year",
+		"month",
+		"total_income",
+		"total_expense",
+		"net",
+		"id",
+		"category",
+		"description",
+		"amount",
+		"source_ref",
+		"created_at",
+	})
+}
+
+func financialReportLiveRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{
+		"property_id",
+		"year",
+		"month",
+		"id",
+		"category",
+		"description",
+		"amount",
+		"source_ref",
+		"created_at",
+	})
+}
+
+func financialReportSummaryRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{
+		"year",
+		"month",
+		"total_income",
+		"total_expense",
+		"net",
 	})
 }

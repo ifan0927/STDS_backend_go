@@ -125,7 +125,7 @@ func New(cfg *config.Config) (*Server, error) {
 		TerminateLease:      terminateLeaseService,
 		ForceTerminateLease: forceTerminateLeaseService,
 		GetForceTermination: getForceTerminationService,
-		Billing:             newBillingServices(db, txRunner),
+		Billing:             newBillingServices(db, txRunner, bus),
 	})
 
 	return &Server{
