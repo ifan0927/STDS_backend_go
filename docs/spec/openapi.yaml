@@ -3714,7 +3714,7 @@ paths:
                   summary: 帳單狀態不可抄表
                   value:
                     error_code: BILL_STATUS_NOT_RECORDABLE
-                    message: 此帳單目前狀態不可抄表
+                    message: Bill status is not recordable.
   /bills/{id}/payment:
     post:
       operationId: recordBillPayment
@@ -3835,12 +3835,12 @@ paths:
                   summary: 帳單狀態不可收款
                   value:
                     error_code: BILL_STATUS_NOT_PAYABLE
-                    message: 此帳單目前狀態不可收款
+                    message: Bill status is not payable.
                 amount_mismatch:
                   summary: 收款金額必須等於帳單金額
                   value:
                     error_code: BILL_PAID_AMOUNT_MISMATCH
-                    message: 收款金額必須等於帳單金額
+                    message: Paid amount must equal bill amount.
                     details:
                       expected_amount: 18000
                       submitted_amount: 17000
@@ -6826,11 +6826,11 @@ components:
             - other
         paid_amount:
           type: integer
-          description: 收款金額，必須等於帳單 amount；不支援部分收款或溢收。
+          description: Payment amount. Must exactly equal the bill amount; partial or overpayments are not supported.
         paid_at:
           type: string
           format: date-time
-          description: 付款時間（選填，預設為伺服器時間）
+          description: Payment timestamp. Optional; defaults to the server time.
     FinancialReportSummaryItem:
       type: object
       properties:

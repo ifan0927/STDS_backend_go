@@ -111,7 +111,7 @@ func NewRepository(db *sql.DB) *SQLRepository {
 }
 
 // ListAccessible returns active bills visible to the provided scope.
-func (r *SQLRepository) ListAccessible(ctx context.Context, scope Scope, filter BillFilter) ([]Bill, error) {
+func (r *SQLRepository) ListAccessible(ctx context.Context, scope Scope, filter BillFilter) (bills []Bill, err error) {
 	query, args, ok := buildAccessibleBillQuery(scope, filter, false, nil)
 	if !ok {
 		return []Bill{}, nil
@@ -121,9 +121,13 @@ func (r *SQLRepository) ListAccessible(ctx context.Context, scope Scope, filter 
 	if err != nil {
 		return nil, fmt.Errorf("list accessible bills: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close bill rows: %w", cerr)
+		}
+	}()
 
-	bills := make([]Bill, 0)
+	bills = make([]Bill, 0)
 	for rows.Next() {
 		bill, err := scanBill(rows)
 		if err != nil {

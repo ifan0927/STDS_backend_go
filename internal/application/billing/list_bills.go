@@ -62,6 +62,19 @@ func (s *ListBillsService) Execute(ctx context.Context, input ListBillsInput) ([
 		return nil, err
 	}
 
+	if input.Limit < 0 {
+		return nil, apperr.ErrBadRequest.WithDetails(map[string]interface{}{
+			"field":  "limit",
+			"reason": "must be greater than or equal to 0",
+		})
+	}
+	if input.Offset < 0 {
+		return nil, apperr.ErrBadRequest.WithDetails(map[string]interface{}{
+			"field":  "offset",
+			"reason": "must be greater than or equal to 0",
+		})
+	}
+
 	bills, err := s.repo.ListBills(ctx, ListBillsQuery{
 		ActorRole:           actorRole,
 		ActorUserID:         strings.TrimSpace(input.ActorUserID),

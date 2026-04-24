@@ -108,7 +108,7 @@ func (a *Aggregate) RecordPayment(paidAmount int, paymentMethod string, paidAt t
 		return ErrBillStatusNotPayable
 	}
 	if a.state.Amount == nil {
-		return ErrBillStatusNotPayable
+		return ErrBillAmountMissing
 	}
 	if paidAmount != *a.state.Amount {
 		return ErrBillPaidAmountMismatch

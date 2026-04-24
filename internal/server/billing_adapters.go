@@ -175,6 +175,9 @@ func (a billingRepositoryAdapter) FindPreviousElectricityReading(ctx context.Con
 func (a billingRepositoryAdapter) FindPropertyElectricityUnitPrice(ctx context.Context, tx *sql.Tx, propertyID string) (*float64, error) {
 	unitPrice, err := a.repo.FindPropertyElectricityUnitPriceForUpdate(ctx, tx, propertyID)
 	if err != nil {
+		if errors.Is(err, dbbilling.ErrNotFound) {
+			return nil, appbilling.ErrPropertyElectricityUnitPriceNotFound
+		}
 		return nil, mapBillingRepositoryError(err)
 	}
 

@@ -255,7 +255,7 @@ func (s *APIServer) ListBills(c *gin.Context, params api.ListBillsParams) {
 		return
 	}
 
-	if params.Month != nil && !isYYYYMM(*params.Month) {
+	if params.Month != nil && !queryparams.IsYYYYMM(*params.Month) {
 		c.Error(apperr.ErrBadRequest.WithDetails(map[string]interface{}{
 			"field":  "month",
 			"reason": "must use YYYY-MM format",
@@ -1640,15 +1640,6 @@ func parseUUID(value string) (openapi_types.UUID, bool) {
 	}
 
 	return parsed, true
-}
-
-func isYYYYMM(value string) bool {
-	if len(value) != len("2006-01") || value[4] != '-' {
-		return false
-	}
-
-	_, err := time.Parse("2006-01", value)
-	return err == nil
 }
 
 func toBillResponse(bill *BillingBill) api.BillResponse {

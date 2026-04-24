@@ -13,7 +13,7 @@ import (
 
 func TestListAccessibleOwnerScopeReturnsOwnedBills(t *testing.T) {
 	db, mock, repo := newBillingRepoTest(t)
-	defer db.Close()
+	defer closeBillingDB(t, db)
 
 	now := time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC)
 	mock.ExpectQuery(`(?s)FROM bills b\s+JOIN properties p ON p.id = b.property_id AND p.deleted_at IS NULL\s+WHERE b.deleted_at IS NULL\s+AND p.owner_id = \$1\s+ORDER BY b.due_date DESC, b.created_at DESC LIMIT \$2 OFFSET \$3`).
@@ -41,7 +41,7 @@ func TestListAccessibleOwnerScopeReturnsOwnedBills(t *testing.T) {
 
 func TestListAccessibleOrganizerWithNoAssignedPropertiesReturnsEmpty(t *testing.T) {
 	db, mock, repo := newBillingRepoTest(t)
-	defer db.Close()
+	defer closeBillingDB(t, db)
 
 	bills, err := repo.ListAccessible(context.Background(), Scope{Role: "organizer"}, BillFilter{Limit: 10})
 	if err != nil {
@@ -57,7 +57,7 @@ func TestListAccessibleOrganizerWithNoAssignedPropertiesReturnsEmpty(t *testing.
 
 func TestListAccessibleAppliesFiltersAndPagination(t *testing.T) {
 	db, mock, repo := newBillingRepoTest(t)
-	defer db.Close()
+	defer closeBillingDB(t, db)
 
 	propertyID := "property-1"
 	leaseID := "lease-1"
@@ -92,7 +92,7 @@ func TestListAccessibleAppliesFiltersAndPagination(t *testing.T) {
 
 func TestFindByIDAccessibleComputesPreviousReadingWhenMissing(t *testing.T) {
 	db, mock, repo := newBillingRepoTest(t)
-	defer db.Close()
+	defer closeBillingDB(t, db)
 
 	periodStart := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
 	now := time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC)
@@ -132,7 +132,7 @@ LIMIT 1
 
 func TestFindByIDAccessibleDefaultsPreviousReadingToZeroWhenNoHistory(t *testing.T) {
 	db, mock, repo := newBillingRepoTest(t)
-	defer db.Close()
+	defer closeBillingDB(t, db)
 
 	periodStart := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
 	now := time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC)
@@ -162,7 +162,7 @@ func TestFindByIDAccessibleDefaultsPreviousReadingToZeroWhenNoHistory(t *testing
 
 func TestFindPreviousMeterReadingChoosesLatestSameRoomCompletedElectricityBill(t *testing.T) {
 	db, mock, repo := newBillingRepoTest(t)
-	defer db.Close()
+	defer closeBillingDB(t, db)
 
 	periodStart := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
 	mock.ExpectQuery(regexp.QuoteMeta(`
@@ -194,7 +194,7 @@ LIMIT 1
 
 func TestFindPreviousMeterReadingForUpdateUsesTransaction(t *testing.T) {
 	db, mock, repo := newBillingRepoTest(t)
-	defer db.Close()
+	defer closeBillingDB(t, db)
 
 	tx := beginBillingTx(t, db, mock)
 	periodStart := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
@@ -231,7 +231,7 @@ LIMIT 1
 
 func TestFindPropertyElectricityUnitPriceForUpdateUsesTransaction(t *testing.T) {
 	db, mock, repo := newBillingRepoTest(t)
-	defer db.Close()
+	defer closeBillingDB(t, db)
 
 	tx := beginBillingTx(t, db, mock)
 	mock.ExpectQuery(regexp.QuoteMeta(`
@@ -263,7 +263,7 @@ LIMIT 1
 
 func TestUpdateMeterRowsAffectedZeroMapsToConcurrentSentinel(t *testing.T) {
 	db, mock, repo := newBillingRepoTest(t)
-	defer db.Close()
+	defer closeBillingDB(t, db)
 
 	tx := beginBillingTx(t, db, mock)
 	recordedAt := time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC)
@@ -295,7 +295,7 @@ func TestUpdateMeterRowsAffectedZeroMapsToConcurrentSentinel(t *testing.T) {
 
 func TestUpdatePaymentRowsAffectedZeroMapsToConcurrentSentinel(t *testing.T) {
 	db, mock, repo := newBillingRepoTest(t)
-	defer db.Close()
+	defer closeBillingDB(t, db)
 
 	tx := beginBillingTx(t, db, mock)
 	paidAt := time.Date(2026, 4, 24, 11, 0, 0, 0, time.UTC)
@@ -325,7 +325,7 @@ func TestUpdatePaymentRowsAffectedZeroMapsToConcurrentSentinel(t *testing.T) {
 
 func TestInsertAccountingEntryWritesCategoryAmountSourceRefYearAndMonth(t *testing.T) {
 	db, mock, repo := newBillingRepoTest(t)
-	defer db.Close()
+	defer closeBillingDB(t, db)
 
 	tx := beginBillingTx(t, db, mock)
 	description := "bill payment"
@@ -366,11 +366,19 @@ func newBillingRepoTest(t *testing.T) (*sql.DB, sqlmock.Sqlmock, *SQLRepository)
 	return db, mock, NewRepository(db)
 }
 
+func closeBillingDB(t *testing.T, db *sql.DB) {
+	t.Helper()
+
+	if err := db.Close(); err != nil {
+		t.Logf("db.Close: %v", err)
+	}
+}
+
 func beginBillingTx(t *testing.T, db *sql.DB, mock sqlmock.Sqlmock) *sql.Tx {
 	t.Helper()
 
 	mock.ExpectBegin()
-	tx, err := db.Begin()
+	tx, err := db.BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}

@@ -117,12 +117,12 @@ post:
               summary: 帳單狀態不可收款
               value:
                 error_code: BILL_STATUS_NOT_PAYABLE
-                message: 此帳單目前狀態不可收款
+                message: Bill status is not payable.
             amount_mismatch:
               summary: 收款金額必須等於帳單金額
               value:
                 error_code: BILL_PAID_AMOUNT_MISMATCH
-                message: 收款金額必須等於帳單金額
+                message: Paid amount must equal bill amount.
                 details:
                   expected_amount: 18000
                   submitted_amount: 17000

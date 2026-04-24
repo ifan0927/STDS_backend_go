@@ -710,10 +710,10 @@ type RecordMeterRequest struct {
 
 // RecordPaymentRequest defines model for RecordPaymentRequest.
 type RecordPaymentRequest struct {
-	// PaidAmount 收款金額，必須等於帳單 amount；不支援部分收款或溢收。
+	// PaidAmount Payment amount. Must exactly equal the bill amount; partial or overpayments are not supported.
 	PaidAmount int `json:"paid_amount"`
 
-	// PaidAt 付款時間（選填，預設為伺服器時間）
+	// PaidAt Payment timestamp. Optional; defaults to the server time.
 	PaidAt        *time.Time                        `json:"paid_at,omitempty"`
 	PaymentMethod RecordPaymentRequestPaymentMethod `json:"payment_method"`
 }

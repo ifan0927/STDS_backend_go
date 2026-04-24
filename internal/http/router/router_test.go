@@ -2151,11 +2151,13 @@ func TestDeletePropertyReturnsOccupiedRoomDetails(t *testing.T) {
 
 func TestGetBillResolvesPropertyAccessThroughOwnershipQuery(t *testing.T) {
 	repo := fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}}
-	engine := newTestEngine(repo, fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}}, fakePropertyRepo{}, fakeResourceOwnershipRepo{
+	var capturedBillID string
+	engine := newTestEngineWithBilling(repo, fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}}, fakePropertyRepo{}, fakeResourceOwnershipRepo{
 		propertyByBillID: map[string]string{
 			testBillID1: testPropertyID1,
 		},
-	}, "", fakeJobRunsRepo{})
+		billIDLookup: &capturedBillID,
+	}, "", fakeJobRunsRepo{}, handler.BillingServices{Query: fakeBillingQuery{}})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/bills/"+testBillID1, nil)
 	req.Header.Set("Authorization", "Bearer valid-token")
@@ -2163,8 +2165,11 @@ func TestGetBillResolvesPropertyAccessThroughOwnershipQuery(t *testing.T) {
 
 	engine.ServeHTTP(resp, req)
 
-	if resp.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", resp.Code, resp.Body.String())
+	if capturedBillID != testBillID1 {
+		t.Fatalf("ownership lookup bill id = %q, want %q", capturedBillID, testBillID1)
+	}
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", resp.Code, resp.Body.String())
 	}
 }
 
@@ -2975,6 +2980,7 @@ type fakeResourceOwnershipRepo struct {
 	propertyByTenantID           map[string]string
 	propertyByLeaseID            map[string]string
 	propertyByBillID             map[string]string
+	billIDLookup                 *string
 	propertyByJournalLogID       map[string]string
 	propertyByRepairRequestID    map[string]string
 	propertyByForceTerminationID map[string]string
@@ -2994,6 +3000,16 @@ type customClaimsCall struct {
 	firebaseUID         string
 	role                string
 	assignedPropertyIDs []string
+}
+
+type fakeBillingQuery struct{}
+
+func (fakeBillingQuery) ListBills(_ context.Context, _ handler.BillingListInput) ([]handler.BillingBill, error) {
+	return nil, nil
+}
+
+func (fakeBillingQuery) GetBill(_ context.Context, _ handler.BillingGetInput) (*handler.BillingBill, error) {
+	return nil, apperr.ErrBillNotFound
 }
 
 type testUserAccountRepositoryAdapter struct {
@@ -4131,6 +4147,9 @@ func (f fakeResourceOwnershipRepo) FindPropertyIDByLeaseID(_ context.Context, le
 }
 
 func (f fakeResourceOwnershipRepo) FindPropertyIDByBillID(_ context.Context, billID string) (string, error) {
+	if f.billIDLookup != nil {
+		*f.billIDLookup = billID
+	}
 	return lookupPropertyID(f.propertyByBillID, billID)
 }
 
@@ -4191,6 +4210,24 @@ func newTestEngine(userRepo fakeUserRepo, authenticator fakeAuthenticator, prope
 		fakePropertyQueryRepo{},
 		fakeLeaseQueryRepo{},
 		fakeTenantQueryRepo{},
+	)
+}
+
+func newTestEngineWithBilling(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo, billing handler.BillingServices) *gin.Engine {
+	return newTestEngineWithAllServices(
+		userRepo,
+		authenticator,
+		propertyRepo,
+		ownershipRepo,
+		schedulerKey,
+		jobRunsRepo,
+		fakePropertyQueryRepo{},
+		fakeLeaseQueryRepo{},
+		fakeTenantQueryRepo{},
+		apptenant.NewCreateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
+		apptenant.NewUpdateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
+		applease.NewCreateLeaseService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil)),
+		handler.LeaseCommandServices{Billing: billing},
 	)
 }
 

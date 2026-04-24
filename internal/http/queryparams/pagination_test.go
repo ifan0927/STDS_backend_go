@@ -91,6 +91,27 @@ func TestNormalizePaginationRejectsInvalidValues(t *testing.T) {
 	}
 }
 
+func TestIsYYYYMM(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  bool
+	}{
+		{name: "valid month", value: "2026-04", want: true},
+		{name: "missing zero padding", value: "2026-4", want: false},
+		{name: "invalid month", value: "2026-13", want: false},
+		{name: "wrong separator", value: "2026/04", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsYYYYMM(tt.value); got != tt.want {
+				t.Fatalf("IsYYYYMM(%q) = %v, want %v", tt.value, got, tt.want)
+			}
+		})
+	}
+}
+
 func intPtr(v int) *int {
 	return &v
 }

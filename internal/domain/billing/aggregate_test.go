@@ -153,7 +153,7 @@ func TestRecordPaymentRejectsInvalidBillsWithoutMutatingState(t *testing.T) {
 			name:        "missing amount",
 			state:       validBillState(TypeRent, StatusPendingPayment, nil),
 			paidAmount:  12000,
-			expectedErr: ErrBillStatusNotPayable,
+			expectedErr: ErrBillAmountMissing,
 		},
 		{
 			name:        "amount mismatch",

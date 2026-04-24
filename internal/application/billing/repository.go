@@ -10,9 +10,10 @@ import (
 )
 
 var (
-	ErrBillNotFound             = errors.New("bill not found")
-	ErrConcurrentUpdateConflict = errors.New("concurrent update conflict")
-	ErrPropertyAccountNotFound  = errors.New("property account not found")
+	ErrBillNotFound                         = errors.New("bill not found")
+	ErrConcurrentUpdateConflict             = errors.New("concurrent update conflict")
+	ErrPropertyAccountNotFound              = errors.New("property account not found")
+	ErrPropertyElectricityUnitPriceNotFound = errors.New("property electricity unit price not found")
 )
 
 // TransactionRunner is the txrunner.Runner surface required by billing use cases.

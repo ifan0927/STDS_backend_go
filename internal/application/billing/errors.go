@@ -60,6 +60,10 @@ func mapRepositoryError(err error) error {
 		return apperr.ErrBillNotFound
 	case errors.Is(err, ErrConcurrentUpdateConflict):
 		return apperr.ErrConcurrentUpdateConflict
+	case errors.Is(err, ErrPropertyElectricityUnitPriceNotFound):
+		return apperr.ErrInternalServerError.WithCause(err).WithDetails(map[string]interface{}{
+			"dependency": "electricity_unit_price",
+		})
 	default:
 		return apperr.ErrInternalServerError.WithCause(err)
 	}
@@ -95,6 +99,8 @@ func mapDomainError(err error, bill *Bill, submittedAmount int) error {
 	case errors.Is(err, domainbilling.ErrBillStatusNotRecordable):
 		return ErrBillStatusNotRecordable
 	case errors.Is(err, domainbilling.ErrBillStatusNotPayable):
+		return ErrBillStatusNotPayable
+	case errors.Is(err, domainbilling.ErrBillAmountMissing):
 		return ErrBillStatusNotPayable
 	case errors.Is(err, domainbilling.ErrBillPaidAmountMismatch):
 		details := map[string]interface{}{

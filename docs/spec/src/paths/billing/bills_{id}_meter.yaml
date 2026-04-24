@@ -129,4 +129,4 @@ post:
               summary: 帳單狀態不可抄表
               value:
                 error_code: BILL_STATUS_NOT_RECORDABLE
-                message: 此帳單目前狀態不可抄表
+                message: Bill status is not recordable.

@@ -50,6 +50,59 @@ func TestGetBillServicePassesActorScopeToRepository(t *testing.T) {
 	}
 }
 
+func TestListBillsServiceRejectsNegativePagination(t *testing.T) {
+	tests := []struct {
+		name  string
+		input ListBillsInput
+		field string
+	}{
+		{
+			name:  "negative limit",
+			input: ListBillsInput{ActorRole: "staff", Limit: -1},
+			field: "limit",
+		},
+		{
+			name:  "negative offset",
+			input: ListBillsInput{ActorRole: "staff", Limit: 10, Offset: -1},
+			field: "offset",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &billingRepositoryStub{}
+			service := NewListBillsService(repo)
+
+			_, err := service.Execute(context.Background(), tt.input)
+			assertAppErrorCode(t, err, apperr.CodeBadRequest)
+			assertAppErrorDetails(t, err, map[string]any{"field": tt.field})
+			if repo.listBillsQuery != nil {
+				t.Fatalf("unexpected ListBills call: %+v", repo.listBillsQuery)
+			}
+		})
+	}
+}
+
+func TestListBillsServiceForwardsValidatedPagination(t *testing.T) {
+	repo := &billingRepositoryStub{}
+	service := NewListBillsService(repo)
+
+	_, err := service.Execute(context.Background(), ListBillsInput{
+		ActorRole: "staff",
+		Limit:     25,
+		Offset:    50,
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if repo.listBillsQuery == nil {
+		t.Fatal("expected ListBills query")
+	}
+	if repo.listBillsQuery.Limit != 25 || repo.listBillsQuery.Offset != 50 {
+		t.Fatalf("pagination = limit %d offset %d, want 25/50", repo.listBillsQuery.Limit, repo.listBillsQuery.Offset)
+	}
+}
+
 func TestRecordMeterServiceRecordsMeterAndPublishesEventAfterCommit(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -188,6 +241,43 @@ func TestRecordMeterServiceRejectsBusinessRulesAndRollsBackWithoutEvent(t *testi
 				t.Fatalf("ExpectationsWereMet: %v", err)
 			}
 		})
+	}
+}
+
+func TestRecordMeterServiceMapsMissingUnitPriceDependency(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectRollback()
+
+	repo := &billingRepositoryStub{
+		billForUpdate:    billForCommand(domainbilling.TypeElectricity, domainbilling.StatusPendingMeter, nil),
+		previousReading:  1250,
+		unitPriceErr:     ErrPropertyElectricityUnitPriceNotFound,
+		updatedMeterBill: billForCommand(domainbilling.TypeElectricity, domainbilling.StatusPendingPayment, intPtr(585)),
+	}
+	publisher := &recordingPublisher{}
+	service := NewRecordMeterService(repo, dbtxrunner.New(db, publisher))
+
+	_, err = service.Execute(context.Background(), RecordMeterInput{
+		ActorRole:      "staff",
+		BillID:         testBillID,
+		CurrentReading: 1380,
+	})
+	assertAppErrorCode(t, err, apperr.CodeInternalServerError)
+	assertAppErrorDetails(t, err, map[string]any{"dependency": "electricity_unit_price"})
+	if repo.updateMeterParams != nil {
+		t.Fatalf("unexpected UpdateBillMeter call: %+v", repo.updateMeterParams)
+	}
+	if len(publisher.events) != 0 {
+		t.Fatalf("expected no events, got %d", len(publisher.events))
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
 	}
 }
 
@@ -424,6 +514,7 @@ func TestRecordPaymentServiceRollsBackWhenAccountingEntryFails(t *testing.T) {
 
 type billingRepositoryStub struct {
 	bills                           []Bill
+	listBillsQuery                  *ListBillsQuery
 	bill                            *Bill
 	getBillQuery                    *GetBillQuery
 	billForUpdate                   *Bill
@@ -444,7 +535,8 @@ type billingRepositoryStub struct {
 	updatePaymentErr                error
 }
 
-func (s *billingRepositoryStub) ListBills(_ context.Context, _ ListBillsQuery) ([]Bill, error) {
+func (s *billingRepositoryStub) ListBills(_ context.Context, query ListBillsQuery) ([]Bill, error) {
+	s.listBillsQuery = &query
 	return s.bills, nil
 }
 
