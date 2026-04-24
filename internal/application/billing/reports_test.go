@@ -166,6 +166,78 @@ func TestFinancialReportDetailUsesCurrentMonthLivePath(t *testing.T) {
 	}
 }
 
+func TestFinancialReportCurrentPeriodUsesTaiwanTimezone(t *testing.T) {
+	now := time.Date(2026, 3, 31, 16, 30, 0, 0, time.UTC)
+
+	t.Run("summary current period", func(t *testing.T) {
+		repo := &reportRepositoryStub{summaries: []FinancialReportSummary{}}
+		service := NewListFinancialReportSummariesService(repo, fixedClock{now: now})
+
+		_, err := service.Execute(context.Background(), ListFinancialReportSummariesInput{
+			ActorRole:  "staff",
+			PropertyID: testPropertyID,
+		})
+		if err != nil {
+			t.Fatalf("Execute: %v", err)
+		}
+		if repo.summaryQuery == nil {
+			t.Fatal("expected summary query")
+		}
+		if repo.summaryQuery.CurrentYear != 2026 || repo.summaryQuery.CurrentMonth != 4 {
+			t.Fatalf("unexpected current period: %+v", repo.summaryQuery)
+		}
+	})
+
+	t.Run("detail current period", func(t *testing.T) {
+		repo := &reportRepositoryStub{
+			liveReport:     reportForTest(2026, 4, false),
+			snapshotReport: reportForTest(2026, 4, true),
+		}
+		service := NewGetFinancialReportService(repo, fixedClock{now: now})
+
+		report, err := service.Execute(context.Background(), GetFinancialReportInput{
+			ActorRole:  "staff",
+			PropertyID: testPropertyID,
+			Year:       2026,
+			Month:      4,
+		})
+		if err != nil {
+			t.Fatalf("Execute: %v", err)
+		}
+		if report == nil || report.IsFinalized {
+			t.Fatalf("unexpected report: %+v", report)
+		}
+		if repo.liveReportQuery == nil || repo.snapshotReportQuery != nil {
+			t.Fatalf("expected live query only, live=%+v snapshot=%+v", repo.liveReportQuery, repo.snapshotReportQuery)
+		}
+	})
+
+	t.Run("send current period", func(t *testing.T) {
+		repo := &reportRepositoryStub{
+			liveReport:     reportForTest(2026, 4, false),
+			snapshotReport: reportForTest(2026, 4, true),
+		}
+		publisher := &recordingPublisher{}
+		service := NewSendFinancialReportService(repo, publisher, fixedClock{now: now})
+
+		report, err := service.Execute(context.Background(), SendFinancialReportInput{
+			ActorRole:  "organizer",
+			PropertyID: testPropertyID,
+			Year:       2026,
+			Month:      4,
+		})
+		if err != nil {
+			t.Fatalf("Execute: %v", err)
+		}
+		if report == nil || report.IsFinalized {
+			t.Fatalf("unexpected report: %+v", report)
+		}
+		if repo.liveReportQuery == nil || repo.snapshotReportQuery != nil {
+			t.Fatalf("expected live query only, live=%+v snapshot=%+v", repo.liveReportQuery, repo.snapshotReportQuery)
+		}
+	})
+}
+
 func TestFinancialReportSummaryReturnsEmptySlice(t *testing.T) {
 	repo := &reportRepositoryStub{summaries: []FinancialReportSummary{}}
 	service := NewListFinancialReportSummariesService(repo)

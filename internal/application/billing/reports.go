@@ -25,6 +25,13 @@ func (systemClock) Now() time.Time {
 	return time.Now()
 }
 
+var taiwanReportLocation = time.FixedZone("Asia/Taipei", 8*60*60)
+
+func currentReportPeriod(clock Clock) (int, int) {
+	now := clock.Now().In(taiwanReportLocation)
+	return now.Year(), int(now.Month())
+}
+
 // PendingMeterQuery defines role scoping for pending meter reads.
 type PendingMeterQuery struct {
 	ActorRole           string
@@ -288,7 +295,7 @@ func (s *ListFinancialReportSummariesService) Execute(ctx context.Context, input
 	if err != nil {
 		return nil, err
 	}
-	now := s.clock.Now()
+	currentYear, currentMonth := currentReportPeriod(s.clock)
 
 	summaries, err := s.repo.ListFinancialReportSummaries(ctx, FinancialReportSummaryQuery{
 		ActorRole:           actorRole,
@@ -296,8 +303,8 @@ func (s *ListFinancialReportSummariesService) Execute(ctx context.Context, input
 		AssignedPropertyIDs: cloneStrings(input.AssignedPropertyIDs),
 		PropertyID:          propertyID,
 		Year:                year,
-		CurrentYear:         now.Year(),
-		CurrentMonth:        int(now.Month()),
+		CurrentYear:         currentYear,
+		CurrentMonth:        currentMonth,
 	})
 	if err != nil {
 		return nil, mapReportRepositoryError(err)
@@ -364,10 +371,10 @@ func (s *GetFinancialReportService) normalizeFinancialReportQuery(input GetFinan
 }
 
 func (s *GetFinancialReportService) findFinancialReport(ctx context.Context, query FinancialReportQuery) (*FinancialReport, error) {
-	now := s.clock.Now()
+	currentYear, currentMonth := currentReportPeriod(s.clock)
 	var report *FinancialReport
 	var err error
-	if query.Year == now.Year() && query.Month == int(now.Month()) {
+	if query.Year == currentYear && query.Month == currentMonth {
 		report, err = s.repo.FindLiveFinancialReport(ctx, query)
 	} else {
 		report, err = s.repo.FindSnapshotFinancialReport(ctx, query)
@@ -457,10 +464,10 @@ func (s *SendFinancialReportService) normalizeFinancialReportSendQuery(input Sen
 }
 
 func (s *SendFinancialReportService) findFinancialReport(ctx context.Context, query FinancialReportQuery) (*FinancialReport, error) {
-	now := s.clock.Now()
+	currentYear, currentMonth := currentReportPeriod(s.clock)
 	var report *FinancialReport
 	var err error
-	if query.Year == now.Year() && query.Month == int(now.Month()) {
+	if query.Year == currentYear && query.Month == currentMonth {
 		report, err = s.repo.FindLiveFinancialReport(ctx, query)
 	} else {
 		report, err = s.repo.FindSnapshotFinancialReport(ctx, query)

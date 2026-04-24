@@ -317,6 +317,7 @@ SELECT
 FROM bills b
 JOIN properties p ON p.id = b.property_id AND p.deleted_at IS NULL
 WHERE b.property_id = $1
+  AND b.type = 'electricity'
   AND b.status = 'pending_meter'
   AND b.deleted_at IS NULL
 `

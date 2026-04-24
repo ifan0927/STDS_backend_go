@@ -237,7 +237,7 @@ func TestListPropertyPendingMetersFiltersPendingMeterAndReturnsPeriodBounds(t *t
 	periodStart := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
 	periodEnd := time.Date(2026, 4, 30, 0, 0, 0, 0, time.UTC)
 	now := time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC)
-	mock.ExpectQuery(`(?s)FROM bills b\s+JOIN properties p ON p.id = b.property_id AND p.deleted_at IS NULL\s+WHERE b.property_id = \$1\s+AND b.status = 'pending_meter'\s+AND b.deleted_at IS NULL`).
+	mock.ExpectQuery(`(?s)FROM bills b\s+JOIN properties p ON p.id = b.property_id AND p.deleted_at IS NULL\s+WHERE b.property_id = \$1\s+AND b.type = 'electricity'\s+AND b.status = 'pending_meter'\s+AND b.deleted_at IS NULL`).
 		WithArgs("property-1").
 		WillReturnRows(billRows().AddRow(
 			"bill-1", "lease-1", "tenant-1", "room-1", "property-1", "electricity", nil,
