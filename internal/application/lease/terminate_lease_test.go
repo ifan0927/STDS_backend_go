@@ -21,6 +21,7 @@ func TestTerminateLeaseServiceSettlesDepositAndPublishesEvent(t *testing.T) {
 		t.Fatalf("sqlmock.New: %v", err)
 	}
 	defer db.Close()
+	defer verifySQLMockExpectations(t, mock)
 
 	mock.ExpectBegin()
 	mock.ExpectCommit()
@@ -111,6 +112,7 @@ func TestForceTerminateLeaseServiceWritesOffBillsAndPublishesEvent(t *testing.T)
 		t.Fatalf("sqlmock.New: %v", err)
 	}
 	defer db.Close()
+	defer verifySQLMockExpectations(t, mock)
 
 	mock.ExpectBegin()
 	mock.ExpectCommit()
@@ -168,6 +170,7 @@ func TestForceTerminateLeaseServiceKeepsDepositHeld(t *testing.T) {
 		t.Fatalf("sqlmock.New: %v", err)
 	}
 	defer db.Close()
+	defer verifySQLMockExpectations(t, mock)
 
 	mock.ExpectBegin()
 	mock.ExpectCommit()
@@ -290,6 +293,7 @@ func TestGetForceTerminationServiceReturnsDetail(t *testing.T) {
 		t.Fatalf("sqlmock.New: %v", err)
 	}
 	defer db.Close()
+	defer verifySQLMockExpectations(t, mock)
 
 	mock.ExpectBegin()
 	mock.ExpectCommit()
@@ -343,5 +347,13 @@ func terminationRepoStub() *leaseRepositoryStub {
 				PeriodEnd:   time.Date(2026, 1, 31, 0, 0, 0, 0, time.UTC),
 			},
 		},
+	}
+}
+
+func verifySQLMockExpectations(t *testing.T, mock sqlmock.Sqlmock) {
+	t.Helper()
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sqlmock expectations: %v", err)
 	}
 }

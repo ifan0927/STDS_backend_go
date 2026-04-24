@@ -3136,7 +3136,7 @@ paths:
                   summary: BR-14 員工不可強制終止
                   value:
                     error_code: FORBIDDEN_FORCE_TERMINATION
-                    message: 強制終止租約需要主辦以上角色
+                    message: Force termination requires organizer or admin role.
         '404':
           description: 租約不存在
           content:
@@ -3159,12 +3159,12 @@ paths:
                   summary: BR-14 必須填寫強制終止原因
                   value:
                     error_code: FORCE_TERMINATION_REASON_REQUIRED
-                    message: 強制終止租約必須填寫原因
+                    message: Force termination reason is required.
                 deposit_handling_required:
                   summary: 強制終止必須指定押金處理方式
                   value:
                     error_code: FORCE_TERMINATION_DEPOSIT_HANDLING_REQUIRED
-                    message: 強制終止租約必須指定押金處理方式
+                    message: Deposit handling is required for force termination.
   /force-terminations/{id}:
     get:
       operationId: getForceTermination
@@ -6628,6 +6628,7 @@ components:
       properties:
         reason:
           type: string
+          minLength: 1
         deposit_handling:
           type: string
           description: Deposit handling decision during force termination; write_off marks the deposit as written_off, while keep_held leaves it held for later manual handling.

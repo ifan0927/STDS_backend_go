@@ -5,6 +5,7 @@ required:
 properties:
   reason:
     type: string
+    minLength: 1
   deposit_handling:
     type: string
     description: Deposit handling decision during force termination; write_off marks the deposit as written_off, while keep_held leaves it held for later manual handling.
