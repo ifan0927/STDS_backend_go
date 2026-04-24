@@ -3830,7 +3830,7 @@ paths:
                   summary: BR-05 帳單已收款不得重複
                   value:
                     error_code: BILL_ALREADY_PAID
-                    message: 此帳單已完成收款，不得重複收款
+                    message: Bill is already paid.
                 status_not_payable:
                   summary: 帳單狀態不可收款
                   value:

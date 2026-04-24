@@ -85,7 +85,6 @@ func (s *RecordMeterService) Execute(ctx context.Context, input RecordMeterInput
 			CurrentReading:  *state.MeterCurrentReading,
 			UnitPrice:       *state.MeterUnitPrice,
 			Amount:          *state.Amount,
-			Status:          state.Status,
 			MeterRecordedAt: *state.MeterRecordedAt,
 			ExpectedVersion: current.Version,
 		})

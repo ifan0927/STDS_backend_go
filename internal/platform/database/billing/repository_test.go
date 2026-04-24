@@ -130,7 +130,7 @@ LIMIT 1
 	}
 }
 
-func TestFindByIDAccessibleDefaultsPreviousReadingToZeroWhenNoHistory(t *testing.T) {
+func TestFindByIDAccessiblePreservesNilPreviousReadingWhenNoHistory(t *testing.T) {
 	db, mock, repo := newBillingRepoTest(t)
 	defer closeBillingDB(t, db)
 
@@ -151,8 +151,8 @@ func TestFindByIDAccessibleDefaultsPreviousReadingToZeroWhenNoHistory(t *testing
 	if err != nil {
 		t.Fatalf("FindByIDAccessible: %v", err)
 	}
-	if bill.MeterPreviousReading == nil || *bill.MeterPreviousReading != 0 {
-		t.Fatalf("MeterPreviousReading = %v, want 0", bill.MeterPreviousReading)
+	if bill.MeterPreviousReading != nil {
+		t.Fatalf("MeterPreviousReading = %v, want nil", bill.MeterPreviousReading)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -208,6 +208,7 @@ WHERE room_id = $1
   AND deleted_at IS NULL
 ORDER BY period_end DESC, due_date DESC, created_at DESC
 LIMIT 1
+FOR UPDATE
 `)).
 		WithArgs("room-1", periodStart).
 		WillReturnRows(sqlmock.NewRows([]string{"meter_current_reading"}).AddRow(1250))

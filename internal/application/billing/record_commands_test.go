@@ -152,7 +152,7 @@ func TestRecordMeterServiceRecordsMeterAndPublishesEventAfterCommit(t *testing.T
 	if repo.updateMeterParams == nil {
 		t.Fatal("expected UpdateBillMeter call")
 	}
-	if repo.updateMeterParams.PreviousReading != 1250 || repo.updateMeterParams.CurrentReading != 1380 || repo.updateMeterParams.Amount != 585 || repo.updateMeterParams.Status != domainbilling.StatusPendingPayment {
+	if repo.updateMeterParams.PreviousReading != 1250 || repo.updateMeterParams.CurrentReading != 1380 || repo.updateMeterParams.Amount != 585 {
 		t.Fatalf("unexpected meter update params: %+v", repo.updateMeterParams)
 	}
 	if len(publisher.events) != 1 {
@@ -318,7 +318,7 @@ func TestRecordPaymentServiceRecordsPaymentAndPublishesEventAfterCommit(t *testi
 	if bill == nil || bill.Status != domainbilling.StatusPaid {
 		t.Fatalf("unexpected bill: %+v", bill)
 	}
-	if repo.updatePaymentParams == nil || repo.updatePaymentParams.PaidAmount != 12000 || repo.updatePaymentParams.PaymentMethod != "transfer" || repo.updatePaymentParams.Status != domainbilling.StatusPaid {
+	if repo.updatePaymentParams == nil || repo.updatePaymentParams.PaidAmount != 12000 || repo.updatePaymentParams.PaymentMethod != "transfer" {
 		t.Fatalf("unexpected payment update params: %+v", repo.updatePaymentParams)
 	}
 	if len(publisher.events) != 1 {

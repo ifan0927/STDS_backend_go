@@ -77,7 +77,6 @@ type UpdateMeterParams struct {
 	CurrentReading  int
 	UnitPrice       float64
 	Amount          int
-	Status          string
 	MeterRecordedAt time.Time
 	ExpectedVersion int
 }
@@ -88,7 +87,6 @@ type UpdatePaymentParams struct {
 	PaidAmount      int
 	PaymentMethod   string
 	PaidAt          time.Time
-	Status          string
 	ExpectedVersion int
 }
 

@@ -143,7 +143,7 @@ func (r *SQLRepository) ListAccessible(ctx context.Context, scope Scope, filter 
 }
 
 // FindByIDAccessible returns one visible bill. Pending electricity bills with a NULL
-// previous reading receive a display value from the previous completed bill, or 0.
+// previous reading receive the previous completed bill reading when one exists.
 func (r *SQLRepository) FindByIDAccessible(ctx context.Context, billID string, scope Scope) (*Bill, error) {
 	filter := BillFilter{Limit: 1}
 	query, args, ok := buildAccessibleBillQuery(scope, filter, true, &billID)
@@ -165,7 +165,7 @@ func (r *SQLRepository) FindByIDAccessible(ctx context.Context, billID string, s
 			if !errors.Is(err, ErrNotFound) {
 				return nil, err
 			}
-			previous = 0
+			return bill, nil
 		}
 		bill.MeterPreviousReading = &previous
 	}
@@ -219,16 +219,16 @@ FOR UPDATE
 
 // FindPreviousMeterReading returns the prior completed electricity reading for a room.
 func (r *SQLRepository) FindPreviousMeterReading(ctx context.Context, roomID string, periodStart time.Time) (int, error) {
-	return r.findPreviousMeterReading(ctx, r.db, roomID, periodStart)
+	return r.findPreviousMeterReading(ctx, r.db, roomID, periodStart, false)
 }
 
 // FindPreviousMeterReadingForUpdate returns the prior completed electricity reading inside a transaction.
 func (r *SQLRepository) FindPreviousMeterReadingForUpdate(ctx context.Context, tx *sql.Tx, roomID string, periodStart time.Time) (int, error) {
-	return r.findPreviousMeterReading(ctx, tx, roomID, periodStart)
+	return r.findPreviousMeterReading(ctx, tx, roomID, periodStart, true)
 }
 
-func (r *SQLRepository) findPreviousMeterReading(ctx context.Context, queryer rowQueryer, roomID string, periodStart time.Time) (int, error) {
-	const query = `
+func (r *SQLRepository) findPreviousMeterReading(ctx context.Context, queryer rowQueryer, roomID string, periodStart time.Time, forUpdate bool) (int, error) {
+	query := `
 SELECT meter_current_reading
 FROM bills
 WHERE room_id = $1
@@ -239,6 +239,9 @@ WHERE room_id = $1
 ORDER BY period_end DESC, due_date DESC, created_at DESC
 LIMIT 1
 `
+	if forUpdate {
+		query += "FOR UPDATE\n"
+	}
 
 	var reading int
 	if err := queryer.QueryRowContext(ctx, query, roomID, periodStart).Scan(&reading); err != nil {

@@ -78,7 +78,6 @@ func (s *RecordPaymentService) Execute(ctx context.Context, input RecordPaymentI
 			PaidAmount:      *state.PaidAmount,
 			PaymentMethod:   *state.PaymentMethod,
 			PaidAt:          *state.PaidAt,
-			Status:          state.Status,
 			ExpectedVersion: current.Version,
 		})
 		if err != nil {
