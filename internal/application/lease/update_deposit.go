@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	domainevents "stds_backend/internal/domain/events"
 	domainlease "stds_backend/internal/domain/lease"
 	"stds_backend/internal/platform/database/txrunner"
@@ -39,6 +41,9 @@ func (s *UpdateDepositService) Execute(ctx context.Context, input UpdateDepositI
 	leaseID := strings.TrimSpace(input.LeaseID)
 	if leaseID == "" || leaseID == zeroUUID {
 		return nil, apperr.ErrLeaseNotFound
+	}
+	if _, err := uuid.Parse(leaseID); err != nil {
+		return nil, apperr.ErrBadRequest.WithDetails(map[string]interface{}{"field": "lease_id"})
 	}
 
 	actorRole := strings.ToLower(strings.TrimSpace(input.ActorRole))

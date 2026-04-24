@@ -96,6 +96,16 @@ func (s *UpdateLeaseService) Execute(ctx context.Context, input UpdateLeaseInput
 		}
 
 		nextPaymentDate := domainlease.NextPaymentDateAfter(current.StartDate, operationDate)
+		if !nextPaymentDate.After(current.EndDate) {
+			hasLockedBills, err := s.repo.HasLockedRentBillsFromDueDate(ctx, tx, leaseID, nextPaymentDate)
+			if err != nil {
+				return apperr.ErrInternalServerError.WithCause(err)
+			}
+			if hasLockedBills {
+				return errLeaseUpdateHasLockedBills
+			}
+		}
+
 		updatedLease, err := s.repo.UpdateLeaseConditions(ctx, tx, UpdateLeaseParams{
 			LeaseID:    leaseID,
 			RentAmount: aggregate.State().RentAmount,
@@ -105,13 +115,6 @@ func (s *UpdateLeaseService) Execute(ctx context.Context, input UpdateLeaseInput
 		}
 
 		if !nextPaymentDate.After(current.EndDate) {
-			hasLockedBills, err := s.repo.HasLockedRentBillsFromDueDate(ctx, tx, leaseID, nextPaymentDate)
-			if err != nil {
-				return apperr.ErrInternalServerError.WithCause(err)
-			}
-			if hasLockedBills {
-				return errLeaseUpdateHasLockedBills
-			}
 			if err := s.repo.VoidRentBillsFromDueDate(ctx, tx, leaseID, nextPaymentDate); err != nil {
 				return apperr.ErrInternalServerError.WithCause(err)
 			}

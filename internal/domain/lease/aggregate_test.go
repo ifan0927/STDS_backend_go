@@ -171,6 +171,11 @@ func TestSettleDepositRejectsDeductionWithoutReason(t *testing.T) {
 	if err := aggregate.SettleDeposit(30000, 6000, nil); !errors.Is(err, ErrDepositReasonRequired) {
 		t.Fatalf("expected ErrDepositReasonRequired, got %v", err)
 	}
+
+	blank := "   "
+	if err := aggregate.SettleDeposit(30000, 6000, &blank); !errors.Is(err, ErrDepositReasonRequired) {
+		t.Fatalf("expected ErrDepositReasonRequired for blank reason, got %v", err)
+	}
 }
 
 func TestSettleDepositRejectsIncompleteSettlement(t *testing.T) {
@@ -192,6 +197,32 @@ func TestSettleDepositRejectsIncompleteSettlement(t *testing.T) {
 
 	if err := aggregate.SettleDeposit(30000, 0, nil); !errors.Is(err, ErrDepositSettlementSum) {
 		t.Fatalf("expected ErrDepositSettlementSum, got %v", err)
+	}
+}
+
+func TestSettleDepositClearsReasonWhenThereIsNoDeduction(t *testing.T) {
+	aggregate, err := Rehydrate(State{
+		TenantID:                  "tenant-1",
+		RoomID:                    "room-1",
+		PropertyID:                "property-1",
+		RentAmount:                18000,
+		StartDate:                 date(2026, 5, 1),
+		EndDate:                   date(2026, 12, 31),
+		ElectricityBillingCadence: BillingCadenceMonthly,
+		Status:                    StatusActive,
+		DepositAmount:             36000,
+		DepositStatus:             DepositStatusHeld,
+	})
+	if err != nil {
+		t.Fatalf("Rehydrate: %v", err)
+	}
+
+	reason := "should be ignored"
+	if err := aggregate.SettleDeposit(36000, 0, &reason); err != nil {
+		t.Fatalf("SettleDeposit: %v", err)
+	}
+	if aggregate.State().DepositDeductionReason != nil {
+		t.Fatalf("DepositDeductionReason = %q, want nil", *aggregate.State().DepositDeductionReason)
 	}
 }
 

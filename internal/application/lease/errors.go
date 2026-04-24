@@ -19,7 +19,7 @@ const (
 	codeLeaseUnsupportedUpdate      = "LEASE_UNSUPPORTED_UPDATE"
 	codeDepositDeductionReason      = "DEPOSIT_DEDUCTION_REASON_REQUIRED"
 	codeDepositSettlementMismatch   = "DEPOSIT_SETTLEMENT_AMOUNT_MISMATCH"
-	codeDepositAlreadySettled       = "DEPOSIT_ALREADY_SETTLED"
+	codeDepositNotHeld              = "DEPOSIT_NOT_HELD"
 	codeLeaseUpdateLockedBills      = "LEASE_UPDATE_HAS_LOCKED_FUTURE_BILLS"
 	codeLeaseNotActive              = "LEASE_NOT_ACTIVE"
 	codeRoomNotVacant               = "ROOM_NOT_VACANT"
@@ -76,10 +76,10 @@ var (
 		http.StatusUnprocessableEntity,
 		"Deposit refund and deduction amounts must match the deposit amount.",
 	)
-	errDepositAlreadySettled = apperr.New(
-		codeDepositAlreadySettled,
+	errDepositNotHeld = apperr.New(
+		codeDepositNotHeld,
 		http.StatusUnprocessableEntity,
-		"Deposit is already settled.",
+		"Deposit is not held.",
 	)
 	errLeaseUpdateHasLockedBills = apperr.New(
 		codeLeaseUpdateLockedBills,
@@ -115,7 +115,7 @@ func mapDomainError(err error) error {
 	case errors.Is(err, domainlease.ErrDepositSettlementSum):
 		return errDepositSettlementAmountMismatch
 	case errors.Is(err, domainlease.ErrDepositNotHeld):
-		return errDepositAlreadySettled
+		return errDepositNotHeld
 	case errors.Is(err, domainlease.ErrLeaseNotActive):
 		return errLeaseNotActive
 	case errors.Is(err, domainlease.ErrInvalidCadence):

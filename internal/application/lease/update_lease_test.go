@@ -13,6 +13,8 @@ import (
 	"stds_backend/internal/shared/apperr"
 )
 
+const updateLeaseTestLeaseID = "40000000-0000-0000-0000-000000000001"
+
 func TestUpdateLeaseServiceUpdatesRentAndRegeneratesFutureRentBills(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -26,7 +28,7 @@ func TestUpdateLeaseServiceUpdatesRentAndRegeneratesFutureRentBills(t *testing.T
 	publisher := &recordingPublisher{}
 	repo := &leaseRepositoryStub{
 		lease: &Lease{
-			ID:                        "lease-1",
+			ID:                        updateLeaseTestLeaseID,
 			TenantID:                  "tenant-1",
 			PropertyID:                "property-1",
 			RoomID:                    "room-1",
@@ -45,7 +47,7 @@ func TestUpdateLeaseServiceUpdatesRentAndRegeneratesFutureRentBills(t *testing.T
 	lease, err := service.Execute(context.Background(), UpdateLeaseInput{
 		ActorRole:           "organizer",
 		AssignedPropertyIDs: []string{"property-1"},
-		LeaseID:             "lease-1",
+		LeaseID:             updateLeaseTestLeaseID,
 		RentAmount:          &rentAmount,
 		OperationDate:       time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC),
 	})
@@ -73,7 +75,7 @@ func TestUpdateLeaseServiceUpdatesRentAndRegeneratesFutureRentBills(t *testing.T
 	if !ok {
 		t.Fatalf("event = %T, want LeaseConditionChanged", publisher.events[0])
 	}
-	if event.LeaseID != "lease-1" || event.NewRentAmount != 20000 || !event.EffectiveDate.Equal(time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)) {
+	if event.LeaseID != updateLeaseTestLeaseID || event.NewRentAmount != 20000 || !event.EffectiveDate.Equal(time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)) {
 		t.Fatalf("unexpected event: %+v", event)
 	}
 
@@ -89,7 +91,7 @@ func TestUpdateLeaseServiceRejectsEndDateUpdate(t *testing.T) {
 
 	_, err := service.Execute(context.Background(), UpdateLeaseInput{
 		ActorRole:  "admin",
-		LeaseID:    "lease-1",
+		LeaseID:    updateLeaseTestLeaseID,
 		RentAmount: &rentAmount,
 		EndDate:    &endDate,
 	})
@@ -111,7 +113,7 @@ func TestUpdateLeaseServiceRejectsLockedFutureRentBills(t *testing.T) {
 
 	repo := &leaseRepositoryStub{
 		lease: &Lease{
-			ID:                        "lease-1",
+			ID:                        updateLeaseTestLeaseID,
 			TenantID:                  "tenant-1",
 			PropertyID:                "property-1",
 			RoomID:                    "room-1",
@@ -131,7 +133,7 @@ func TestUpdateLeaseServiceRejectsLockedFutureRentBills(t *testing.T) {
 	_, err = service.Execute(context.Background(), UpdateLeaseInput{
 		ActorRole:           "organizer",
 		AssignedPropertyIDs: []string{"property-1"},
-		LeaseID:             "lease-1",
+		LeaseID:             updateLeaseTestLeaseID,
 		RentAmount:          &rentAmount,
 		OperationDate:       time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC),
 	})
@@ -163,7 +165,7 @@ func TestUpdateDepositServiceSettlesDepositAndPublishesEvents(t *testing.T) {
 	publisher := &recordingPublisher{}
 	repo := &leaseRepositoryStub{
 		lease: &Lease{
-			ID:                        "lease-1",
+			ID:                        updateLeaseTestLeaseID,
 			TenantID:                  "tenant-1",
 			PropertyID:                "property-1",
 			RoomID:                    "room-1",
@@ -184,7 +186,7 @@ func TestUpdateDepositServiceSettlesDepositAndPublishesEvents(t *testing.T) {
 	lease, err := service.Execute(context.Background(), UpdateDepositInput{
 		ActorRole:           "staff",
 		AssignedPropertyIDs: []string{"property-1"},
-		LeaseID:             "lease-1",
+		LeaseID:             updateLeaseTestLeaseID,
 		RefundAmount:        &refundAmount,
 		DeductionAmount:     &deductionAmount,
 		DeductionReason:     &reason,
@@ -195,18 +197,50 @@ func TestUpdateDepositServiceSettlesDepositAndPublishesEvents(t *testing.T) {
 	if lease.DepositStatus != "settled" {
 		t.Fatalf("DepositStatus = %q, want settled", lease.DepositStatus)
 	}
+	if lease.DepositRefundAmount == nil || *lease.DepositRefundAmount != refundAmount {
+		t.Fatalf("DepositRefundAmount = %v, want %d", lease.DepositRefundAmount, refundAmount)
+	}
+	if lease.DepositDeductionAmount == nil || *lease.DepositDeductionAmount != deductionAmount {
+		t.Fatalf("DepositDeductionAmount = %v, want %d", lease.DepositDeductionAmount, deductionAmount)
+	}
+	if lease.DepositDeductionReason == nil || *lease.DepositDeductionReason != reason {
+		t.Fatalf("DepositDeductionReason = %v, want %q", lease.DepositDeductionReason, reason)
+	}
 	if len(publisher.events) != 2 {
 		t.Fatalf("events = %d, want 2", len(publisher.events))
 	}
-	if _, ok := publisher.events[0].(domainevents.DepositRefunded); !ok {
+	refunded, ok := publisher.events[0].(domainevents.DepositRefunded)
+	if !ok {
 		t.Fatalf("first event = %T, want DepositRefunded", publisher.events[0])
 	}
-	if _, ok := publisher.events[1].(domainevents.DepositDeducted); !ok {
+	if refunded.LeaseID != updateLeaseTestLeaseID || refunded.Amount != refundAmount {
+		t.Fatalf("unexpected refund event: %+v", refunded)
+	}
+	deducted, ok := publisher.events[1].(domainevents.DepositDeducted)
+	if !ok {
 		t.Fatalf("second event = %T, want DepositDeducted", publisher.events[1])
+	}
+	if deducted.LeaseID != updateLeaseTestLeaseID || deducted.Amount != deductionAmount || deducted.Reason != reason {
+		t.Fatalf("unexpected deduction event: %+v", deducted)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestUpdateDepositServiceRejectsMalformedLeaseID(t *testing.T) {
+	service := NewUpdateDepositService(nil, nil)
+	refundAmount := 36000
+
+	_, err := service.Execute(context.Background(), UpdateDepositInput{
+		ActorRole:    "admin",
+		LeaseID:      "not-a-uuid",
+		RefundAmount: &refundAmount,
+	})
+	var appErr *apperr.Error
+	if !errors.As(err, &appErr) || appErr.Code != apperr.CodeBadRequest {
+		t.Fatalf("expected bad request, got %v", err)
 	}
 }
 
@@ -222,7 +256,7 @@ func TestUpdateDepositServiceRejectsDeductionWithoutReason(t *testing.T) {
 
 	repo := &leaseRepositoryStub{
 		lease: &Lease{
-			ID:                        "lease-1",
+			ID:                        updateLeaseTestLeaseID,
 			TenantID:                  "tenant-1",
 			PropertyID:                "property-1",
 			RoomID:                    "room-1",
@@ -242,7 +276,7 @@ func TestUpdateDepositServiceRejectsDeductionWithoutReason(t *testing.T) {
 	_, err = service.Execute(context.Background(), UpdateDepositInput{
 		ActorRole:           "admin",
 		AssignedPropertyIDs: []string{"property-1"},
-		LeaseID:             "lease-1",
+		LeaseID:             updateLeaseTestLeaseID,
 		RefundAmount:        &refundAmount,
 		DeductionAmount:     &deductionAmount,
 	})

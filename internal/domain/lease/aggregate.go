@@ -101,7 +101,10 @@ func (a *Aggregate) SettleDeposit(refundAmount int, deductionAmount int, deducti
 		return ErrDepositSettlementSum
 	}
 
-	reason := trimmedStringPtr(deductionReason)
+	var reason *string
+	if deductionAmount > 0 {
+		reason = trimmedStringPtr(deductionReason)
+	}
 	a.state.DepositRefundAmount = &refundAmount
 	a.state.DepositDeductionAmount = &deductionAmount
 	a.state.DepositDeductionReason = reason
