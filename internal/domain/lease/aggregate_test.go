@@ -70,6 +70,153 @@ func TestNewRejectsInvalidCadence(t *testing.T) {
 	}
 }
 
+func TestChangeRentUpdatesActiveLease(t *testing.T) {
+	aggregate, err := Rehydrate(State{
+		TenantID:                  "tenant-1",
+		RoomID:                    "room-1",
+		PropertyID:                "property-1",
+		RentAmount:                18000,
+		StartDate:                 date(2026, 5, 1),
+		EndDate:                   date(2026, 12, 31),
+		ElectricityBillingCadence: BillingCadenceMonthly,
+		Status:                    StatusActive,
+		DepositAmount:             36000,
+		DepositStatus:             DepositStatusHeld,
+	})
+	if err != nil {
+		t.Fatalf("Rehydrate: %v", err)
+	}
+
+	if err := aggregate.ChangeRent(20000); err != nil {
+		t.Fatalf("ChangeRent: %v", err)
+	}
+	if aggregate.State().RentAmount != 20000 {
+		t.Fatalf("RentAmount = %d, want 20000", aggregate.State().RentAmount)
+	}
+}
+
+func TestChangeRentRejectsTerminatedLease(t *testing.T) {
+	aggregate, err := Rehydrate(State{
+		TenantID:                  "tenant-1",
+		RoomID:                    "room-1",
+		PropertyID:                "property-1",
+		RentAmount:                18000,
+		StartDate:                 date(2026, 5, 1),
+		EndDate:                   date(2026, 12, 31),
+		ElectricityBillingCadence: BillingCadenceMonthly,
+		Status:                    StatusTerminated,
+		DepositAmount:             36000,
+		DepositStatus:             DepositStatusHeld,
+	})
+	if err != nil {
+		t.Fatalf("Rehydrate: %v", err)
+	}
+
+	if err := aggregate.ChangeRent(20000); !errors.Is(err, ErrLeaseNotActive) {
+		t.Fatalf("expected ErrLeaseNotActive, got %v", err)
+	}
+}
+
+func TestSettleDepositRecordsCompleteSettlement(t *testing.T) {
+	aggregate, err := Rehydrate(State{
+		TenantID:                  "tenant-1",
+		RoomID:                    "room-1",
+		PropertyID:                "property-1",
+		RentAmount:                18000,
+		StartDate:                 date(2026, 5, 1),
+		EndDate:                   date(2026, 12, 31),
+		ElectricityBillingCadence: BillingCadenceMonthly,
+		Status:                    StatusActive,
+		DepositAmount:             36000,
+		DepositStatus:             DepositStatusHeld,
+	})
+	if err != nil {
+		t.Fatalf("Rehydrate: %v", err)
+	}
+
+	reason := "cleaning"
+	if err := aggregate.SettleDeposit(30000, 6000, &reason); err != nil {
+		t.Fatalf("SettleDeposit: %v", err)
+	}
+
+	state := aggregate.State()
+	if state.DepositStatus != DepositStatusSettled {
+		t.Fatalf("DepositStatus = %q, want settled", state.DepositStatus)
+	}
+	if state.DepositRefundAmount == nil || *state.DepositRefundAmount != 30000 {
+		t.Fatalf("DepositRefundAmount = %v, want 30000", state.DepositRefundAmount)
+	}
+	if state.DepositDeductionAmount == nil || *state.DepositDeductionAmount != 6000 {
+		t.Fatalf("DepositDeductionAmount = %v, want 6000", state.DepositDeductionAmount)
+	}
+}
+
+func TestSettleDepositRejectsDeductionWithoutReason(t *testing.T) {
+	aggregate, err := Rehydrate(State{
+		TenantID:                  "tenant-1",
+		RoomID:                    "room-1",
+		PropertyID:                "property-1",
+		RentAmount:                18000,
+		StartDate:                 date(2026, 5, 1),
+		EndDate:                   date(2026, 12, 31),
+		ElectricityBillingCadence: BillingCadenceMonthly,
+		Status:                    StatusActive,
+		DepositAmount:             36000,
+		DepositStatus:             DepositStatusHeld,
+	})
+	if err != nil {
+		t.Fatalf("Rehydrate: %v", err)
+	}
+
+	if err := aggregate.SettleDeposit(30000, 6000, nil); !errors.Is(err, ErrDepositReasonRequired) {
+		t.Fatalf("expected ErrDepositReasonRequired, got %v", err)
+	}
+}
+
+func TestSettleDepositRejectsIncompleteSettlement(t *testing.T) {
+	aggregate, err := Rehydrate(State{
+		TenantID:                  "tenant-1",
+		RoomID:                    "room-1",
+		PropertyID:                "property-1",
+		RentAmount:                18000,
+		StartDate:                 date(2026, 5, 1),
+		EndDate:                   date(2026, 12, 31),
+		ElectricityBillingCadence: BillingCadenceMonthly,
+		Status:                    StatusActive,
+		DepositAmount:             36000,
+		DepositStatus:             DepositStatusHeld,
+	})
+	if err != nil {
+		t.Fatalf("Rehydrate: %v", err)
+	}
+
+	if err := aggregate.SettleDeposit(30000, 0, nil); !errors.Is(err, ErrDepositSettlementSum) {
+		t.Fatalf("expected ErrDepositSettlementSum, got %v", err)
+	}
+}
+
+func TestSettleDepositRejectsAlreadySettledDeposit(t *testing.T) {
+	aggregate, err := Rehydrate(State{
+		TenantID:                  "tenant-1",
+		RoomID:                    "room-1",
+		PropertyID:                "property-1",
+		RentAmount:                18000,
+		StartDate:                 date(2026, 5, 1),
+		EndDate:                   date(2026, 12, 31),
+		ElectricityBillingCadence: BillingCadenceMonthly,
+		Status:                    StatusActive,
+		DepositAmount:             36000,
+		DepositStatus:             DepositStatusSettled,
+	})
+	if err != nil {
+		t.Fatalf("Rehydrate: %v", err)
+	}
+
+	if err := aggregate.SettleDeposit(36000, 0, nil); !errors.Is(err, ErrDepositNotHeld) {
+		t.Fatalf("expected ErrDepositNotHeld, got %v", err)
+	}
+}
+
 func TestBuildBillingPeriodsMonthlyDetailedCases(t *testing.T) {
 	t.Run("general monthly periods stay anchored to start day", func(t *testing.T) {
 		periods, err := BuildBillingPeriods(date(2026, 5, 15), date(2026, 9, 20), BillingCadenceMonthly)

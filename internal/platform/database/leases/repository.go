@@ -20,7 +20,12 @@ var (
 type CommandRepository interface {
 	FindTenantByID(ctx context.Context, tx *sql.Tx, tenantID string) (*Tenant, error)
 	FindRoomByIDForUpdate(ctx context.Context, tx *sql.Tx, roomID string) (*Room, error)
+	FindLeaseByIDForUpdate(ctx context.Context, tx *sql.Tx, leaseID string) (*Lease, error)
 	CreateLease(ctx context.Context, tx *sql.Tx, params CreateLeaseParams) (*Lease, error)
+	UpdateLeaseConditions(ctx context.Context, tx *sql.Tx, params UpdateLeaseParams) (*Lease, error)
+	SettleDeposit(ctx context.Context, tx *sql.Tx, params SettleDepositParams) (*Lease, error)
+	HasLockedRentBillsFromDueDate(ctx context.Context, tx *sql.Tx, leaseID string, dueDate time.Time) (bool, error)
+	VoidRentBillsFromDueDate(ctx context.Context, tx *sql.Tx, leaseID string, dueDate time.Time) error
 	CreateBills(ctx context.Context, tx *sql.Tx, params []CreateBillParams) error
 	MarkRoomOccupied(ctx context.Context, tx *sql.Tx, roomID string) error
 	ActivateTenant(ctx context.Context, tx *sql.Tx, tenantID string) error
@@ -90,6 +95,20 @@ type CreateBillParams struct {
 	Status      string
 }
 
+// UpdateLeaseParams contains supported normal lease-condition update fields.
+type UpdateLeaseParams struct {
+	LeaseID    string
+	RentAmount int
+}
+
+// SettleDepositParams contains deposit settlement fields.
+type SettleDepositParams struct {
+	LeaseID                string
+	RefundAmount           int
+	DeductionAmount        int
+	DepositDeductionReason *string
+}
+
 // SQLRepository persists lease writes in PostgreSQL.
 type SQLRepository struct {
 	db *sql.DB
@@ -151,6 +170,46 @@ FOR UPDATE
 	return &room, nil
 }
 
+func (r *SQLRepository) FindLeaseByIDForUpdate(ctx context.Context, tx *sql.Tx, leaseID string) (*Lease, error) {
+	const query = `
+SELECT
+	id,
+	tenant_id,
+	property_id,
+	room_id,
+	rent_amount,
+	start_date,
+	end_date,
+	electricity_billing_cadence,
+	status,
+	deposit_amount,
+	deposit_refund_amount,
+	deposit_deduction_amount,
+	deposit_status,
+	deposit_deduction_reason,
+	notes,
+	termination_reason,
+	settlement_detail::text,
+	created_at,
+	updated_at,
+	version
+FROM leases
+WHERE id = $1
+  AND deleted_at IS NULL
+FOR UPDATE
+`
+
+	lease, err := scanLease(tx.QueryRowContext(ctx, query, leaseID))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrLeaseNotFound
+		}
+		return nil, fmt.Errorf("find lease by id for update: %w", err)
+	}
+
+	return lease, nil
+}
+
 func (r *SQLRepository) CreateLease(ctx context.Context, tx *sql.Tx, params CreateLeaseParams) (*Lease, error) {
 	const query = `
 INSERT INTO leases (
@@ -202,6 +261,143 @@ RETURNING
 	}
 
 	return lease, nil
+}
+
+func (r *SQLRepository) UpdateLeaseConditions(ctx context.Context, tx *sql.Tx, params UpdateLeaseParams) (*Lease, error) {
+	const query = `
+UPDATE leases
+SET rent_amount = $2,
+	updated_at = now(),
+	version = version + 1
+WHERE id = $1
+  AND deleted_at IS NULL
+RETURNING
+	id,
+	tenant_id,
+	property_id,
+	room_id,
+	rent_amount,
+	start_date,
+	end_date,
+	electricity_billing_cadence,
+	status,
+	deposit_amount,
+	deposit_refund_amount,
+	deposit_deduction_amount,
+	deposit_status,
+	deposit_deduction_reason,
+	notes,
+	termination_reason,
+	settlement_detail::text,
+	created_at,
+	updated_at,
+	version
+`
+
+	lease, err := scanLease(tx.QueryRowContext(ctx, query, params.LeaseID, params.RentAmount))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrLeaseNotFound
+		}
+		return nil, fmt.Errorf("update lease conditions: %w", err)
+	}
+
+	return lease, nil
+}
+
+func (r *SQLRepository) SettleDeposit(ctx context.Context, tx *sql.Tx, params SettleDepositParams) (*Lease, error) {
+	const query = `
+UPDATE leases
+SET deposit_status = 'settled',
+	deposit_refund_amount = $2,
+	deposit_deduction_amount = $3,
+	deposit_deduction_reason = $4,
+	updated_at = now(),
+	version = version + 1
+WHERE id = $1
+  AND deleted_at IS NULL
+RETURNING
+	id,
+	tenant_id,
+	property_id,
+	room_id,
+	rent_amount,
+	start_date,
+	end_date,
+	electricity_billing_cadence,
+	status,
+	deposit_amount,
+	deposit_refund_amount,
+	deposit_deduction_amount,
+	deposit_status,
+	deposit_deduction_reason,
+	notes,
+	termination_reason,
+	settlement_detail::text,
+	created_at,
+	updated_at,
+	version
+`
+
+	var reason any
+	if params.DepositDeductionReason != nil {
+		reason = *params.DepositDeductionReason
+	}
+	lease, err := scanLease(tx.QueryRowContext(ctx, query,
+		params.LeaseID,
+		params.RefundAmount,
+		params.DeductionAmount,
+		reason,
+	))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrLeaseNotFound
+		}
+		return nil, fmt.Errorf("settle lease deposit: %w", err)
+	}
+
+	return lease, nil
+}
+
+func (r *SQLRepository) HasLockedRentBillsFromDueDate(ctx context.Context, tx *sql.Tx, leaseID string, dueDate time.Time) (bool, error) {
+	const query = `
+SELECT EXISTS (
+	SELECT 1
+	FROM bills
+	WHERE lease_id = $1
+	  AND type = 'rent'
+	  AND due_date >= $2
+	  AND status NOT IN ('pending_payment', 'pending_meter', 'voided')
+	  AND deleted_at IS NULL
+)
+`
+
+	var exists bool
+	if err := tx.QueryRowContext(ctx, query, leaseID, dueDate).Scan(&exists); err != nil {
+		return false, fmt.Errorf("check locked rent bills from due date: %w", err)
+	}
+
+	return exists, nil
+}
+
+func (r *SQLRepository) VoidRentBillsFromDueDate(ctx context.Context, tx *sql.Tx, leaseID string, dueDate time.Time) error {
+	const query = `
+UPDATE bills
+SET status = 'voided',
+	updated_at = now(),
+	version = version + 1
+WHERE lease_id = $1
+  AND type = 'rent'
+  AND due_date >= $2
+  AND status IN ('pending_payment', 'pending_meter')
+  AND deleted_at IS NULL
+`
+
+	if _, err := tx.ExecContext(ctx, query, leaseID, dueDate); err != nil {
+		return fmt.Errorf("void rent bills from due date: %w", err)
+	}
+
+	return nil
 }
 
 func (r *SQLRepository) CreateBills(ctx context.Context, tx *sql.Tx, params []CreateBillParams) error {

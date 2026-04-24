@@ -3767,6 +3767,54 @@ func (f fakeLeaseRepo) CreateLease(_ context.Context, _ *sql.Tx, params applease
 	}, nil
 }
 
+func (f fakeLeaseRepo) FindLeaseByIDForUpdate(_ context.Context, _ *sql.Tx, leaseID string) (*applease.Lease, error) {
+	return &applease.Lease{
+		ID:                        leaseID,
+		TenantID:                  "30000000-0000-0000-0000-000000000001",
+		PropertyID:                testPropertyID1,
+		RoomID:                    testRoomID1,
+		RentAmount:                18000,
+		StartDate:                 time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+		EndDate:                   time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+		ElectricityBillingCadence: "monthly",
+		Status:                    "active",
+		DepositAmount:             36000,
+		DepositStatus:             "held",
+		CreatedAt:                 time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
+		UpdatedAt:                 time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
+		Version:                   1,
+	}, nil
+}
+
+func (f fakeLeaseRepo) UpdateLeaseConditions(_ context.Context, _ *sql.Tx, params applease.UpdateLeaseParams) (*applease.Lease, error) {
+	lease, err := f.FindLeaseByIDForUpdate(context.Background(), nil, params.LeaseID)
+	if err != nil {
+		return nil, err
+	}
+	lease.RentAmount = params.RentAmount
+	return lease, nil
+}
+
+func (f fakeLeaseRepo) SettleDeposit(_ context.Context, _ *sql.Tx, params applease.SettleDepositParams) (*applease.Lease, error) {
+	lease, err := f.FindLeaseByIDForUpdate(context.Background(), nil, params.LeaseID)
+	if err != nil {
+		return nil, err
+	}
+	lease.DepositRefundAmount = &params.RefundAmount
+	lease.DepositDeductionAmount = &params.DeductionAmount
+	lease.DepositDeductionReason = params.DepositDeductionReason
+	lease.DepositStatus = "settled"
+	return lease, nil
+}
+
+func (f fakeLeaseRepo) HasLockedRentBillsFromDueDate(_ context.Context, _ *sql.Tx, _ string, _ time.Time) (bool, error) {
+	return false, nil
+}
+
+func (f fakeLeaseRepo) VoidRentBillsFromDueDate(_ context.Context, _ *sql.Tx, _ string, _ time.Time) error {
+	return nil
+}
+
 func (f fakeLeaseRepo) CreateBills(_ context.Context, _ *sql.Tx, _ []applease.CreateBillParams) error {
 	return f.billsErr
 }

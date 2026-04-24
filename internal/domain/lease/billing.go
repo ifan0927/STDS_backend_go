@@ -26,6 +26,39 @@ func BuildBillingPeriods(startDate time.Time, endDate time.Time, cadence string)
 	}
 }
 
+// NextPaymentDateAfter returns the first lease payment date strictly after the
+// operation date using the original lease start-day anchor.
+func NextPaymentDateAfter(leaseStart time.Time, operationDate time.Time) time.Time {
+	anchorDay := leaseStart.Day()
+	normalizedOperationDate := normalizeDate(operationDate)
+	candidate := clampedMonthDate(
+		normalizedOperationDate.Year(),
+		normalizedOperationDate.Month(),
+		anchorDay,
+		normalizedOperationDate.Location(),
+	)
+	if candidate.After(normalizedOperationDate) {
+		return candidate
+	}
+
+	return clampedMonthDate(
+		normalizedOperationDate.Year(),
+		normalizedOperationDate.Month()+1,
+		anchorDay,
+		normalizedOperationDate.Location(),
+	)
+}
+
+// BuildMonthlyBillingPeriodsFromAnchor expands periods from an already chosen
+// payment boundary while preserving the original lease start-day anchor.
+func BuildMonthlyBillingPeriodsFromAnchor(startDate time.Time, endDate time.Time, anchorDay int) ([]BillingPeriod, error) {
+	if startDate.After(endDate) {
+		return nil, ErrInvalidDateRange
+	}
+
+	return buildMonthlyPeriods(startDate, endDate, anchorDay), nil
+}
+
 func buildMonthlyPeriods(startDate time.Time, endDate time.Time, anchorDay int) []BillingPeriod {
 	currentStart := normalizeDate(startDate)
 	finalEnd := normalizeDate(endDate)
