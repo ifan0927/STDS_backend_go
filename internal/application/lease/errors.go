@@ -79,6 +79,6 @@ func mapDomainError(err error) error {
 			"field": "electricity_billing_cadence",
 		})
 	default:
-		return err
+		return apperr.ErrInternalServerError.WithCause(err)
 	}
 }

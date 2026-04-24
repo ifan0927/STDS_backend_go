@@ -54,6 +54,22 @@ func TestNewRejectsNegativeDeposit(t *testing.T) {
 	}
 }
 
+func TestNewRejectsInvalidCadence(t *testing.T) {
+	_, err := New(State{
+		TenantID:                  "tenant-1",
+		RoomID:                    "room-1",
+		PropertyID:                "property-1",
+		RentAmount:                18000,
+		StartDate:                 date(2026, 5, 1),
+		EndDate:                   date(2026, 5, 31),
+		ElectricityBillingCadence: "weekly",
+		DepositAmount:             36000,
+	})
+	if !errors.Is(err, ErrInvalidCadence) {
+		t.Fatalf("expected ErrInvalidCadence, got %v", err)
+	}
+}
+
 func TestBuildBillingPeriodsMonthlyDetailedCases(t *testing.T) {
 	t.Run("general monthly periods stay anchored to start day", func(t *testing.T) {
 		periods, err := BuildBillingPeriods(date(2026, 5, 15), date(2026, 9, 20), BillingCadenceMonthly)

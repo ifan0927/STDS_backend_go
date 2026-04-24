@@ -65,6 +65,13 @@ func (s *CreateLeaseService) Execute(ctx context.Context, input CreateLeaseInput
 		return nil, errValidationEndDateRequired
 	}
 
+	actorRole := strings.ToLower(strings.TrimSpace(input.ActorRole))
+	switch actorRole {
+	case "admin", "organizer", "staff":
+	default:
+		return nil, apperr.ErrForbidden
+	}
+
 	var created *Lease
 	err := s.txRunner.WithinTransaction(ctx, func(ctx context.Context, tx *sql.Tx, recorder *txrunner.EventRecorder) error {
 		if _, err := s.repo.FindTenantByID(ctx, tx, tenantID); err != nil {
@@ -88,7 +95,7 @@ func (s *CreateLeaseService) Execute(ctx context.Context, input CreateLeaseInput
 		if room.Status != "vacant" {
 			return errRoomNotVacant
 		}
-		if (input.ActorRole == "organizer" || input.ActorRole == "staff") && !containsAssignedProperty(input.AssignedPropertyIDs, room.PropertyID) {
+		if (actorRole == "organizer" || actorRole == "staff") && !containsAssignedProperty(input.AssignedPropertyIDs, room.PropertyID) {
 			return apperr.ErrForbidden
 		}
 

@@ -678,6 +678,7 @@ func TestListLeasesRejectsUnassignedPropertyFilter(t *testing.T) {
 }
 
 func TestGetLeaseReturnsAccessibleLease(t *testing.T) {
+	findCall := &findLeaseCall{}
 	engine := newTestEngineWithAllQueryRepos(
 		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
 		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}},
@@ -691,6 +692,7 @@ func TestGetLeaseReturnsAccessibleLease(t *testing.T) {
 		fakeJobRunsRepo{},
 		fakePropertyQueryRepo{},
 		fakeLeaseQueryRepo{
+			findCall: findCall,
 			lease: &dbleasequery.Lease{
 				ID:                        "40000000-0000-0000-0000-000000000001",
 				TenantID:                  "30000000-0000-0000-0000-000000000001",
@@ -728,6 +730,9 @@ func TestGetLeaseReturnsAccessibleLease(t *testing.T) {
 	if payload["id"] != "40000000-0000-0000-0000-000000000001" {
 		t.Fatalf("expected lease id, got %v", payload["id"])
 	}
+	if findCall.leaseID != "40000000-0000-0000-0000-000000000001" {
+		t.Fatalf("expected lease lookup id, got %q", findCall.leaseID)
+	}
 }
 
 func TestCreateLeaseReturnsCreatedLease(t *testing.T) {
@@ -739,6 +744,10 @@ func TestCreateLeaseReturnsCreatedLease(t *testing.T) {
 
 	mock.ExpectBegin()
 	mock.ExpectCommit()
+
+	var findTenantID string
+	var findRoomID string
+	createParams := applease.CreateLeaseParams{}
 
 	engine := newTestEngineWithAllServices(
 		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
@@ -752,7 +761,11 @@ func TestCreateLeaseReturnsCreatedLease(t *testing.T) {
 		fakeTenantQueryRepo{},
 		apptenant.NewCreateTenantService(fakeTenantRepo{}, dbtxrunner.New(db, nil)),
 		apptenant.NewUpdateTenantService(fakeTenantRepo{}, dbtxrunner.New(db, nil)),
-		applease.NewCreateLeaseService(fakeLeaseRepo{}, dbtxrunner.New(db, nil)),
+		applease.NewCreateLeaseService(fakeLeaseRepo{
+			findTenantID: &findTenantID,
+			findRoomID:   &findRoomID,
+			createParams: &createParams,
+		}, dbtxrunner.New(db, nil)),
 	)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/leases", strings.NewReader(`{
@@ -782,6 +795,30 @@ func TestCreateLeaseReturnsCreatedLease(t *testing.T) {
 	}
 	if payload["status"] != "active" {
 		t.Fatalf("expected active status, got %v", payload["status"])
+	}
+	if findTenantID != "30000000-0000-0000-0000-000000000001" {
+		t.Fatalf("expected tenant lookup id, got %q", findTenantID)
+	}
+	if findRoomID != "20000000-0000-0000-0000-000000000001" {
+		t.Fatalf("expected room lookup id, got %q", findRoomID)
+	}
+	if createParams.TenantID != "30000000-0000-0000-0000-000000000001" {
+		t.Fatalf("expected tenant_id, got %q", createParams.TenantID)
+	}
+	if createParams.RoomID != "20000000-0000-0000-0000-000000000001" {
+		t.Fatalf("expected room_id, got %q", createParams.RoomID)
+	}
+	if createParams.RentAmount != 18000 {
+		t.Fatalf("expected rent_amount 18000, got %d", createParams.RentAmount)
+	}
+	if createParams.DepositAmount != 36000 {
+		t.Fatalf("expected deposit_amount 36000, got %d", createParams.DepositAmount)
+	}
+	if !createParams.StartDate.Equal(time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("expected start_date 2026-05-01, got %s", createParams.StartDate)
+	}
+	if !createParams.EndDate.Equal(time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("expected end_date 2026-12-31, got %s", createParams.EndDate)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -2791,8 +2828,11 @@ type fakeTenantQueryRepo struct {
 type fakeLeaseRepo struct {
 	tenant       *applease.Tenant
 	tenantErr    error
+	findTenantID *string
 	room         *applease.Room
 	roomErr      error
+	findRoomID   *string
+	createParams *applease.CreateLeaseParams
 	createdLease *applease.Lease
 	createErr    error
 	billsErr     error
@@ -2803,6 +2843,7 @@ type fakeLeaseQueryRepo struct {
 	leaseErr error
 	leases   []dbleasequery.Lease
 	listCall *listLeasesCall
+	findCall *findLeaseCall
 }
 
 type listRoomsCall struct {
@@ -2832,6 +2873,12 @@ type listLeasesCall struct {
 	role                string
 	assignedPropertyIDs []string
 	params              dbleasequery.ListParams
+}
+
+type findLeaseCall struct {
+	leaseID             string
+	role                string
+	assignedPropertyIDs []string
 }
 
 type fakeResourceOwnershipRepo struct {
@@ -3658,7 +3705,10 @@ func (f fakeTenantRepo) Update(_ context.Context, _ *sql.Tx, _ apptenant.UpdateT
 	}, nil
 }
 
-func (f fakeLeaseRepo) FindTenantByID(_ context.Context, _ *sql.Tx, _ string) (*applease.Tenant, error) {
+func (f fakeLeaseRepo) FindTenantByID(_ context.Context, _ *sql.Tx, tenantID string) (*applease.Tenant, error) {
+	if f.findTenantID != nil {
+		*f.findTenantID = tenantID
+	}
 	if f.tenantErr != nil {
 		return nil, f.tenantErr
 	}
@@ -3669,7 +3719,10 @@ func (f fakeLeaseRepo) FindTenantByID(_ context.Context, _ *sql.Tx, _ string) (*
 	return &applease.Tenant{ID: "tenant-1", Status: "active"}, nil
 }
 
-func (f fakeLeaseRepo) FindRoomByIDForUpdate(_ context.Context, _ *sql.Tx, _ string) (*applease.Room, error) {
+func (f fakeLeaseRepo) FindRoomByIDForUpdate(_ context.Context, _ *sql.Tx, roomID string) (*applease.Room, error) {
+	if f.findRoomID != nil {
+		*f.findRoomID = roomID
+	}
 	if f.roomErr != nil {
 		return nil, f.roomErr
 	}
@@ -3685,7 +3738,10 @@ func (f fakeLeaseRepo) FindRoomByIDForUpdate(_ context.Context, _ *sql.Tx, _ str
 	}, nil
 }
 
-func (f fakeLeaseRepo) CreateLease(_ context.Context, _ *sql.Tx, _ applease.CreateLeaseParams) (*applease.Lease, error) {
+func (f fakeLeaseRepo) CreateLease(_ context.Context, _ *sql.Tx, params applease.CreateLeaseParams) (*applease.Lease, error) {
+	if f.createParams != nil {
+		*f.createParams = params
+	}
 	if f.createErr != nil {
 		return nil, f.createErr
 	}
@@ -3794,7 +3850,12 @@ func (f fakeLeaseQueryRepo) ListAccessible(_ context.Context, role string, assig
 	return []dbleasequery.Lease{}, nil
 }
 
-func (f fakeLeaseQueryRepo) FindByIDAccessible(_ context.Context, _ string, _ string, _ []string) (*dbleasequery.Lease, error) {
+func (f fakeLeaseQueryRepo) FindByIDAccessible(_ context.Context, id string, role string, assignedPropertyIDs []string) (*dbleasequery.Lease, error) {
+	if f.findCall != nil {
+		f.findCall.leaseID = id
+		f.findCall.role = role
+		f.findCall.assignedPropertyIDs = assignedPropertyIDs
+	}
 	if f.leaseErr != nil {
 		return nil, f.leaseErr
 	}

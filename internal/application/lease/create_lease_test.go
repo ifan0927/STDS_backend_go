@@ -59,6 +59,7 @@ func TestCreateLeaseServiceCreatesLeaseAndPreGeneratesBills(t *testing.T) {
 		StartDate:     time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC),
 		EndDate:       time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC),
 		DepositAmount: 36000,
+		ActorRole:     "admin",
 	})
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
@@ -146,6 +147,7 @@ func TestCreateLeaseServiceUsesExplicitCadenceOverride(t *testing.T) {
 		EndDate:                   time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC),
 		DepositAmount:             36000,
 		ElectricityBillingCadence: &override,
+		ActorRole:                 "admin",
 	})
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
@@ -227,6 +229,7 @@ func TestCreateLeaseServiceRejectsBusinessRuleViolationsAndMissingReferences(t *
 			StartDate:     time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
 			EndDate:       time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC),
 			DepositAmount: 36000,
+			ActorRole:     "admin",
 		})
 		if !errors.Is(err, apperr.ErrTenantNotFound) {
 			t.Fatalf("expected tenant not found, got %v", err)
@@ -261,6 +264,7 @@ func TestCreateLeaseServiceRejectsBusinessRuleViolationsAndMissingReferences(t *
 			StartDate:     time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
 			EndDate:       time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC),
 			DepositAmount: 36000,
+			ActorRole:     "admin",
 		})
 		if !errors.Is(err, errRoomNotVacant) {
 			t.Fatalf("expected errRoomNotVacant, got %v", err)
@@ -295,12 +299,44 @@ func TestCreateLeaseServiceRejectsBusinessRuleViolationsAndMissingReferences(t *
 			StartDate:     time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
 			EndDate:       time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC),
 			DepositAmount: 36000,
+			ActorRole:     "admin",
 		})
 		if !errors.Is(err, errLeaseRentAmountNonPositive) {
 			t.Fatalf("expected errLeaseRentAmountNonPositive, got %v", err)
 		}
 		if err := mock.ExpectationsWereMet(); err != nil {
 			t.Fatalf("ExpectationsWereMet: %v", err)
+		}
+	})
+
+	t.Run("empty actor role", func(t *testing.T) {
+		service := NewCreateLeaseService(nil, nil)
+		_, err := service.Execute(context.Background(), CreateLeaseInput{
+			TenantID:      "tenant-1",
+			RoomID:        "room-1",
+			RentAmount:    18000,
+			StartDate:     time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+			EndDate:       time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC),
+			DepositAmount: 36000,
+		})
+		if !errors.Is(err, apperr.ErrForbidden) {
+			t.Fatalf("expected forbidden, got %v", err)
+		}
+	})
+
+	t.Run("unknown actor role", func(t *testing.T) {
+		service := NewCreateLeaseService(nil, nil)
+		_, err := service.Execute(context.Background(), CreateLeaseInput{
+			TenantID:      "tenant-1",
+			RoomID:        "room-1",
+			RentAmount:    18000,
+			StartDate:     time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+			EndDate:       time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC),
+			DepositAmount: 36000,
+			ActorRole:     "superuser",
+		})
+		if !errors.Is(err, apperr.ErrForbidden) {
+			t.Fatalf("expected forbidden, got %v", err)
 		}
 	})
 }
