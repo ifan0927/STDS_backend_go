@@ -162,6 +162,63 @@ func TestForceTerminateLeaseServiceWritesOffBillsAndPublishesEvent(t *testing.T)
 	}
 }
 
+func TestForceTerminateLeaseServiceKeepsDepositHeld(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+
+	publisher := &recordingPublisher{}
+	repo := terminationRepoStub()
+	repo.replacementBills = append(repo.replacementBills, Bill{
+		ID:          "50000000-0000-0000-0000-000000000010",
+		Type:        "rent",
+		Status:      "overdue",
+		PeriodStart: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+		PeriodEnd:   time.Date(2026, 4, 30, 0, 0, 0, 0, time.UTC),
+	})
+	service := NewForceTerminateLeaseService(repo, dbtxrunner.New(db, publisher))
+
+	result, err := service.Execute(context.Background(), ForceTerminateLeaseInput{
+		ActorRole:           "admin",
+		ActorUserID:         "20000000-0000-0000-0000-000000000001",
+		AssignedPropertyIDs: []string{"property-1"},
+		LeaseID:             terminateLeaseTestLeaseID,
+		Reason:              "tenant unreachable",
+		DepositHandling:     "keep_held",
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	if result.Status != "completed" {
+		t.Fatalf("force termination status = %q, want completed", result.Status)
+	}
+	if len(repo.writeOffBillIDs) != 1 || repo.writeOffBillIDs[0] != "50000000-0000-0000-0000-000000000010" {
+		t.Fatalf("writeOffBillIDs = %+v", repo.writeOffBillIDs)
+	}
+	if repo.forceTerminateCalls != 1 {
+		t.Fatalf("forceTerminateCalls = %d, want 1", repo.forceTerminateCalls)
+	}
+	if repo.lease.DepositStatus != "held" {
+		t.Fatalf("deposit status = %q, want held", repo.lease.DepositStatus)
+	}
+	if result.DepositHandling != "keep_held" {
+		t.Fatalf("deposit handling = %q, want keep_held", result.DepositHandling)
+	}
+	if len(publisher.events) != 1 {
+		t.Fatalf("events = %d, want 1", len(publisher.events))
+	}
+	terminated, ok := publisher.events[0].(domainevents.LeaseTerminated)
+	if !ok || !terminated.Forced || terminated.IsReplacement {
+		t.Fatalf("event = %+v, want forced LeaseTerminated", publisher.events[0])
+	}
+}
+
 func TestForceTerminateLeaseServiceRejectsLowPrivilegeRole(t *testing.T) {
 	service := NewForceTerminateLeaseService(nil, nil)
 

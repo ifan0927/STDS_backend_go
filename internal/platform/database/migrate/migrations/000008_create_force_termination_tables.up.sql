@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS force_terminations (
     lease_id UUID NOT NULL REFERENCES leases(id),
     initiated_by UUID NOT NULL REFERENCES users(id),
     reason TEXT NOT NULL,
+    deposit_handling VARCHAR(20) NOT NULL CHECK (deposit_handling IN ('write_off', 'keep_held')),
     status VARCHAR(20) NOT NULL DEFAULT 'in_progress' CHECK (status IN ('in_progress', 'completed')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()

@@ -35,18 +35,33 @@ post:
               reason: 租客失聯，連續 3 個月未繳租金
               deposit_handling: write_off
   responses:
-    '202':
+    '400':
+      description: 請求格式錯誤（例如不支援的 deposit_handling）
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            invalid_deposit_handling:
+              summary: 不支援的押金處理方式
+              value:
+                error_code: BAD_REQUEST
+                message: Bad request.
+                details:
+                  field: deposit_handling
+    '200':
       description: 強制終止完成（force_termination 記錄已建立，未結清帳單已同步 written_off）
       content:
         application/json:
           schema:
             $ref: ../../components/schemas/tenancy/ForceTerminationResponse.yaml
           examples:
-            accepted:
+            completed:
               value:
                 id: 80000000-0000-0000-0000-000000000001
                 lease_id: 40000000-0000-0000-0000-000000000003
                 status: completed
+                deposit_handling: write_off
                 bills:
                   - bill_id: 50000000-0000-0000-0000-000000000010
                     status: done

@@ -39,7 +39,9 @@ type CommandRepository interface {
 	VoidBillsOverlappingOrAfter(ctx context.Context, tx *sql.Tx, leaseID string, boundary time.Time) error
 	CreateBills(ctx context.Context, tx *sql.Tx, params []CreateBillParams) error
 	MarkRoomOccupied(ctx context.Context, tx *sql.Tx, roomID string) error
+	MarkRoomVacant(ctx context.Context, tx *sql.Tx, roomID string) error
 	ActivateTenant(ctx context.Context, tx *sql.Tx, tenantID string) error
+	DeactivateTenantIfNoActiveLeases(ctx context.Context, tx *sql.Tx, tenantID string) error
 }
 
 // Lease is the persisted lease state used by write flows.
@@ -118,14 +120,15 @@ type Bill struct {
 
 // ForceTermination is the persisted force-termination progress state.
 type ForceTermination struct {
-	ID          string
-	LeaseID     string
-	Status      string
-	InitiatedBy string
-	Reason      string
-	Bills       []ForceTerminationBill
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID              string
+	LeaseID         string
+	Status          string
+	InitiatedBy     string
+	Reason          string
+	DepositHandling string
+	Bills           []ForceTerminationBill
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 // ForceTerminationBill is the persisted per-bill force-termination progress.
@@ -164,9 +167,10 @@ type ForceTerminateLeaseParams struct {
 
 // CreateForceTerminationParams contains fields required to persist force-termination progress.
 type CreateForceTerminationParams struct {
-	LeaseID     string
-	InitiatedBy string
-	Reason      string
+	LeaseID         string
+	InitiatedBy     string
+	Reason          string
+	DepositHandling string
 }
 
 // SQLRepository persists lease writes in PostgreSQL.
@@ -451,15 +455,17 @@ func (r *SQLRepository) CreateForceTermination(ctx context.Context, tx *sql.Tx, 
 INSERT INTO force_terminations (
 	lease_id,
 	initiated_by,
-	reason
-) VALUES ($1, $2, $3)
-RETURNING id, lease_id, initiated_by, reason, status, created_at, updated_at
+	reason,
+	deposit_handling
+) VALUES ($1, $2, $3, $4)
+RETURNING id, lease_id, initiated_by, reason, deposit_handling, status, created_at, updated_at
 `
 
 	forceTermination, err := scanForceTermination(tx.QueryRowContext(ctx, query,
 		params.LeaseID,
 		params.InitiatedBy,
 		params.Reason,
+		params.DepositHandling,
 	))
 	if err != nil {
 		return nil, fmt.Errorf("create force termination: %w", err)
@@ -561,7 +567,7 @@ WHERE id = $1
 
 func (r *SQLRepository) FindForceTerminationByID(ctx context.Context, tx *sql.Tx, forceTerminationID string) (*ForceTermination, error) {
 	const query = `
-SELECT id, lease_id, initiated_by, reason, status, created_at, updated_at
+SELECT id, lease_id, initiated_by, reason, deposit_handling, status, created_at, updated_at
 FROM force_terminations
 WHERE id = $1
 `
@@ -829,6 +835,22 @@ WHERE id = $1
 	return nil
 }
 
+func (r *SQLRepository) MarkRoomVacant(ctx context.Context, tx *sql.Tx, roomID string) error {
+	const query = `
+UPDATE rooms
+SET status = 'vacant',
+	updated_at = now()
+WHERE id = $1
+  AND deleted_at IS NULL
+`
+
+	if _, err := tx.ExecContext(ctx, query, roomID); err != nil {
+		return fmt.Errorf("mark room vacant: %w", err)
+	}
+
+	return nil
+}
+
 func (r *SQLRepository) ActivateTenant(ctx context.Context, tx *sql.Tx, tenantID string) error {
 	const query = `
 UPDATE tenants
@@ -841,6 +863,29 @@ WHERE id = $1
 
 	if _, err := tx.ExecContext(ctx, query, tenantID); err != nil {
 		return fmt.Errorf("activate tenant: %w", err)
+	}
+
+	return nil
+}
+
+func (r *SQLRepository) DeactivateTenantIfNoActiveLeases(ctx context.Context, tx *sql.Tx, tenantID string) error {
+	const query = `
+UPDATE tenants
+SET status = 'inactive',
+	updated_at = now()
+WHERE id = $1
+  AND deleted_at IS NULL
+  AND NOT EXISTS (
+	SELECT 1
+	FROM leases
+	WHERE tenant_id = $1
+	  AND status IN ('active', 'expired')
+	  AND deleted_at IS NULL
+  )
+`
+
+	if _, err := tx.ExecContext(ctx, query, tenantID); err != nil {
+		return fmt.Errorf("deactivate tenant if no active leases: %w", err)
 	}
 
 	return nil
@@ -907,6 +952,7 @@ func scanForceTermination(row rowScanner) (*ForceTermination, error) {
 		&forceTermination.LeaseID,
 		&forceTermination.InitiatedBy,
 		&forceTermination.Reason,
+		&forceTermination.DepositHandling,
 		&forceTermination.Status,
 		&forceTermination.CreatedAt,
 		&forceTermination.UpdatedAt,

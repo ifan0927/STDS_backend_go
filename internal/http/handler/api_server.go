@@ -185,6 +185,11 @@ func (s *APIServer) RecordBillPayment(c *gin.Context, id string) { writeNotImple
 
 // GetForceTermination handles force-termination detail retrieval.
 func (s *APIServer) GetForceTermination(c *gin.Context, id openapi_types.UUID) {
+	if s.getForceTermSvc == nil {
+		writeNotImplemented(c)
+		return
+	}
+
 	principal, ok := requestctx.GetPrincipal(c)
 	if !ok {
 		c.Error(apperr.ErrUnauthorized)
@@ -498,6 +503,11 @@ func (s *APIServer) ReplaceLease(c *gin.Context, id string) {
 
 // ForceTerminateLease handles forced lease termination.
 func (s *APIServer) ForceTerminateLease(c *gin.Context, id string) {
+	if s.forceTerminateSvc == nil {
+		writeNotImplemented(c)
+		return
+	}
+
 	principal, ok := requestctx.GetPrincipal(c)
 	if !ok {
 		c.Error(apperr.ErrUnauthorized)
@@ -523,11 +533,16 @@ func (s *APIServer) ForceTerminateLease(c *gin.Context, id string) {
 		return
 	}
 
-	c.JSON(http.StatusAccepted, toForceTerminationResponse(forceTermination))
+	c.JSON(http.StatusOK, toForceTerminationResponse(forceTermination))
 }
 
 // TerminateLease handles lease termination.
 func (s *APIServer) TerminateLease(c *gin.Context, id string) {
+	if s.terminateLeaseSvc == nil {
+		writeNotImplemented(c)
+		return
+	}
+
 	principal, ok := requestctx.GetPrincipal(c)
 	if !ok {
 		c.Error(apperr.ErrUnauthorized)
@@ -1702,6 +1717,7 @@ func toForceTerminationResponse(forceTermination *applease.ForceTermination) api
 	reason := forceTermination.Reason
 	createdAt := forceTermination.CreatedAt
 	updatedAt := forceTermination.UpdatedAt
+	depositHandling := api.ForceTerminationResponseDepositHandling(forceTermination.DepositHandling)
 
 	bills := make([]struct {
 		BillId *openapi_types.UUID                      `json:"bill_id,omitempty"`
@@ -1723,11 +1739,12 @@ func toForceTerminationResponse(forceTermination *applease.ForceTermination) api
 	}
 
 	response := api.ForceTerminationResponse{
-		Bills:     &bills,
-		CreatedAt: &createdAt,
-		Reason:    &reason,
-		Status:    &status,
-		UpdatedAt: &updatedAt,
+		Bills:           &bills,
+		CreatedAt:       &createdAt,
+		DepositHandling: &depositHandling,
+		Reason:          &reason,
+		Status:          &status,
+		UpdatedAt:       &updatedAt,
 	}
 	if idOK {
 		response.Id = &id

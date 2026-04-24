@@ -7,7 +7,7 @@ properties:
     type: string
   deposit_handling:
     type: string
-    description: 強制終止時的押金處理決策；write_off 會將押金狀態標記為 written_off，keep_held 則保留 held 等待後續人工處理。
+    description: Deposit handling decision during force termination; write_off marks the deposit as written_off, while keep_held leaves it held for later manual handling.
     enum:
       - write_off
       - keep_held

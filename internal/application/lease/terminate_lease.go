@@ -202,7 +202,8 @@ func (s *ForceTerminateLeaseService) Execute(ctx context.Context, input ForceTer
 	if reason == "" {
 		return nil, errForceTerminationReasonRequired
 	}
-	if strings.TrimSpace(input.DepositHandling) == "" {
+	depositHandling := strings.TrimSpace(input.DepositHandling)
+	if depositHandling == "" {
 		return nil, errForceTerminationDepositHandlingRequired
 	}
 
@@ -235,7 +236,7 @@ func (s *ForceTerminateLeaseService) Execute(ctx context.Context, input ForceTer
 		if err != nil {
 			return mapDomainError(err)
 		}
-		if err := aggregate.ForceTerminate(reason, input.DepositHandling); err != nil {
+		if err := aggregate.ForceTerminate(reason, depositHandling); err != nil {
 			return mapDomainError(err)
 		}
 		state := aggregate.State()
@@ -247,9 +248,10 @@ func (s *ForceTerminateLeaseService) Execute(ctx context.Context, input ForceTer
 		billIDs := unpaidBillIDs(bills)
 
 		created, err := s.repo.CreateForceTermination(ctx, tx, CreateForceTerminationParams{
-			LeaseID:     leaseID,
-			InitiatedBy: actorUserID,
-			Reason:      reason,
+			LeaseID:         leaseID,
+			InitiatedBy:     actorUserID,
+			Reason:          reason,
+			DepositHandling: depositHandling,
 		})
 		if err != nil {
 			return apperr.ErrInternalServerError.WithCause(err)

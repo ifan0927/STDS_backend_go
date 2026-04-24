@@ -456,13 +456,14 @@ func (s *leaseRepositoryStub) ListBillsByLeaseIDForUpdate(context.Context, *sql.
 
 func (s *leaseRepositoryStub) CreateForceTermination(_ context.Context, _ *sql.Tx, params CreateForceTerminationParams) (*ForceTermination, error) {
 	s.forceTermination = &ForceTermination{
-		ID:          "80000000-0000-0000-0000-000000000001",
-		LeaseID:     params.LeaseID,
-		Status:      "in_progress",
-		InitiatedBy: params.InitiatedBy,
-		Reason:      params.Reason,
-		CreatedAt:   time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
-		UpdatedAt:   time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
+		ID:              "80000000-0000-0000-0000-000000000001",
+		LeaseID:         params.LeaseID,
+		Status:          "in_progress",
+		InitiatedBy:     params.InitiatedBy,
+		Reason:          params.Reason,
+		DepositHandling: params.DepositHandling,
+		CreatedAt:       time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
+		UpdatedAt:       time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
 	}
 	return s.forceTermination, nil
 }
@@ -531,7 +532,15 @@ func (s *leaseRepositoryStub) MarkRoomOccupied(context.Context, *sql.Tx, string)
 	return nil
 }
 
+func (s *leaseRepositoryStub) MarkRoomVacant(context.Context, *sql.Tx, string) error {
+	return nil
+}
+
 func (s *leaseRepositoryStub) ActivateTenant(context.Context, *sql.Tx, string) error {
+	return nil
+}
+
+func (s *leaseRepositoryStub) DeactivateTenantIfNoActiveLeases(context.Context, *sql.Tx, string) error {
 	return nil
 }
 

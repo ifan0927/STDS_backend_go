@@ -90,14 +90,15 @@ type Bill struct {
 
 // ForceTermination captures force-termination progress state.
 type ForceTermination struct {
-	ID          string
-	LeaseID     string
-	Status      string
-	InitiatedBy string
-	Reason      string
-	Bills       []ForceTerminationBill
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID              string
+	LeaseID         string
+	Status          string
+	InitiatedBy     string
+	Reason          string
+	DepositHandling string
+	Bills           []ForceTerminationBill
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 // ForceTerminationBill captures per-bill force-termination progress.
@@ -136,9 +137,10 @@ type ForceTerminateLeaseParams struct {
 
 // CreateForceTerminationParams contains fields for force-termination progress creation.
 type CreateForceTerminationParams struct {
-	LeaseID     string
-	InitiatedBy string
-	Reason      string
+	LeaseID         string
+	InitiatedBy     string
+	Reason          string
+	DepositHandling string
 }
 
 // Repository defines persistence required by lease use cases and subscribers.
@@ -163,5 +165,7 @@ type Repository interface {
 	VoidBillsOverlappingOrAfter(ctx context.Context, tx *sql.Tx, leaseID string, boundary time.Time) error
 	CreateBills(ctx context.Context, tx *sql.Tx, params []CreateBillParams) error
 	MarkRoomOccupied(ctx context.Context, tx *sql.Tx, roomID string) error
+	MarkRoomVacant(ctx context.Context, tx *sql.Tx, roomID string) error
 	ActivateTenant(ctx context.Context, tx *sql.Tx, tenantID string) error
+	DeactivateTenantIfNoActiveLeases(ctx context.Context, tx *sql.Tx, tenantID string) error
 }

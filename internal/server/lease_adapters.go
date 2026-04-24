@@ -140,9 +140,10 @@ func (a leaseRepositoryAdapter) ListBillsByLeaseIDForUpdate(ctx context.Context,
 
 func (a leaseRepositoryAdapter) CreateForceTermination(ctx context.Context, tx *sql.Tx, params applease.CreateForceTerminationParams) (*applease.ForceTermination, error) {
 	forceTermination, err := a.repo.CreateForceTermination(ctx, tx, dbleases.CreateForceTerminationParams{
-		LeaseID:     params.LeaseID,
-		InitiatedBy: params.InitiatedBy,
-		Reason:      params.Reason,
+		LeaseID:         params.LeaseID,
+		InitiatedBy:     params.InitiatedBy,
+		Reason:          params.Reason,
+		DepositHandling: params.DepositHandling,
 	})
 	if err != nil {
 		return nil, err
@@ -253,8 +254,16 @@ func (a leaseRepositoryAdapter) MarkRoomOccupied(ctx context.Context, tx *sql.Tx
 	return a.repo.MarkRoomOccupied(ctx, tx, roomID)
 }
 
+func (a leaseRepositoryAdapter) MarkRoomVacant(ctx context.Context, tx *sql.Tx, roomID string) error {
+	return a.repo.MarkRoomVacant(ctx, tx, roomID)
+}
+
 func (a leaseRepositoryAdapter) ActivateTenant(ctx context.Context, tx *sql.Tx, tenantID string) error {
 	return a.repo.ActivateTenant(ctx, tx, tenantID)
+}
+
+func (a leaseRepositoryAdapter) DeactivateTenantIfNoActiveLeases(ctx context.Context, tx *sql.Tx, tenantID string) error {
+	return a.repo.DeactivateTenantIfNoActiveLeases(ctx, tx, tenantID)
 }
 
 func toApplicationForceTermination(forceTermination *dbleases.ForceTermination) *applease.ForceTermination {
@@ -267,14 +276,15 @@ func toApplicationForceTermination(forceTermination *dbleases.ForceTermination) 
 	}
 
 	return &applease.ForceTermination{
-		ID:          forceTermination.ID,
-		LeaseID:     forceTermination.LeaseID,
-		Status:      forceTermination.Status,
-		InitiatedBy: forceTermination.InitiatedBy,
-		Reason:      forceTermination.Reason,
-		Bills:       bills,
-		CreatedAt:   forceTermination.CreatedAt,
-		UpdatedAt:   forceTermination.UpdatedAt,
+		ID:              forceTermination.ID,
+		LeaseID:         forceTermination.LeaseID,
+		Status:          forceTermination.Status,
+		InitiatedBy:     forceTermination.InitiatedBy,
+		Reason:          forceTermination.Reason,
+		DepositHandling: forceTermination.DepositHandling,
+		Bills:           bills,
+		CreatedAt:       forceTermination.CreatedAt,
+		UpdatedAt:       forceTermination.UpdatedAt,
 	}
 }
 

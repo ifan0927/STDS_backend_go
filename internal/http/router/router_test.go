@@ -24,6 +24,7 @@ import (
 	apptenant "stds_backend/internal/application/tenant"
 	"stds_backend/internal/config"
 	domainusers "stds_backend/internal/domain/users"
+	"stds_backend/internal/http/handler"
 	dbleasequery "stds_backend/internal/platform/database/leasequery"
 	dbproperties "stds_backend/internal/platform/database/properties"
 	dbpropertyquery "stds_backend/internal/platform/database/propertyquery"
@@ -2511,6 +2512,66 @@ func TestAdminResourceRoutesReturnResourceSpecificNotFoundCodes(t *testing.T) {
 	}
 }
 
+func TestGetForceTerminationReturnsNotFoundWhenRecordMissing(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectRollback()
+
+	forceTerminationID := "80000000-0000-0000-0000-000000000001"
+	var capturedID string
+	leaseRepo := fakeLeaseRepo{
+		findForceTerminationIDSink: &capturedID,
+		forceTerminationErr:        applease.ErrForceTerminationNotFound,
+	}
+	engine := newTestEngineWithAllServices(
+		fakeUserRepo{role: "organizer", assignedPropertyIDs: []string{testPropertyID1}},
+		fakeAuthenticator{role: "organizer", assignedPropertyIDs: []string{testPropertyID1}},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{
+			propertyByForceTerminationID: map[string]string{
+				forceTerminationID: testPropertyID1,
+			},
+		},
+		"",
+		fakeJobRunsRepo{},
+		fakePropertyQueryRepo{},
+		fakeLeaseQueryRepo{},
+		fakeTenantQueryRepo{},
+		apptenant.NewCreateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
+		apptenant.NewUpdateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
+		applease.NewCreateLeaseService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil)),
+		handler.LeaseCommandServices{
+			GetForceTermination: applease.NewGetForceTerminationService(leaseRepo, dbtxrunner.New(db, nil)),
+		},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/force-terminations/"+forceTerminationID, nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if capturedID != forceTerminationID {
+		t.Fatalf("forwarded force termination id = %q, want %q", capturedID, forceTerminationID)
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if payload["error_code"] != apperr.CodeForceTerminationNotFound {
+		t.Fatalf("expected error_code %s, got %v", apperr.CodeForceTerminationNotFound, payload["error_code"])
+	}
+}
+
 func TestGetPropertyAttachmentsUsesPropertyAccessPolicy(t *testing.T) {
 	propertyID := "10000000-0000-0000-0000-000000000001"
 	repo := fakeUserRepo{assignedPropertyIDs: []string{propertyID}}
@@ -2826,16 +2887,19 @@ type fakeTenantQueryRepo struct {
 }
 
 type fakeLeaseRepo struct {
-	tenant       *applease.Tenant
-	tenantErr    error
-	findTenantID *string
-	room         *applease.Room
-	roomErr      error
-	findRoomID   *string
-	createParams *applease.CreateLeaseParams
-	createdLease *applease.Lease
-	createErr    error
-	billsErr     error
+	tenant                     *applease.Tenant
+	tenantErr                  error
+	findTenantID               *string
+	room                       *applease.Room
+	roomErr                    error
+	findRoomID                 *string
+	createParams               *applease.CreateLeaseParams
+	createdLease               *applease.Lease
+	createErr                  error
+	billsErr                   error
+	findForceTerminationIDSink *string
+	forceTerminationID         string
+	forceTerminationErr        error
 }
 
 type fakeLeaseQueryRepo struct {
@@ -3843,13 +3907,14 @@ func (f fakeLeaseRepo) ListBillsByLeaseIDForUpdate(_ context.Context, _ *sql.Tx,
 
 func (f fakeLeaseRepo) CreateForceTermination(_ context.Context, _ *sql.Tx, params applease.CreateForceTerminationParams) (*applease.ForceTermination, error) {
 	return &applease.ForceTermination{
-		ID:          "80000000-0000-0000-0000-000000000001",
-		LeaseID:     params.LeaseID,
-		Status:      "in_progress",
-		InitiatedBy: params.InitiatedBy,
-		Reason:      params.Reason,
-		CreatedAt:   time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
-		UpdatedAt:   time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
+		ID:              "80000000-0000-0000-0000-000000000001",
+		LeaseID:         params.LeaseID,
+		Status:          "in_progress",
+		InitiatedBy:     params.InitiatedBy,
+		Reason:          params.Reason,
+		DepositHandling: params.DepositHandling,
+		CreatedAt:       time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
+		UpdatedAt:       time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
 	}, nil
 }
 
@@ -3870,12 +3935,22 @@ func (f fakeLeaseRepo) CompleteForceTermination(context.Context, *sql.Tx, string
 }
 
 func (f fakeLeaseRepo) FindForceTerminationByID(_ context.Context, _ *sql.Tx, forceTerminationID string) (*applease.ForceTermination, error) {
+	if f.findForceTerminationIDSink != nil {
+		*f.findForceTerminationIDSink = forceTerminationID
+	}
+	if f.forceTerminationErr != nil {
+		return nil, f.forceTerminationErr
+	}
+	if f.forceTerminationID != "" && forceTerminationID != f.forceTerminationID {
+		return nil, applease.ErrForceTerminationNotFound
+	}
 	return &applease.ForceTermination{
-		ID:          forceTerminationID,
-		LeaseID:     "40000000-0000-0000-0000-000000000001",
-		Status:      "completed",
-		InitiatedBy: "20000000-0000-0000-0000-000000000001",
-		Reason:      "tenant unreachable",
+		ID:              forceTerminationID,
+		LeaseID:         "40000000-0000-0000-0000-000000000001",
+		Status:          "completed",
+		InitiatedBy:     "20000000-0000-0000-0000-000000000001",
+		Reason:          "tenant unreachable",
+		DepositHandling: "keep_held",
 		Bills: []applease.ForceTerminationBill{
 			{BillID: "50000000-0000-0000-0000-000000000001", Status: "done"},
 		},
@@ -3904,7 +3979,15 @@ func (f fakeLeaseRepo) MarkRoomOccupied(_ context.Context, _ *sql.Tx, _ string) 
 	return nil
 }
 
+func (f fakeLeaseRepo) MarkRoomVacant(_ context.Context, _ *sql.Tx, _ string) error {
+	return nil
+}
+
 func (f fakeLeaseRepo) ActivateTenant(_ context.Context, _ *sql.Tx, _ string) error {
+	return nil
+}
+
+func (f fakeLeaseRepo) DeactivateTenantIfNoActiveLeases(_ context.Context, _ *sql.Tx, _ string) error {
 	return nil
 }
 
@@ -4138,7 +4221,7 @@ func newTestEngineWithTenantServices(userRepo fakeUserRepo, authenticator fakeAu
 	)
 }
 
-func newTestEngineWithAllServices(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo, propertyQueryRepo dbpropertyquery.Repository, leaseQueryRepo dbleasequery.Repository, tenantQueryRepo dbtenantquery.Repository, createTenantService *apptenant.CreateTenantService, updateTenantService *apptenant.UpdateTenantService, createLeaseService *applease.CreateLeaseService) *gin.Engine {
+func newTestEngineWithAllServices(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo, propertyQueryRepo dbpropertyquery.Repository, leaseQueryRepo dbleasequery.Repository, tenantQueryRepo dbtenantquery.Repository, createTenantService *apptenant.CreateTenantService, updateTenantService *apptenant.UpdateTenantService, createLeaseService *applease.CreateLeaseService, leaseCommands ...handler.LeaseCommandServices) *gin.Engine {
 	repo := &userRepo
 	userAccountRepo := testUserAccountRepositoryAdapter{repo: repo}
 	return New(
@@ -4175,6 +4258,7 @@ func newTestEngineWithAllServices(userRepo fakeUserRepo, authenticator fakeAuthe
 		createTenantService,
 		updateTenantService,
 		createLeaseService,
+		leaseCommands...,
 	)
 }
 

@@ -105,14 +105,20 @@ const (
 
 // Defines values for ForceTerminateRequestDepositHandling.
 const (
-	KeepHeld ForceTerminateRequestDepositHandling = "keep_held"
-	WriteOff ForceTerminateRequestDepositHandling = "write_off"
+	ForceTerminateRequestDepositHandlingKeepHeld ForceTerminateRequestDepositHandling = "keep_held"
+	ForceTerminateRequestDepositHandlingWriteOff ForceTerminateRequestDepositHandling = "write_off"
 )
 
 // Defines values for ForceTerminationResponseBillsStatus.
 const (
 	Done    ForceTerminationResponseBillsStatus = "done"
 	Pending ForceTerminationResponseBillsStatus = "pending"
+)
+
+// Defines values for ForceTerminationResponseDepositHandling.
+const (
+	ForceTerminationResponseDepositHandlingKeepHeld ForceTerminationResponseDepositHandling = "keep_held"
+	ForceTerminationResponseDepositHandlingWriteOff ForceTerminationResponseDepositHandling = "write_off"
 )
 
 // Defines values for ForceTerminationResponseStatus.
@@ -536,12 +542,12 @@ type FinancialReportSummaryItem struct {
 
 // ForceTerminateRequest defines model for ForceTerminateRequest.
 type ForceTerminateRequest struct {
-	// DepositHandling 強制終止時的押金處理決策；write_off 會將押金狀態標記為 written_off，keep_held 則保留 held 等待後續人工處理。
+	// DepositHandling Deposit handling decision during force termination; write_off marks the deposit as written_off, while keep_held leaves it held for later manual handling.
 	DepositHandling ForceTerminateRequestDepositHandling `json:"deposit_handling"`
 	Reason          string                               `json:"reason"`
 }
 
-// ForceTerminateRequestDepositHandling 強制終止時的押金處理決策；write_off 會將押金狀態標記為 written_off，keep_held 則保留 held 等待後續人工處理。
+// ForceTerminateRequestDepositHandling Deposit handling decision during force termination; write_off marks the deposit as written_off, while keep_held leaves it held for later manual handling.
 type ForceTerminateRequestDepositHandling string
 
 // ForceTerminationResponse defines model for ForceTerminationResponse.
@@ -550,17 +556,21 @@ type ForceTerminationResponse struct {
 		BillId *openapi_types.UUID                  `json:"bill_id,omitempty"`
 		Status *ForceTerminationResponseBillsStatus `json:"status,omitempty"`
 	} `json:"bills,omitempty"`
-	CreatedAt   *time.Time                      `json:"created_at,omitempty"`
-	Id          *openapi_types.UUID             `json:"id,omitempty"`
-	InitiatedBy *openapi_types.UUID             `json:"initiated_by,omitempty"`
-	LeaseId     *openapi_types.UUID             `json:"lease_id,omitempty"`
-	Reason      *string                         `json:"reason,omitempty"`
-	Status      *ForceTerminationResponseStatus `json:"status,omitempty"`
-	UpdatedAt   *time.Time                      `json:"updated_at,omitempty"`
+	CreatedAt       *time.Time                               `json:"created_at,omitempty"`
+	DepositHandling *ForceTerminationResponseDepositHandling `json:"deposit_handling,omitempty"`
+	Id              *openapi_types.UUID                      `json:"id,omitempty"`
+	InitiatedBy     *openapi_types.UUID                      `json:"initiated_by,omitempty"`
+	LeaseId         *openapi_types.UUID                      `json:"lease_id,omitempty"`
+	Reason          *string                                  `json:"reason,omitempty"`
+	Status          *ForceTerminationResponseStatus          `json:"status,omitempty"`
+	UpdatedAt       *time.Time                               `json:"updated_at,omitempty"`
 }
 
 // ForceTerminationResponseBillsStatus defines model for ForceTerminationResponse.Bills.Status.
 type ForceTerminationResponseBillsStatus string
+
+// ForceTerminationResponseDepositHandling defines model for ForceTerminationResponse.DepositHandling.
+type ForceTerminationResponseDepositHandling string
 
 // ForceTerminationResponseStatus defines model for ForceTerminationResponse.Status.
 type ForceTerminationResponseStatus string

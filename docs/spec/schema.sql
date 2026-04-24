@@ -425,7 +425,7 @@ CREATE INDEX idx_repair_requests_assigned_to ON repair_requests (assigned_to) WH
 
 -- ============================================================
 -- Table: force_terminations
--- 說明: 強制終止租約的進度記錄（saga 雛形，補償機制用）
+-- 說明: 強制終止租約的同步完成記錄
 --       對應 domain model 的 force_terminations table
 -- ============================================================
 
@@ -434,7 +434,8 @@ CREATE TABLE force_terminations (
     lease_id        UUID        NOT NULL REFERENCES leases(id),
     initiated_by    UUID        NOT NULL REFERENCES users(id),
     reason          TEXT         NOT NULL,
-    -- status：in_progress | completed
+    deposit_handling VARCHAR(20) NOT NULL CHECK (deposit_handling IN ('write_off', 'keep_held')),
+    -- status：completed；in_progress 保留為已棄用的歷史狀態
     status          VARCHAR(20)  NOT NULL CHECK (status IN ('in_progress', 'completed'))
                                  DEFAULT 'in_progress',
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
@@ -442,7 +443,7 @@ CREATE TABLE force_terminations (
 );
 
 -- Index 說明:
--- idx_force_terminations_status: 強制終止補償排程（WHERE status = 'in_progress'）
+-- idx_force_terminations_status: 狀態查詢索引；in_progress 為已棄用的歷史狀態
 CREATE INDEX idx_force_terminations_status ON force_terminations (status);
 -- idx_force_terminations_lease_id: 外鍵關聯
 CREATE INDEX idx_force_terminations_lease_id ON force_terminations (lease_id);

@@ -3083,22 +3083,37 @@ paths:
                   reason: 租客失聯，連續 3 個月未繳租金
                   deposit_handling: write_off
       responses:
-        '202':
+        '200':
           description: 強制終止完成（force_termination 記錄已建立，未結清帳單已同步 written_off）
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ForceTerminationResponse'
               examples:
-                accepted:
+                completed:
                   value:
                     id: 80000000-0000-0000-0000-000000000001
                     lease_id: 40000000-0000-0000-0000-000000000003
                     status: completed
+                    deposit_handling: write_off
                     bills:
                       - bill_id: 50000000-0000-0000-0000-000000000010
                         status: done
                     created_at: '2026-04-15T17:00:00Z'
+        '400':
+          description: 請求格式錯誤（例如不支援的 deposit_handling）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_deposit_handling:
+                  summary: 不支援的押金處理方式
+                  value:
+                    error_code: BAD_REQUEST
+                    message: Bad request.
+                    details:
+                      field: deposit_handling
         '401':
           description: 未認證
           content:
@@ -6615,7 +6630,7 @@ components:
           type: string
         deposit_handling:
           type: string
-          description: 強制終止時的押金處理決策；write_off 會將押金狀態標記為 written_off，keep_held 則保留 held 等待後續人工處理。
+          description: Deposit handling decision during force termination; write_off marks the deposit as written_off, while keep_held leaves it held for later manual handling.
           enum:
             - write_off
             - keep_held
@@ -6638,6 +6653,11 @@ components:
           format: uuid
         reason:
           type: string
+        deposit_handling:
+          type: string
+          enum:
+            - write_off
+            - keep_held
         bills:
           type: array
           items:
