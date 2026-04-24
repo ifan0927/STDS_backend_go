@@ -10,12 +10,14 @@ import (
 
 	appiam "stds_backend/internal/application/iam"
 	appjobs "stds_backend/internal/application/jobs"
+	applease "stds_backend/internal/application/lease"
 	appproperty "stds_backend/internal/application/property"
 	apptenant "stds_backend/internal/application/tenant"
 	domainusers "stds_backend/internal/domain/users"
 	"stds_backend/internal/http/api"
 	"stds_backend/internal/http/queryparams"
 	"stds_backend/internal/http/requestctx"
+	dbleasequery "stds_backend/internal/platform/database/leasequery"
 	dbpropertyquery "stds_backend/internal/platform/database/propertyquery"
 	dbtenantquery "stds_backend/internal/platform/database/tenantquery"
 	"stds_backend/internal/platform/database/users"
@@ -36,6 +38,7 @@ type APIServer struct {
 	assignProperties  *appiam.AssignUserPropertiesService
 	jobTriggerService *appjobs.TriggerService
 	propertyQueryRepo dbpropertyquery.Repository
+	leaseQueryRepo    dbleasequery.Repository
 	tenantQueryRepo   dbtenantquery.Repository
 	createPropertySvc *appproperty.CreatePropertyService
 	updatePropertySvc *appproperty.UpdatePropertyService
@@ -46,6 +49,7 @@ type APIServer struct {
 	setMaintenanceSvc *appproperty.SetRoomMaintenanceService
 	createTenantSvc   *apptenant.CreateTenantService
 	updateTenantSvc   *apptenant.UpdateTenantService
+	createLeaseSvc    *applease.CreateLeaseService
 }
 
 // NewAPIServer returns an API server with only the currently implemented
@@ -60,6 +64,7 @@ func NewAPIServer(
 	assignProperties *appiam.AssignUserPropertiesService,
 	jobTriggerService *appjobs.TriggerService,
 	propertyQueryRepo dbpropertyquery.Repository,
+	leaseQueryRepo dbleasequery.Repository,
 	tenantQueryRepo dbtenantquery.Repository,
 	createPropertySvc *appproperty.CreatePropertyService,
 	updatePropertySvc *appproperty.UpdatePropertyService,
@@ -70,6 +75,7 @@ func NewAPIServer(
 	setMaintenanceSvc *appproperty.SetRoomMaintenanceService,
 	createTenantSvc *apptenant.CreateTenantService,
 	updateTenantSvc *apptenant.UpdateTenantService,
+	createLeaseSvc *applease.CreateLeaseService,
 ) *APIServer {
 	return &APIServer{
 		userRepo:          userRepo,
@@ -81,6 +87,7 @@ func NewAPIServer(
 		assignProperties:  assignProperties,
 		jobTriggerService: jobTriggerService,
 		propertyQueryRepo: propertyQueryRepo,
+		leaseQueryRepo:    leaseQueryRepo,
 		tenantQueryRepo:   tenantQueryRepo,
 		createPropertySvc: createPropertySvc,
 		updatePropertySvc: updatePropertySvc,
@@ -91,6 +98,7 @@ func NewAPIServer(
 		setMaintenanceSvc: setMaintenanceSvc,
 		createTenantSvc:   createTenantSvc,
 		updateTenantSvc:   updateTenantSvc,
+		createLeaseSvc:    createLeaseSvc,
 	}
 }
 
@@ -209,10 +217,83 @@ func (s *APIServer) GetJournalLog(c *gin.Context, id string) { writeNotImplement
 func (s *APIServer) UpdateJournalLog(c *gin.Context, id string) { writeNotImplemented(c) }
 
 // ListLeases handles the lease listing endpoint.
-func (s *APIServer) ListLeases(c *gin.Context, params api.ListLeasesParams) { writeNotImplemented(c) }
+func (s *APIServer) ListLeases(c *gin.Context, params api.ListLeasesParams) {
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	pagination, err := queryparams.NormalizePagination(params.Page, params.Limit)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	status := ""
+	if params.Status != nil {
+		status = string(*params.Status)
+	}
+
+	leases, err := s.leaseQueryRepo.ListAccessible(c.Request.Context(), principal.Role, principal.AssignedPropertyIDs, dbleasequery.ListParams{
+		PropertyID: params.PropertyId,
+		RoomID:     params.RoomId,
+		TenantID:   params.TenantId,
+		Status:     status,
+		Limit:      pagination.Limit,
+		Offset:     pagination.Offset,
+	})
+	if err != nil {
+		c.Error(apperr.ErrInternalServerError.WithCause(err))
+		return
+	}
+
+	items := make([]api.LeaseResponse, 0, len(leases))
+	for _, lease := range leases {
+		items = append(items, toLeaseResponse(&lease))
+	}
+
+	c.JSON(http.StatusOK, api.LeaseListResponse{Data: &items})
+}
 
 // CreateLease handles lease creation.
-func (s *APIServer) CreateLease(c *gin.Context) { writeNotImplemented(c) }
+func (s *APIServer) CreateLease(c *gin.Context) {
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	var request api.CreateLeaseRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.Error(apperr.ErrBadRequest.WithCause(err))
+		return
+	}
+
+	var cadence *string
+	if request.ElectricityBillingCadence != nil {
+		value := string(*request.ElectricityBillingCadence)
+		cadence = &value
+	}
+
+	lease, err := s.createLeaseSvc.Execute(c.Request.Context(), applease.CreateLeaseInput{
+		ActorRole:                 principal.Role,
+		AssignedPropertyIDs:       principal.AssignedPropertyIDs,
+		TenantID:                  request.TenantId.String(),
+		RoomID:                    request.RoomId.String(),
+		RentAmount:                request.RentAmount,
+		StartDate:                 request.StartDate.Time,
+		EndDate:                   request.EndDate.Time,
+		DepositAmount:             request.DepositAmount,
+		ElectricityBillingCadence: cadence,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusCreated, toCreatedLeaseResponse(lease))
+}
 
 // ListLeaseAttachments handles lease attachment listing.
 func (s *APIServer) ListLeaseAttachments(c *gin.Context, id openapi_types.UUID) {
@@ -228,7 +309,26 @@ func (s *APIServer) CreateLeaseAttachment(c *gin.Context, id openapi_types.UUID)
 func (s *APIServer) DeleteLease(c *gin.Context, id string) { writeNotImplemented(c) }
 
 // GetLease handles lease detail retrieval.
-func (s *APIServer) GetLease(c *gin.Context, id string) { writeNotImplemented(c) }
+func (s *APIServer) GetLease(c *gin.Context, id string) {
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	lease, err := s.leaseQueryRepo.FindByIDAccessible(c.Request.Context(), id, principal.Role, principal.AssignedPropertyIDs)
+	if err != nil {
+		switch {
+		case errors.Is(err, dbleasequery.ErrNotFound):
+			c.Error(apperr.ErrLeaseNotFound)
+		default:
+			c.Error(apperr.ErrInternalServerError.WithCause(err))
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, toLeaseResponse(lease))
+}
 
 // UpdateLease handles lease updates.
 func (s *APIServer) UpdateLease(c *gin.Context, id string) { writeNotImplemented(c) }
@@ -1329,6 +1429,58 @@ func toTenantLeaseResponse(lease *dbtenantquery.Lease) api.LeaseResponse {
 	}
 
 	return response
+}
+
+func toLeaseResponse(lease *dbleasequery.Lease) api.LeaseResponse {
+	tenantLease := &dbtenantquery.Lease{
+		ID:                        lease.ID,
+		TenantID:                  lease.TenantID,
+		PropertyID:                lease.PropertyID,
+		RoomID:                    lease.RoomID,
+		RentAmount:                lease.RentAmount,
+		StartDate:                 lease.StartDate,
+		EndDate:                   lease.EndDate,
+		ElectricityBillingCadence: lease.ElectricityBillingCadence,
+		Status:                    lease.Status,
+		DepositAmount:             lease.DepositAmount,
+		DepositRefundAmount:       lease.DepositRefundAmount,
+		DepositDeductionAmount:    lease.DepositDeductionAmount,
+		DepositStatus:             lease.DepositStatus,
+		DepositDeductionReason:    lease.DepositDeductionReason,
+		Notes:                     lease.Notes,
+		TerminationReason:         lease.TerminationReason,
+		SettlementDetail:          lease.SettlementDetail,
+		CreatedAt:                 lease.CreatedAt,
+		UpdatedAt:                 lease.UpdatedAt,
+		Version:                   lease.Version,
+	}
+
+	return toTenantLeaseResponse(tenantLease)
+}
+
+func toCreatedLeaseResponse(lease *applease.Lease) api.LeaseResponse {
+	return toLeaseResponse(&dbleasequery.Lease{
+		ID:                        lease.ID,
+		TenantID:                  lease.TenantID,
+		PropertyID:                lease.PropertyID,
+		RoomID:                    lease.RoomID,
+		RentAmount:                lease.RentAmount,
+		StartDate:                 lease.StartDate,
+		EndDate:                   lease.EndDate,
+		ElectricityBillingCadence: lease.ElectricityBillingCadence,
+		Status:                    lease.Status,
+		DepositAmount:             lease.DepositAmount,
+		DepositRefundAmount:       lease.DepositRefundAmount,
+		DepositDeductionAmount:    lease.DepositDeductionAmount,
+		DepositStatus:             lease.DepositStatus,
+		DepositDeductionReason:    lease.DepositDeductionReason,
+		Notes:                     lease.Notes,
+		TerminationReason:         lease.TerminationReason,
+		SettlementDetail:          lease.SettlementDetail,
+		CreatedAt:                 lease.CreatedAt,
+		UpdatedAt:                 lease.UpdatedAt,
+		Version:                   lease.Version,
+	})
 }
 
 func toRepairRequestResponse(repairRequest *appproperty.RepairRequest) api.RepairRequestResponse {

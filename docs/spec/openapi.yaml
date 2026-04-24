@@ -2343,7 +2343,7 @@ paths:
         x-required-role: admin, organizer, staff
         觸發 LeaseCreated event → Property BC（Room 改 occupied）+ Billing BC（預產帳單）
         BR-01：起始日不得晚於終止日
-        BR-02：租金不得為零
+        BR-02：租金必須大於零
         BR-03：押金不得為負
         BR-12：目標房間必須為 vacant（取悲觀鎖後檢查）
         electricity_billing_cadence 可於建約時覆寫，未提供時套用 Property 預設值
@@ -2458,11 +2458,11 @@ paths:
                   value:
                     error_code: LEASE_INVALID_DATE_RANGE
                     message: 租約起始日不得晚於終止日
-                rent_amount_zero:
-                  summary: BR-02 租金不得為零
+                rent_amount_non_positive:
+                  summary: BR-02 租金必須大於零
                   value:
-                    error_code: LEASE_RENT_AMOUNT_ZERO
-                    message: 租金不得為零
+                    error_code: LEASE_RENT_AMOUNT_NON_POSITIVE
+                    message: 租金必須大於零
                 deposit_negative:
                   summary: BR-03 押金不得為負
                   value:
@@ -2639,11 +2639,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
               examples:
-                rent_amount_zero:
-                  summary: BR-02 租金不得為零
+                rent_amount_non_positive:
+                  summary: BR-02 租金必須大於零
                   value:
-                    error_code: LEASE_RENT_AMOUNT_ZERO
-                    message: 租金不得為零
+                    error_code: LEASE_RENT_AMOUNT_NON_POSITIVE
+                    message: 租金必須大於零
     delete:
       operationId: deleteLease
       summary: 刪除租約（軟刪除）
