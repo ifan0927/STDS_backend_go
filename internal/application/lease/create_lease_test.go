@@ -154,8 +154,15 @@ func TestCreateLeaseServiceUsesExplicitCadenceOverride(t *testing.T) {
 	if repo.createLeaseParams == nil || repo.createLeaseParams.ElectricityBillingCadence != "bimonthly" {
 		t.Fatalf("expected bimonthly cadence, got %+v", repo.createLeaseParams)
 	}
-	if len(repo.createdBills) != 6 {
-		t.Fatalf("expected 6 bills for 3 bimonthly periods, got %d", len(repo.createdBills))
+	if len(repo.createdBills) != 9 {
+		t.Fatalf("expected 9 bills for 6 rent periods and 3 electricity periods, got %d", len(repo.createdBills))
+	}
+	firstElectricity := repo.createdBills[6]
+	if firstElectricity.Type != billTypeElectricity || firstElectricity.Status != billStatusPendingMeter || firstElectricity.Amount != nil {
+		t.Fatalf("unexpected first electricity bill: %+v", firstElectricity)
+	}
+	if !firstElectricity.PeriodStart.Equal(time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)) || !firstElectricity.PeriodEnd.Equal(time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("unexpected first electricity period: %+v", firstElectricity)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -177,6 +184,29 @@ func TestCreateLeaseServiceRejectsBusinessRuleViolationsAndMissingReferences(t *
 		_, err := service.Execute(context.Background(), CreateLeaseInput{TenantID: "tenant-1"})
 		if !errors.Is(err, errValidationRoomIDRequired) {
 			t.Fatalf("expected errValidationRoomIDRequired, got %v", err)
+		}
+	})
+
+	t.Run("zero tenant id", func(t *testing.T) {
+		service := NewCreateLeaseService(nil, nil)
+		_, err := service.Execute(context.Background(), CreateLeaseInput{
+			TenantID: "00000000-0000-0000-0000-000000000000",
+			RoomID:   "room-1",
+		})
+		if !errors.Is(err, errValidationTenantIDRequired) {
+			t.Fatalf("expected errValidationTenantIDRequired, got %v", err)
+		}
+	})
+
+	t.Run("zero start date", func(t *testing.T) {
+		service := NewCreateLeaseService(nil, nil)
+		_, err := service.Execute(context.Background(), CreateLeaseInput{
+			TenantID: "tenant-1",
+			RoomID:   "room-1",
+			EndDate:  time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC),
+		})
+		if !errors.Is(err, errValidationStartDateRequired) {
+			t.Fatalf("expected errValidationStartDateRequired, got %v", err)
 		}
 	})
 
@@ -234,6 +264,40 @@ func TestCreateLeaseServiceRejectsBusinessRuleViolationsAndMissingReferences(t *
 		})
 		if !errors.Is(err, errRoomNotVacant) {
 			t.Fatalf("expected errRoomNotVacant, got %v", err)
+		}
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Fatalf("ExpectationsWereMet: %v", err)
+		}
+	})
+
+	t.Run("negative rent", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		if err != nil {
+			t.Fatalf("sqlmock.New: %v", err)
+		}
+		defer db.Close()
+		mock.ExpectBegin()
+		mock.ExpectRollback()
+
+		service := NewCreateLeaseService(&leaseRepositoryStub{
+			tenant: &Tenant{ID: "tenant-1", Status: "active"},
+			room: &Room{
+				ID:                               "room-1",
+				PropertyID:                       "property-1",
+				Status:                           "vacant",
+				DefaultElectricityBillingCadence: "monthly",
+			},
+		}, dbtxrunner.New(db, nil))
+		_, err = service.Execute(context.Background(), CreateLeaseInput{
+			TenantID:      "tenant-1",
+			RoomID:        "room-1",
+			RentAmount:    -1,
+			StartDate:     time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+			EndDate:       time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC),
+			DepositAmount: 36000,
+		})
+		if !errors.Is(err, errLeaseRentAmountZero) {
+			t.Fatalf("expected errLeaseRentAmountZero, got %v", err)
 		}
 		if err := mock.ExpectationsWereMet(); err != nil {
 			t.Fatalf("ExpectationsWereMet: %v", err)

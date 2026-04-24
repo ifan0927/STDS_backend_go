@@ -18,6 +18,8 @@ const (
 
 	billStatusPendingPayment = "pending_payment"
 	billStatusPendingMeter   = "pending_meter"
+
+	zeroUUID = "00000000-0000-0000-0000-000000000000"
 )
 
 // CreateLeaseInput is the command payload for creating a lease.
@@ -47,13 +49,19 @@ func NewCreateLeaseService(repo Repository, txRunner *txrunner.Runner) *CreateLe
 // Execute validates input, creates the lease, pre-generates bills, and records LeaseCreated.
 func (s *CreateLeaseService) Execute(ctx context.Context, input CreateLeaseInput) (*Lease, error) {
 	tenantID := strings.TrimSpace(input.TenantID)
-	if tenantID == "" {
+	if tenantID == "" || tenantID == zeroUUID {
 		return nil, errValidationTenantIDRequired
 	}
 
 	roomID := strings.TrimSpace(input.RoomID)
-	if roomID == "" {
+	if roomID == "" || roomID == zeroUUID {
 		return nil, errValidationRoomIDRequired
+	}
+	if input.StartDate.IsZero() {
+		return nil, errValidationStartDateRequired
+	}
+	if input.EndDate.IsZero() {
+		return nil, errValidationEndDateRequired
 	}
 
 	var created *Lease
@@ -117,12 +125,17 @@ func (s *CreateLeaseService) Execute(ctx context.Context, input CreateLeaseInput
 			return apperr.ErrInternalServerError.WithCause(err)
 		}
 
-		periods, err := domainlease.BuildBillingPeriods(state.StartDate, state.EndDate, state.ElectricityBillingCadence)
+		rentPeriods, err := domainlease.BuildBillingPeriods(state.StartDate, state.EndDate, domainlease.BillingCadenceMonthly)
 		if err != nil {
 			return mapDomainError(err)
 		}
 
-		if err := s.repo.CreateBills(ctx, tx, buildBillSeeds(createdLease, periods)); err != nil {
+		electricityPeriods, err := domainlease.BuildBillingPeriods(state.StartDate, state.EndDate, state.ElectricityBillingCadence)
+		if err != nil {
+			return mapDomainError(err)
+		}
+
+		if err := s.repo.CreateBills(ctx, tx, buildBillSeeds(createdLease, rentPeriods, electricityPeriods)); err != nil {
 			return apperr.ErrInternalServerError.WithCause(err)
 		}
 
@@ -157,36 +170,36 @@ func containsAssignedProperty(assignedPropertyIDs []string, propertyID string) b
 	return false
 }
 
-func buildBillSeeds(lease *Lease, periods []domainlease.BillingPeriod) []CreateBillParams {
-	bills := make([]CreateBillParams, 0, len(periods)*2)
-	for _, period := range periods {
+func buildBillSeeds(lease *Lease, rentPeriods []domainlease.BillingPeriod, electricityPeriods []domainlease.BillingPeriod) []CreateBillParams {
+	bills := make([]CreateBillParams, 0, len(rentPeriods)+len(electricityPeriods))
+	for _, period := range rentPeriods {
 		rentAmount := lease.RentAmount
-		bills = append(bills,
-			CreateBillParams{
-				LeaseID:     lease.ID,
-				TenantID:    lease.TenantID,
-				RoomID:      lease.RoomID,
-				PropertyID:  lease.PropertyID,
-				Type:        billTypeRent,
-				Amount:      &rentAmount,
-				PeriodStart: period.PeriodStart,
-				PeriodEnd:   period.PeriodEnd,
-				DueDate:     period.DueDate,
-				Status:      billStatusPendingPayment,
-			},
-			CreateBillParams{
-				LeaseID:     lease.ID,
-				TenantID:    lease.TenantID,
-				RoomID:      lease.RoomID,
-				PropertyID:  lease.PropertyID,
-				Type:        billTypeElectricity,
-				Amount:      nil,
-				PeriodStart: period.PeriodStart,
-				PeriodEnd:   period.PeriodEnd,
-				DueDate:     period.DueDate,
-				Status:      billStatusPendingMeter,
-			},
-		)
+		bills = append(bills, CreateBillParams{
+			LeaseID:     lease.ID,
+			TenantID:    lease.TenantID,
+			RoomID:      lease.RoomID,
+			PropertyID:  lease.PropertyID,
+			Type:        billTypeRent,
+			Amount:      &rentAmount,
+			PeriodStart: period.PeriodStart,
+			PeriodEnd:   period.PeriodEnd,
+			DueDate:     period.DueDate,
+			Status:      billStatusPendingPayment,
+		})
+	}
+	for _, period := range electricityPeriods {
+		bills = append(bills, CreateBillParams{
+			LeaseID:     lease.ID,
+			TenantID:    lease.TenantID,
+			RoomID:      lease.RoomID,
+			PropertyID:  lease.PropertyID,
+			Type:        billTypeElectricity,
+			Amount:      nil,
+			PeriodStart: period.PeriodStart,
+			PeriodEnd:   period.PeriodEnd,
+			DueDate:     period.DueDate,
+			Status:      billStatusPendingMeter,
+		})
 	}
 
 	return bills

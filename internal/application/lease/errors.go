@@ -9,12 +9,14 @@ import (
 )
 
 const (
-	codeValidationTenantIDRequired = "VALIDATION_TENANT_ID_REQUIRED"
-	codeValidationRoomIDRequired   = "VALIDATION_ROOM_ID_REQUIRED"
-	codeLeaseInvalidDateRange      = "LEASE_INVALID_DATE_RANGE"
-	codeLeaseRentAmountZero        = "LEASE_RENT_AMOUNT_ZERO"
-	codeLeaseDepositNegative       = "LEASE_DEPOSIT_NEGATIVE"
-	codeRoomNotVacant              = "ROOM_NOT_VACANT"
+	codeValidationTenantIDRequired  = "VALIDATION_TENANT_ID_REQUIRED"
+	codeValidationRoomIDRequired    = "VALIDATION_ROOM_ID_REQUIRED"
+	codeValidationStartDateRequired = "VALIDATION_START_DATE_REQUIRED"
+	codeValidationEndDateRequired   = "VALIDATION_END_DATE_REQUIRED"
+	codeLeaseInvalidDateRange       = "LEASE_INVALID_DATE_RANGE"
+	codeLeaseRentAmountZero         = "LEASE_RENT_AMOUNT_ZERO"
+	codeLeaseDepositNegative        = "LEASE_DEPOSIT_NEGATIVE"
+	codeRoomNotVacant               = "ROOM_NOT_VACANT"
 )
 
 var (
@@ -27,6 +29,16 @@ var (
 		codeValidationRoomIDRequired,
 		http.StatusBadRequest,
 		"room_id is required.",
+	)
+	errValidationStartDateRequired = apperr.New(
+		codeValidationStartDateRequired,
+		http.StatusBadRequest,
+		"start_date is required.",
+	)
+	errValidationEndDateRequired = apperr.New(
+		codeValidationEndDateRequired,
+		http.StatusBadRequest,
+		"end_date is required.",
 	)
 	errLeaseInvalidDateRange = apperr.New(
 		codeLeaseInvalidDateRange,

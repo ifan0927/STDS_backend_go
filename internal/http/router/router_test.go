@@ -753,6 +753,45 @@ func TestCreateLeaseReturnsCreatedLease(t *testing.T) {
 	}
 }
 
+func TestCreateLeaseRejectsMissingTenantID(t *testing.T) {
+	engine := newTestEngineWithAllQueryRepos(
+		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
+		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{},
+		"",
+		fakeJobRunsRepo{},
+		fakePropertyQueryRepo{},
+		fakeLeaseQueryRepo{},
+		fakeTenantQueryRepo{},
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/leases", strings.NewReader(`{
+		"room_id":"20000000-0000-0000-0000-000000000001",
+		"rent_amount":18000,
+		"start_date":"2026-05-01",
+		"end_date":"2026-12-31",
+		"deposit_amount":36000
+	}`))
+	req.Header.Set("Authorization", "Bearer valid-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if payload["error_code"] != "VALIDATION_TENANT_ID_REQUIRED" {
+		t.Fatalf("expected VALIDATION_TENANT_ID_REQUIRED, got %v", payload["error_code"])
+	}
+}
+
 func TestCreateLeaseRejectsUnassignedRoomProperty(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
