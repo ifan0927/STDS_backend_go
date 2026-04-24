@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -58,6 +59,7 @@ type APIServer struct {
 	terminateLeaseSvc *applease.TerminateLeaseService
 	forceTerminateSvc *applease.ForceTerminateLeaseService
 	getForceTermSvc   *applease.GetForceTerminationService
+	billing           BillingServices
 }
 
 // LeaseCommandServices groups optional lease command services beyond creation.
@@ -68,6 +70,90 @@ type LeaseCommandServices struct {
 	TerminateLease      *applease.TerminateLeaseService
 	ForceTerminateLease *applease.ForceTerminateLeaseService
 	GetForceTermination *applease.GetForceTerminationService
+	Billing             BillingServices
+}
+
+// BillingServices groups the billing application entry points used by the
+// transport layer.
+type BillingServices struct {
+	Query   BillingQueryService
+	Meter   BillingMeterService
+	Payment BillingPaymentService
+}
+
+type BillingQueryService interface {
+	ListBills(ctx context.Context, input BillingListInput) ([]BillingBill, error)
+	GetBill(ctx context.Context, input BillingGetInput) (*BillingBill, error)
+}
+
+type BillingMeterService interface {
+	SubmitBillMeter(ctx context.Context, input BillingMeterInput) (*BillingBill, error)
+}
+
+type BillingPaymentService interface {
+	RecordBillPayment(ctx context.Context, input BillingPaymentInput) (*BillingBill, error)
+}
+
+type BillingListInput struct {
+	ActorRole           string
+	ActorUserID         string
+	AssignedPropertyIDs []string
+	PropertyID          *string
+	LeaseID             *string
+	TenantID            *string
+	Status              string
+	Month               *string
+	Limit               int
+	Offset              int
+}
+
+type BillingGetInput struct {
+	ActorRole           string
+	ActorUserID         string
+	AssignedPropertyIDs []string
+	BillID              string
+}
+
+type BillingMeterInput struct {
+	ActorRole           string
+	AssignedPropertyIDs []string
+	BillID              string
+	CurrentReading      int
+}
+
+type BillingPaymentInput struct {
+	ActorRole           string
+	AssignedPropertyIDs []string
+	BillID              string
+	PaidAmount          int
+	PaymentMethod       string
+	PaidAt              *time.Time
+}
+
+type BillingBill struct {
+	ID                   string
+	LeaseID              string
+	TenantID             string
+	RoomID               string
+	PropertyID           string
+	Type                 string
+	Amount               *int
+	PeriodStart          time.Time
+	PeriodEnd            time.Time
+	DueDate              time.Time
+	Status               string
+	PaymentMethod        *string
+	PaidAt               *time.Time
+	PaidAmount           *int
+	MeterPreviousReading *int
+	MeterCurrentReading  *int
+	MeterUnitPrice       *float64
+	MeterRecordedAt      *time.Time
+	WrittenOffReason     *string
+	OverdueNoticeCount   int
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	Version              int
 }
 
 // NewAPIServer returns an API server with only the currently implemented
@@ -126,6 +212,7 @@ func NewAPIServer(
 		server.terminateLeaseSvc = leaseCommands[0].TerminateLease
 		server.forceTerminateSvc = leaseCommands[0].ForceTerminateLease
 		server.getForceTermSvc = leaseCommands[0].GetForceTermination
+		server.billing = leaseCommands[0].Billing
 	}
 
 	return server
@@ -156,7 +243,67 @@ func (s *APIServer) SyncAuth(c *gin.Context) {
 }
 
 // ListBills handles the bill listing endpoint.
-func (s *APIServer) ListBills(c *gin.Context, params api.ListBillsParams) { writeNotImplemented(c) }
+func (s *APIServer) ListBills(c *gin.Context, params api.ListBillsParams) {
+	if s.billing.Query == nil {
+		c.Error(apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "billing_query"}))
+		return
+	}
+
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	if params.Month != nil && !isYYYYMM(*params.Month) {
+		c.Error(apperr.ErrBadRequest.WithDetails(map[string]interface{}{
+			"field":  "month",
+			"reason": "must use YYYY-MM format",
+		}))
+		return
+	}
+
+	pagination, err := queryparams.NormalizePagination(params.Page, params.Limit)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	status := ""
+	if params.Status != nil {
+		status = string(*params.Status)
+	}
+
+	var tenantID *string
+	if params.TenantId != nil {
+		value := params.TenantId.String()
+		tenantID = &value
+	}
+
+	bills, err := s.billing.Query.ListBills(c.Request.Context(), BillingListInput{
+		ActorRole:           principal.Role,
+		ActorUserID:         principal.UserID,
+		AssignedPropertyIDs: principal.AssignedPropertyIDs,
+		PropertyID:          params.PropertyId,
+		LeaseID:             params.LeaseId,
+		TenantID:            tenantID,
+		Status:              status,
+		Month:               params.Month,
+		Limit:               pagination.Limit,
+		Offset:              pagination.Offset,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	items := make([]api.BillResponse, 0, len(bills))
+	for i := range bills {
+		items = append(items, toBillResponse(&bills[i]))
+	}
+
+	c.JSON(http.StatusOK, api.BillListResponse{Data: &items})
+}
 
 // CreateAttachmentUploadURL handles attachment upload URL creation.
 func (s *APIServer) CreateAttachmentUploadURL(c *gin.Context) { writeNotImplemented(c) }
@@ -175,13 +322,99 @@ func (s *APIServer) CreateBillAttachment(c *gin.Context, id openapi_types.UUID) 
 }
 
 // GetBill handles the bill detail endpoint.
-func (s *APIServer) GetBill(c *gin.Context, id string) { writeNotImplemented(c) }
+func (s *APIServer) GetBill(c *gin.Context, id string) {
+	if s.billing.Query == nil {
+		c.Error(apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "billing_query"}))
+		return
+	}
+
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	bill, err := s.billing.Query.GetBill(c.Request.Context(), BillingGetInput{
+		ActorRole:           principal.Role,
+		ActorUserID:         principal.UserID,
+		AssignedPropertyIDs: principal.AssignedPropertyIDs,
+		BillID:              id,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toBillResponse(bill))
+}
 
 // SubmitBillMeter handles meter submission for a bill.
-func (s *APIServer) SubmitBillMeter(c *gin.Context, id string) { writeNotImplemented(c) }
+func (s *APIServer) SubmitBillMeter(c *gin.Context, id string) {
+	if s.billing.Meter == nil {
+		c.Error(apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "billing_meter"}))
+		return
+	}
+
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	var request api.RecordMeterRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.Error(apperr.ErrBadRequest.WithCause(err))
+		return
+	}
+
+	bill, err := s.billing.Meter.SubmitBillMeter(c.Request.Context(), BillingMeterInput{
+		ActorRole:           principal.Role,
+		AssignedPropertyIDs: principal.AssignedPropertyIDs,
+		BillID:              id,
+		CurrentReading:      request.CurrentReading,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toBillResponse(bill))
+}
 
 // RecordBillPayment handles payment recording for a bill.
-func (s *APIServer) RecordBillPayment(c *gin.Context, id string) { writeNotImplemented(c) }
+func (s *APIServer) RecordBillPayment(c *gin.Context, id string) {
+	if s.billing.Payment == nil {
+		c.Error(apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "billing_payment"}))
+		return
+	}
+
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	var request api.RecordPaymentRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.Error(apperr.ErrBadRequest.WithCause(err))
+		return
+	}
+
+	bill, err := s.billing.Payment.RecordBillPayment(c.Request.Context(), BillingPaymentInput{
+		ActorRole:           principal.Role,
+		AssignedPropertyIDs: principal.AssignedPropertyIDs,
+		BillID:              id,
+		PaidAmount:          request.PaidAmount,
+		PaymentMethod:       string(request.PaymentMethod),
+		PaidAt:              request.PaidAt,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toBillResponse(bill))
+}
 
 // GetForceTermination handles force-termination detail retrieval.
 func (s *APIServer) GetForceTermination(c *gin.Context, id openapi_types.UUID) {
@@ -1407,6 +1640,73 @@ func parseUUID(value string) (openapi_types.UUID, bool) {
 	}
 
 	return parsed, true
+}
+
+func isYYYYMM(value string) bool {
+	if len(value) != len("2006-01") || value[4] != '-' {
+		return false
+	}
+
+	_, err := time.Parse("2006-01", value)
+	return err == nil
+}
+
+func toBillResponse(bill *BillingBill) api.BillResponse {
+	id, idOK := parseUUID(bill.ID)
+	leaseID, leaseOK := parseUUID(bill.LeaseID)
+	tenantID, tenantOK := parseUUID(bill.TenantID)
+	roomID, roomOK := parseUUID(bill.RoomID)
+	propertyID, propertyOK := parseUUID(bill.PropertyID)
+	billType := api.BillResponseType(bill.Type)
+	status := api.BillResponseStatus(bill.Status)
+	periodStart := openapi_types.Date{Time: bill.PeriodStart}
+	periodEnd := openapi_types.Date{Time: bill.PeriodEnd}
+	dueDate := openapi_types.Date{Time: bill.DueDate}
+	createdAt := bill.CreatedAt
+	updatedAt := bill.UpdatedAt
+	overdueNoticeCount := bill.OverdueNoticeCount
+	version := bill.Version
+
+	response := api.BillResponse{
+		Amount:               bill.Amount,
+		CreatedAt:            &createdAt,
+		DueDate:              &dueDate,
+		MeterCurrentReading:  bill.MeterCurrentReading,
+		MeterPreviousReading: bill.MeterPreviousReading,
+		MeterRecordedAt:      bill.MeterRecordedAt,
+		MeterUnitPrice:       bill.MeterUnitPrice,
+		OverdueNoticeCount:   &overdueNoticeCount,
+		PaidAmount:           bill.PaidAmount,
+		PaidAt:               bill.PaidAt,
+		PeriodEnd:            &periodEnd,
+		PeriodStart:          &periodStart,
+		Status:               &status,
+		Type:                 &billType,
+		UpdatedAt:            &updatedAt,
+		Version:              &version,
+		WrittenOffReason:     bill.WrittenOffReason,
+	}
+	if idOK {
+		response.Id = &id
+	}
+	if leaseOK {
+		response.LeaseId = &leaseID
+	}
+	if tenantOK {
+		response.TenantId = &tenantID
+	}
+	if roomOK {
+		response.RoomId = &roomID
+	}
+	if propertyOK {
+		response.PropertyId = &propertyID
+	}
+	if bill.PaymentMethod != nil {
+		paymentMethod := api.BillResponsePaymentMethod(*bill.PaymentMethod)
+		response.PaymentMethod = &paymentMethod
+	}
+
+	return response
 }
 
 func (s *APIServer) runJob(c *gin.Context, jobKey appjobs.JobKey, windowKey string) {

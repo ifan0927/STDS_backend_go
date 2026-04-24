@@ -7,6 +7,7 @@ post:
     BR-16：金額由系統計算（usage × unitPrice），並四捨五入為整數 amount，不由員工輸入
     MeterRecorded event → 帳單金額更新，狀態從 pending_meter 改為 pending_payment
     抄表是針對 bill 所代表的 billing period，而不是固定自然月
+    僅 electricity 且 pending_meter 狀態的帳單可抄表。
   tags:
     - Billing
   x-required-role:
@@ -124,3 +125,8 @@ post:
               value:
                 error_code: BILL_NOT_ELECTRICITY_TYPE
                 message: 此帳單非電費帳單，無法執行抄錄
+            status_not_recordable:
+              summary: 帳單狀態不可抄表
+              value:
+                error_code: BILL_STATUS_NOT_RECORDABLE
+                message: 此帳單目前狀態不可抄表

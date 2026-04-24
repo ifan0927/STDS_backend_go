@@ -2163,8 +2163,33 @@ func TestGetBillResolvesPropertyAccessThroughOwnershipQuery(t *testing.T) {
 
 	engine.ServeHTTP(resp, req)
 
-	if resp.Code != http.StatusNotImplemented {
-		t.Fatalf("expected 501, got %d: %s", resp.Code, resp.Body.String())
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestListBillsRejectsUnassignedPropertyFilter(t *testing.T) {
+	engine := newTestEngine(
+		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID2}},
+		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID2}},
+		fakePropertyRepo{
+			ownerByPropertyID: map[string]string{
+				testPropertyID1: "owner-1",
+			},
+		},
+		fakeResourceOwnershipRepo{},
+		"",
+		fakeJobRunsRepo{},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/bills?property_id="+testPropertyID1, nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", resp.Code, resp.Body.String())
 	}
 }
 

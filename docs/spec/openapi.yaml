@@ -3592,6 +3592,7 @@ paths:
         BR-16：金額由系統計算（usage × unitPrice），並四捨五入為整數 amount，不由員工輸入
         MeterRecorded event → 帳單金額更新，狀態從 pending_meter 改為 pending_payment
         抄表是針對 bill 所代表的 billing period，而不是固定自然月
+        僅 electricity 且 pending_meter 狀態的帳單可抄表。
       tags:
         - Billing
       x-required-role:
@@ -3709,6 +3710,11 @@ paths:
                   value:
                     error_code: BILL_NOT_ELECTRICITY_TYPE
                     message: 此帳單非電費帳單，無法執行抄錄
+                status_not_recordable:
+                  summary: 帳單狀態不可抄表
+                  value:
+                    error_code: BILL_STATUS_NOT_RECORDABLE
+                    message: 此帳單目前狀態不可抄表
   /bills/{id}/payment:
     post:
       operationId: recordBillPayment
@@ -3716,8 +3722,9 @@ paths:
       description: |
         x-required-role: admin, organizer, staff
         BR-05：帳單不得重複收款（已 paid 狀態拒絕）
+        paid_amount 必須等於帳單 amount；不支援部分收款或溢收。
+        僅 pending_payment / overdue 狀態可收款，允許 overdue → paid 轉換。
         觸發 BillPaid event → PropertyAccount 新增 AccountingEntry
-        允許 overdue → paid 轉換
       tags:
         - Billing
       x-required-role:
@@ -3824,6 +3831,19 @@ paths:
                   value:
                     error_code: BILL_ALREADY_PAID
                     message: 此帳單已完成收款，不得重複收款
+                status_not_payable:
+                  summary: 帳單狀態不可收款
+                  value:
+                    error_code: BILL_STATUS_NOT_PAYABLE
+                    message: 此帳單目前狀態不可收款
+                amount_mismatch:
+                  summary: 收款金額必須等於帳單金額
+                  value:
+                    error_code: BILL_PAID_AMOUNT_MISMATCH
+                    message: 收款金額必須等於帳單金額
+                    details:
+                      expected_amount: 18000
+                      submitted_amount: 17000
   /properties/{id}/pending-meter:
     get:
       operationId: listPropertyPendingMeters
@@ -6806,6 +6826,7 @@ components:
             - other
         paid_amount:
           type: integer
+          description: 收款金額，必須等於帳單 amount；不支援部分收款或溢收。
         paid_at:
           type: string
           format: date-time

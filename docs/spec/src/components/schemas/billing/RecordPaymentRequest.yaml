@@ -11,6 +11,7 @@ properties:
       - other
   paid_amount:
     type: integer
+    description: 收款金額，必須等於帳單 amount；不支援部分收款或溢收。
   paid_at:
     type: string
     format: date-time

@@ -182,7 +182,7 @@ func routePolicies(authzRepos AuthorizationRepositories) []routePolicy {
 		{method: "POST", path: "/api/v1/attachments/upload-url", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
 		{method: "DELETE", path: "/api/v1/attachments/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyIDWithNotFound("id", ownership.FindPropertyIDByAttachmentID, apperr.ErrAttachmentNotFound)},
 
-		{method: "GET", path: "/api/v1/bills", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff", "owner"}},
+		{method: "GET", path: "/api/v1/bills", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff", "owner"}, propertyResolver: middleware.QueryPropertyID("property_id")},
 		{method: "GET", path: "/api/v1/bills/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff", "owner"}, propertyResolver: middleware.ResourcePropertyIDWithNotFound("id", ownership.FindPropertyIDByBillID, apperr.ErrBillNotFound)},
 		{method: "POST", path: "/api/v1/bills/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyIDWithNotFound("id", ownership.FindPropertyIDByBillID, apperr.ErrBillNotFound)},
 		{method: "GET", path: "/api/v1/bills/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff", "owner"}, propertyResolver: middleware.ResourcePropertyIDWithNotFound("id", ownership.FindPropertyIDByBillID, apperr.ErrBillNotFound)},
