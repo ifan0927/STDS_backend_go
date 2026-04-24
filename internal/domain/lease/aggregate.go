@@ -79,7 +79,7 @@ func normalizeState(state State, creating bool) (State, error) {
 		return State{}, ErrInvalidDateRange
 	}
 	if state.RentAmount <= 0 {
-		return State{}, ErrRentAmountZero
+		return State{}, ErrRentAmountNonPositive
 	}
 	if state.DepositAmount < 0 {
 		return State{}, ErrDepositNegative

@@ -166,11 +166,11 @@ patch:
           schema:
             $ref: ../../components/schemas/shared/ErrorResponse.yaml
           examples:
-            rent_amount_zero:
-              summary: BR-02 租金不得為零
+            rent_amount_non_positive:
+              summary: BR-02 租金必須大於零
               value:
-                error_code: LEASE_RENT_AMOUNT_ZERO
-                message: 租金不得為零
+                error_code: LEASE_RENT_AMOUNT_NON_POSITIVE
+                message: 租金必須大於零
 delete:
   operationId: deleteLease
   summary: 刪除租約（軟刪除）

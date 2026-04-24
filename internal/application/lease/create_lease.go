@@ -3,6 +3,7 @@ package lease
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 	"time"
 
@@ -67,8 +68,8 @@ func (s *CreateLeaseService) Execute(ctx context.Context, input CreateLeaseInput
 	var created *Lease
 	err := s.txRunner.WithinTransaction(ctx, func(ctx context.Context, tx *sql.Tx, recorder *txrunner.EventRecorder) error {
 		if _, err := s.repo.FindTenantByID(ctx, tx, tenantID); err != nil {
-			switch err {
-			case ErrTenantNotFound:
+			switch {
+			case errors.Is(err, ErrTenantNotFound):
 				return apperr.ErrTenantNotFound
 			default:
 				return apperr.ErrInternalServerError.WithCause(err)
@@ -77,8 +78,8 @@ func (s *CreateLeaseService) Execute(ctx context.Context, input CreateLeaseInput
 
 		room, err := s.repo.FindRoomByIDForUpdate(ctx, tx, roomID)
 		if err != nil {
-			switch err {
-			case ErrRoomNotFound:
+			switch {
+			case errors.Is(err, ErrRoomNotFound):
 				return apperr.ErrRoomNotFound
 			default:
 				return apperr.ErrInternalServerError.WithCause(err)

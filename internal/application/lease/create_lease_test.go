@@ -296,8 +296,8 @@ func TestCreateLeaseServiceRejectsBusinessRuleViolationsAndMissingReferences(t *
 			EndDate:       time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC),
 			DepositAmount: 36000,
 		})
-		if !errors.Is(err, errLeaseRentAmountZero) {
-			t.Fatalf("expected errLeaseRentAmountZero, got %v", err)
+		if !errors.Is(err, errLeaseRentAmountNonPositive) {
+			t.Fatalf("expected errLeaseRentAmountNonPositive, got %v", err)
 		}
 		if err := mock.ExpectationsWereMet(); err != nil {
 			t.Fatalf("ExpectationsWereMet: %v", err)

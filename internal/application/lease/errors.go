@@ -14,7 +14,7 @@ const (
 	codeValidationStartDateRequired = "VALIDATION_START_DATE_REQUIRED"
 	codeValidationEndDateRequired   = "VALIDATION_END_DATE_REQUIRED"
 	codeLeaseInvalidDateRange       = "LEASE_INVALID_DATE_RANGE"
-	codeLeaseRentAmountZero         = "LEASE_RENT_AMOUNT_ZERO"
+	codeLeaseRentAmountNonPositive  = "LEASE_RENT_AMOUNT_NON_POSITIVE"
 	codeLeaseDepositNegative        = "LEASE_DEPOSIT_NEGATIVE"
 	codeRoomNotVacant               = "ROOM_NOT_VACANT"
 )
@@ -45,10 +45,10 @@ var (
 		http.StatusUnprocessableEntity,
 		"Lease start date must not be later than end date.",
 	)
-	errLeaseRentAmountZero = apperr.New(
-		codeLeaseRentAmountZero,
+	errLeaseRentAmountNonPositive = apperr.New(
+		codeLeaseRentAmountNonPositive,
 		http.StatusUnprocessableEntity,
-		"Lease rent amount must not be zero.",
+		"Lease rent amount must be greater than zero.",
 	)
 	errLeaseDepositNegative = apperr.New(
 		codeLeaseDepositNegative,
@@ -70,8 +70,8 @@ func mapDomainError(err error) error {
 	switch {
 	case errors.Is(err, domainlease.ErrInvalidDateRange):
 		return errLeaseInvalidDateRange
-	case errors.Is(err, domainlease.ErrRentAmountZero):
-		return errLeaseRentAmountZero
+	case errors.Is(err, domainlease.ErrRentAmountNonPositive):
+		return errLeaseRentAmountNonPositive
 	case errors.Is(err, domainlease.ErrDepositNegative):
 		return errLeaseDepositNegative
 	case errors.Is(err, domainlease.ErrInvalidCadence):

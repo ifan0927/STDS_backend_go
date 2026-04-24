@@ -22,7 +22,7 @@ func TestNewRejectsInvalidDateRange(t *testing.T) {
 	}
 }
 
-func TestNewRejectsZeroRent(t *testing.T) {
+func TestNewRejectsNonPositiveRent(t *testing.T) {
 	_, err := New(State{
 		TenantID:                  "tenant-1",
 		RoomID:                    "room-1",
@@ -33,8 +33,8 @@ func TestNewRejectsZeroRent(t *testing.T) {
 		ElectricityBillingCadence: BillingCadenceMonthly,
 		DepositAmount:             36000,
 	})
-	if !errors.Is(err, ErrRentAmountZero) {
-		t.Fatalf("expected ErrRentAmountZero, got %v", err)
+	if !errors.Is(err, ErrRentAmountNonPositive) {
+		t.Fatalf("expected ErrRentAmountNonPositive, got %v", err)
 	}
 }
 
