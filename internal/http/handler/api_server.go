@@ -3,6 +3,7 @@ package handler
 import (
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -53,12 +54,14 @@ type APIServer struct {
 	createLeaseSvc    *applease.CreateLeaseService
 	updateLeaseSvc    *applease.UpdateLeaseService
 	updateDepositSvc  *applease.UpdateDepositService
+	replaceLeaseSvc   *applease.ReplaceLeaseService
 }
 
 // LeaseCommandServices groups optional lease command services beyond creation.
 type LeaseCommandServices struct {
 	UpdateLease   *applease.UpdateLeaseService
 	UpdateDeposit *applease.UpdateDepositService
+	ReplaceLease  *applease.ReplaceLeaseService
 }
 
 // NewAPIServer returns an API server with only the currently implemented
@@ -113,6 +116,7 @@ func NewAPIServer(
 	if len(leaseCommands) > 0 {
 		server.updateLeaseSvc = leaseCommands[0].UpdateLease
 		server.updateDepositSvc = leaseCommands[0].UpdateDeposit
+		server.replaceLeaseSvc = leaseCommands[0].ReplaceLease
 	}
 
 	return server
@@ -422,7 +426,51 @@ func (s *APIServer) UpdateLeaseDeposit(c *gin.Context, id string) {
 }
 
 // ReplaceLease handles lease replacement.
-func (s *APIServer) ReplaceLease(c *gin.Context, id string) { writeNotImplemented(c) }
+func (s *APIServer) ReplaceLease(c *gin.Context, id string) {
+	if s.replaceLeaseSvc == nil {
+		writeNotImplemented(c)
+		return
+	}
+
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	var request api.LeaseReplaceRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.Error(apperr.ErrBadRequest.WithCause(err))
+		return
+	}
+
+	var notes *string
+	if request.NewLease.Notes != nil {
+		value := strings.TrimSpace(*request.NewLease.Notes)
+		if value != "" {
+			notes = &value
+		}
+	}
+
+	result, err := s.replaceLeaseSvc.Execute(c.Request.Context(), applease.ReplaceLeaseInput{
+		ActorRole:           principal.Role,
+		AssignedPropertyIDs: principal.AssignedPropertyIDs,
+		LeaseID:             id,
+		Reason:              string(request.Reason),
+		EffectiveStartDate:  request.EffectiveStartDate.Time,
+		DepositHandling:     string(request.DepositHandling),
+		NewEndDate:          request.NewLease.EndDate.Time,
+		NewRentAmount:       request.NewLease.RentAmount,
+		NewCadence:          string(request.NewLease.ElectricityBillingCadence),
+		NewNotes:            notes,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toLeaseReplaceResponse(result))
+}
 
 // ForceTerminateLease handles forced lease termination.
 func (s *APIServer) ForceTerminateLease(c *gin.Context, id string) { writeNotImplemented(c) }
@@ -1566,6 +1614,31 @@ func toCreatedLeaseResponse(lease *applease.Lease) api.LeaseResponse {
 		UpdatedAt:                 lease.UpdatedAt,
 		Version:                   lease.Version,
 	})
+}
+
+func toLeaseReplaceResponse(result *applease.ReplaceLeaseResult) api.LeaseReplaceResponse {
+	effectiveStart := openapi_types.Date{Time: result.EffectiveStartDate}
+	depositHandling := api.LeaseReplaceResponseReplacementDepositHandling(result.DepositHandling)
+	changedFields := append([]string(nil), result.ChangedFields...)
+	reason := result.Reason
+	oldLease := toCreatedLeaseResponse(result.OldLease)
+	newLease := toCreatedLeaseResponse(result.NewLease)
+
+	return api.LeaseReplaceResponse{
+		OldLease: &oldLease,
+		NewLease: &newLease,
+		Replacement: &struct {
+			ChangedFields      *[]string                                           `json:"changed_fields,omitempty"`
+			DepositHandling    *api.LeaseReplaceResponseReplacementDepositHandling `json:"deposit_handling,omitempty"`
+			EffectiveStartDate *openapi_types.Date                                 `json:"effective_start_date,omitempty"`
+			Reason             *string                                             `json:"reason,omitempty"`
+		}{
+			ChangedFields:      &changedFields,
+			DepositHandling:    &depositHandling,
+			EffectiveStartDate: &effectiveStart,
+			Reason:             &reason,
+		},
+	}
 }
 
 func toRepairRequestResponse(repairRequest *appproperty.RepairRequest) api.RepairRequestResponse {

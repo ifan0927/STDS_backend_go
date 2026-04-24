@@ -101,6 +101,7 @@ func New(cfg *config.Config) (*Server, error) {
 	createLeaseService := applease.NewCreateLeaseService(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
 	updateLeaseService := applease.NewUpdateLeaseService(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
 	updateDepositService := applease.NewUpdateDepositService(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
+	replaceLeaseService := applease.NewReplaceLeaseService(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
 	occupyRoomOnLeaseCreated := applease.NewOccupyRoomOnLeaseCreatedHandler(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
 	activateTenantOnLeaseCreated := applease.NewActivateTenantOnLeaseCreatedHandler(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
 	jobTriggerService := appjobs.NewTriggerService(jobRunStoreAdapter{repo: jobRunsRepo}, nil, cfg.App.SchedulerJobTimeout, cfg.App.SchedulerMaxRetries)
@@ -113,6 +114,7 @@ func New(cfg *config.Config) (*Server, error) {
 	}, createUserService, sendPasswordResetService, syncAuthService, updateCurrentUserService, updateUserService, assignUserPropertiesService, jobTriggerService, propertyQueryRepo, leaseQueryRepo, tenantQueryRepo, createPropertyService, updatePropertyService, deletePropertyService, createRoomService, updateRoomService, deleteRoomService, setRoomMaintenanceService, createTenantService, updateTenantService, createLeaseService, handler.LeaseCommandServices{
 		UpdateLease:   updateLeaseService,
 		UpdateDeposit: updateDepositService,
+		ReplaceLease:  replaceLeaseService,
 	})
 
 	return &Server{

@@ -9,21 +9,25 @@ import (
 )
 
 const (
-	codeValidationTenantIDRequired  = "VALIDATION_TENANT_ID_REQUIRED"
-	codeValidationRoomIDRequired    = "VALIDATION_ROOM_ID_REQUIRED"
-	codeValidationStartDateRequired = "VALIDATION_START_DATE_REQUIRED"
-	codeValidationEndDateRequired   = "VALIDATION_END_DATE_REQUIRED"
-	codeLeaseInvalidDateRange       = "LEASE_INVALID_DATE_RANGE"
-	codeLeaseRentAmountNonPositive  = "LEASE_RENT_AMOUNT_NON_POSITIVE"
-	codeLeaseDepositNegative        = "LEASE_DEPOSIT_NEGATIVE"
-	codeSettlementNegative          = "LEASE_SETTLEMENT_NEGATIVE"
-	codeLeaseUnsupportedUpdate      = "LEASE_UNSUPPORTED_UPDATE"
-	codeDepositDeductionReason      = "DEPOSIT_DEDUCTION_REASON_REQUIRED"
-	codeDepositSettlementMismatch   = "DEPOSIT_SETTLEMENT_AMOUNT_MISMATCH"
-	codeDepositNotHeld              = "DEPOSIT_NOT_HELD"
-	codeLeaseUpdateLockedBills      = "LEASE_UPDATE_HAS_LOCKED_FUTURE_BILLS"
-	codeLeaseNotActive              = "LEASE_NOT_ACTIVE"
-	codeRoomNotVacant               = "ROOM_NOT_VACANT"
+	codeValidationTenantIDRequired    = "VALIDATION_TENANT_ID_REQUIRED"
+	codeValidationRoomIDRequired      = "VALIDATION_ROOM_ID_REQUIRED"
+	codeValidationStartDateRequired   = "VALIDATION_START_DATE_REQUIRED"
+	codeValidationEndDateRequired     = "VALIDATION_END_DATE_REQUIRED"
+	codeLeaseInvalidDateRange         = "LEASE_INVALID_DATE_RANGE"
+	codeLeaseRentAmountNonPositive    = "LEASE_RENT_AMOUNT_NON_POSITIVE"
+	codeLeaseDepositNegative          = "LEASE_DEPOSIT_NEGATIVE"
+	codeSettlementNegative            = "LEASE_SETTLEMENT_NEGATIVE"
+	codeLeaseUnsupportedUpdate        = "LEASE_UNSUPPORTED_UPDATE"
+	codeDepositDeductionReason        = "DEPOSIT_DEDUCTION_REASON_REQUIRED"
+	codeDepositSettlementMismatch     = "DEPOSIT_SETTLEMENT_AMOUNT_MISMATCH"
+	codeDepositNotHeld                = "DEPOSIT_NOT_HELD"
+	codeLeaseUpdateLockedBills        = "LEASE_UPDATE_HAS_LOCKED_FUTURE_BILLS"
+	codeLeaseNotActive                = "LEASE_NOT_ACTIVE"
+	codeRoomNotVacant                 = "ROOM_NOT_VACANT"
+	codeReplacementNotBoundary        = "LEASE_REPLACEMENT_NOT_AT_BILLING_BOUNDARY"
+	codeReplacementUnsettledBills     = "LEASE_REPLACEMENT_HAS_UNSETTLED_BILLS"
+	codeReplacementScopeMismatch      = "LEASE_REPLACEMENT_SCOPE_MISMATCH"
+	codeReplacementDepositUnsupported = "LEASE_REPLACEMENT_DEPOSIT_HANDLING_UNSUPPORTED"
 )
 
 var (
@@ -101,6 +105,26 @@ var (
 		codeRoomNotVacant,
 		http.StatusUnprocessableEntity,
 		"Room is not vacant.",
+	)
+	errReplacementNotAtBillingBoundary = apperr.New(
+		codeReplacementNotBoundary,
+		http.StatusUnprocessableEntity,
+		"Lease replacement is allowed only at a complete billing period boundary.",
+	)
+	errReplacementHasUnsettledBills = apperr.New(
+		codeReplacementUnsettledBills,
+		http.StatusUnprocessableEntity,
+		"Lease replacement has unsettled bills before the boundary.",
+	)
+	errReplacementScopeMismatch = apperr.New(
+		codeReplacementScopeMismatch,
+		http.StatusUnprocessableEntity,
+		"Lease replacement supports only the same tenant, room, and property.",
+	)
+	errReplacementDepositHandlingUnsupported = apperr.New(
+		codeReplacementDepositUnsupported,
+		http.StatusUnprocessableEntity,
+		"Lease replacement v1 supports only deposit carry_over.",
 	)
 )
 
