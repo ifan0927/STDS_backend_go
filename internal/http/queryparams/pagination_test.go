@@ -128,8 +128,29 @@ func TestNormalizeOptionalUUIDRejectsInvalidUUID(t *testing.T) {
 	value := "not-a-uuid"
 
 	_, err := NormalizeOptionalUUID(&value, "property_id")
-	if err == nil {
-		t.Fatalf("expected invalid uuid error")
+	assertBadRequestFieldError(t, err, "property_id")
+}
+
+func TestNormalizeOptionalUUIDRejectsBlankValue(t *testing.T) {
+	value := "   "
+
+	_, err := NormalizeOptionalUUID(&value, "property_id")
+	assertBadRequestFieldError(t, err, "property_id")
+}
+
+func assertBadRequestFieldError(t *testing.T, err error, field string) {
+	t.Helper()
+
+	var appErr *apperr.Error
+	if !errors.As(err, &appErr) {
+		t.Fatalf("expected apperr.Error, got %T", err)
+	}
+	if appErr.Code != apperr.CodeBadRequest {
+		t.Fatalf("expected BAD_REQUEST, got %s", appErr.Code)
+	}
+	details, ok := appErr.Details.(map[string]interface{})
+	if !ok || details["field"] != field {
+		t.Fatalf("unexpected details: %#v", appErr.Details)
 	}
 }
 

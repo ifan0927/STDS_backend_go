@@ -11,6 +11,7 @@ import (
 
 	domainevents "stds_backend/internal/domain/events"
 	"stds_backend/internal/platform/database/txrunner"
+	"stds_backend/internal/shared/apperr"
 )
 
 func TestAssignRejectsStaffAssigningAnotherUser(t *testing.T) {
@@ -23,7 +24,7 @@ func TestAssignRejectsStaffAssigningAnotherUser(t *testing.T) {
 		AssignedTo:  testOrganizerID,
 	})
 
-	if err == nil || err.Error() != "Forbidden." {
+	if !errors.Is(err, apperr.ErrForbidden) {
 		t.Fatalf("expected forbidden, got %v", err)
 	}
 }
@@ -71,7 +72,7 @@ func TestAssignRejectsAssigneeOutsideRepairProperty(t *testing.T) {
 		AssignedTo:  testOrganizerID,
 	})
 
-	if err == nil || err.Error() != "Forbidden." {
+	if !errors.Is(err, apperr.ErrForbidden) {
 		t.Fatalf("expected forbidden, got %v", err)
 	}
 }
@@ -90,7 +91,7 @@ func TestAssignRejectsOwnerAssignee(t *testing.T) {
 		AssignedTo:  testOwnerID,
 	})
 
-	if err == nil || err.Error() != "Forbidden." {
+	if !errors.Is(err, apperr.ErrForbidden) {
 		t.Fatalf("expected forbidden, got %v", err)
 	}
 }

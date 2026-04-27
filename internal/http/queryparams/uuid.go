@@ -19,7 +19,9 @@ func NormalizeOptionalUUID(value *string, field string) (*string, error) {
 		return nil, apperr.ErrBadRequest.WithDetails(map[string]interface{}{"field": field})
 	}
 	if _, err := uuid.Parse(trimmed); err != nil {
-		return nil, apperr.ErrBadRequest.WithDetails(map[string]interface{}{"field": field})
+		return nil, apperr.ErrBadRequest.
+			WithCause(err).
+			WithDetails(map[string]interface{}{"field": field})
 	}
 
 	return &trimmed, nil

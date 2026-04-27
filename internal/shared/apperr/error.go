@@ -34,6 +34,21 @@ func (e *Error) Unwrap() error {
 	return e.Cause
 }
 
+// Is matches application errors by code so cloned errors with details or cause
+// still behave like their sentinel error.
+func (e *Error) Is(target error) bool {
+	if e == nil {
+		return target == nil
+	}
+
+	targetErr, ok := target.(*Error)
+	if !ok || targetErr == nil {
+		return false
+	}
+
+	return e.Code == targetErr.Code
+}
+
 // New creates a shared error without details or wrapped cause.
 func New(code string, httpStatus int, message string) *Error {
 	return &Error{

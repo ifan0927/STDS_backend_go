@@ -94,7 +94,7 @@ func TestCancelPersistsCancelReason(t *testing.T) {
 		))
 	mock.ExpectCommit()
 
-	tx, err := db.Begin()
+	tx, err := db.BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestFindUserByIDLoadsAssignedPropertyIDs(t *testing.T) {
 		))
 	mock.ExpectCommit()
 
-	tx, err := db.Begin()
+	tx, err := db.BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}

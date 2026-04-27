@@ -52,6 +52,9 @@ func (s *CreateService) Execute(ctx context.Context, input CreateInput) (*Repair
 	}
 	title := strings.TrimSpace(input.Title)
 	description := strings.TrimSpace(input.Description)
+	if err := requirePropertyAccess(actorRole, input.AssignedPropertyIDs, propertyID); err != nil {
+		return nil, err
+	}
 	if _, err := domainrepair.New(domainrepair.State{
 		PropertyID:  propertyID,
 		RoomID:      roomID,
@@ -73,9 +76,6 @@ func (s *CreateService) Execute(ctx context.Context, input CreateInput) (*Repair
 		}
 		if room.PropertyID != propertyID {
 			return apperr.ErrBadRequest.WithDetails(map[string]interface{}{"field": "room_id"})
-		}
-		if err := requirePropertyAccess(actorRole, input.AssignedPropertyIDs, propertyID); err != nil {
-			return err
 		}
 
 		repairRequest, err := s.repo.Create(ctx, tx, CreateParams{
