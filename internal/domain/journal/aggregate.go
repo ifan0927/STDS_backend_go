@@ -63,8 +63,7 @@ func (a *Aggregate) Update(input UpdateInput) error {
 		a.state.ExpenseAmount = &value
 	}
 	if input.ExpenseDescription != nil {
-		value := strings.TrimSpace(*input.ExpenseDescription)
-		a.state.ExpenseDescription = &value
+		a.state.ExpenseDescription = trimOptionalString(input.ExpenseDescription)
 	}
 
 	return nil
@@ -105,6 +104,9 @@ func trimOptionalString(value *string) *string {
 	}
 
 	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return nil
+	}
 	return &trimmed
 }
 

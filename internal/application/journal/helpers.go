@@ -47,8 +47,9 @@ func normalizeOptionalUUID(value *string, field string) (*string, error) {
 }
 
 func containsAssignedProperty(assignedPropertyIDs []string, propertyID string) bool {
+	normalizedPropertyID := strings.TrimSpace(propertyID)
 	for _, assignedPropertyID := range assignedPropertyIDs {
-		if strings.TrimSpace(assignedPropertyID) == propertyID {
+		if strings.TrimSpace(assignedPropertyID) == normalizedPropertyID {
 			return true
 		}
 	}
