@@ -70,6 +70,7 @@ func New(
 	createTenantService *apptenant.CreateTenantService,
 	updateTenantService *apptenant.UpdateTenantService,
 	createLeaseService *applease.CreateLeaseService,
+	journalServices handler.JournalServices,
 	repairServices handler.RepairServices,
 	leaseCommands ...handler.LeaseCommandServices,
 ) *gin.Engine {
@@ -88,7 +89,7 @@ func New(
 	engine.GET("/openapi.yaml", docsHandler.OpenAPI)
 	engine.GET("/scalar", docsHandler.Scalar)
 
-	api.RegisterHandlersWithOptions(engine, handler.NewAPIServer(userRepo, createUserService, sendPasswordResetService, syncAuthService, updateCurrentUserService, updateUserService, assignUserPropertiesService, jobTriggerService, propertyQueryRepo, leaseQueryRepo, repairQueryRepo, tenantQueryRepo, createPropertyService, updatePropertyService, deletePropertyService, createRoomService, updateRoomService, deleteRoomService, setRoomMaintenanceService, createTenantService, updateTenantService, createLeaseService, repairServices, leaseCommands...), api.GinServerOptions{
+	api.RegisterHandlersWithOptions(engine, handler.NewAPIServer(userRepo, createUserService, sendPasswordResetService, syncAuthService, updateCurrentUserService, updateUserService, assignUserPropertiesService, jobTriggerService, propertyQueryRepo, leaseQueryRepo, repairQueryRepo, tenantQueryRepo, createPropertyService, updatePropertyService, deletePropertyService, createRoomService, updateRoomService, deleteRoomService, setRoomMaintenanceService, createTenantService, updateTenantService, createLeaseService, journalServices, repairServices, leaseCommands...), api.GinServerOptions{
 		BaseURL: "/api/v1",
 		Middlewares: []api.MiddlewareFunc{
 			protectedAPIMiddleware(appCfg, authenticator, userRepo, authzRepos),
@@ -199,7 +200,7 @@ func routePolicies(authzRepos AuthorizationRepositories) []routePolicy {
 		{method: "POST", path: "/api/v1/internal/jobs/overdue-bills/reminders", authStrategy: authStrategyScheduler},
 		{method: "POST", path: "/api/v1/internal/jobs/overdue-bills/scan", authStrategy: authStrategyScheduler},
 
-		{method: "GET", path: "/api/v1/journal-logs", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
+		{method: "GET", path: "/api/v1/journal-logs", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.QueryPropertyID("property_id")},
 		{method: "POST", path: "/api/v1/journal-logs", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
 		{method: "GET", path: "/api/v1/journal-logs/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyIDWithNotFound("id", ownership.FindPropertyIDByJournalLogID, apperr.ErrJournalLogNotFound)},
 		{method: "POST", path: "/api/v1/journal-logs/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyIDWithNotFound("id", ownership.FindPropertyIDByJournalLogID, apperr.ErrJournalLogNotFound)},

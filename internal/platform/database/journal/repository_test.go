@@ -1,0 +1,212 @@
+package journal
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"regexp"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/DATA-DOG/go-sqlmock"
+
+	appjournal "stds_backend/internal/application/journal"
+)
+
+func TestListAppliesFiltersPaginationAndScope(t *testing.T) {
+	db, mock, repo := newJournalRepoTest(t)
+	defer db.Close()
+
+	dateFrom := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	dateTo := time.Date(2026, 4, 30, 0, 0, 0, 0, time.UTC)
+	propertyID := "10000000-0000-0000-0000-000000000001"
+	roomID := "20000000-0000-0000-0000-000000000001"
+	createdAt := time.Date(2026, 4, 10, 9, 0, 0, 0, time.UTC)
+	updatedAt := createdAt
+
+	mock.ExpectQuery(regexp.QuoteMeta("FROM journal_logs jl")).
+		WithArgs(propertyID, propertyID, roomID, dateFrom, dateTo.AddDate(0, 0, 1), 20, 40).
+		WillReturnRows(journalLogRows().
+			AddRow("60000000-0000-0000-0000-000000000001", propertyID, roomID, "00000000-0000-0000-0000-000000000002", "Inspection", nil, nil, createdAt, updatedAt))
+
+	items, err := repo.List(context.Background(), appjournal.ListQuery{
+		ActorRole:           "staff",
+		AssignedPropertyIDs: []string{propertyID},
+		PropertyID:          &propertyID,
+		RoomID:              &roomID,
+		DateFrom:            &dateFrom,
+		DateTo:              &dateTo,
+		Limit:               20,
+		Offset:              40,
+	})
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("items = %d, want 1", len(items))
+	}
+	if items[0].RoomID == nil || *items[0].RoomID != roomID {
+		t.Fatalf("RoomID = %v, want %s", items[0].RoomID, roomID)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestListReturnsEmptyForUnscopedStaff(t *testing.T) {
+	db, mock, repo := newJournalRepoTest(t)
+	defer db.Close()
+
+	items, err := repo.List(context.Background(), appjournal.ListQuery{
+		ActorRole: "staff",
+		Limit:     20,
+	})
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("items = %d, want 0", len(items))
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestFindByIDMapsNoRowsToNotFound(t *testing.T) {
+	db, mock, repo := newJournalRepoTest(t)
+	defer db.Close()
+
+	id := "60000000-0000-0000-0000-000000000099"
+	mock.ExpectQuery(regexp.QuoteMeta("FROM journal_logs jl")).
+		WithArgs(id).
+		WillReturnError(sql.ErrNoRows)
+
+	_, err := repo.FindByID(context.Background(), id)
+	if !errors.Is(err, appjournal.ErrJournalLogNotFound) {
+		t.Fatalf("FindByID() error = %v, want ErrJournalLogNotFound", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestEnsurePropertyExistsMapsNoRowsToNotFound(t *testing.T) {
+	db, mock, repo := newJournalRepoTest(t)
+	defer db.Close()
+
+	mock.ExpectBegin()
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatalf("Begin() error = %v", err)
+	}
+	propertyID := "10000000-0000-0000-0000-000000000099"
+	mock.ExpectQuery(regexp.QuoteMeta("FROM properties")).
+		WithArgs(propertyID).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectRollback()
+
+	err = repo.EnsurePropertyExists(context.Background(), tx, propertyID)
+	if !errors.Is(err, appjournal.ErrPropertyNotFound) {
+		t.Fatalf("EnsurePropertyExists() error = %v, want ErrPropertyNotFound", err)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("Rollback() error = %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestSoftDeleteMapsZeroRowsToNotFound(t *testing.T) {
+	db, mock, repo := newJournalRepoTest(t)
+	defer db.Close()
+
+	mock.ExpectBegin()
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatalf("Begin() error = %v", err)
+	}
+	id := "60000000-0000-0000-0000-000000000099"
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE journal_logs")).
+		WithArgs(id).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectRollback()
+
+	err = repo.SoftDelete(context.Background(), tx, id)
+	if !errors.Is(err, appjournal.ErrJournalLogNotFound) {
+		t.Fatalf("SoftDelete() error = %v, want ErrJournalLogNotFound", err)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("Rollback() error = %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func newJournalRepoTest(t *testing.T) (*sql.DB, sqlmock.Sqlmock, *SQLRepository) {
+	t.Helper()
+
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+
+	return db, mock, NewRepository(db)
+}
+
+func journalLogRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{
+		"id",
+		"property_id",
+		"room_id",
+		"author_id",
+		"content",
+		"expense_amount",
+		"expense_description",
+		"created_at",
+		"updated_at",
+	})
+}
+
+func TestListQueryContainsSoftDeletePredicate(t *testing.T) {
+	db, mock, repo := newJournalRepoTest(t)
+	defer db.Close()
+
+	mock.ExpectQuery("(?s)"+regexp.QuoteMeta("FROM journal_logs jl")+".*"+regexp.QuoteMeta("WHERE jl.deleted_at IS NULL")).
+		WithArgs(20, 0).
+		WillReturnRows(journalLogRows())
+
+	if _, err := repo.List(context.Background(), appjournal.ListQuery{
+		ActorRole: "admin",
+		Limit:     20,
+		Offset:    0,
+	}); err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestListOrdersByCreatedAtAndID(t *testing.T) {
+	db, mock, repo := newJournalRepoTest(t)
+	defer db.Close()
+
+	orderPattern := strings.ReplaceAll("ORDER BY jl.created_at DESC, jl.id DESC LIMIT", " ", `\s+`)
+	mock.ExpectQuery("(?s)"+orderPattern).
+		WithArgs(20, 0).
+		WillReturnRows(journalLogRows())
+
+	if _, err := repo.List(context.Background(), appjournal.ListQuery{
+		ActorRole: "admin",
+		Limit:     20,
+		Offset:    0,
+	}); err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}

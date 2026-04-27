@@ -13,6 +13,7 @@ import (
 
 	appiam "stds_backend/internal/application/iam"
 	appjobs "stds_backend/internal/application/jobs"
+	appjournal "stds_backend/internal/application/journal"
 	applease "stds_backend/internal/application/lease"
 	appproperty "stds_backend/internal/application/property"
 	apprepair "stds_backend/internal/application/repair"
@@ -62,6 +63,7 @@ type APIServer struct {
 	forceTerminateSvc *applease.ForceTerminateLeaseService
 	getForceTermSvc   *applease.GetForceTerminationService
 	billing           BillingServices
+	journal           JournalServices
 	repair            RepairServices
 }
 
@@ -85,6 +87,15 @@ type BillingServices struct {
 	PropertyMeters   BillingPropertyMeterService
 	RoomMeters       BillingRoomMeterService
 	FinancialReports BillingFinancialReportService
+}
+
+// JournalServices groups journal log application services used by the transport layer.
+type JournalServices struct {
+	List   *appjournal.ListService
+	Get    *appjournal.GetService
+	Create *appjournal.CreateService
+	Update *appjournal.UpdateService
+	Delete *appjournal.DeleteService
 }
 
 // RepairServices groups repair request application services used by the transport layer.
@@ -282,6 +293,7 @@ func NewAPIServer(
 	createTenantSvc *apptenant.CreateTenantService,
 	updateTenantSvc *apptenant.UpdateTenantService,
 	createLeaseSvc *applease.CreateLeaseService,
+	journalServices JournalServices,
 	repairServices RepairServices,
 	leaseCommands ...LeaseCommandServices,
 ) *APIServer {
@@ -308,6 +320,7 @@ func NewAPIServer(
 		createTenantSvc:   createTenantSvc,
 		updateTenantSvc:   updateTenantSvc,
 		createLeaseSvc:    createLeaseSvc,
+		journal:           journalServices,
 		repair:            repairServices,
 	}
 	if len(leaseCommands) > 0 {
@@ -589,11 +602,102 @@ func (s *APIServer) RunOverdueBillsScanJob(c *gin.Context, params api.RunOverdue
 
 // ListJournalLogs handles the journal log listing endpoint.
 func (s *APIServer) ListJournalLogs(c *gin.Context, params api.ListJournalLogsParams) {
-	writeNotImplemented(c)
+	if s.journal.List == nil {
+		writeNotImplemented(c)
+		return
+	}
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	pagination, err := queryparams.NormalizePagination(params.Page, params.Limit)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+	var propertyID *string
+	if authorizedPropertyID := requestctx.GetPropertyID(c); authorizedPropertyID != "" {
+		propertyID = &authorizedPropertyID
+	}
+	roomID, err := queryparams.NormalizeOptionalUUID(params.RoomId, "room_id")
+	if err != nil {
+		c.Error(err)
+		return
+	}
+	var dateFrom *time.Time
+	if params.DateFrom != nil {
+		value := params.DateFrom.Time
+		dateFrom = &value
+	}
+	var dateTo *time.Time
+	if params.DateTo != nil {
+		value := params.DateTo.Time
+		dateTo = &value
+	}
+
+	items, err := s.journal.List.Execute(c.Request.Context(), appjournal.ListInput{
+		ActorRole:           principal.Role,
+		AssignedPropertyIDs: principal.AssignedPropertyIDs,
+		PropertyID:          propertyID,
+		RoomID:              roomID,
+		DateFrom:            dateFrom,
+		DateTo:              dateTo,
+		Limit:               pagination.Limit,
+		Offset:              pagination.Offset,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	responses := make([]api.JournalLogResponse, 0, len(items))
+	for i := range items {
+		responses = append(responses, toJournalLogResponse(&items[i]))
+	}
+	c.JSON(http.StatusOK, api.JournalLogListResponse{Data: &responses})
 }
 
 // CreateJournalLog handles journal log creation.
-func (s *APIServer) CreateJournalLog(c *gin.Context) { writeNotImplemented(c) }
+func (s *APIServer) CreateJournalLog(c *gin.Context) {
+	if s.journal.Create == nil {
+		writeNotImplemented(c)
+		return
+	}
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+	var request api.CreateJournalLogRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.Error(apperr.ErrBadRequest.WithCause(err))
+		return
+	}
+
+	var roomID *string
+	if request.RoomId != nil {
+		value := request.RoomId.String()
+		roomID = &value
+	}
+	journalLog, err := s.journal.Create.Execute(c.Request.Context(), appjournal.CreateInput{
+		ActorRole:           principal.Role,
+		ActorUserID:         principal.UserID,
+		AssignedPropertyIDs: principal.AssignedPropertyIDs,
+		PropertyID:          request.PropertyId.String(),
+		RoomID:              roomID,
+		Content:             request.Content,
+		ExpenseAmount:       request.ExpenseAmount,
+		ExpenseDescription:  request.ExpenseDescription,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusCreated, toJournalLogResponse(journalLog))
+}
 
 // ListJournalLogAttachments handles journal log attachment listing.
 func (s *APIServer) ListJournalLogAttachments(c *gin.Context, id openapi_types.UUID) {
@@ -606,13 +710,59 @@ func (s *APIServer) CreateJournalLogAttachment(c *gin.Context, id openapi_types.
 }
 
 // DeleteJournalLog handles journal log deletion.
-func (s *APIServer) DeleteJournalLog(c *gin.Context, id string) { writeNotImplemented(c) }
+func (s *APIServer) DeleteJournalLog(c *gin.Context, id string) {
+	if s.journal.Delete == nil {
+		writeNotImplemented(c)
+		return
+	}
+	if err := s.journal.Delete.Execute(c.Request.Context(), appjournal.DeleteInput{ID: id}); err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.Status(http.StatusNoContent)
+}
 
 // GetJournalLog handles journal log detail retrieval.
-func (s *APIServer) GetJournalLog(c *gin.Context, id string) { writeNotImplemented(c) }
+func (s *APIServer) GetJournalLog(c *gin.Context, id string) {
+	if s.journal.Get == nil {
+		writeNotImplemented(c)
+		return
+	}
+	journalLog, err := s.journal.Get.Execute(c.Request.Context(), appjournal.GetInput{ID: id})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toJournalLogResponse(journalLog))
+}
 
 // UpdateJournalLog handles journal log updates.
-func (s *APIServer) UpdateJournalLog(c *gin.Context, id string) { writeNotImplemented(c) }
+func (s *APIServer) UpdateJournalLog(c *gin.Context, id string) {
+	if s.journal.Update == nil {
+		writeNotImplemented(c)
+		return
+	}
+	var request api.UpdateJournalLogRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.Error(apperr.ErrBadRequest.WithCause(err))
+		return
+	}
+
+	journalLog, err := s.journal.Update.Execute(c.Request.Context(), appjournal.UpdateInput{
+		ID:                 id,
+		Content:            request.Content,
+		ExpenseAmount:      request.ExpenseAmount,
+		ExpenseDescription: request.ExpenseDescription,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toJournalLogResponse(journalLog))
+}
 
 // ListLeases handles the lease listing endpoint.
 func (s *APIServer) ListLeases(c *gin.Context, params api.ListLeasesParams) {
@@ -2228,6 +2378,44 @@ func toFinancialReportSummaryItem(summary BillingFinancialReportSummary) api.Fin
 		TotalExpense: &totalExpense,
 		Net:          &net,
 	}
+}
+
+func toJournalLogResponse(journalLog *appjournal.JournalLog) api.JournalLogResponse {
+	if journalLog == nil {
+		return api.JournalLogResponse{}
+	}
+
+	id, idOK := parseUUID(journalLog.ID)
+	propertyID, propertyOK := parseUUID(journalLog.PropertyID)
+	authorID, authorOK := parseUUID(journalLog.AuthorID)
+	content := journalLog.Content
+	createdAt := journalLog.CreatedAt
+	updatedAt := journalLog.UpdatedAt
+
+	response := api.JournalLogResponse{
+		Content:            &content,
+		CreatedAt:          &createdAt,
+		ExpenseAmount:      journalLog.ExpenseAmount,
+		ExpenseDescription: journalLog.ExpenseDescription,
+		UpdatedAt:          &updatedAt,
+	}
+	if idOK {
+		response.Id = &id
+	}
+	if propertyOK {
+		response.PropertyId = &propertyID
+	}
+	if authorOK {
+		response.AuthorId = &authorID
+	}
+	if journalLog.RoomID != nil {
+		roomID, roomOK := parseUUID(*journalLog.RoomID)
+		if roomOK {
+			response.RoomId = &roomID
+		}
+	}
+
+	return response
 }
 
 func toFinancialReportResponse(report *BillingFinancialReport) api.FinancialReportResponse {
