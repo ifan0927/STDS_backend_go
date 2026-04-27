@@ -402,6 +402,7 @@ CREATE TABLE repair_requests (
     assigned_to     UUID        REFERENCES users(id),  -- nullable
     title           VARCHAR(200) NOT NULL,
     description     TEXT         NOT NULL,
+    cancel_reason   TEXT,
     -- status：submitted | assigned | in_progress | completed | cancelled
     status          VARCHAR(20)  NOT NULL CHECK (status IN (
                         'submitted', 'assigned', 'in_progress', 'completed', 'cancelled'
