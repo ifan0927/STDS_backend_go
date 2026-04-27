@@ -3,7 +3,6 @@ package journal
 import (
 	"context"
 	"database/sql"
-	"strings"
 
 	domainevents "stds_backend/internal/domain/events"
 	domainjournal "stds_backend/internal/domain/journal"
@@ -55,16 +54,18 @@ func (s *CreateService) Execute(ctx context.Context, input CreateInput) (*Journa
 	if err := requirePropertyAccess(actorRole, input.AssignedPropertyIDs, propertyID); err != nil {
 		return nil, err
 	}
-	if _, err := domainjournal.New(domainjournal.State{
+	aggregate, err := domainjournal.New(domainjournal.State{
 		PropertyID:         propertyID,
 		RoomID:             roomID,
 		AuthorID:           actorUserID,
 		Content:            input.Content,
 		ExpenseAmount:      input.ExpenseAmount,
 		ExpenseDescription: input.ExpenseDescription,
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, mapDomainError(err)
 	}
+	state := aggregate.State()
 	if s.txRunner == nil {
 		return nil, apperr.ErrInternalServerError
 	}
@@ -85,12 +86,12 @@ func (s *CreateService) Execute(ctx context.Context, input CreateInput) (*Journa
 		}
 
 		journalLog, err := s.repo.Create(ctx, tx, CreateParams{
-			PropertyID:         propertyID,
-			RoomID:             roomID,
-			AuthorID:           actorUserID,
-			Content:            strings.TrimSpace(input.Content),
-			ExpenseAmount:      input.ExpenseAmount,
-			ExpenseDescription: trimOptionalString(input.ExpenseDescription),
+			PropertyID:         state.PropertyID,
+			RoomID:             state.RoomID,
+			AuthorID:           state.AuthorID,
+			Content:            state.Content,
+			ExpenseAmount:      state.ExpenseAmount,
+			ExpenseDescription: state.ExpenseDescription,
 		})
 		if err != nil {
 			return mapRepositoryError(err)
@@ -114,13 +115,4 @@ func (s *CreateService) Execute(ctx context.Context, input CreateInput) (*Journa
 	}
 
 	return created, nil
-}
-
-func trimOptionalString(value *string) *string {
-	if value == nil {
-		return nil
-	}
-
-	trimmed := strings.TrimSpace(*value)
-	return &trimmed
 }

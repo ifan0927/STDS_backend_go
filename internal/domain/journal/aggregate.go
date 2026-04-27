@@ -48,7 +48,7 @@ func Rehydrate(state State) (*Aggregate, error) {
 // Update applies mutable field changes.
 func (a *Aggregate) Update(input UpdateInput) error {
 	if a == nil {
-		return nil
+		return ErrNilAggregate
 	}
 
 	if input.Content != nil {

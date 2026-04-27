@@ -171,9 +171,9 @@ func TestCreateServiceMapsMissingPropertyToNotFound(t *testing.T) {
 }
 
 func TestListServiceRejectsInvalidInputBeforeRepository(t *testing.T) {
-	service := NewListService(&journalRepositoryStub{})
-
 	t.Run("invalid property id", func(t *testing.T) {
+		repo := &journalRepositoryStub{}
+		service := NewListService(repo)
 		value := "not-a-uuid"
 		_, err := service.Execute(context.Background(), ListInput{
 			ActorRole:  "admin",
@@ -183,9 +183,14 @@ func TestListServiceRejectsInvalidInputBeforeRepository(t *testing.T) {
 		if !errors.Is(err, apperr.ErrBadRequest) {
 			t.Fatalf("Execute() error = %v, want bad request", err)
 		}
+		if repo.listCalls != 0 {
+			t.Fatalf("List calls = %d, want 0", repo.listCalls)
+		}
 	})
 
 	t.Run("invalid limit", func(t *testing.T) {
+		repo := &journalRepositoryStub{}
+		service := NewListService(repo)
 		_, err := service.Execute(context.Background(), ListInput{
 			ActorRole: "admin",
 			Limit:     0,
@@ -193,9 +198,14 @@ func TestListServiceRejectsInvalidInputBeforeRepository(t *testing.T) {
 		if !errors.Is(err, apperr.ErrBadRequest) {
 			t.Fatalf("Execute() error = %v, want bad request", err)
 		}
+		if repo.listCalls != 0 {
+			t.Fatalf("List calls = %d, want 0", repo.listCalls)
+		}
 	})
 
 	t.Run("invalid offset", func(t *testing.T) {
+		repo := &journalRepositoryStub{}
+		service := NewListService(repo)
 		_, err := service.Execute(context.Background(), ListInput{
 			ActorRole: "admin",
 			Limit:     20,
@@ -203,6 +213,9 @@ func TestListServiceRejectsInvalidInputBeforeRepository(t *testing.T) {
 		})
 		if !errors.Is(err, apperr.ErrBadRequest) {
 			t.Fatalf("Execute() error = %v, want bad request", err)
+		}
+		if repo.listCalls != 0 {
+			t.Fatalf("List calls = %d, want 0", repo.listCalls)
 		}
 	})
 }
@@ -336,9 +349,11 @@ type journalRepositoryStub struct {
 	created        *JournalLog
 	current        *JournalLog
 	deletedID      string
+	listCalls      int
 }
 
 func (s *journalRepositoryStub) List(context.Context, ListQuery) ([]JournalLog, error) {
+	s.listCalls++
 	return nil, nil
 }
 

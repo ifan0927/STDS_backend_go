@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"time"
 
 	domainbilling "stds_backend/internal/domain/billing"
 	domainevents "stds_backend/internal/domain/events"
@@ -50,7 +49,7 @@ func (h *JournalExpenseRecordedHandler) HandleJournalExpenseRecorded(ctx context
 
 	occurredAt := event.OccurredAt.UTC()
 	if occurredAt.IsZero() {
-		occurredAt = time.Now().UTC()
+		return fmt.Errorf("journal expense event missing occurred_at: journal_log_id=%s", event.JournalLogID)
 	}
 
 	return h.txRunner.WithinTransaction(ctx, func(ctx context.Context, tx *sql.Tx, _ *txrunner.EventRecorder) error {
