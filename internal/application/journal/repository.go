@@ -1,0 +1,82 @@
+package journal
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"time"
+
+	"stds_backend/internal/platform/database/txrunner"
+)
+
+var (
+	ErrJournalLogNotFound = errors.New("journal log not found")
+	ErrPropertyNotFound   = errors.New("journal property not found")
+	ErrRoomNotFound       = errors.New("journal room not found")
+)
+
+// TransactionRunner is the txrunner.Runner surface required by journal use cases.
+type TransactionRunner interface {
+	WithinTransaction(ctx context.Context, fn func(context.Context, *sql.Tx, *txrunner.EventRecorder) error) error
+}
+
+// JournalLog is the application-facing journal log shape.
+type JournalLog struct {
+	ID                 string
+	PropertyID         string
+	RoomID             *string
+	AuthorID           string
+	Content            string
+	ExpenseAmount      *int
+	ExpenseDescription *string
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+}
+
+// Room captures room ownership needed by journal creation.
+type Room struct {
+	ID         string
+	PropertyID string
+}
+
+// ListQuery defines filtering, pagination, and role scoping for journal lists.
+type ListQuery struct {
+	ActorRole           string
+	AssignedPropertyIDs []string
+	PropertyID          *string
+	RoomID              *string
+	DateFrom            *time.Time
+	DateTo              *time.Time
+	Limit               int
+	Offset              int
+}
+
+// CreateParams contains fields for journal log creation.
+type CreateParams struct {
+	PropertyID         string
+	RoomID             *string
+	AuthorID           string
+	Content            string
+	ExpenseAmount      *int
+	ExpenseDescription *string
+}
+
+// UpdateParams contains mutable journal log fields.
+type UpdateParams struct {
+	ID                 string
+	Content            string
+	ExpenseAmount      *int
+	ExpenseDescription *string
+}
+
+// Repository defines persistence required by journal use cases.
+type Repository interface {
+	List(ctx context.Context, query ListQuery) ([]JournalLog, error)
+	FindByID(ctx context.Context, id string) (*JournalLog, error)
+	FindByIDForUpdate(ctx context.Context, tx *sql.Tx, id string) (*JournalLog, error)
+	EnsurePropertyExists(ctx context.Context, tx *sql.Tx, id string) error
+	FindRoomByID(ctx context.Context, tx *sql.Tx, id string) (*Room, error)
+	Create(ctx context.Context, tx *sql.Tx, params CreateParams) (*JournalLog, error)
+	Update(ctx context.Context, tx *sql.Tx, params UpdateParams) (*JournalLog, error)
+	SoftDelete(ctx context.Context, tx *sql.Tx, id string) error
+}

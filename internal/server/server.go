@@ -9,6 +9,7 @@ import (
 
 	appiam "stds_backend/internal/application/iam"
 	appjobs "stds_backend/internal/application/jobs"
+	appjournal "stds_backend/internal/application/journal"
 	applease "stds_backend/internal/application/lease"
 	appnotification "stds_backend/internal/application/notification"
 	appproperty "stds_backend/internal/application/property"
@@ -19,6 +20,7 @@ import (
 	"stds_backend/internal/http/router"
 	"stds_backend/internal/platform/database"
 	dbjobruns "stds_backend/internal/platform/database/jobruns"
+	dbjournal "stds_backend/internal/platform/database/journal"
 	dbleasequery "stds_backend/internal/platform/database/leasequery"
 	dbleases "stds_backend/internal/platform/database/leases"
 	dbproperties "stds_backend/internal/platform/database/properties"
@@ -63,6 +65,7 @@ func New(cfg *config.Config) (*Server, error) {
 	leaseRepo := dbleases.NewRepository(db)
 	propertyQueryRepo := dbpropertyquery.NewRepository(db)
 	leaseQueryRepo := dbleasequery.NewRepository(db)
+	journalRepo := dbjournal.NewRepository(db)
 	repairRepo := dbrepair.NewRepository(db)
 	tenantRepo := dbtenants.NewRepository(db)
 	tenantQueryRepo := dbtenantquery.NewRepository(db)
@@ -114,20 +117,29 @@ func New(cfg *config.Config) (*Server, error) {
 		Delete:   apprepair.NewDeleteService(repairRepo, txRunner),
 		Workflow: apprepair.NewWorkflowService(repairRepo, txRunner),
 	}
+	journalServices := handler.JournalServices{
+		List:   appjournal.NewListService(journalRepo),
+		Get:    appjournal.NewGetService(journalRepo),
+		Create: appjournal.NewCreateService(journalRepo, txRunner),
+		Update: appjournal.NewUpdateService(journalRepo, txRunner),
+		Delete: appjournal.NewDeleteService(journalRepo, txRunner),
+	}
 	occupyRoomOnLeaseCreated := applease.NewOccupyRoomOnLeaseCreatedHandler(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
 	activateTenantOnLeaseCreated := applease.NewActivateTenantOnLeaseCreatedHandler(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
 	releaseRoomOnLeaseTerminated := applease.NewReleaseRoomOnLeaseTerminatedHandler(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
 	deactivateTenantOnLeaseTerminated := applease.NewDeactivateTenantOnLeaseTerminatedHandler(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
+	recordJournalExpense := newJournalExpenseRecordedHandler(db, txRunner)
 	jobTriggerService := appjobs.NewTriggerService(jobRunStoreAdapter{repo: jobRunsRepo}, nil, cfg.App.SchedulerJobTimeout, cfg.App.SchedulerMaxRetries)
 	eventbus.Subscribe(bus, occupyRoomOnLeaseCreated.HandleLeaseCreated)
 	eventbus.Subscribe(bus, activateTenantOnLeaseCreated.HandleLeaseCreated)
 	eventbus.Subscribe(bus, releaseRoomOnLeaseTerminated.HandleLeaseTerminated)
 	eventbus.Subscribe(bus, deactivateTenantOnLeaseTerminated.HandleLeaseTerminated)
+	eventbus.Subscribe(bus, recordJournalExpense.HandleJournalExpenseRecorded)
 
 	engine := router.New(cfg.App, logger, db, authenticator, userRepo, router.AuthorizationRepositories{
 		Properties:        propertyRepo,
 		ResourceOwnership: resourceOwnershipRepo,
-	}, createUserService, sendPasswordResetService, syncAuthService, updateCurrentUserService, updateUserService, assignUserPropertiesService, jobTriggerService, propertyQueryRepo, leaseQueryRepo, repairRepo, tenantQueryRepo, createPropertyService, updatePropertyService, deletePropertyService, createRoomService, updateRoomService, deleteRoomService, setRoomMaintenanceService, createTenantService, updateTenantService, createLeaseService, repairServices, handler.LeaseCommandServices{
+	}, createUserService, sendPasswordResetService, syncAuthService, updateCurrentUserService, updateUserService, assignUserPropertiesService, jobTriggerService, propertyQueryRepo, leaseQueryRepo, repairRepo, tenantQueryRepo, createPropertyService, updatePropertyService, deletePropertyService, createRoomService, updateRoomService, deleteRoomService, setRoomMaintenanceService, createTenantService, updateTenantService, createLeaseService, journalServices, repairServices, handler.LeaseCommandServices{
 		UpdateLease:         updateLeaseService,
 		UpdateDeposit:       updateDepositService,
 		ReplaceLease:        replaceLeaseService,

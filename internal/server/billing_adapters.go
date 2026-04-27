@@ -32,6 +32,13 @@ func newBillingServices(db *sql.DB, txRunner *dbtxrunner.Runner, publisher domai
 	}
 }
 
+func newJournalExpenseRecordedHandler(db *sql.DB, txRunner *dbtxrunner.Runner) *appbilling.JournalExpenseRecordedHandler {
+	repo := dbbilling.NewRepository(db)
+	accountingRepo := billingAccountingRepositoryAdapter{repo: repo}
+
+	return appbilling.NewJournalExpenseRecordedHandler(accountingRepo, txRunner)
+}
+
 type billingQueryServiceAdapter struct {
 	listBills *appbilling.ListBillsService
 	getBill   *appbilling.GetBillService

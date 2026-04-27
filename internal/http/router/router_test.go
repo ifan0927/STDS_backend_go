@@ -2341,6 +2341,31 @@ func TestListBillsRejectsUnassignedPropertyFilter(t *testing.T) {
 	}
 }
 
+func TestListJournalLogsRejectsUnassignedPropertyFilter(t *testing.T) {
+	engine := newTestEngine(
+		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID2}},
+		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID2}},
+		fakePropertyRepo{
+			ownerByPropertyID: map[string]string{
+				testPropertyID1: "owner-1",
+			},
+		},
+		fakeResourceOwnershipRepo{},
+		"",
+		fakeJobRunsRepo{},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/journal-logs?property_id="+testPropertyID1, nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
 func TestListPropertyRoomsReturnsAccessibleRooms(t *testing.T) {
 	call := &listRoomsCall{}
 	propertyQueryRepo := fakePropertyQueryRepo{
@@ -4478,6 +4503,7 @@ func newTestEngineWithAllServices(userRepo fakeUserRepo, authenticator fakeAuthe
 		createTenantService,
 		updateTenantService,
 		createLeaseService,
+		handler.JournalServices{},
 		handler.RepairServices{},
 		leaseCommands...,
 	)
@@ -4540,6 +4566,7 @@ func newTestEngineWithNotificationSender(userRepo fakeUserRepo, authenticator fa
 		apptenant.NewCreateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
 		apptenant.NewUpdateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
 		applease.NewCreateLeaseService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil)),
+		handler.JournalServices{},
 		handler.RepairServices{},
 	)
 }
@@ -4582,6 +4609,7 @@ func newTestEngineWithRoomServices(userRepo fakeUserRepo, authenticator fakeAuth
 		apptenant.NewCreateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
 		apptenant.NewUpdateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
 		applease.NewCreateLeaseService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil)),
+		handler.JournalServices{},
 		handler.RepairServices{},
 	)
 }
