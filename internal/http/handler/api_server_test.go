@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -13,9 +14,12 @@ import (
 	"github.com/gin-gonic/gin"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	apprepair "stds_backend/internal/application/repair"
 	"stds_backend/internal/http/api"
+	"stds_backend/internal/http/middleware"
 	"stds_backend/internal/http/requestctx"
 	dbpropertyquery "stds_backend/internal/platform/database/propertyquery"
+	"stds_backend/internal/platform/database/txrunner"
 	"stds_backend/internal/shared/apperr"
 )
 
@@ -311,6 +315,124 @@ func TestListRoomMeterHistoryRejectsMonthWithoutYear(t *testing.T) {
 	}
 }
 
+func TestListRepairRequestsForwardsOwnershipFiltersAndReturnsResponseShape(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	propertyID := "10000000-0000-0000-0000-000000000001"
+	roomID := "20000000-0000-0000-0000-000000000001"
+	assignedTo := "00000000-0000-0000-0000-000000000002"
+	status := api.Submitted
+	page := 2
+	limit := 10
+	now := time.Date(2026, 4, 27, 10, 0, 0, 0, time.UTC)
+	queryRepo := &recordingRepairQueryRepo{
+		items: []apprepair.RepairRequest{{
+			ID:          "70000000-0000-0000-0000-000000000001",
+			PropertyID:  propertyID,
+			RoomID:      roomID,
+			SubmittedBy: assignedTo,
+			Title:       "Leak",
+			Description: "Bathroom leak",
+			Status:      "submitted",
+			SubmittedAt: now,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}},
+	}
+	server := &APIServer{repairQueryRepo: queryRepo}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/repair-requests", nil)
+	requestctx.SetPrincipal(c, requestctx.Principal{
+		UserID:              assignedTo,
+		Role:                "staff",
+		AssignedPropertyIDs: []string{propertyID},
+	})
+	requestctx.SetPropertyID(c, propertyID)
+
+	server.ListRepairRequests(c, api.ListRepairRequestsParams{
+		RoomId:     &roomID,
+		Status:     &status,
+		AssignedTo: &assignedTo,
+		Page:       &page,
+		Limit:      &limit,
+	})
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if queryRepo.query.ActorRole != "staff" || len(queryRepo.query.AssignedPropertyIDs) != 1 || queryRepo.query.AssignedPropertyIDs[0] != propertyID {
+		t.Fatalf("unexpected actor scope: %+v", queryRepo.query)
+	}
+	if queryRepo.query.PropertyID == nil || *queryRepo.query.PropertyID != propertyID {
+		t.Fatalf("expected property filter %s, got %#v", propertyID, queryRepo.query.PropertyID)
+	}
+	if queryRepo.query.RoomID == nil || *queryRepo.query.RoomID != roomID {
+		t.Fatalf("expected room filter %s, got %#v", roomID, queryRepo.query.RoomID)
+	}
+	if queryRepo.query.Status == nil || *queryRepo.query.Status != "submitted" {
+		t.Fatalf("expected submitted status filter, got %#v", queryRepo.query.Status)
+	}
+	if queryRepo.query.AssignedTo == nil || *queryRepo.query.AssignedTo != assignedTo {
+		t.Fatalf("expected assigned_to filter %s, got %#v", assignedTo, queryRepo.query.AssignedTo)
+	}
+	if queryRepo.query.Limit != 10 || queryRepo.query.Offset != 10 {
+		t.Fatalf("unexpected pagination: limit=%d offset=%d", queryRepo.query.Limit, queryRepo.query.Offset)
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	data, ok := payload["data"].([]any)
+	if !ok || len(data) != 1 {
+		t.Fatalf("expected one repair response, got %#v", payload["data"])
+	}
+	item, ok := data[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected object repair response, got %#v", data[0])
+	}
+	if item["id"] != "70000000-0000-0000-0000-000000000001" || item["status"] != "submitted" {
+		t.Fatalf("unexpected repair response: %#v", item)
+	}
+}
+
+func TestCancelRepairRequestInvalidTransitionUsesSharedErrorShape(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	repairRequest := testApplicationRepairRequest()
+	repairRequest.Status = "cancelled"
+	repo := &handlerRepairRepositoryStub{repairRequest: repairRequest}
+	server := &APIServer{
+		repair: RepairServices{
+			Workflow: apprepair.NewWorkflowService(repo, handlerRepairTxRunner{}),
+		},
+	}
+	engine := gin.New()
+	engine.Use(middleware.ErrorHandler(nil))
+	engine.POST("/repair-requests/:id/cancel", func(c *gin.Context) {
+		server.CancelRepairRequest(c, c.Param("id"))
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/repair-requests/70000000-0000-0000-0000-000000000001/cancel", nil)
+	resp := httptest.NewRecorder()
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", resp.Code, resp.Body.String())
+	}
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if payload["error_code"] != apprepair.CodeInvalidStatusForCancel {
+		t.Fatalf("expected %s, got %v", apprepair.CodeInvalidStatusForCancel, payload["error_code"])
+	}
+	if _, ok := payload["details"].(map[string]any); !ok {
+		t.Fatalf("expected shared error details object, got %#v", payload["details"])
+	}
+}
+
 func TestListRoomMeterHistoryForwardsYearMonthAndReturnsBillListResponse(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -553,6 +675,86 @@ func (r *recordingFinancialReports) SendFinancialReport(_ context.Context, input
 	return &r.sentReport, nil
 }
 
+type recordingRepairQueryRepo struct {
+	query apprepair.ListQuery
+	items []apprepair.RepairRequest
+	err   error
+}
+
+func (r *recordingRepairQueryRepo) List(_ context.Context, query apprepair.ListQuery) ([]apprepair.RepairRequest, error) {
+	r.query = query
+	return r.items, r.err
+}
+
+func (r *recordingRepairQueryRepo) FindByID(context.Context, string) (*apprepair.RepairRequest, error) {
+	if len(r.items) == 0 {
+		return nil, apprepair.ErrRepairRequestNotFound
+	}
+	return &r.items[0], r.err
+}
+
+type handlerRepairTxRunner struct{}
+
+func (handlerRepairTxRunner) WithinTransaction(ctx context.Context, fn func(context.Context, *sql.Tx, *txrunner.EventRecorder) error) error {
+	return fn(ctx, nil, &txrunner.EventRecorder{})
+}
+
+type handlerRepairRepositoryStub struct {
+	repairRequest *apprepair.RepairRequest
+}
+
+func (r *handlerRepairRepositoryStub) List(context.Context, apprepair.ListQuery) ([]apprepair.RepairRequest, error) {
+	return nil, nil
+}
+
+func (r *handlerRepairRepositoryStub) FindByID(context.Context, string) (*apprepair.RepairRequest, error) {
+	return r.repairRequest, nil
+}
+
+func (r *handlerRepairRepositoryStub) FindByIDForUpdate(context.Context, *sql.Tx, string) (*apprepair.RepairRequest, error) {
+	if r.repairRequest == nil {
+		return nil, apprepair.ErrRepairRequestNotFound
+	}
+	cloned := *r.repairRequest
+	return &cloned, nil
+}
+
+func (r *handlerRepairRepositoryStub) FindRoomByID(context.Context, *sql.Tx, string) (*apprepair.Room, error) {
+	return nil, nil
+}
+
+func (r *handlerRepairRepositoryStub) FindUserByID(context.Context, *sql.Tx, string) (*apprepair.User, error) {
+	return nil, nil
+}
+
+func (r *handlerRepairRepositoryStub) Create(context.Context, *sql.Tx, apprepair.CreateParams) (*apprepair.RepairRequest, error) {
+	return nil, nil
+}
+
+func (r *handlerRepairRepositoryStub) Update(context.Context, *sql.Tx, apprepair.UpdateParams) (*apprepair.RepairRequest, error) {
+	return nil, nil
+}
+
+func (r *handlerRepairRepositoryStub) SoftDelete(context.Context, *sql.Tx, string) error {
+	return nil
+}
+
+func (r *handlerRepairRepositoryStub) Assign(context.Context, *sql.Tx, apprepair.AssignParams) (*apprepair.RepairRequest, error) {
+	return nil, nil
+}
+
+func (r *handlerRepairRepositoryStub) Progress(context.Context, *sql.Tx, string) (*apprepair.RepairRequest, error) {
+	return nil, nil
+}
+
+func (r *handlerRepairRepositoryStub) Complete(context.Context, *sql.Tx, apprepair.CompleteParams) (*apprepair.RepairRequest, error) {
+	return nil, nil
+}
+
+func (r *handlerRepairRepositoryStub) Cancel(context.Context, *sql.Tx, apprepair.CancelParams) (*apprepair.RepairRequest, error) {
+	return nil, nil
+}
+
 func testBillingBill() BillingBill {
 	amount := 12000
 	now := time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC)
@@ -598,5 +800,21 @@ func testFinancialReport() BillingFinancialReport {
 		Entries: []BillingFinancialReportEntry{
 			{Category: "rent_payment", Description: &description, Amount: 18000},
 		},
+	}
+}
+
+func testApplicationRepairRequest() *apprepair.RepairRequest {
+	now := time.Date(2026, 4, 27, 10, 0, 0, 0, time.UTC)
+	return &apprepair.RepairRequest{
+		ID:          "70000000-0000-0000-0000-000000000001",
+		PropertyID:  "10000000-0000-0000-0000-000000000001",
+		RoomID:      "20000000-0000-0000-0000-000000000001",
+		SubmittedBy: "00000000-0000-0000-0000-000000000002",
+		Title:       "Leak",
+		Description: "Bathroom leak",
+		Status:      "submitted",
+		SubmittedAt: now,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 }

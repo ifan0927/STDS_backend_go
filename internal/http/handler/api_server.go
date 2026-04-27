@@ -15,6 +15,7 @@ import (
 	appjobs "stds_backend/internal/application/jobs"
 	applease "stds_backend/internal/application/lease"
 	appproperty "stds_backend/internal/application/property"
+	apprepair "stds_backend/internal/application/repair"
 	apptenant "stds_backend/internal/application/tenant"
 	domainusers "stds_backend/internal/domain/users"
 	"stds_backend/internal/http/api"
@@ -42,6 +43,7 @@ type APIServer struct {
 	jobTriggerService *appjobs.TriggerService
 	propertyQueryRepo dbpropertyquery.Repository
 	leaseQueryRepo    dbleasequery.Repository
+	repairQueryRepo   RepairQueryRepository
 	tenantQueryRepo   dbtenantquery.Repository
 	createPropertySvc *appproperty.CreatePropertyService
 	updatePropertySvc *appproperty.UpdatePropertyService
@@ -60,6 +62,7 @@ type APIServer struct {
 	forceTerminateSvc *applease.ForceTerminateLeaseService
 	getForceTermSvc   *applease.GetForceTerminationService
 	billing           BillingServices
+	repair            RepairServices
 }
 
 // LeaseCommandServices groups optional lease command services beyond creation.
@@ -82,6 +85,20 @@ type BillingServices struct {
 	PropertyMeters   BillingPropertyMeterService
 	RoomMeters       BillingRoomMeterService
 	FinancialReports BillingFinancialReportService
+}
+
+// RepairServices groups repair request application services used by the transport layer.
+type RepairServices struct {
+	Create   *apprepair.CreateService
+	Update   *apprepair.UpdateService
+	Delete   *apprepair.DeleteService
+	Workflow *apprepair.WorkflowService
+}
+
+// RepairQueryRepository serves repair request read endpoints.
+type RepairQueryRepository interface {
+	List(ctx context.Context, query apprepair.ListQuery) ([]apprepair.RepairRequest, error)
+	FindByID(ctx context.Context, id string) (*apprepair.RepairRequest, error)
 }
 
 type BillingQueryService interface {
@@ -253,6 +270,7 @@ func NewAPIServer(
 	jobTriggerService *appjobs.TriggerService,
 	propertyQueryRepo dbpropertyquery.Repository,
 	leaseQueryRepo dbleasequery.Repository,
+	repairQueryRepo RepairQueryRepository,
 	tenantQueryRepo dbtenantquery.Repository,
 	createPropertySvc *appproperty.CreatePropertyService,
 	updatePropertySvc *appproperty.UpdatePropertyService,
@@ -264,6 +282,7 @@ func NewAPIServer(
 	createTenantSvc *apptenant.CreateTenantService,
 	updateTenantSvc *apptenant.UpdateTenantService,
 	createLeaseSvc *applease.CreateLeaseService,
+	repairServices RepairServices,
 	leaseCommands ...LeaseCommandServices,
 ) *APIServer {
 	server := &APIServer{
@@ -277,6 +296,7 @@ func NewAPIServer(
 		jobTriggerService: jobTriggerService,
 		propertyQueryRepo: propertyQueryRepo,
 		leaseQueryRepo:    leaseQueryRepo,
+		repairQueryRepo:   repairQueryRepo,
 		tenantQueryRepo:   tenantQueryRepo,
 		createPropertySvc: createPropertySvc,
 		updatePropertySvc: updatePropertySvc,
@@ -288,6 +308,7 @@ func NewAPIServer(
 		createTenantSvc:   createTenantSvc,
 		updateTenantSvc:   updateTenantSvc,
 		createLeaseSvc:    createLeaseSvc,
+		repair:            repairServices,
 	}
 	if len(leaseCommands) > 0 {
 		server.updateLeaseSvc = leaseCommands[0].UpdateLease
@@ -307,6 +328,17 @@ func writeNotImplemented(c *gin.Context) {
 	c.AbortWithStatusJSON(http.StatusNotImplemented, api.ErrorResponse{
 		Message: &message,
 	})
+}
+
+func mapRepairQueryError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, apprepair.ErrRepairRequestNotFound) {
+		return apperr.ErrRepairRequestNotFound
+	}
+
+	return apperr.ErrInternalServerError.WithCause(err)
 }
 
 // SyncAuth handles the auth sync endpoint.
@@ -1241,11 +1273,99 @@ func (s *APIServer) CreatePropertyRoom(c *gin.Context, id string) {
 
 // ListRepairRequests handles the repair request listing endpoint.
 func (s *APIServer) ListRepairRequests(c *gin.Context, params api.ListRepairRequestsParams) {
-	writeNotImplemented(c)
+	if s.repairQueryRepo == nil {
+		writeNotImplemented(c)
+		return
+	}
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	pagination, err := queryparams.NormalizePagination(params.Page, params.Limit)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+	status := ""
+	if params.Status != nil {
+		status = string(*params.Status)
+	}
+	var statusPtr *string
+	if status != "" {
+		statusPtr = &status
+	}
+	var propertyID *string
+	if authorizedPropertyID := requestctx.GetPropertyID(c); authorizedPropertyID != "" {
+		propertyID = &authorizedPropertyID
+	}
+	roomID, err := queryparams.NormalizeOptionalUUID(params.RoomId, "room_id")
+	if err != nil {
+		c.Error(err)
+		return
+	}
+	assignedTo, err := queryparams.NormalizeOptionalUUID(params.AssignedTo, "assigned_to")
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	items, err := s.repairQueryRepo.List(c.Request.Context(), apprepair.ListQuery{
+		ActorRole:           principal.Role,
+		AssignedPropertyIDs: principal.AssignedPropertyIDs,
+		PropertyID:          propertyID,
+		RoomID:              roomID,
+		Status:              statusPtr,
+		AssignedTo:          assignedTo,
+		Limit:               pagination.Limit,
+		Offset:              pagination.Offset,
+	})
+	if err != nil {
+		c.Error(mapRepairQueryError(err))
+		return
+	}
+
+	responses := make([]api.RepairRequestResponse, 0, len(items))
+	for _, item := range items {
+		responses = append(responses, toApplicationRepairRequestResponse(&item))
+	}
+	c.JSON(http.StatusOK, api.RepairRequestListResponse{Data: &responses})
 }
 
 // CreateRepairRequest handles repair request creation.
-func (s *APIServer) CreateRepairRequest(c *gin.Context) { writeNotImplemented(c) }
+func (s *APIServer) CreateRepairRequest(c *gin.Context) {
+	if s.repair.Create == nil {
+		writeNotImplemented(c)
+		return
+	}
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+	var request api.CreateRepairRequestRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.Error(apperr.ErrBadRequest.WithCause(err))
+		return
+	}
+
+	repairRequest, err := s.repair.Create.Execute(c.Request.Context(), apprepair.CreateInput{
+		ActorRole:           principal.Role,
+		ActorUserID:         principal.UserID,
+		AssignedPropertyIDs: principal.AssignedPropertyIDs,
+		PropertyID:          request.PropertyId.String(),
+		RoomID:              request.RoomId.String(),
+		Title:               request.Title,
+		Description:         request.Description,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusCreated, toApplicationRepairRequestResponse(repairRequest))
+}
 
 // ListRepairRequestAttachments handles repair request attachment listing.
 func (s *APIServer) ListRepairRequestAttachments(c *gin.Context, id openapi_types.UUID) {
@@ -1258,25 +1378,145 @@ func (s *APIServer) CreateRepairRequestAttachment(c *gin.Context, id openapi_typ
 }
 
 // DeleteRepairRequest handles repair request deletion.
-func (s *APIServer) DeleteRepairRequest(c *gin.Context, id string) { writeNotImplemented(c) }
+func (s *APIServer) DeleteRepairRequest(c *gin.Context, id string) {
+	if s.repair.Delete == nil {
+		writeNotImplemented(c)
+		return
+	}
+	if err := s.repair.Delete.Execute(c.Request.Context(), apprepair.DeleteInput{ID: id}); err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.Status(http.StatusNoContent)
+}
 
 // GetRepairRequest handles repair request detail retrieval.
-func (s *APIServer) GetRepairRequest(c *gin.Context, id string) { writeNotImplemented(c) }
+func (s *APIServer) GetRepairRequest(c *gin.Context, id string) {
+	if s.repairQueryRepo == nil {
+		writeNotImplemented(c)
+		return
+	}
+	repairRequest, err := s.repairQueryRepo.FindByID(c.Request.Context(), id)
+	if err != nil {
+		c.Error(mapRepairQueryError(err))
+		return
+	}
+
+	c.JSON(http.StatusOK, toApplicationRepairRequestResponse(repairRequest))
+}
 
 // UpdateRepairRequest handles repair request updates.
-func (s *APIServer) UpdateRepairRequest(c *gin.Context, id string) { writeNotImplemented(c) }
+func (s *APIServer) UpdateRepairRequest(c *gin.Context, id string) {
+	if s.repair.Update == nil {
+		writeNotImplemented(c)
+		return
+	}
+	var request api.UpdateRepairRequestRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.Error(apperr.ErrBadRequest.WithCause(err))
+		return
+	}
+
+	repairRequest, err := s.repair.Update.Execute(c.Request.Context(), apprepair.UpdateInput{
+		ID:          id,
+		Title:       request.Title,
+		Description: request.Description,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toApplicationRepairRequestResponse(repairRequest))
+}
 
 // AssignRepairRequest handles repair request assignment.
-func (s *APIServer) AssignRepairRequest(c *gin.Context, id string) { writeNotImplemented(c) }
+func (s *APIServer) AssignRepairRequest(c *gin.Context, id string) {
+	if s.repair.Workflow == nil {
+		writeNotImplemented(c)
+		return
+	}
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+	var request api.AssignRepairRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.Error(apperr.ErrBadRequest.WithCause(err))
+		return
+	}
+
+	repairRequest, err := s.repair.Workflow.Assign(c.Request.Context(), apprepair.AssignInput{
+		ActorRole:   principal.Role,
+		ActorUserID: principal.UserID,
+		ID:          id,
+		AssignedTo:  request.AssignedTo.String(),
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toApplicationRepairRequestResponse(repairRequest))
+}
 
 // CancelRepairRequest handles repair request cancellation.
-func (s *APIServer) CancelRepairRequest(c *gin.Context, id string) { writeNotImplemented(c) }
+func (s *APIServer) CancelRepairRequest(c *gin.Context, id string) {
+	if s.repair.Workflow == nil {
+		writeNotImplemented(c)
+		return
+	}
+	var request api.CancelRepairRequest
+	if c.Request.Body != nil && c.Request.ContentLength != 0 {
+		if err := c.ShouldBindJSON(&request); err != nil {
+			c.Error(apperr.ErrBadRequest.WithCause(err))
+			return
+		}
+	}
+
+	repairRequest, err := s.repair.Workflow.Cancel(c.Request.Context(), apprepair.CancelInput{
+		ID:     id,
+		Reason: request.Reason,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toApplicationRepairRequestResponse(repairRequest))
+}
 
 // CompleteRepairRequest handles repair request completion.
-func (s *APIServer) CompleteRepairRequest(c *gin.Context, id string) { writeNotImplemented(c) }
+func (s *APIServer) CompleteRepairRequest(c *gin.Context, id string) {
+	if s.repair.Workflow == nil {
+		writeNotImplemented(c)
+		return
+	}
+	repairRequest, err := s.repair.Workflow.Complete(c.Request.Context(), id)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toApplicationRepairRequestResponse(repairRequest))
+}
 
 // ProgressRepairRequest handles repair request progress updates.
-func (s *APIServer) ProgressRepairRequest(c *gin.Context, id string) { writeNotImplemented(c) }
+func (s *APIServer) ProgressRepairRequest(c *gin.Context, id string) {
+	if s.repair.Workflow == nil {
+		writeNotImplemented(c)
+		return
+	}
+	repairRequest, err := s.repair.Workflow.Progress(c.Request.Context(), id)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toApplicationRepairRequestResponse(repairRequest))
+}
 
 // DeleteRoom handles room deletion.
 func (s *APIServer) DeleteRoom(c *gin.Context, id string) {
@@ -1361,7 +1601,7 @@ func (s *APIServer) CreateRoomMaintenance(c *gin.Context, id string) {
 
 	c.JSON(http.StatusOK, api.SetMaintenanceResponse{
 		Room:          toCreatedRoomResponse(result.Room),
-		RepairRequest: toRepairRequestResponse(result.RepairRequest),
+		RepairRequest: toPropertyRepairRequestResponse(result.RepairRequest),
 	})
 }
 
@@ -2405,21 +2645,79 @@ func toLeaseReplaceResponse(result *applease.ReplaceLeaseResult) api.LeaseReplac
 	}
 }
 
-func toRepairRequestResponse(repairRequest *appproperty.RepairRequest) api.RepairRequestResponse {
-	id, ok := parseUUID(repairRequest.ID)
-	propertyID, propertyOK := parseUUID(repairRequest.PropertyID)
-	roomID, roomOK := parseUUID(repairRequest.RoomID)
-	submittedBy, submittedByOK := parseUUID(repairRequest.SubmittedBy)
-	title := repairRequest.Title
-	description := repairRequest.Description
-	status := api.RepairRequestResponseStatus(repairRequest.Status)
-	submittedAt := repairRequest.SubmittedAt
-	createdAt := repairRequest.CreatedAt
-	updatedAt := repairRequest.UpdatedAt
+func toPropertyRepairRequestResponse(repairRequest *appproperty.RepairRequest) api.RepairRequestResponse {
+	if repairRequest == nil {
+		return api.RepairRequestResponse{}
+	}
+
+	return toRepairRequestResponseFields(
+		repairRequest.ID,
+		repairRequest.PropertyID,
+		repairRequest.RoomID,
+		repairRequest.SubmittedBy,
+		repairRequest.AssignedTo,
+		repairRequest.Title,
+		repairRequest.Description,
+		repairRequest.Status,
+		repairRequest.SubmittedAt,
+		repairRequest.AssignedAt,
+		repairRequest.CompletedAt,
+		repairRequest.CreatedAt,
+		repairRequest.UpdatedAt,
+	)
+}
+
+func toApplicationRepairRequestResponse(repairRequest *apprepair.RepairRequest) api.RepairRequestResponse {
+	if repairRequest == nil {
+		return api.RepairRequestResponse{}
+	}
+
+	return toRepairRequestResponseFields(
+		repairRequest.ID,
+		repairRequest.PropertyID,
+		repairRequest.RoomID,
+		repairRequest.SubmittedBy,
+		repairRequest.AssignedTo,
+		repairRequest.Title,
+		repairRequest.Description,
+		repairRequest.Status,
+		repairRequest.SubmittedAt,
+		repairRequest.AssignedAt,
+		repairRequest.CompletedAt,
+		repairRequest.CreatedAt,
+		repairRequest.UpdatedAt,
+	)
+}
+
+func toRepairRequestResponseFields(
+	idValue string,
+	propertyIDValue string,
+	roomIDValue string,
+	submittedByValue string,
+	assignedToValue *string,
+	titleValue string,
+	descriptionValue string,
+	statusValue string,
+	submittedAtValue time.Time,
+	assignedAtValue *time.Time,
+	completedAtValue *time.Time,
+	createdAtValue time.Time,
+	updatedAtValue time.Time,
+) api.RepairRequestResponse {
+	id, ok := parseUUID(idValue)
+	propertyID, propertyOK := parseUUID(propertyIDValue)
+	roomID, roomOK := parseUUID(roomIDValue)
+	submittedBy, submittedByOK := parseUUID(submittedByValue)
+	title := titleValue
+	description := descriptionValue
+	status := api.RepairRequestResponseStatus(statusValue)
+	submittedAt := submittedAtValue
+	createdAt := createdAtValue
+	updatedAt := updatedAtValue
 
 	response := api.RepairRequestResponse{
-		AssignedAt:  repairRequest.AssignedAt,
-		CompletedAt: repairRequest.CompletedAt,
+		AssignedAt:  assignedAtValue,
+		CompletedAt: completedAtValue,
 		CreatedAt:   &createdAt,
 		Description: &description,
 		Status:      &status,
@@ -2439,8 +2737,8 @@ func toRepairRequestResponse(repairRequest *appproperty.RepairRequest) api.Repai
 	if submittedByOK {
 		response.SubmittedBy = &submittedBy
 	}
-	if repairRequest.AssignedTo != nil {
-		assignedTo, assignedToOK := parseUUID(*repairRequest.AssignedTo)
+	if assignedToValue != nil {
+		assignedTo, assignedToOK := parseUUID(*assignedToValue)
 		if assignedToOK {
 			response.AssignedTo = &assignedTo
 		}

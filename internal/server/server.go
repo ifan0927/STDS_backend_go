@@ -12,6 +12,7 @@ import (
 	applease "stds_backend/internal/application/lease"
 	appnotification "stds_backend/internal/application/notification"
 	appproperty "stds_backend/internal/application/property"
+	apprepair "stds_backend/internal/application/repair"
 	apptenant "stds_backend/internal/application/tenant"
 	"stds_backend/internal/config"
 	"stds_backend/internal/http/handler"
@@ -22,6 +23,7 @@ import (
 	dbleases "stds_backend/internal/platform/database/leases"
 	dbproperties "stds_backend/internal/platform/database/properties"
 	dbpropertyquery "stds_backend/internal/platform/database/propertyquery"
+	dbrepair "stds_backend/internal/platform/database/repair"
 	dbresourceownership "stds_backend/internal/platform/database/resourceownership"
 	dbtenantquery "stds_backend/internal/platform/database/tenantquery"
 	dbtenants "stds_backend/internal/platform/database/tenants"
@@ -61,6 +63,7 @@ func New(cfg *config.Config) (*Server, error) {
 	leaseRepo := dbleases.NewRepository(db)
 	propertyQueryRepo := dbpropertyquery.NewRepository(db)
 	leaseQueryRepo := dbleasequery.NewRepository(db)
+	repairRepo := dbrepair.NewRepository(db)
 	tenantRepo := dbtenants.NewRepository(db)
 	tenantQueryRepo := dbtenantquery.NewRepository(db)
 	resourceOwnershipRepo := dbresourceownership.NewRepository(db)
@@ -105,6 +108,12 @@ func New(cfg *config.Config) (*Server, error) {
 	terminateLeaseService := applease.NewTerminateLeaseService(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
 	forceTerminateLeaseService := applease.NewForceTerminateLeaseService(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
 	getForceTerminationService := applease.NewGetForceTerminationService(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
+	repairServices := handler.RepairServices{
+		Create:   apprepair.NewCreateService(repairRepo, txRunner),
+		Update:   apprepair.NewUpdateService(repairRepo, txRunner),
+		Delete:   apprepair.NewDeleteService(repairRepo, txRunner),
+		Workflow: apprepair.NewWorkflowService(repairRepo, txRunner),
+	}
 	occupyRoomOnLeaseCreated := applease.NewOccupyRoomOnLeaseCreatedHandler(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
 	activateTenantOnLeaseCreated := applease.NewActivateTenantOnLeaseCreatedHandler(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
 	releaseRoomOnLeaseTerminated := applease.NewReleaseRoomOnLeaseTerminatedHandler(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
@@ -118,7 +127,7 @@ func New(cfg *config.Config) (*Server, error) {
 	engine := router.New(cfg.App, logger, db, authenticator, userRepo, router.AuthorizationRepositories{
 		Properties:        propertyRepo,
 		ResourceOwnership: resourceOwnershipRepo,
-	}, createUserService, sendPasswordResetService, syncAuthService, updateCurrentUserService, updateUserService, assignUserPropertiesService, jobTriggerService, propertyQueryRepo, leaseQueryRepo, tenantQueryRepo, createPropertyService, updatePropertyService, deletePropertyService, createRoomService, updateRoomService, deleteRoomService, setRoomMaintenanceService, createTenantService, updateTenantService, createLeaseService, handler.LeaseCommandServices{
+	}, createUserService, sendPasswordResetService, syncAuthService, updateCurrentUserService, updateUserService, assignUserPropertiesService, jobTriggerService, propertyQueryRepo, leaseQueryRepo, repairRepo, tenantQueryRepo, createPropertyService, updatePropertyService, deletePropertyService, createRoomService, updateRoomService, deleteRoomService, setRoomMaintenanceService, createTenantService, updateTenantService, createLeaseService, repairServices, handler.LeaseCommandServices{
 		UpdateLease:         updateLeaseService,
 		UpdateDeposit:       updateDepositService,
 		ReplaceLease:        replaceLeaseService,

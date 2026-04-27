@@ -21,6 +21,7 @@ import (
 	applease "stds_backend/internal/application/lease"
 	appnotification "stds_backend/internal/application/notification"
 	appproperty "stds_backend/internal/application/property"
+	apprepair "stds_backend/internal/application/repair"
 	apptenant "stds_backend/internal/application/tenant"
 	"stds_backend/internal/config"
 	domainusers "stds_backend/internal/domain/users"
@@ -3082,6 +3083,8 @@ type fakeLeaseQueryRepo struct {
 	findCall *findLeaseCall
 }
 
+type fakeRepairQueryRepo struct{}
+
 type listRoomsCall struct {
 	propertyID string
 	status     string
@@ -4277,6 +4280,14 @@ func (f fakeLeaseQueryRepo) FindByIDAccessible(_ context.Context, id string, rol
 	}, nil
 }
 
+func (fakeRepairQueryRepo) List(context.Context, apprepair.ListQuery) ([]apprepair.RepairRequest, error) {
+	return []apprepair.RepairRequest{}, nil
+}
+
+func (fakeRepairQueryRepo) FindByID(context.Context, string) (*apprepair.RepairRequest, error) {
+	return nil, apprepair.ErrRepairRequestNotFound
+}
+
 func (f fakeResourceOwnershipRepo) FindPropertyIDByRoomID(_ context.Context, roomID string) (string, error) {
 	if f.roomIDLookup != nil {
 		*f.roomIDLookup = roomID
@@ -4455,6 +4466,7 @@ func newTestEngineWithAllServices(userRepo fakeUserRepo, authenticator fakeAuthe
 		appjobs.NewTriggerService(jobRunsRepo, nil, time.Minute, 3),
 		propertyQueryRepo,
 		leaseQueryRepo,
+		fakeRepairQueryRepo{},
 		tenantQueryRepo,
 		appproperty.NewCreatePropertyService(propertyRepo, dbtxrunner.New(nil, nil)),
 		appproperty.NewUpdatePropertyService(propertyRepo, dbtxrunner.New(nil, nil)),
@@ -4466,6 +4478,7 @@ func newTestEngineWithAllServices(userRepo fakeUserRepo, authenticator fakeAuthe
 		createTenantService,
 		updateTenantService,
 		createLeaseService,
+		handler.RepairServices{},
 		leaseCommands...,
 	)
 }
@@ -4515,6 +4528,7 @@ func newTestEngineWithNotificationSender(userRepo fakeUserRepo, authenticator fa
 		appjobs.NewTriggerService(jobRunsRepo, nil, time.Minute, 3),
 		propertyQueryRepo,
 		fakeLeaseQueryRepo{},
+		fakeRepairQueryRepo{},
 		fakeTenantQueryRepo{},
 		createPropertyService,
 		updatePropertyService,
@@ -4526,6 +4540,7 @@ func newTestEngineWithNotificationSender(userRepo fakeUserRepo, authenticator fa
 		apptenant.NewCreateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
 		apptenant.NewUpdateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
 		applease.NewCreateLeaseService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil)),
+		handler.RepairServices{},
 	)
 }
 
@@ -4555,6 +4570,7 @@ func newTestEngineWithRoomServices(userRepo fakeUserRepo, authenticator fakeAuth
 		appjobs.NewTriggerService(jobRunsRepo, nil, time.Minute, 3),
 		propertyQueryRepo,
 		fakeLeaseQueryRepo{},
+		fakeRepairQueryRepo{},
 		fakeTenantQueryRepo{},
 		createPropertyService,
 		updatePropertyService,
@@ -4566,6 +4582,7 @@ func newTestEngineWithRoomServices(userRepo fakeUserRepo, authenticator fakeAuth
 		apptenant.NewCreateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
 		apptenant.NewUpdateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
 		applease.NewCreateLeaseService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil)),
+		handler.RepairServices{},
 	)
 }
 
@@ -4583,6 +4600,21 @@ func firstAssignedPropertyIDs(assigned []string) []string {
 	}
 
 	return []string{testPropertyID1}
+}
+
+func TestRepairRequestListRouteUsesQueryPropertyResolver(t *testing.T) {
+	policies := routePolicies(AuthorizationRepositories{ResourceOwnership: fakeResourceOwnershipRepo{}})
+
+	for _, policy := range policies {
+		if policy.method == http.MethodGet && policy.path == "/api/v1/repair-requests" {
+			if policy.propertyResolver == nil {
+				t.Fatalf("expected repair request list route to use query property resolver")
+			}
+			return
+		}
+	}
+
+	t.Fatalf("repair request list route policy not found")
 }
 
 func firstRole(role string) string {

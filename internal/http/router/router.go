@@ -58,6 +58,7 @@ func New(
 	jobTriggerService *appjobs.TriggerService,
 	propertyQueryRepo dbpropertyquery.Repository,
 	leaseQueryRepo dbleasequery.Repository,
+	repairQueryRepo handler.RepairQueryRepository,
 	tenantQueryRepo dbtenantquery.Repository,
 	createPropertyService *appproperty.CreatePropertyService,
 	updatePropertyService *appproperty.UpdatePropertyService,
@@ -69,6 +70,7 @@ func New(
 	createTenantService *apptenant.CreateTenantService,
 	updateTenantService *apptenant.UpdateTenantService,
 	createLeaseService *applease.CreateLeaseService,
+	repairServices handler.RepairServices,
 	leaseCommands ...handler.LeaseCommandServices,
 ) *gin.Engine {
 	engine := gin.New()
@@ -86,7 +88,7 @@ func New(
 	engine.GET("/openapi.yaml", docsHandler.OpenAPI)
 	engine.GET("/scalar", docsHandler.Scalar)
 
-	api.RegisterHandlersWithOptions(engine, handler.NewAPIServer(userRepo, createUserService, sendPasswordResetService, syncAuthService, updateCurrentUserService, updateUserService, assignUserPropertiesService, jobTriggerService, propertyQueryRepo, leaseQueryRepo, tenantQueryRepo, createPropertyService, updatePropertyService, deletePropertyService, createRoomService, updateRoomService, deleteRoomService, setRoomMaintenanceService, createTenantService, updateTenantService, createLeaseService, leaseCommands...), api.GinServerOptions{
+	api.RegisterHandlersWithOptions(engine, handler.NewAPIServer(userRepo, createUserService, sendPasswordResetService, syncAuthService, updateCurrentUserService, updateUserService, assignUserPropertiesService, jobTriggerService, propertyQueryRepo, leaseQueryRepo, repairQueryRepo, tenantQueryRepo, createPropertyService, updatePropertyService, deletePropertyService, createRoomService, updateRoomService, deleteRoomService, setRoomMaintenanceService, createTenantService, updateTenantService, createLeaseService, repairServices, leaseCommands...), api.GinServerOptions{
 		BaseURL: "/api/v1",
 		Middlewares: []api.MiddlewareFunc{
 			protectedAPIMiddleware(appCfg, authenticator, userRepo, authzRepos),
@@ -233,7 +235,7 @@ func routePolicies(authzRepos AuthorizationRepositories) []routePolicy {
 		{method: "GET", path: "/api/v1/properties/:id/rooms", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff", "owner"}, propertyResolver: middleware.ParamPropertyID("id")},
 		{method: "POST", path: "/api/v1/properties/:id/rooms", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ParamPropertyID("id")},
 
-		{method: "GET", path: "/api/v1/repair-requests", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
+		{method: "GET", path: "/api/v1/repair-requests", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.QueryPropertyID("property_id")},
 		{method: "POST", path: "/api/v1/repair-requests", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
 		{method: "GET", path: "/api/v1/repair-requests/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyIDWithNotFound("id", ownership.FindPropertyIDByRepairRequestID, apperr.ErrRepairRequestNotFound)},
 		{method: "POST", path: "/api/v1/repair-requests/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyIDWithNotFound("id", ownership.FindPropertyIDByRepairRequestID, apperr.ErrRepairRequestNotFound)},

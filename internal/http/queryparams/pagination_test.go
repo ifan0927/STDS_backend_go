@@ -112,6 +112,27 @@ func TestIsYYYYMM(t *testing.T) {
 	}
 }
 
+func TestNormalizeOptionalUUIDTrimsAndValidates(t *testing.T) {
+	value := " 10000000-0000-0000-0000-000000000001 "
+
+	normalized, err := NormalizeOptionalUUID(&value, "property_id")
+	if err != nil {
+		t.Fatalf("NormalizeOptionalUUID: %v", err)
+	}
+	if normalized == nil || *normalized != "10000000-0000-0000-0000-000000000001" {
+		t.Fatalf("unexpected normalized uuid: %#v", normalized)
+	}
+}
+
+func TestNormalizeOptionalUUIDRejectsInvalidUUID(t *testing.T) {
+	value := "not-a-uuid"
+
+	_, err := NormalizeOptionalUUID(&value, "property_id")
+	if err == nil {
+		t.Fatalf("expected invalid uuid error")
+	}
+}
+
 func intPtr(v int) *int {
 	return &v
 }
