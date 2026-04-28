@@ -354,12 +354,17 @@ SELECT 1
 FROM monthly_snapshots
 WHERE property_id = $1
   AND year = $2
-  AND month = $3
+	AND month = $3
 LIMIT 1
 `
 
+	queryer := rowQueryer(r.db)
+	if tx != nil {
+		queryer = tx
+	}
+
 	var marker int
-	if err := tx.QueryRowContext(ctx, query, propertyID, year, month).Scan(&marker); err != nil {
+	if err := queryer.QueryRowContext(ctx, query, propertyID, year, month).Scan(&marker); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return false, nil
 		}
@@ -413,14 +418,16 @@ INSERT INTO monthly_snapshot_entries (
 	category,
 	description,
 	amount,
-	source_ref
+	source_ref,
+	created_at
 )
 SELECT
 	$1,
 	ae.category,
 	ae.description,
 	ae.amount,
-	ae.source_ref
+	ae.source_ref,
+	ae.created_at
 FROM accounting_entries ae
 JOIN property_accounts pa ON pa.id = ae.property_account_id
 WHERE pa.property_id = $2

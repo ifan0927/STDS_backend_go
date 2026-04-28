@@ -688,6 +688,83 @@ LIMIT 1`)).
 	}
 }
 
+func TestMonthlySnapshotExistsSupportsNilTransaction(t *testing.T) {
+	db, mock, repo := newBillingRepoTest(t)
+	defer closeBillingDB(t, db)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT 1
+FROM monthly_snapshots
+WHERE property_id = $1
+  AND year = $2
+  AND month = $3
+LIMIT 1`)).
+		WithArgs("property-1", 2026, 4).
+		WillReturnRows(sqlmock.NewRows([]string{"marker"}).AddRow(1))
+
+	exists, err := repo.MonthlySnapshotExists(context.Background(), nil, "property-1", 2026, 4)
+	if err != nil {
+		t.Fatalf("MonthlySnapshotExists: %v", err)
+	}
+	if !exists {
+		t.Fatal("expected snapshot to exist")
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestCreateMonthlySnapshotPreservesEntryCreatedAt(t *testing.T) {
+	db, mock, repo := newBillingRepoTest(t)
+	defer closeBillingDB(t, db)
+	tx := beginBillingTx(t, db, mock)
+
+	mock.ExpectQuery("INSERT INTO monthly_snapshots").
+		WithArgs("property-1", 2026, 4).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("snapshot-1"))
+
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO monthly_snapshot_entries (
+	snapshot_id,
+	category,
+	description,
+	amount,
+	source_ref,
+	created_at
+)
+SELECT
+	$1,
+	ae.category,
+	ae.description,
+	ae.amount,
+	ae.source_ref,
+	ae.created_at
+FROM accounting_entries ae
+JOIN property_accounts pa ON pa.id = ae.property_account_id
+WHERE pa.property_id = $2
+  AND pa.deleted_at IS NULL
+  AND ae.year = $3
+  AND ae.month = $4
+ORDER BY ae.created_at ASC, ae.id ASC`)).
+		WithArgs("snapshot-1", "property-1", 2026, 4).
+		WillReturnResult(sqlmock.NewResult(0, 2))
+
+	mock.ExpectExec("DELETE FROM accounting_entries").
+		WithArgs("property-1", 2026, 4).
+		WillReturnResult(sqlmock.NewResult(0, 2))
+
+	if err := repo.CreateMonthlySnapshot(context.Background(), tx, "property-1", 2026, 4); err != nil {
+		t.Fatalf("CreateMonthlySnapshot: %v", err)
+	}
+
+	mock.ExpectRollback()
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("Rollback: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
 func newBillingRepoTest(t *testing.T) (*sql.DB, sqlmock.Sqlmock, *SQLRepository) {
 	t.Helper()
 
