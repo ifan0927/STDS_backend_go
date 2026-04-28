@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	appattachment "stds_backend/internal/application/attachment"
 	appiam "stds_backend/internal/application/iam"
 	appjobs "stds_backend/internal/application/jobs"
 	appjournal "stds_backend/internal/application/journal"
@@ -19,6 +20,7 @@ import (
 	"stds_backend/internal/http/handler"
 	"stds_backend/internal/http/router"
 	"stds_backend/internal/platform/database"
+	dbattachments "stds_backend/internal/platform/database/attachments"
 	dbjobruns "stds_backend/internal/platform/database/jobruns"
 	dbjournal "stds_backend/internal/platform/database/journal"
 	dbleasequery "stds_backend/internal/platform/database/leasequery"
@@ -35,6 +37,7 @@ import (
 	platformfirebase "stds_backend/internal/platform/firebase"
 	"stds_backend/internal/platform/logging"
 	platformnotification "stds_backend/internal/platform/notification"
+	platformstorage "stds_backend/internal/platform/storage"
 )
 
 // Server owns the application's HTTP server and process-level dependencies.
@@ -42,6 +45,7 @@ type Server struct {
 	httpServer *http.Server
 	db         *sql.DB
 	logger     *slog.Logger
+	storage    *platformstorage.GCSStorage
 }
 
 // New wires configuration, infrastructure clients, and the HTTP router into a
@@ -71,9 +75,17 @@ func New(cfg *config.Config) (*Server, error) {
 	tenantQueryRepo := dbtenantquery.NewRepository(db)
 	resourceOwnershipRepo := dbresourceownership.NewRepository(db)
 	jobRunsRepo := dbjobruns.NewRepository(db)
+	attachmentRepo := dbattachments.NewRepository(db)
+
+	storageClient, err := platformstorage.NewGCSStorage(context.Background(), cfg.Storage)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 
 	emailSender, err := platformnotification.NewResendSender(cfg.Notify)
 	if err != nil {
+		_ = storageClient.Close()
 		_ = db.Close()
 		return nil, err
 	}
@@ -111,6 +123,13 @@ func New(cfg *config.Config) (*Server, error) {
 	terminateLeaseService := applease.NewTerminateLeaseService(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
 	forceTerminateLeaseService := applease.NewForceTerminateLeaseService(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
 	getForceTerminationService := applease.NewGetForceTerminationService(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
+	attachmentService := appattachment.NewService(
+		attachmentRepositoryAdapter{repo: attachmentRepo},
+		storageClient,
+		attachmentResourceAccessAdapter{ownership: resourceOwnershipRepo},
+		txRunner,
+		cfg.Storage.GCSSignedURLTTL,
+	)
 	repairServices := handler.RepairServices{
 		Create:   apprepair.NewCreateService(repairRepo, txRunner),
 		Update:   apprepair.NewUpdateService(repairRepo, txRunner),
@@ -147,6 +166,7 @@ func New(cfg *config.Config) (*Server, error) {
 		ForceTerminateLease: forceTerminateLeaseService,
 		GetForceTermination: getForceTerminationService,
 		Billing:             newBillingServices(db, txRunner, bus),
+		Attachment:          attachmentService,
 	})
 
 	return &Server{
@@ -156,14 +176,16 @@ func New(cfg *config.Config) (*Server, error) {
 			ReadTimeout:  cfg.App.ReadTimeout,
 			WriteTimeout: cfg.App.WriteTimeout,
 		},
-		db:     db,
-		logger: logger,
+		db:      db,
+		logger:  logger,
+		storage: storageClient,
 	}, nil
 }
 
 // Run starts the HTTP server and blocks until it exits.
 func (s *Server) Run() error {
 	defer s.db.Close()
+	defer s.storage.Close()
 
 	if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("listen and serve: %w", err)

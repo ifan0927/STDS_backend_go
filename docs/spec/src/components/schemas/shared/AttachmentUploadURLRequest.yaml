@@ -4,6 +4,7 @@ required:
   - resource_id
   - file_name
   - content_type
+  - file_size
 properties:
   resource_type:
     type: string
@@ -27,3 +28,9 @@ properties:
       - image/png
       - image/heic
       - application/pdf
+  file_size:
+    type: integer
+    format: int64
+    minimum: 1
+    maximum: 20971520
+    description: File size in bytes. Attachments are limited to 20MB.

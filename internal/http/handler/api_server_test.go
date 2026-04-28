@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	appattachment "stds_backend/internal/application/attachment"
 	apprepair "stds_backend/internal/application/repair"
 	"stds_backend/internal/http/api"
 	"stds_backend/internal/http/middleware"
@@ -433,6 +434,50 @@ func TestCancelRepairRequestInvalidTransitionUsesSharedErrorShape(t *testing.T) 
 	}
 }
 
+func TestCreateAttachmentUploadURLReturnsOK(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	repo := &handlerAttachmentRepoStub{}
+	storage := &handlerAttachmentStorageStub{uploadURL: "http://storage/upload"}
+	access := &handlerAttachmentResourceAccessStub{}
+	service := appattachment.NewService(repo, storage, access, handlerRepairTxRunner{}, 15*time.Minute)
+	server := &APIServer{attachment: service}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/attachments/upload-url", bytes.NewBufferString(`{
+		"resource_type":"property",
+		"resource_id":"10000000-0000-0000-0000-000000000001",
+		"file_name":"contract.pdf",
+		"content_type":"application/pdf",
+		"file_size":1024
+	}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	requestctx.SetPrincipal(c, requestctx.Principal{
+		UserID:              "00000000-0000-0000-0000-000000000001",
+		Role:                "staff",
+		AssignedPropertyIDs: []string{"10000000-0000-0000-0000-000000000001"},
+	})
+
+	server.CreateAttachmentUploadURL(c)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if repo.createdToken == nil || repo.createdToken.ResourceID != "10000000-0000-0000-0000-000000000001" {
+		t.Fatalf("expected upload token for resource, got %#v", repo.createdToken)
+	}
+	if storage.signedContentType != "application/pdf" {
+		t.Fatalf("signed content type = %q, want application/pdf", storage.signedContentType)
+	}
+	var response api.AttachmentUploadURLResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if response.UploadUrl == nil || *response.UploadUrl != "http://storage/upload" {
+		t.Fatalf("unexpected upload URL response: %+v", response)
+	}
+}
+
 func TestListRoomMeterHistoryForwardsYearMonthAndReturnsBillListResponse(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -697,6 +742,69 @@ type handlerRepairTxRunner struct{}
 
 func (handlerRepairTxRunner) WithinTransaction(ctx context.Context, fn func(context.Context, *sql.Tx, *txrunner.EventRecorder) error) error {
 	return fn(ctx, nil, &txrunner.EventRecorder{})
+}
+
+type handlerAttachmentRepoStub struct {
+	createdToken *appattachment.CreateUploadTokenParams
+}
+
+func (r *handlerAttachmentRepoStub) CreateUploadToken(_ context.Context, _ *sql.Tx, params appattachment.CreateUploadTokenParams) (*appattachment.UploadToken, error) {
+	r.createdToken = &params
+	return &appattachment.UploadToken{
+		Nonce:        params.Nonce,
+		ObjectPath:   params.ObjectPath,
+		IssuedTo:     params.IssuedTo,
+		ResourceType: params.ResourceType,
+		ResourceID:   params.ResourceID,
+		ExpiresAt:    params.ExpiresAt,
+	}, nil
+}
+
+func (r *handlerAttachmentRepoStub) FindUploadTokenByNonce(context.Context, string) (*appattachment.UploadToken, error) {
+	return nil, appattachment.ErrNotFound
+}
+
+func (r *handlerAttachmentRepoStub) DeleteUploadTokenByNonce(context.Context, *sql.Tx, string) error {
+	return nil
+}
+
+func (r *handlerAttachmentRepoStub) ListByResource(context.Context, appattachment.ResourceType, string) ([]appattachment.Attachment, error) {
+	return nil, nil
+}
+
+func (r *handlerAttachmentRepoStub) CreateAttachment(context.Context, *sql.Tx, appattachment.CreateAttachmentParams) (*appattachment.Attachment, error) {
+	return nil, nil
+}
+
+func (r *handlerAttachmentRepoStub) SoftDeleteAttachmentByID(context.Context, *sql.Tx, string) error {
+	return nil
+}
+
+type handlerAttachmentStorageStub struct {
+	uploadURL         string
+	signedContentType string
+}
+
+func (s *handlerAttachmentStorageStub) GenerateUploadURL(_ context.Context, _ string, contentType string, _ time.Time) (string, error) {
+	s.signedContentType = contentType
+	return s.uploadURL, nil
+}
+
+func (s *handlerAttachmentStorageStub) GetObjectMetadata(context.Context, string) (*appattachment.ObjectMetadata, error) {
+	return nil, nil
+}
+
+type handlerAttachmentResourceAccessStub struct{}
+
+func (handlerAttachmentResourceAccessStub) FindPropertyIDByResource(_ context.Context, resourceType appattachment.ResourceType, resourceID string) (string, error) {
+	if resourceType == appattachment.ResourceTypeProperty {
+		return resourceID, nil
+	}
+	return "", appattachment.ErrResourceNotFound
+}
+
+func (handlerAttachmentResourceAccessStub) EnsureGlobalTenantExists(context.Context, string) error {
+	return appattachment.ErrResourceNotFound
 }
 
 type handlerRepairRepositoryStub struct {

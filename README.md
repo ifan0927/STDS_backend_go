@@ -87,6 +87,25 @@ FIREBASE_PASSWORD_RESET_REDIRECT_URL=
 
 `FIREBASE_PASSWORD_RESET_REDIRECT_URL` is optional. When set, Firebase will embed it in the generated password reset link as the continue URL.
 
+## Attachment storage
+
+Attachment upload URLs use Google Cloud Storage. Local unit tests should inject a fake storage port and must not require real GCS credentials.
+
+Required environment variables for real GCS-backed attachment uploads:
+
+```bash
+GCS_BUCKET_NAME=
+GCS_SIGNED_URL_TTL=15m
+```
+
+Optional local emulator setting:
+
+```bash
+STORAGE_EMULATOR_HOST=http://127.0.0.1:4443
+```
+
+Production or staging environments must provide Google Application Default Credentials, for example through `GOOGLE_APPLICATION_CREDENTIALS` or the runtime service account. The service account needs permission to create signed upload URLs and read object metadata for registration checks.
+
 ## OpenAPI workflow
 
 - Edit source files under `docs/spec/src`

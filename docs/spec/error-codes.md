@@ -58,6 +58,22 @@ Go 層共用型別：
 
 ---
 
+## Attachment error code decisions
+
+Issue #22 實作附件 upload URL、registration、listing、soft delete 時，Attachment use cases 需新增下列業務錯誤：
+
+| Code | HTTP Status | 用途 |
+|------|-------------|------|
+| `ATTACHMENT_NOT_FOUND` | `404` | 附件不存在或已被軟刪除 |
+| `ATTACHMENT_CONTENT_TYPE_NOT_ALLOWED` | `422` | MIME type 不是 `image/jpeg`、`image/png`、`image/heic`、`application/pdf` |
+| `ATTACHMENT_FILE_TOO_LARGE` | `422` | `file_size` 或 GCS object size 超過 20MB |
+| `ATTACHMENT_UPLOAD_TOKEN_NOT_FOUND` | `422` | registration nonce 不存在或已被使用 |
+| `ATTACHMENT_UPLOAD_TOKEN_EXPIRED` | `422` | registration nonce 已過期 |
+| `ATTACHMENT_UPLOAD_TOKEN_MISMATCH` | `422` | registration nonce 的使用者、資源類型或資源 ID 與請求不一致 |
+| `ATTACHMENT_OBJECT_NOT_FOUND` | `422` | GCS object 尚未完成上傳或無法取得 metadata |
+
+---
+
 ## 後續擴充規則
 
 ## Billing error code decisions

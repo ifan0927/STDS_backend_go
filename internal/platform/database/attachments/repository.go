@@ -315,6 +315,10 @@ func (r *SQLRepository) CreateAttachment(ctx context.Context, tx *sql.Tx, params
 		args  []any
 	)
 	if params.ResourceType == ResourceTypeRepairRequest {
+		sortOrder := 0
+		if params.SortOrder != nil {
+			sortOrder = *params.SortOrder
+		}
 		query = fmt.Sprintf(`
 INSERT INTO %s (
 	%s,
@@ -340,7 +344,7 @@ RETURNING
 			params.ObjectPath,
 			params.FileName,
 			params.UploadedBy,
-			params.SortOrder,
+			sortOrder,
 			photoStageValue(params.PhotoStage),
 		}
 	} else {

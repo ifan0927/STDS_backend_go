@@ -2,7 +2,10 @@ delete:
   operationId: deleteAttachment
   summary: 軟刪除附件
   description: >
-    依附件 id 軟刪除附件記錄。後續由排程任務清理 GCS 物件並硬刪除 DB 記錄。
+    依附件 id 軟刪除附件記錄。tenant attachments follow the same tenant to
+    property access model as other tenant flows; other resource attachments
+    must satisfy the host resource property access policy. 後續由排程任務清理
+    GCS 物件並硬刪除 DB 記錄。
   tags:
     - Attachments
   x-required-role:

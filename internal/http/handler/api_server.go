@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	appattachment "stds_backend/internal/application/attachment"
 	appiam "stds_backend/internal/application/iam"
 	appjobs "stds_backend/internal/application/jobs"
 	appjournal "stds_backend/internal/application/journal"
@@ -65,6 +66,7 @@ type APIServer struct {
 	billing           BillingServices
 	journal           JournalServices
 	repair            RepairServices
+	attachment        *appattachment.Service
 }
 
 // LeaseCommandServices groups optional lease command services beyond creation.
@@ -76,6 +78,7 @@ type LeaseCommandServices struct {
 	ForceTerminateLease *applease.ForceTerminateLeaseService
 	GetForceTermination *applease.GetForceTerminationService
 	Billing             BillingServices
+	Attachment          *appattachment.Service
 }
 
 // BillingServices groups the billing application entry points used by the
@@ -331,6 +334,7 @@ func NewAPIServer(
 		server.forceTerminateSvc = leaseCommands[0].ForceTerminateLease
 		server.getForceTermSvc = leaseCommands[0].GetForceTermination
 		server.billing = leaseCommands[0].Billing
+		server.attachment = leaseCommands[0].Attachment
 	}
 
 	return server
@@ -341,6 +345,87 @@ func writeNotImplemented(c *gin.Context) {
 	c.AbortWithStatusJSON(http.StatusNotImplemented, api.ErrorResponse{
 		Message: &message,
 	})
+}
+
+func (s *APIServer) listAttachments(c *gin.Context, resourceType appattachment.ResourceType, id openapi_types.UUID) {
+	if s.attachment == nil {
+		c.Error(apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "attachment"}))
+		return
+	}
+
+	attachments, err := s.attachment.ListAttachments(c.Request.Context(), resourceType, id.String())
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	items := make([]api.AttachmentResponse, 0, len(attachments))
+	for i := range attachments {
+		items = append(items, toAttachmentResponse(&attachments[i]))
+	}
+
+	c.JSON(http.StatusOK, api.AttachmentListResponse{Data: &items})
+}
+
+func (s *APIServer) createAttachment(c *gin.Context, resourceType appattachment.ResourceType, id openapi_types.UUID) {
+	if s.attachment == nil {
+		c.Error(apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "attachment"}))
+		return
+	}
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+	var request api.RegisterAttachmentRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.Error(apperr.ErrBadRequest.WithCause(err))
+		return
+	}
+
+	attachment, err := s.attachment.RegisterAttachment(c.Request.Context(), appattachment.RegisterAttachmentInput{
+		ActorRole:           principal.Role,
+		ActorUserID:         principal.UserID,
+		AssignedPropertyIDs: principal.AssignedPropertyIDs,
+		ResourceType:        resourceType,
+		ResourceID:          id.String(),
+		Nonce:               request.Nonce,
+		FileName:            request.FileName,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusCreated, toAttachmentResponse(attachment))
+}
+
+func toAttachmentResponse(attachment *appattachment.Attachment) api.AttachmentResponse {
+	id := uuid.MustParse(attachment.ID)
+	objectPath := attachment.ObjectPath
+	fileName := attachment.FileName
+	createdAt := attachment.CreatedAt
+
+	var uploadedBy *openapi_types.UUID
+	if attachment.UploadedBy != nil {
+		parsed := uuid.MustParse(*attachment.UploadedBy)
+		uploadedBy = &parsed
+	}
+	var photoStage *api.AttachmentResponsePhotoStage
+	if attachment.PhotoStage != nil {
+		stage := api.AttachmentResponsePhotoStage(*attachment.PhotoStage)
+		photoStage = &stage
+	}
+
+	return api.AttachmentResponse{
+		Id:         &id,
+		ObjectPath: &objectPath,
+		FileName:   &fileName,
+		UploadedBy: uploadedBy,
+		SortOrder:  attachment.SortOrder,
+		PhotoStage: photoStage,
+		CreatedAt:  &createdAt,
+	}
 }
 
 func mapRepairQueryError(err error) error {
@@ -435,19 +520,66 @@ func (s *APIServer) ListBills(c *gin.Context, params api.ListBillsParams) {
 }
 
 // CreateAttachmentUploadURL handles attachment upload URL creation.
-func (s *APIServer) CreateAttachmentUploadURL(c *gin.Context) { writeNotImplemented(c) }
+func (s *APIServer) CreateAttachmentUploadURL(c *gin.Context) {
+	if s.attachment == nil {
+		c.Error(apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "attachment"}))
+		return
+	}
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+	var request api.AttachmentUploadURLRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.Error(apperr.ErrBadRequest.WithCause(err))
+		return
+	}
+
+	result, err := s.attachment.CreateUploadURL(c.Request.Context(), appattachment.CreateUploadURLInput{
+		ActorRole:           principal.Role,
+		ActorUserID:         principal.UserID,
+		AssignedPropertyIDs: principal.AssignedPropertyIDs,
+		ResourceType:        appattachment.ResourceType(request.ResourceType),
+		ResourceID:          request.ResourceId.String(),
+		FileName:            request.FileName,
+		ContentType:         string(request.ContentType),
+		FileSize:            request.FileSize,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, api.AttachmentUploadURLResponse{
+		UploadUrl: &result.UploadURL,
+		Nonce:     &result.Nonce,
+		ExpiresAt: &result.ExpiresAt,
+	})
+}
 
 // DeleteAttachment handles attachment deletion.
-func (s *APIServer) DeleteAttachment(c *gin.Context, id openapi_types.UUID) { writeNotImplemented(c) }
+func (s *APIServer) DeleteAttachment(c *gin.Context, id openapi_types.UUID) {
+	if s.attachment == nil {
+		c.Error(apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "attachment"}))
+		return
+	}
+	if err := s.attachment.DeleteAttachment(c.Request.Context(), id.String()); err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.Status(http.StatusNoContent)
+}
 
 // ListBillAttachments handles bill attachment listing.
 func (s *APIServer) ListBillAttachments(c *gin.Context, id openapi_types.UUID) {
-	writeNotImplemented(c)
+	s.listAttachments(c, appattachment.ResourceTypeBill, id)
 }
 
 // CreateBillAttachment handles bill attachment registration.
 func (s *APIServer) CreateBillAttachment(c *gin.Context, id openapi_types.UUID) {
-	writeNotImplemented(c)
+	s.createAttachment(c, appattachment.ResourceTypeBill, id)
 }
 
 // GetBill handles the bill detail endpoint.
@@ -701,12 +833,12 @@ func (s *APIServer) CreateJournalLog(c *gin.Context) {
 
 // ListJournalLogAttachments handles journal log attachment listing.
 func (s *APIServer) ListJournalLogAttachments(c *gin.Context, id openapi_types.UUID) {
-	writeNotImplemented(c)
+	s.listAttachments(c, appattachment.ResourceTypeJournalLog, id)
 }
 
 // CreateJournalLogAttachment handles journal log attachment registration.
 func (s *APIServer) CreateJournalLogAttachment(c *gin.Context, id openapi_types.UUID) {
-	writeNotImplemented(c)
+	s.createAttachment(c, appattachment.ResourceTypeJournalLog, id)
 }
 
 // DeleteJournalLog handles journal log deletion.
@@ -845,12 +977,12 @@ func (s *APIServer) CreateLease(c *gin.Context) {
 
 // ListLeaseAttachments handles lease attachment listing.
 func (s *APIServer) ListLeaseAttachments(c *gin.Context, id openapi_types.UUID) {
-	writeNotImplemented(c)
+	s.listAttachments(c, appattachment.ResourceTypeLease, id)
 }
 
 // CreateLeaseAttachment handles lease attachment registration.
 func (s *APIServer) CreateLeaseAttachment(c *gin.Context, id openapi_types.UUID) {
-	writeNotImplemented(c)
+	s.createAttachment(c, appattachment.ResourceTypeLease, id)
 }
 
 // DeleteLease handles lease deletion.
@@ -1117,12 +1249,12 @@ func (s *APIServer) CreateProperty(c *gin.Context) {
 
 // ListPropertyAttachments handles property attachment listing.
 func (s *APIServer) ListPropertyAttachments(c *gin.Context, id openapi_types.UUID) {
-	writeNotImplemented(c)
+	s.listAttachments(c, appattachment.ResourceTypeProperty, id)
 }
 
 // CreatePropertyAttachment handles property attachment registration.
 func (s *APIServer) CreatePropertyAttachment(c *gin.Context, id openapi_types.UUID) {
-	writeNotImplemented(c)
+	s.createAttachment(c, appattachment.ResourceTypeProperty, id)
 }
 
 // DeleteProperty handles property deletion.
@@ -1519,12 +1651,48 @@ func (s *APIServer) CreateRepairRequest(c *gin.Context) {
 
 // ListRepairRequestAttachments handles repair request attachment listing.
 func (s *APIServer) ListRepairRequestAttachments(c *gin.Context, id openapi_types.UUID) {
-	writeNotImplemented(c)
+	s.listAttachments(c, appattachment.ResourceTypeRepairRequest, id)
 }
 
 // CreateRepairRequestAttachment handles repair request attachment registration.
 func (s *APIServer) CreateRepairRequestAttachment(c *gin.Context, id openapi_types.UUID) {
-	writeNotImplemented(c)
+	if s.attachment == nil {
+		c.Error(apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "attachment"}))
+		return
+	}
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+	var request api.RegisterRepairRequestAttachmentRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.Error(apperr.ErrBadRequest.WithCause(err))
+		return
+	}
+
+	var photoStage *appattachment.PhotoStage
+	if request.PhotoStage != nil {
+		stage := appattachment.PhotoStage(*request.PhotoStage)
+		photoStage = &stage
+	}
+	attachment, err := s.attachment.RegisterAttachment(c.Request.Context(), appattachment.RegisterAttachmentInput{
+		ActorRole:           principal.Role,
+		ActorUserID:         principal.UserID,
+		AssignedPropertyIDs: principal.AssignedPropertyIDs,
+		ResourceType:        appattachment.ResourceTypeRepairRequest,
+		ResourceID:          id.String(),
+		Nonce:               request.Nonce,
+		FileName:            request.FileName,
+		SortOrder:           request.SortOrder,
+		PhotoStage:          photoStage,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusCreated, toAttachmentResponse(attachment))
 }
 
 // DeleteRepairRequest handles repair request deletion.
@@ -1696,12 +1864,12 @@ func (s *APIServer) GetRoom(c *gin.Context, id string) {
 
 // ListRoomAttachments handles room attachment listing.
 func (s *APIServer) ListRoomAttachments(c *gin.Context, id openapi_types.UUID) {
-	writeNotImplemented(c)
+	s.listAttachments(c, appattachment.ResourceTypeRoom, id)
 }
 
 // CreateRoomAttachment handles room attachment registration.
 func (s *APIServer) CreateRoomAttachment(c *gin.Context, id openapi_types.UUID) {
-	writeNotImplemented(c)
+	s.createAttachment(c, appattachment.ResourceTypeRoom, id)
 }
 
 // UpdateRoom handles room updates.
@@ -1863,12 +2031,12 @@ func (s *APIServer) CreateTenant(c *gin.Context) {
 
 // ListTenantAttachments handles tenant attachment listing.
 func (s *APIServer) ListTenantAttachments(c *gin.Context, id openapi_types.UUID) {
-	writeNotImplemented(c)
+	s.listAttachments(c, appattachment.ResourceTypeTenant, id)
 }
 
 // CreateTenantAttachment handles tenant attachment registration.
 func (s *APIServer) CreateTenantAttachment(c *gin.Context, id openapi_types.UUID) {
-	writeNotImplemented(c)
+	s.createAttachment(c, appattachment.ResourceTypeTenant, id)
 }
 
 // GetTenant handles tenant detail retrieval.

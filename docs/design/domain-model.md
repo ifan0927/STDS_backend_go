@@ -283,7 +283,7 @@ Lease 於建立時決定 `electricityBillingCadence`（`monthly | bimonthly`）�
 | BR-15 | 付款日固定為租約起始日，特殊月份（無該日）順延至月底 | 帳單預產時 | 自動計算，無需拒絕 | 無 |
 | BR-16 | 電費帳單金額由系統計算：usage = currentReading - previousReading，rawAmount = usage × MeterReading.unitPrice，amount = round(rawAmount)；不由員工輸入金額 | 抄表送出時 | 系統自動計算並四捨五入為整數，拒絕員工直接輸入金額 | 無 |
 | BR-17 | 修改物業電價（electricityUnitPrice）需主辦以上角色，且電價僅接受大於 0 的數值，可接受小數 | 修改電價時 | 員工角色拒絕；零與負數拒絕 | 無 |
-| BR-18 | 附件允許的 MIME type：`image/jpeg`、`image/png`、`image/heic`、`application/pdf`；單檔上限 20MB | 上傳附件時（Step 3 登記） | 拒絕登記，回傳 422 | 無 |
+| BR-18 | 附件允許的 MIME type：`image/jpeg`、`image/png`、`image/heic`、`application/pdf`；單檔上限 20MB | 產生 upload URL 時先驗證；Step 3 登記時再以 GCS metadata 防呆確認 | 拒絕產生 upload URL 或拒絕登記，回傳 422 | 無 |
 | BR-19 | Property 預設電費 cadence 僅影響新建 Lease；既有 Lease 不可直接修改 cadence | 修改物業預設 cadence 或編輯 Lease 時 | 拒絕以編輯 Lease 方式修改 cadence | 若需更動 cadence，走 LeaseReplaced |
 | BR-20 | Lease replacement 僅允許在完整 electricity billing period boundary 執行 | 執行 LeaseReplaced 時 | 拒絕 replacement | 無 |
 | BR-21 | Lease replacement 前，舊 Lease 在 boundary 前的帳單必須全部結清，且不得存在 `pending_meter`、`pending_payment`、`overdue` | 執行 LeaseReplaced 時 | 拒絕 replacement，回傳未結清帳單清單 | 無 |
@@ -416,7 +416,7 @@ Lease 於建立時決定 `electricityBillingCadence`（`monthly | bimonthly`）�
 |---------|------|
 | `GET /properties/{id}/attachments` | 物業附件列表 |
 | `GET /rooms/{id}/attachments` | 房間附件列表 |
-| `GET /tenants/{id}/attachments` | 租客附件列表 |
+| `GET /tenants/{id}/attachments` | 租客附件列表（沿用既有 tenant flow 的 property access 規則） |
 | `GET /leases/{id}/attachments` | 租約附件列表 |
 | `GET /journal-logs/{id}/attachments` | 日誌附件列表 |
 | `GET /repair-requests/{id}/attachments` | 維修單附件列表（依 sort_order 排序） |
@@ -534,7 +534,7 @@ PropertyOwnerView
 |------|--------|------|
 | Property | `property_attachments` | 物業照片 |
 | Room | `room_attachments` | 房間照片 |
-| Tenant | `tenant_attachments` | 身份文件等 |
+| Tenant | `tenant_attachments` | 身份文件等；沿用既有 tenant flow 的 property access 規則 |
 | Lease | `lease_attachments` | 合約掃描等 |
 | JournalLog | `journal_log_attachments` | 日誌附件、費用憑證等 |
 | RepairRequest | `repair_request_attachments` | 維修照片 |
@@ -566,8 +566,9 @@ photo_stage VARCHAR(20) CHECK (photo_stage IN ('before', 'after', 'other'))
 
 ```
 Step 1：POST /attachments/upload-url
-  Body: { resource_type, resource_id, file_name, content_type }
+  Body: { resource_type, resource_id, file_name, content_type, file_size }
   → 後端驗證呼叫者對 resource 有寫入權限
+  → 後端驗證 BR-18 MIME type 與 file_size 不超過 20MB
   → 後端建立暫存 token（nonce, object_path, issued_to, resource_type, resource_id, expires_at）
   → 回傳 { upload_url, nonce, expires_at }（Signed URL 含鎖定 content_type）
 
@@ -576,9 +577,11 @@ Step 2：Client 直接 PUT 到 GCS（不經後端）
 Step 3：POST /{resource}/{id}/attachments
   Body: { nonce, file_name }
   → 後端以 nonce 驗證合法性（issued_to、resource_id 需一致）
-  → 後端呼叫 GCS HEAD 確認物件存在（BR-18 MIME type 驗證）
+  → 後端呼叫 GCS HEAD 確認物件存在，並以 metadata 再確認 content_type 與 size
   → 寫入對應 attachment table，刪除已用 nonce
 ```
+
+Tenant attachment endpoints use the same tenant access model as tenant detail and lease-history flows. The tenant must exist, and non-admin management roles must have access to one of the tenant's associated properties.
 
 **upload_tokens 暫存表**：
 
@@ -595,7 +598,7 @@ attachment_upload_tokens(
 )
 ```
 
-**部署前置條件**：GCS bucket 需設定 CORS policy（允許前端 origin，methods: PUT，headers: Content-Type）；後端 Service Account 需具備 `storage.objects.create`、`storage.objects.get` 權限。
+**部署前置條件**：GCS bucket 需設定 CORS policy（允許前端 origin，methods: PUT，headers: Content-Type）；後端 Service Account 需具備產生 signed URL、`storage.objects.create`、`storage.objects.get` 權限。後端設定需提供 `GCS_BUCKET_NAME`、`GCS_SIGNED_URL_TTL`，本地 emulator 可使用 `STORAGE_EMULATOR_HOST`。一般 automated tests 應注入 fake storage port，不依賴真 GCS。
 
 ---
 
