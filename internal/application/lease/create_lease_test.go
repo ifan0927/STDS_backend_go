@@ -529,18 +529,37 @@ func (s *leaseRepositoryStub) CreateBills(_ context.Context, _ *sql.Tx, params [
 }
 
 func (s *leaseRepositoryStub) MarkRoomOccupied(context.Context, *sql.Tx, string) error {
+	if s.room != nil {
+		s.room.Status = "occupied"
+	}
 	return nil
 }
 
 func (s *leaseRepositoryStub) MarkRoomVacant(context.Context, *sql.Tx, string) error {
+	if s.room != nil {
+		s.room.Status = "vacant"
+	}
 	return nil
 }
 
 func (s *leaseRepositoryStub) ActivateTenant(context.Context, *sql.Tx, string) error {
+	if s.tenant != nil && s.tenant.Status == "inactive" {
+		s.tenant.Status = "active"
+	}
 	return nil
 }
 
 func (s *leaseRepositoryStub) DeactivateTenantIfNoActiveLeases(context.Context, *sql.Tx, string) error {
+	if s.tenant == nil {
+		return nil
+	}
+	if s.lease != nil && (s.lease.Status == "active" || s.lease.Status == "expired") {
+		return nil
+	}
+	if s.createdLease != nil && (s.createdLease.Status == "active" || s.createdLease.Status == "expired") {
+		return nil
+	}
+	s.tenant.Status = "inactive"
 	return nil
 }
 
