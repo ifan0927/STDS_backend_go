@@ -6,7 +6,7 @@ post:
     BR-05：帳單不得重複收款（已 paid 狀態拒絕）
     paid_amount 必須等於帳單 amount；不支援部分收款或溢收。
     僅 pending_payment / overdue 狀態可收款，允許 overdue → paid 轉換。
-    觸發 BillPaid event → PropertyAccount 新增 AccountingEntry
+    收款 command 會在同一 transaction 內新增 PropertyAccount AccountingEntry，並觸發 BillPaid event。
   tags:
     - Billing
   x-required-role:

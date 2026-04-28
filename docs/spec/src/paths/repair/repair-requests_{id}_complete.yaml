@@ -6,8 +6,7 @@ post:
 
     狀態：in_progress → completed
 
-    觸發 RepairCompleted event → Property BC 檢查 Room 所有 RepairRequest，若全完成則 Room 改
-    vacant
+    完成維修後觸發 RepairCompleted event；Room 狀態恢復由 repair workflow 依同房間維修狀態統一判斷。
   tags:
     - Journal
   x-required-role:

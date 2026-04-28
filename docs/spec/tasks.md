@@ -341,12 +341,12 @@ T-14~T-19 ── T-20（整合測試）
 - **輸入**: properties、rooms 表就緒
 - **產出**: Property Aggregate、Room 狀態機、相關 Business Rules
 - **完成條件**:
-  - [ ] Room 狀態機：`vacant → occupied`（訂閱 LeaseCreated）、`occupied → vacant`（訂閱 LeaseTerminated）轉換正確執行
+  - [ ] Room 狀態機：`vacant → occupied`（LeaseCreated 後置處理）、`occupied → vacant`（LeaseTerminated 後置處理）轉換正確執行
   - [ ] `vacant → maintenance`（RoomSetToMaintenance）於同一 transaction 內建立 room-scoped RepairRequest 並正確觸發 event
-  - [ ] `maintenance → vacant`（訂閱 RepairCompleted/RepairCancelled）：確認同 room_id 所有 RepairRequest 均 completed 或 cancelled 後才轉換
+  - [ ] `maintenance → vacant`：repair workflow 確認同 room_id 所有 RepairRequest 均 completed 或 cancelled 後才轉換
   - [ ] BR-07：有 `status = occupied` 房間的物業，刪除時拋出 `PROPERTY_HAS_OCCUPIED_ROOMS` 錯誤，回傳 occupied_room_ids
   - [ ] BR-08：`status = occupied` 或 `maintenance` 的房間，刪除時分別拋出 `ROOM_IS_OCCUPIED`、`ROOM_IS_IN_MAINTENANCE` 錯誤；`maintenance` 狀態由 active RepairRequest 維持
-  - [ ] PropertyCreated event 發出後，Billing BC 自動建立 PropertyAccount（訂閱正確執行）
+  - [ ] 建立物業時，PropertyCreated event 正確發出，並完成 PropertyAccount 初始化
 
 ---
 
@@ -378,8 +378,8 @@ T-14~T-19 ── T-20（整合測試）
   - [ ] BR-05：帳單 status = paid 時，收款操作拋出 `BILL_ALREADY_PAID` 錯誤
   - [ ] BR-06：電表抄錄 current_reading < previous_reading 時，拋出 `METER_READING_LESS_THAN_PREVIOUS` 錯誤（回傳 previous_reading 值）
   - [ ] BR-16：MeterRecorded 時，系統計算 rawAmount = usage × unitPrice，amount = round(rawAmount)（四捨五入為整數），不接受員工直接傳入 amount 欄位
-  - [ ] BillPaid event 發出後，PropertyAccount 新增正確 category 的 AccountingEntry
-  - [ ] LeaseTerminated event 訂閱：void 該 lease_id 所有 pending_payment 和 pending_meter 帳單
+  - [ ] 收款成功後，PropertyAccount 新增正確 category 的 AccountingEntry，並發出 BillPaid event
+  - [ ] Lease 終止後帳單處理符合終止流程規格，不依賴 LeaseTerminated event subscriber 執行 Billing side effect
   - [ ] 樂觀鎖衝突（逾期掃描 vs 付款）：Application Service 正確處理，付款方收到 `CONCURRENT_UPDATE_CONFLICT`，批次任務跳過
   - [ ] 強制終止流程：ForceTermination 記錄建立，逐一將 bills 標記 written_off 並更新 force_termination_bills.status = done
 
@@ -396,7 +396,7 @@ T-14~T-19 ── T-20（整合測試）
   - [ ] RepairRequest 狀態機：submitted→assigned→in_progress→completed 轉換正確；submitted/assigned/in_progress→cancelled 正確
   - [ ] 無效狀態轉換（如 completed → assigned）時，分別拋出 `REPAIR_INVALID_STATUS_FOR_ASSIGN`、`REPAIR_INVALID_STATUS_FOR_PROGRESS`、`REPAIR_INVALID_STATUS_FOR_COMPLETE`、`REPAIR_ALREADY_COMPLETED` 錯誤
   - [ ] RepairCompleted / RepairCancelled event 正確發出，包含 roomId 與 propertyId
-  - [ ] Property BC 訂閱 RepairCompleted/RepairCancelled：查詢同 room_id 所有非軟刪除 RepairRequest，確認全為 completed 或 cancelled 後才將 Room status 改為 vacant
+  - [ ] Repair workflow 查詢同 room_id 所有非軟刪除 RepairRequest，確認全為 completed 或 cancelled 後才將 Room status 改為 vacant
 
 ---
 
@@ -463,7 +463,7 @@ T-14~T-19 ── T-20（整合測試）
 - **完成條件**:
   - [ ] POST /journal-logs：含 expense_amount 時，JournalExpenseRecorded event 發出，PropertyAccount 的 accounting_entries 新增一筆 journal_expense 記錄
   - [ ] POST /repair-requests/{id}/assign：非 submitted 狀態回傳 422 `REPAIR_INVALID_STATUS_FOR_ASSIGN`
-  - [ ] POST /repair-requests/{id}/complete：成功後 RepairCompleted event 發出；若該 Room 所有 RepairRequest 均 completed/cancelled，Room status 自動改為 vacant
+  - [ ] POST /repair-requests/{id}/complete：成功後 RepairCompleted event 發出；若該 Room 所有 RepairRequest 均 completed/cancelled，Room status 改為 vacant
   - [ ] POST /repair-requests/{id}/cancel：completed 狀態回傳 422 `REPAIR_ALREADY_COMPLETED`；成功後 RepairCancelled event 發出
 
 ---
@@ -491,9 +491,9 @@ T-14~T-19 ── T-20（整合測試）
 - **輸入**: 所有 API 與 Domain 層實作完成
 - **產出**: 端到端關鍵路徑測試
 - **完成條件**:
-  - [ ] 完整租約生命週期：建立 Tenant → 建立 Lease（帳單預產驗證）→ 電表抄錄 → 收款 → 正常終止（LeaseTerminated event 觸發 Room vacant + 通知 Email）
+  - [ ] 完整租約生命週期：建立 Tenant → 建立 Lease（帳單預產驗證）→ 電表抄錄 → 收款 → 正常終止（LeaseTerminated event 發出，Room vacant 後置處理正確）
   - [ ] 強制終止路徑：建立 Lease → 模擬逾期帳單 → 觸發強制終止 → 補償排程執行 → 所有帳單 written_off → LeaseTerminated（forced:true）發出
-  - [ ] 跨 BC event 傳遞正確：LeaseCreated → Room 改 occupied；RepairCompleted → Room 改 vacant（所有 RepairRequest 完成後才轉換）
+  - [ ] 跨 BC side effect 正確：LeaseCreated 後 Room 改 occupied；Repair workflow 完成後 Room 改 vacant（所有 RepairRequest 完成後才轉換）
   - [ ] 樂觀鎖測試：兩個請求同時對同一帳單收款，只有一個成功，另一個回傳 409 `CONCURRENT_UPDATE_CONFLICT`
   - [ ] Resource-based 存取控制：organizer 只能存取 Firebase Custom Claims 內 assigned_property_ids 的資源；嘗試存取未指派物業時回傳 403 `FORBIDDEN`
   - [ ] Firebase Auth 整合：Firebase ID token 驗證正確，Custom Claims 更新（物業指派變更後）於下次 token refresh 生效

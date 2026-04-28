@@ -7,8 +7,7 @@ post:
     流程：ForceTermination 記錄 → 未結清帳單同步標記 written_off → ForceTermination
     標記 completed → LeaseTerminated（forced: true）
 
-    觸發 LeaseTerminated（forced: true）→ Property BC（Room 改 vacant）+ Notification
-    BC（寄強制終止通知）
+    強制終止完成後觸發 LeaseTerminated（forced: true）；Room/Tenant 後置處理由已確認的 runtime subscriber 執行。
 
     BR-14：需主辦以上角色並填寫原因。
   tags:

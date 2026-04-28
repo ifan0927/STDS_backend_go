@@ -46,7 +46,7 @@ post:
   summary: 建立物業（觸發 PropertyCreated event）
   description: |
     x-required-role: admin, organizer, staff
-    觸發 PropertyCreated event → Billing BC 建立 PropertyAccount
+    建立物業成功後觸發 PropertyCreated event，PropertyAccount 初始化屬於物業建立流程的一部分。
     electricity_unit_price 接受大於 0 的台幣數值，可接受小數（例如 4.5）
     default_electricity_billing_cadence 決定之後新建 Lease 的預設電費計費週期
   tags:

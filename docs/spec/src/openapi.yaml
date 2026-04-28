@@ -39,19 +39,18 @@ info:
 
     通知由後端統一處理，不提供 REST endpoint：
 
-    - RentBillsGenerated → 寄送帳單通知給租客
+    - 帳單通知：帳單預產完成後的通知語意
 
-    - BillPaid → 寄送收款收據給租客
+    - 收款收據：帳單收款確認後的通知語意
 
-    - LeaseExpiringSoon → 寄送到期提醒給 organizer/staff
+    - LeaseExpiringSoon：scheduler job 寄送到期提醒給 organizer/staff
 
-    - OverdueBillReminder → 寄送催收通知（最多 3 次）
+    - OverdueBillReminder：scheduler job 寄送催收通知（最多 3 次）
 
-    - FinancialReportSend → 寄送財報 Email
+    - FinancialReportSend：人工審核後的 send flow
 
 
-    - event 觸發：由後端訂閱 Domain Event 後寄送通知
-    - direct trigger：例如 `POST /users` 建立帳號後，後端直接向 Firebase 產生 password reset link 並寄出 onboarding email
+    - 通知可能由 application command、scheduler job，或明確的 send flow 觸發；不應假設所有通知都由 Domain Event subscriber 實作。direct trigger 例如 `POST /users` 建立帳號後，後端直接向 Firebase 產生 password reset link 並寄出 onboarding email
 
     目前正式實作 channel 為 email，使用 Resend 發送；LINE channel 只保留抽象，尚未實作。前端無需呼叫任何 notification API。
 servers:

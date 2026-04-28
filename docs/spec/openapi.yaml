@@ -23,13 +23,13 @@ info:
     ## Notification 機制
 
     通知由後端統一處理，不提供 REST endpoint：
-    - RentBillsGenerated → 寄送帳單通知給租客
-    - BillPaid → 寄送收款收據給租客
-    - LeaseExpiringSoon → 寄送到期提醒給 organizer/staff
-    - OverdueBillReminder → 寄送催收通知（最多 3 次）
-    - FinancialReportSend → 寄送財報 Email
+    - 帳單通知：帳單預產完成後的通知語意
+    - 收款收據：帳單收款確認後的通知語意
+    - LeaseExpiringSoon：scheduler job 寄送到期提醒給 organizer/staff
+    - OverdueBillReminder：scheduler job 寄送催收通知（最多 3 次）
+    - FinancialReportSend：人工審核後的 send flow
 
-    - event 觸發：由後端訂閱 Domain Event 後寄送通知 - direct trigger：例如 `POST /users` 建立帳號後，後端直接向 Firebase 產生 password reset link 並寄出 onboarding email
+    - 通知可能由 application command、scheduler job，或明確的 send flow 觸發；不應假設所有通知都由 Domain Event subscriber 實作。direct trigger 例如 `POST /users` 建立帳號後，後端直接向 Firebase 產生 password reset link 並寄出 onboarding email
     目前正式實作 channel 為 email，使用 Resend 發送；LINE channel 只保留抽象，尚未實作。前端無需呼叫任何 notification API。
 servers:
   - url: /api/v1
@@ -735,7 +735,7 @@ paths:
       summary: 建立物業（觸發 PropertyCreated event）
       description: |
         x-required-role: admin, organizer, staff
-        觸發 PropertyCreated event → Billing BC 建立 PropertyAccount
+        建立物業成功後觸發 PropertyCreated event，PropertyAccount 初始化屬於物業建立流程的一部分。
         electricity_unit_price 接受大於 0 的台幣數值，可接受小數（例如 4.5）
         default_electricity_billing_cadence 決定之後新建 Lease 的預設電費計費週期
       tags:
@@ -1461,7 +1461,7 @@ paths:
       description: |
         x-required-role: admin, organizer
         BR-08：出租中或維修中的房間不得刪除。
-        房間的 maintenance 狀態由維修入口建立的 active repair requests 與後續完成/取消事件共同維護。
+        房間的 maintenance 狀態由維修入口建立的 active repair requests 與 repair workflow 後續完成/取消流程共同維護。
       tags:
         - Property
       x-required-role:
@@ -2347,7 +2347,7 @@ paths:
       summary: 建立租約（觸發 LeaseCreated event）
       description: |
         x-required-role: admin, organizer, staff
-        觸發 LeaseCreated event → Property BC（Room 改 occupied）+ Billing BC（預產帳單）
+        建立租約時會預產租金與電費帳單，並於提交後觸發 LeaseCreated event；Room/Tenant 後置處理由已確認的 runtime subscriber 執行。
         BR-01：起始日不得晚於終止日
         BR-02：租金必須大於零
         BR-03：押金不得為負
@@ -2555,7 +2555,7 @@ paths:
       summary: 編輯租約（租金調整，觸發 LeaseConditionChanged event）
       description: |
         x-required-role: admin, organizer（BR 限制員工不可調整租金）
-        LeaseConditionChanged：void due_date >= nextPaymentDate 且 pending_payment/pending_meter 的帳單，重產新帳單。
+        租金調整會在同一 command 中 void due_date >= nextPaymentDate 且 pending_payment/pending_meter 的帳單，重產新帳單，並觸發 LeaseConditionChanged event。
         BR-01、BR-02 適用。此 API 僅支援租金調整，不支援 cadence 修改；若需更動 cadence 或其他結構性條件，走 Lease replacement。
       tags:
         - Leasing
@@ -2943,7 +2943,7 @@ paths:
         x-required-role: admin, organizer, staff
         BR-04：所有帳單必須結清才能終止。
         押金退還/扣款須在呼叫此 API 之前或同時確認（refund_amount / deduction_amount 參數）。
-        觸發 LeaseTerminated（forced: false）→ Property BC（Room 改 vacant）+ Notification BC（寄退租確認）
+        終止成功後觸發 LeaseTerminated（forced: false）；Room/Tenant 後置處理由已確認的 runtime subscriber 執行。
       tags:
         - Leasing
       x-required-role:
@@ -3063,7 +3063,7 @@ paths:
       description: |
         x-required-role: admin, organizer（BR-14：主辦以上）
         流程：ForceTermination 記錄 → 未結清帳單同步標記 written_off → ForceTermination 標記 completed → LeaseTerminated（forced: true）
-        觸發 LeaseTerminated（forced: true）→ Property BC（Room 改 vacant）+ Notification BC（寄強制終止通知）
+        強制終止完成後觸發 LeaseTerminated（forced: true）；Room/Tenant 後置處理由已確認的 runtime subscriber 執行。
         BR-14：需主辦以上角色並填寫原因。
       tags:
         - Leasing
@@ -3219,7 +3219,7 @@ paths:
       summary: 處理押金（退還或扣款，觸發 DepositRefunded / DepositDeducted event）
       description: |
         x-required-role: admin, organizer, staff
-        觸發 DepositRefunded 或 DepositDeducted → Billing BC（PropertyAccount 新增 AccountingEntry）
+        押金結算會更新租約押金狀態，並依處理結果觸發 DepositRefunded 或 DepositDeducted event。
         BR-10：押金扣款須填寫扣款原因。
         注意：此 endpoint 用於獨立處理押金；正常終止流程可透過 /leases/{id}/terminate 一併處理。
       tags:
@@ -3596,7 +3596,7 @@ paths:
         x-required-role: admin, organizer, staff
         BR-06：電表度數不得小於上月度數
         BR-16：金額由系統計算（usage × unitPrice），並四捨五入為整數 amount，不由員工輸入
-        MeterRecorded event → 帳單金額更新，狀態從 pending_meter 改為 pending_payment
+        抄表 command 會計算並更新帳單金額，將狀態從 pending_meter 改為 pending_payment，並觸發 MeterRecorded event。
         抄表是針對 bill 所代表的 billing period，而不是固定自然月
         僅 electricity 且 pending_meter 狀態的帳單可抄表。
       tags:
@@ -3730,7 +3730,7 @@ paths:
         BR-05：帳單不得重複收款（已 paid 狀態拒絕）
         paid_amount 必須等於帳單 amount；不支援部分收款或溢收。
         僅 pending_payment / overdue 狀態可收款，允許 overdue → paid 轉換。
-        觸發 BillPaid event → PropertyAccount 新增 AccountingEntry
+        收款 command 會在同一 transaction 內新增 PropertyAccount AccountingEntry，並觸發 BillPaid event。
       tags:
         - Billing
       x-required-role:
@@ -4207,7 +4207,7 @@ paths:
       summary: 財報審核後寄送給業主
       description: |
         x-required-role: admin, organizer（財報審核與寄送）
-        人工操作，觸發財報 Email 寄送給業主。
+        人工操作，送出財報寄送流程並對齊後端統一通知機制。
       tags:
         - Billing
       x-required-role:
@@ -4232,7 +4232,7 @@ paths:
             type: integer
       responses:
         '200':
-          description: 財報已寄送
+          description: 財報寄送流程已送出
           content:
             application/json:
               schema:
@@ -5331,7 +5331,7 @@ paths:
       description: |
         x-required-role: admin, organizer, staff
         狀態：in_progress → completed
-        觸發 RepairCompleted event → Property BC 檢查 Room 所有 RepairRequest，若全完成則 Room 改 vacant
+        完成維修後觸發 RepairCompleted event；Room 狀態恢復由 repair workflow 依同房間維修狀態統一判斷。
       tags:
         - Journal
       x-required-role:
@@ -5410,7 +5410,7 @@ paths:
       description: |
         x-required-role: admin, organizer, staff
         狀態：submitted | assigned | in_progress → cancelled
-        觸發 RepairCancelled event → Property BC 檢查 Room 所有 RepairRequest，若全完成/取消則 Room 改 vacant
+        取消維修後觸發 RepairCancelled event；Room 狀態恢復由 repair workflow 依同房間維修狀態統一判斷。
       tags:
         - Journal
       x-required-role:

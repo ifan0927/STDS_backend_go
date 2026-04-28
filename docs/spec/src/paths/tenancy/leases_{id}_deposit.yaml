@@ -4,8 +4,7 @@ patch:
   description: >
     x-required-role: admin, organizer, staff
 
-    觸發 DepositRefunded 或 DepositDeducted → Billing BC（PropertyAccount 新增
-    AccountingEntry）
+    押金結算會更新租約押金狀態，並依處理結果觸發 DepositRefunded 或 DepositDeducted event。
 
     BR-10：押金扣款須填寫扣款原因。
 

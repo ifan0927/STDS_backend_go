@@ -74,8 +74,8 @@ patch:
   description: >
     x-required-role: admin, organizer（BR 限制員工不可調整租金）
 
-    LeaseConditionChanged：void due_date >= nextPaymentDate 且
-    pending_payment/pending_meter 的帳單，重產新帳單。
+    租金調整會在同一 command 中 void due_date >= nextPaymentDate 且
+    pending_payment/pending_meter 的帳單，重產新帳單，並觸發 LeaseConditionChanged event。
 
     BR-01、BR-02 適用。此 API 僅支援租金調整，不支援 cadence 修改；若需更動 cadence 或其他結構性條件，走 Lease replacement。
   tags:

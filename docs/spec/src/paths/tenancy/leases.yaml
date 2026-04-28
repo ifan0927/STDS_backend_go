@@ -77,7 +77,7 @@ post:
   summary: 建立租約（觸發 LeaseCreated event）
   description: |
     x-required-role: admin, organizer, staff
-    觸發 LeaseCreated event → Property BC（Room 改 occupied）+ Billing BC（預產帳單）
+    建立租約時會預產租金與電費帳單，並於提交後觸發 LeaseCreated event；Room/Tenant 後置處理由已確認的 runtime subscriber 執行。
     BR-01：起始日不得晚於終止日
     BR-02：租金必須大於零
     BR-03：押金不得為負

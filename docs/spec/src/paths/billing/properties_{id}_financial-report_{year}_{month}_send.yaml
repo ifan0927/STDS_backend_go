@@ -3,7 +3,7 @@ post:
   summary: 財報審核後寄送給業主
   description: |
     x-required-role: admin, organizer（財報審核與寄送）
-    人工操作，觸發財報 Email 寄送給業主。
+    人工操作，送出財報寄送流程並對齊後端統一通知機制。
   tags:
     - Billing
   x-required-role:
@@ -28,7 +28,7 @@ post:
         type: integer
   responses:
     '200':
-      description: 財報已寄送
+      description: 財報寄送流程已送出
       content:
         application/json:
           schema:

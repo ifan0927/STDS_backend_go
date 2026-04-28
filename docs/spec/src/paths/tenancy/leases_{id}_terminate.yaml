@@ -8,8 +8,7 @@ post:
 
     押金退還/扣款須在呼叫此 API 之前或同時確認（refund_amount / deduction_amount 參數）。
 
-    觸發 LeaseTerminated（forced: false）→ Property BC（Room 改 vacant）+ Notification
-    BC（寄退租確認）
+    終止成功後觸發 LeaseTerminated（forced: false）；Room/Tenant 後置處理由已確認的 runtime subscriber 執行。
   tags:
     - Leasing
   x-required-role:

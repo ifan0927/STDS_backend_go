@@ -6,8 +6,7 @@ post:
 
     狀態：submitted | assigned | in_progress → cancelled
 
-    觸發 RepairCancelled event → Property BC 檢查 Room 所有 RepairRequest，若全完成/取消則
-    Room 改 vacant
+    取消維修後觸發 RepairCancelled event；Room 狀態恢復由 repair workflow 依同房間維修狀態統一判斷。
   tags:
     - Journal
   x-required-role:

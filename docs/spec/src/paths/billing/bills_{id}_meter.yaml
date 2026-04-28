@@ -5,7 +5,7 @@ post:
     x-required-role: admin, organizer, staff
     BR-06：電表度數不得小於上月度數
     BR-16：金額由系統計算（usage × unitPrice），並四捨五入為整數 amount，不由員工輸入
-    MeterRecorded event → 帳單金額更新，狀態從 pending_meter 改為 pending_payment
+    抄表 command 會計算並更新帳單金額，將狀態從 pending_meter 改為 pending_payment，並觸發 MeterRecorded event。
     抄表是針對 bill 所代表的 billing period，而不是固定自然月
     僅 electricity 且 pending_meter 狀態的帳單可抄表。
   tags:
