@@ -16,6 +16,7 @@ type Config struct {
 	DB       DatabaseConfig
 	Firebase FirebaseConfig
 	Notify   NotificationConfig
+	Storage  StorageConfig
 }
 
 // AppConfig contains HTTP service settings and process metadata.
@@ -52,6 +53,13 @@ type NotificationConfig struct {
 	ResendFromEmail string
 	ResendFromName  string
 	ResendBaseURL   string
+}
+
+// StorageConfig contains object storage settings for attachment upload flows.
+type StorageConfig struct {
+	GCSBucketName   string
+	GCSSignedURLTTL time.Duration
+	GCSEmulatorHost string
 }
 
 // UsesAuthEmulator reports whether Firebase auth calls should target the local
@@ -92,6 +100,11 @@ func Load() (*Config, error) {
 			ResendFromEmail: os.Getenv("RESEND_FROM_EMAIL"),
 			ResendFromName:  getEnv("RESEND_FROM_NAME", "STDS"),
 			ResendBaseURL:   getEnv("RESEND_BASE_URL", "https://api.resend.com"),
+		},
+		Storage: StorageConfig{
+			GCSBucketName:   os.Getenv("GCS_BUCKET_NAME"),
+			GCSSignedURLTTL: getDurationEnv("GCS_SIGNED_URL_TTL", 15*time.Minute),
+			GCSEmulatorHost: os.Getenv("STORAGE_EMULATOR_HOST"),
 		},
 	}
 

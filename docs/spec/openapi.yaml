@@ -2106,7 +2106,10 @@ paths:
         - admin
         - organizer
         - staff
-      x-ownership-required: true
+      description: |
+        Tenant attachments follow the same property access model as other tenant
+        flows. The tenant must exist and must be associated with a property the
+        caller can access unless the caller is an admin.
       parameters:
         - name: id
           in: path
@@ -2128,7 +2131,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-          description: 權限不足
+          description: 租客存在，但使用者無法存取其關聯物業
           content:
             application/json:
               schema:
@@ -2148,7 +2151,10 @@ paths:
         - admin
         - organizer
         - staff
-      x-ownership-required: true
+      description: |
+        Tenant attachments follow the same property access model as other tenant
+        flows. The tenant must exist and must be associated with a property the
+        caller can access unless the caller is an admin.
       parameters:
         - name: id
           in: path
@@ -2176,7 +2182,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-          description: 權限不足
+          description: 租客存在，但使用者無法存取其關聯物業
           content:
             application/json:
               schema:
@@ -5792,7 +5798,7 @@ paths:
       description: |
         x-required-role: admin, organizer, staff
         Step 1：後端驗證呼叫者對資源的寫入權限，建立 nonce 與 object_path，回傳 GCS Signed URL。
-        BR-18：僅允許 image/jpeg、image/png、image/heic、application/pdf，單檔上限 20MB。
+        BR-18：僅允許 image/jpeg、image/png、image/heic、application/pdf，且在產生 upload URL 前驗證 file_size 不可超過 20MB。
         注意：取得 upload_url 不代表附件已生效，必須完成 Step 3 登記。
       tags:
         - Attachments
@@ -5813,6 +5819,7 @@ paths:
                   resource_id: 10000000-0000-0000-0000-000000000001
                   file_name: front-door.jpg
                   content_type: image/jpeg
+                  file_size: 1048576
       responses:
         '200':
           description: Signed URL 建立成功
@@ -5862,12 +5869,17 @@ paths:
                   value:
                     error_code: ATTACHMENT_CONTENT_TYPE_NOT_ALLOWED
                     message: 不支援的附件 MIME type
+                file_too_large:
+                  summary: BR-18 檔案超過 20MB
+                  value:
+                    error_code: ATTACHMENT_FILE_TOO_LARGE
+                    message: Attachment file size exceeds the 20MB limit.
   /attachments/{id}:
     delete:
       operationId: deleteAttachment
       summary: 軟刪除附件
       description: |
-        依附件 id 軟刪除附件記錄。後續由排程任務清理 GCS 物件並硬刪除 DB 記錄。
+        依附件 id 軟刪除附件記錄。tenant 附件為全局管理資料，不透過 property ownership 授權； 其他資源附件仍需符合其宿主資源的 property access policy。後續由排程任務清理 GCS 物件並硬刪除 DB 記錄。
       tags:
         - Attachments
       x-required-role:
@@ -7075,6 +7087,7 @@ components:
         - resource_id
         - file_name
         - content_type
+        - file_size
       properties:
         resource_type:
           type: string
@@ -7098,6 +7111,12 @@ components:
             - image/png
             - image/heic
             - application/pdf
+        file_size:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 20971520
+          description: File size in bytes. Attachments are limited to 20MB.
     AttachmentUploadURLResponse:
       type: object
       properties:

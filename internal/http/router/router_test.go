@@ -2637,14 +2637,6 @@ func TestProtectedRoutesReturnResourceSpecificNotFoundCodes(t *testing.T) {
 			userRepo:      fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
 			authenticator: fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}},
 		},
-		{
-			name:          "tenant attachment missing tenant",
-			path:          "/api/v1/tenants/10000000-0000-0000-0000-000000000111/attachments",
-			expectedCode:  apperr.CodeTenantNotFound,
-			expectedHTTP:  http.StatusNotFound,
-			userRepo:      fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
-			authenticator: fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}},
-		},
 	}
 
 	for _, tt := range tests {
@@ -2781,8 +2773,8 @@ func TestGetPropertyAttachmentsUsesPropertyAccessPolicy(t *testing.T) {
 
 	engine.ServeHTTP(resp, req)
 
-	if resp.Code != http.StatusNotImplemented {
-		t.Fatalf("expected 501, got %d: %s", resp.Code, resp.Body.String())
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", resp.Code, resp.Body.String())
 	}
 }
 
@@ -2816,8 +2808,8 @@ func TestDeleteAttachmentResolvesPropertyAccessThroughOwnershipQuery(t *testing.
 
 	engine.ServeHTTP(resp, req)
 
-	if resp.Code != http.StatusNotImplemented {
-		t.Fatalf("expected 501, got %d: %s", resp.Code, resp.Body.String())
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", resp.Code, resp.Body.String())
 	}
 }
 
@@ -2872,7 +2864,7 @@ func TestDeleteAttachmentReturnsAttachmentNotFound(t *testing.T) {
 	}
 }
 
-func TestGetTenantAttachmentsResolvesPropertyAccessThroughOwnershipQuery(t *testing.T) {
+func TestGetTenantAttachmentsUsesTenantPropertyAccessPolicy(t *testing.T) {
 	repo := fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}}
 	engine := newTestEngine(repo, fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}}, fakePropertyRepo{}, fakeResourceOwnershipRepo{
 		propertyByTenantID: map[string]string{
@@ -2886,8 +2878,54 @@ func TestGetTenantAttachmentsResolvesPropertyAccessThroughOwnershipQuery(t *test
 
 	engine.ServeHTTP(resp, req)
 
-	if resp.Code != http.StatusNotImplemented {
-		t.Fatalf("expected 501, got %d: %s", resp.Code, resp.Body.String())
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestGetTenantAttachmentsRejectsUnauthorizedTenantProperty(t *testing.T) {
+	repo := fakeUserRepo{assignedPropertyIDs: []string{testPropertyID2}}
+	engine := newTestEngine(repo, fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID2}}, fakePropertyRepo{
+		ownerByPropertyID: map[string]string{
+			testPropertyID1: "user-1",
+		},
+	}, fakeResourceOwnershipRepo{
+		propertyByTenantID: map[string]string{
+			"10000000-0000-0000-0000-000000000111": testPropertyID1,
+		},
+	}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants/10000000-0000-0000-0000-000000000111/attachments", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestGetTenantAttachmentsReturnsTenantNotFound(t *testing.T) {
+	repo := fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}}
+	engine := newTestEngine(repo, fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants/10000000-0000-0000-0000-000000000111/attachments", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if payload["error_code"] != apperr.CodeTenantNotFound {
+		t.Fatalf("expected %s, got %v", apperr.CodeTenantNotFound, payload["error_code"])
 	}
 }
 
@@ -3146,6 +3184,7 @@ type findLeaseCall struct {
 }
 
 type fakeResourceOwnershipRepo struct {
+	propertyByPropertyID         map[string]string
 	propertyByRoomID             map[string]string
 	roomIDLookup                 *string
 	propertyByTenantID           map[string]string
@@ -3156,6 +3195,7 @@ type fakeResourceOwnershipRepo struct {
 	propertyByRepairRequestID    map[string]string
 	propertyByForceTerminationID map[string]string
 	propertyByAttachmentID       map[string]string
+	tenantExists                 map[string]bool
 }
 
 type testSQLPropertyRepositoryAdapter struct {
@@ -4313,6 +4353,16 @@ func (fakeRepairQueryRepo) FindByID(context.Context, string) (*apprepair.RepairR
 	return nil, apprepair.ErrRepairRequestNotFound
 }
 
+func (f fakeResourceOwnershipRepo) FindPropertyIDByPropertyID(_ context.Context, propertyID string) (string, error) {
+	if f.propertyByPropertyID != nil {
+		return lookupPropertyID(f.propertyByPropertyID, propertyID)
+	}
+	if propertyID != "" {
+		return propertyID, nil
+	}
+	return "", dbresourceownership.ErrNotFound
+}
+
 func (f fakeResourceOwnershipRepo) FindPropertyIDByRoomID(_ context.Context, roomID string) (string, error) {
 	if f.roomIDLookup != nil {
 		*f.roomIDLookup = roomID
@@ -4349,6 +4399,13 @@ func (f fakeResourceOwnershipRepo) FindPropertyIDByForceTerminationID(_ context.
 
 func (f fakeResourceOwnershipRepo) FindPropertyIDByAttachmentID(_ context.Context, attachmentID string) (string, error) {
 	return lookupPropertyID(f.propertyByAttachmentID, attachmentID)
+}
+
+func (f fakeResourceOwnershipRepo) EnsureTenantExists(_ context.Context, tenantID string) error {
+	if f.tenantExists != nil && f.tenantExists[tenantID] {
+		return nil
+	}
+	return dbresourceownership.ErrNotFound
 }
 
 func lookupPropertyID(values map[string]string, id string) (string, error) {

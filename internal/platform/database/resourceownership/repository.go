@@ -13,6 +13,7 @@ var ErrNotFound = errors.New("resource property ownership not found")
 // Repository resolves resource ids back to their owning property id for
 // authorization checks.
 type Repository interface {
+	FindPropertyIDByPropertyID(ctx context.Context, propertyID string) (string, error)
 	FindPropertyIDByRoomID(ctx context.Context, roomID string) (string, error)
 	FindPropertyIDByTenantID(ctx context.Context, tenantID string) (string, error)
 	FindPropertyIDByLeaseID(ctx context.Context, leaseID string) (string, error)
@@ -21,6 +22,7 @@ type Repository interface {
 	FindPropertyIDByRepairRequestID(ctx context.Context, repairRequestID string) (string, error)
 	FindPropertyIDByForceTerminationID(ctx context.Context, forceTerminationID string) (string, error)
 	FindPropertyIDByAttachmentID(ctx context.Context, attachmentID string) (string, error)
+	EnsureTenantExists(ctx context.Context, tenantID string) error
 }
 
 // SQLRepository resolves property ids from PostgreSQL.
@@ -33,9 +35,21 @@ func NewRepository(db *sql.DB) *SQLRepository {
 	return &SQLRepository{db: db}
 }
 
+func (r *SQLRepository) FindPropertyIDByPropertyID(ctx context.Context, propertyID string) (string, error) {
+	const query = `
+	SELECT id
+	FROM properties
+	WHERE id = $1
+	  AND deleted_at IS NULL
+	LIMIT 1
+	`
+
+	return r.findPropertyID(ctx, query, propertyID, "query property by id")
+}
+
 func (r *SQLRepository) FindPropertyIDByRoomID(ctx context.Context, roomID string) (string, error) {
 	const query = `
-SELECT property_id
+	SELECT property_id
 FROM rooms
 WHERE id = $1
   AND deleted_at IS NULL
@@ -138,10 +152,12 @@ FROM (
 
     UNION ALL
 
-    SELECT '' AS property_id
-    FROM tenant_attachments
-    WHERE id = $1
-      AND deleted_at IS NULL
+	    SELECT leases.property_id AS property_id
+	    FROM tenant_attachments
+	    JOIN leases ON leases.tenant_id = tenant_attachments.tenant_id
+	    WHERE tenant_attachments.id = $1
+	      AND tenant_attachments.deleted_at IS NULL
+	      AND leases.deleted_at IS NULL
 
     UNION ALL
 
@@ -183,6 +199,26 @@ LIMIT 1
 `
 
 	return r.findPropertyID(ctx, query, attachmentID, "query attachment property by id")
+}
+
+func (r *SQLRepository) EnsureTenantExists(ctx context.Context, tenantID string) error {
+	const query = `
+	SELECT id
+	FROM tenants
+	WHERE id = $1
+	  AND deleted_at IS NULL
+	LIMIT 1
+	`
+
+	var id string
+	if err := r.db.QueryRowContext(ctx, query, tenantID).Scan(&id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("query tenant by id: %w", err)
+	}
+
+	return nil
 }
 
 func (r *SQLRepository) findPropertyID(ctx context.Context, query string, id string, op string) (string, error) {

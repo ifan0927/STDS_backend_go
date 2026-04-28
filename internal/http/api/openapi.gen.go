@@ -325,8 +325,11 @@ type AttachmentResponsePhotoStage string
 
 // AttachmentUploadURLRequest defines model for AttachmentUploadURLRequest.
 type AttachmentUploadURLRequest struct {
-	ContentType  AttachmentUploadURLRequestContentType  `json:"content_type"`
-	FileName     string                                 `json:"file_name"`
+	ContentType AttachmentUploadURLRequestContentType `json:"content_type"`
+	FileName    string                                `json:"file_name"`
+
+	// FileSize File size in bytes. Attachments are limited to 20MB.
+	FileSize     int64                                  `json:"file_size"`
 	ResourceId   openapi_types.UUID                     `json:"resource_id"`
 	ResourceType AttachmentUploadURLRequestResourceType `json:"resource_type"`
 }
