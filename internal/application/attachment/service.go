@@ -181,7 +181,7 @@ func (s *Service) RegisterAttachment(ctx context.Context, input RegisterAttachme
 
 	token, err := s.repo.FindUploadTokenByNonce(ctx, nonce)
 	if err != nil {
-		if strings.TrimSpace(nonce) == "" || errorsIsNotFound(err) {
+		if errorsIsNotFound(err) {
 			return nil, ErrUploadTokenNotFound
 		}
 		return nil, mapRepositoryError(resourceType, err)
