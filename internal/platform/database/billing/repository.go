@@ -133,6 +133,30 @@ type FinancialReportEntry struct {
 	CreatedAt   time.Time
 }
 
+// JobBillCandidate is the minimal bill state needed by scheduler jobs.
+type JobBillCandidate struct {
+	ID      string
+	Version int
+}
+
+// JobOverdueReminderCandidate is the bill and tenant state needed to send an
+// overdue reminder.
+type JobOverdueReminderCandidate struct {
+	ID                 string
+	TenantID           string
+	TenantEmail        *string
+	Amount             *int
+	DueDate            time.Time
+	OverdueNoticeCount int
+	Version            int
+}
+
+// JobMonthlySnapshotProperty identifies one active property account to
+// materialize into monthly snapshots.
+type JobMonthlySnapshotProperty struct {
+	PropertyID string
+}
+
 // SQLRepository persists and reads billing data from PostgreSQL.
 type SQLRepository struct {
 	db *sql.DB
@@ -141,6 +165,295 @@ type SQLRepository struct {
 // NewRepository returns a PostgreSQL-backed billing repository.
 func NewRepository(db *sql.DB) *SQLRepository {
 	return &SQLRepository{db: db}
+}
+
+// ListOverdueScanCandidates returns pending-payment bills that should become overdue.
+func (r *SQLRepository) ListOverdueScanCandidates(ctx context.Context, today time.Time) (candidates []JobBillCandidate, err error) {
+	const query = `
+SELECT id, version
+FROM bills
+WHERE due_date < $1
+  AND status = 'pending_payment'
+  AND deleted_at IS NULL
+ORDER BY due_date ASC, id ASC
+`
+
+	rows, err := r.db.QueryContext(ctx, query, today)
+	if err != nil {
+		return nil, fmt.Errorf("list overdue scan candidates: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close overdue scan candidate rows: %w", cerr)
+		}
+	}()
+
+	candidates = make([]JobBillCandidate, 0)
+	for rows.Next() {
+		var candidate JobBillCandidate
+		if err := rows.Scan(&candidate.ID, &candidate.Version); err != nil {
+			return nil, fmt.Errorf("scan overdue scan candidate: %w", err)
+		}
+		candidates = append(candidates, candidate)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate overdue scan candidates: %w", err)
+	}
+
+	return candidates, nil
+}
+
+// MarkBillOverdue updates a single bill with optimistic locking.
+func (r *SQLRepository) MarkBillOverdue(ctx context.Context, tx *sql.Tx, billID string, expectedVersion int) error {
+	const query = `
+UPDATE bills
+SET status = 'overdue',
+	updated_at = now(),
+	version = version + 1
+WHERE id = $1
+  AND version = $2
+  AND status = 'pending_payment'
+  AND deleted_at IS NULL
+`
+
+	result, err := tx.ExecContext(ctx, query, billID, expectedVersion)
+	if err != nil {
+		return fmt.Errorf("mark bill overdue: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read mark bill overdue affected rows: %w", err)
+	}
+	if affected == 0 {
+		return ErrConcurrentUpdate
+	}
+
+	return nil
+}
+
+// ListOverdueReminderCandidates returns overdue bills that have remaining reminder attempts.
+func (r *SQLRepository) ListOverdueReminderCandidates(ctx context.Context) (candidates []JobOverdueReminderCandidate, err error) {
+	const query = `
+SELECT
+	b.id,
+	b.tenant_id,
+	t.email,
+	b.amount,
+	b.due_date,
+	b.overdue_notice_count,
+	b.version
+FROM bills b
+JOIN tenants t ON t.id = b.tenant_id AND t.deleted_at IS NULL
+WHERE b.status = 'overdue'
+  AND b.overdue_notice_count < 3
+  AND b.deleted_at IS NULL
+ORDER BY b.due_date ASC, b.id ASC
+`
+
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list overdue reminder candidates: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close overdue reminder candidate rows: %w", cerr)
+		}
+	}()
+
+	candidates = make([]JobOverdueReminderCandidate, 0)
+	for rows.Next() {
+		var candidate JobOverdueReminderCandidate
+		if err := rows.Scan(
+			&candidate.ID,
+			&candidate.TenantID,
+			&candidate.TenantEmail,
+			&candidate.Amount,
+			&candidate.DueDate,
+			&candidate.OverdueNoticeCount,
+			&candidate.Version,
+		); err != nil {
+			return nil, fmt.Errorf("scan overdue reminder candidate: %w", err)
+		}
+		candidates = append(candidates, candidate)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate overdue reminder candidates: %w", err)
+	}
+
+	return candidates, nil
+}
+
+// IncrementOverdueNoticeCount records a successful overdue reminder delivery.
+func (r *SQLRepository) IncrementOverdueNoticeCount(ctx context.Context, tx *sql.Tx, billID string, expectedVersion int) error {
+	const query = `
+UPDATE bills
+SET overdue_notice_count = overdue_notice_count + 1,
+	updated_at = now(),
+	version = version + 1
+WHERE id = $1
+  AND version = $2
+  AND status = 'overdue'
+  AND overdue_notice_count < 3
+  AND deleted_at IS NULL
+`
+
+	result, err := tx.ExecContext(ctx, query, billID, expectedVersion)
+	if err != nil {
+		return fmt.Errorf("increment overdue notice count: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read overdue notice count affected rows: %w", err)
+	}
+	if affected == 0 {
+		return ErrConcurrentUpdate
+	}
+
+	return nil
+}
+
+// ListMonthlySnapshotProperties returns active property accounts for non-deleted properties.
+func (r *SQLRepository) ListMonthlySnapshotProperties(ctx context.Context) (properties []JobMonthlySnapshotProperty, err error) {
+	const query = `
+SELECT pa.property_id
+FROM property_accounts pa
+JOIN properties p ON p.id = pa.property_id AND p.deleted_at IS NULL
+WHERE pa.deleted_at IS NULL
+ORDER BY pa.property_id ASC
+`
+
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list monthly snapshot properties: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close monthly snapshot property rows: %w", cerr)
+		}
+	}()
+
+	properties = make([]JobMonthlySnapshotProperty, 0)
+	for rows.Next() {
+		var property JobMonthlySnapshotProperty
+		if err := rows.Scan(&property.PropertyID); err != nil {
+			return nil, fmt.Errorf("scan monthly snapshot property: %w", err)
+		}
+		properties = append(properties, property)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate monthly snapshot properties: %w", err)
+	}
+
+	return properties, nil
+}
+
+// MonthlySnapshotExists checks whether a finalized snapshot already exists.
+func (r *SQLRepository) MonthlySnapshotExists(ctx context.Context, tx *sql.Tx, propertyID string, year int, month int) (bool, error) {
+	const query = `
+SELECT 1
+FROM monthly_snapshots
+WHERE property_id = $1
+  AND year = $2
+	AND month = $3
+LIMIT 1
+`
+
+	queryer := rowQueryer(r.db)
+	if tx != nil {
+		queryer = tx
+	}
+
+	var marker int
+	if err := queryer.QueryRowContext(ctx, query, propertyID, year, month).Scan(&marker); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("check monthly snapshot exists: %w", err)
+	}
+
+	return true, nil
+}
+
+// CreateMonthlySnapshot materializes one property's accounting entries for a month.
+func (r *SQLRepository) CreateMonthlySnapshot(ctx context.Context, tx *sql.Tx, propertyID string, year int, month int) error {
+	const insertSnapshot = `
+INSERT INTO monthly_snapshots (
+	property_id,
+	year,
+	month,
+	total_income,
+	total_expense,
+	net
+)
+SELECT
+	pa.property_id,
+	$2,
+	$3,
+	COALESCE(SUM(CASE WHEN ae.category IN ('rent_payment', 'electricity_payment', 'deposit_deduction') THEN ABS(ae.amount) ELSE 0 END), 0) AS total_income,
+	COALESCE(SUM(CASE WHEN ae.category IN ('deposit_refund', 'journal_expense') THEN ABS(ae.amount) ELSE 0 END), 0) AS total_expense,
+	COALESCE(SUM(CASE WHEN ae.category IN ('rent_payment', 'electricity_payment', 'deposit_deduction') THEN ABS(ae.amount) ELSE 0 END), 0)
+		- COALESCE(SUM(CASE WHEN ae.category IN ('deposit_refund', 'journal_expense') THEN ABS(ae.amount) ELSE 0 END), 0) AS net
+FROM property_accounts pa
+JOIN properties p ON p.id = pa.property_id AND p.deleted_at IS NULL
+LEFT JOIN accounting_entries ae ON ae.property_account_id = pa.id
+  AND ae.year = $2
+  AND ae.month = $3
+WHERE pa.property_id = $1
+  AND pa.deleted_at IS NULL
+GROUP BY pa.property_id
+RETURNING id
+`
+
+	var snapshotID string
+	if err := tx.QueryRowContext(ctx, insertSnapshot, propertyID, year, month).Scan(&snapshotID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("insert monthly snapshot: %w", err)
+	}
+
+	const insertEntries = `
+INSERT INTO monthly_snapshot_entries (
+	snapshot_id,
+	category,
+	description,
+	amount,
+	source_ref,
+	created_at
+)
+SELECT
+	$1,
+	ae.category,
+	ae.description,
+	ae.amount,
+	ae.source_ref,
+	ae.created_at
+FROM accounting_entries ae
+JOIN property_accounts pa ON pa.id = ae.property_account_id
+WHERE pa.property_id = $2
+  AND pa.deleted_at IS NULL
+  AND ae.year = $3
+  AND ae.month = $4
+ORDER BY ae.created_at ASC, ae.id ASC
+`
+	if _, err := tx.ExecContext(ctx, insertEntries, snapshotID, propertyID, year, month); err != nil {
+		return fmt.Errorf("insert monthly snapshot entries: %w", err)
+	}
+
+	const deleteEntries = `
+DELETE FROM accounting_entries ae
+USING property_accounts pa
+WHERE pa.id = ae.property_account_id
+  AND pa.property_id = $1
+  AND pa.deleted_at IS NULL
+  AND ae.year = $2
+  AND ae.month = $3
+`
+	if _, err := tx.ExecContext(ctx, deleteEntries, propertyID, year, month); err != nil {
+		return fmt.Errorf("delete finalized accounting entries: %w", err)
+	}
+
+	return nil
 }
 
 // ListAccessible returns active bills visible to the provided scope.

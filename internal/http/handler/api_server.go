@@ -2634,6 +2634,10 @@ func (s *APIServer) runJob(c *gin.Context, jobKey appjobs.JobKey, windowKey stri
 
 	result, err := s.jobTriggerService.Execute(c.Request.Context(), jobKey, windowKey, requestctx.GetRequestID(c))
 	if err != nil {
+		if errors.Is(err, appjobs.ErrInvalidWindowKey) {
+			c.Error(apperr.ErrBadRequest.WithCause(err).WithDetails(map[string]interface{}{"field": "window_key"}))
+			return
+		}
 		c.Error(apperr.ErrInternalServerError.WithCause(err))
 		return
 	}

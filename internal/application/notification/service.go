@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	domainevents "stds_backend/internal/domain/events"
 	platformnotification "stds_backend/internal/platform/notification"
@@ -24,6 +25,21 @@ type UserPasswordResetEmailInput struct {
 	Email    string
 	Name     string
 	ResetURL string
+}
+
+// OverdueBillReminderEmailInput contains the email inputs for overdue reminders.
+type OverdueBillReminderEmailInput struct {
+	Email   string
+	Amount  *int
+	DueDate time.Time
+}
+
+// LeaseExpiringSoonEmailInput contains the email inputs for lease expiration reminders.
+type LeaseExpiringSoonEmailInput struct {
+	Email   string
+	Name    string
+	LeaseID string
+	EndDate time.Time
 }
 
 // NewService returns a notification application service.
@@ -57,6 +73,63 @@ func (s *Service) SendUserPasswordResetEmail(ctx context.Context, input UserPass
 		Channel: platformnotification.ChannelEmail,
 		Email: &platformnotification.EmailMessage{
 			To:      []string{email},
+			Subject: subject,
+			HTML:    html,
+			Text:    text,
+		},
+	}); err != nil {
+		return ErrNotificationSendFailed.WithCause(err)
+	}
+
+	return nil
+}
+
+// SendOverdueBillReminderEmail sends one overdue bill reminder email.
+func (s *Service) SendOverdueBillReminderEmail(ctx context.Context, input OverdueBillReminderEmailInput) error {
+	if s == nil || s.sender == nil {
+		return ErrNotificationSenderNotConfigured
+	}
+
+	amount := "the outstanding amount"
+	if input.Amount != nil {
+		amount = fmt.Sprintf("NT$%d", *input.Amount)
+	}
+	dueDate := input.DueDate.Format("2006-01-02")
+	subject := "Overdue bill reminder"
+	html := fmt.Sprintf("<p>Hello,</p><p>Your bill for %s was due on %s. Please complete payment as soon as possible.</p>", htmlEscape(amount), htmlEscape(dueDate))
+	text := fmt.Sprintf("Hello,\n\nYour bill for %s was due on %s. Please complete payment as soon as possible.\n", amount, dueDate)
+
+	if err := s.sender.Send(ctx, platformnotification.SendCommand{
+		Channel: platformnotification.ChannelEmail,
+		Email: &platformnotification.EmailMessage{
+			To:      []string{strings.TrimSpace(input.Email)},
+			Subject: subject,
+			HTML:    html,
+			Text:    text,
+		},
+	}); err != nil {
+		return ErrNotificationSendFailed.WithCause(err)
+	}
+
+	return nil
+}
+
+// SendLeaseExpiringSoonEmail sends one lease expiration reminder email.
+func (s *Service) SendLeaseExpiringSoonEmail(ctx context.Context, input LeaseExpiringSoonEmailInput) error {
+	if s == nil || s.sender == nil {
+		return ErrNotificationSenderNotConfigured
+	}
+
+	name := defaultName(strings.TrimSpace(input.Name))
+	endDate := input.EndDate.Format("2006-01-02")
+	subject := "Lease expiring soon"
+	html := fmt.Sprintf("<p>Hello %s,</p><p>Lease %s is scheduled to end on %s.</p>", htmlEscape(name), htmlEscape(input.LeaseID), htmlEscape(endDate))
+	text := fmt.Sprintf("Hello %s,\n\nLease %s is scheduled to end on %s.\n", name, input.LeaseID, endDate)
+
+	if err := s.sender.Send(ctx, platformnotification.SendCommand{
+		Channel: platformnotification.ChannelEmail,
+		Email: &platformnotification.EmailMessage{
+			To:      []string{strings.TrimSpace(input.Email)},
 			Subject: subject,
 			HTML:    html,
 			Text:    text,

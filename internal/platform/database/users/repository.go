@@ -36,6 +36,12 @@ type User struct {
 	Version             int
 }
 
+// JobNotificationRecipient is the active user shape needed by scheduler notifications.
+type JobNotificationRecipient struct {
+	Email string
+	Name  string
+}
+
 // CreateUserParams contains the writable fields required to persist a new user.
 type CreateUserParams struct {
 	FirebaseUID string
@@ -82,6 +88,48 @@ type SQLRepository struct {
 // NewRepository returns a Repository backed by the provided database handle.
 func NewRepository(db *sql.DB) *SQLRepository {
 	return &SQLRepository{db: db}
+}
+
+// ListLeaseExpiringSoonRecipients returns all organizers and property-assigned
+// staff who should receive lease expiration reminders.
+func (r *SQLRepository) ListLeaseExpiringSoonRecipients(ctx context.Context, propertyID string) (recipients []JobNotificationRecipient, err error) {
+	const query = `
+SELECT email, name
+FROM users
+WHERE deleted_at IS NULL
+  AND (
+    role = 'organizer'
+    OR (
+      role = 'staff'
+      AND assigned_property_ids @> jsonb_build_array($1::text)
+    )
+  )
+ORDER BY role ASC, created_at ASC, id ASC
+`
+
+	rows, err := r.db.QueryContext(ctx, query, propertyID)
+	if err != nil {
+		return nil, fmt.Errorf("list lease expiring soon recipients: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close lease expiring soon recipient rows: %w", cerr)
+		}
+	}()
+
+	recipients = make([]JobNotificationRecipient, 0)
+	for rows.Next() {
+		var recipient JobNotificationRecipient
+		if err := rows.Scan(&recipient.Email, &recipient.Name); err != nil {
+			return nil, fmt.Errorf("scan lease expiring soon recipient: %w", err)
+		}
+		recipients = append(recipients, recipient)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate lease expiring soon recipients: %w", err)
+	}
+
+	return recipients, nil
 }
 
 // FindByFirebaseUID returns the user with the given Firebase UID when it has

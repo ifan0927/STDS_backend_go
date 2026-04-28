@@ -29,7 +29,7 @@ func TestTriggerServiceReturnsSkippedForDuplicateWindow(t *testing.T) {
 			StartedAt: time.Unix(1, 0),
 		},
 	}, map[JobKey]Runner{
-		JobOverdueBillsScan: func(context.Context) (*ExecutionSummary, error) {
+		JobOverdueBillsScan: func(context.Context, string) (*ExecutionSummary, error) {
 			called = true
 			return &ExecutionSummary{}, nil
 		},
@@ -58,7 +58,7 @@ func TestTriggerServiceReturnsRunnerError(t *testing.T) {
 			StartedAt: time.Unix(1, 0),
 		},
 	}, map[JobKey]Runner{
-		JobOverdueBillsScan: func(context.Context) (*ExecutionSummary, error) {
+		JobOverdueBillsScan: func(context.Context, string) (*ExecutionSummary, error) {
 			return nil, expectedErr
 		},
 	}, time.Minute, 3)
