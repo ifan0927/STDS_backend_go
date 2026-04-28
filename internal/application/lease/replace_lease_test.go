@@ -10,6 +10,7 @@ import (
 
 	domainevents "stds_backend/internal/domain/events"
 	dbtxrunner "stds_backend/internal/platform/database/txrunner"
+	"stds_backend/internal/platform/eventbus"
 	"stds_backend/internal/shared/apperr"
 )
 
@@ -71,6 +72,59 @@ func TestReplaceLeaseServiceCreatesSuccessorAndPublishesEvents(t *testing.T) {
 	}
 	if replaced.OldLeaseID != replaceLeaseTestLeaseID || replaced.NewLeaseID != "lease-successor" || replaced.DepositHandling != "carry_over" {
 		t.Fatalf("unexpected LeaseReplaced event: %+v", replaced)
+	}
+}
+
+func TestReplaceLeaseServiceSubscribersKeepReplacementRoomAndTenantActive(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+
+	repo := replacementRepoStub()
+	bus := eventbus.New()
+	txRunner := dbtxrunner.New(db, bus)
+	eventbus.Subscribe(bus, NewReleaseRoomOnLeaseTerminatedHandler(repo, txRunner).HandleLeaseTerminated)
+	eventbus.Subscribe(bus, NewDeactivateTenantOnLeaseTerminatedHandler(repo, txRunner).HandleLeaseTerminated)
+	eventbus.Subscribe(bus, NewOccupyRoomOnLeaseCreatedHandler(repo, txRunner).HandleLeaseCreated)
+	eventbus.Subscribe(bus, NewActivateTenantOnLeaseCreatedHandler(repo, txRunner).HandleLeaseCreated)
+	service := NewReplaceLeaseService(repo, txRunner)
+
+	_, err = service.Execute(context.Background(), ReplaceLeaseInput{
+		ActorRole:           "staff",
+		AssignedPropertyIDs: []string{"property-1"},
+		LeaseID:             replaceLeaseTestLeaseID,
+		Reason:              "cadence_change",
+		EffectiveStartDate:  time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		DepositHandling:     "carry_over",
+		NewEndDate:          time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+		NewRentAmount:       20000,
+		NewCadence:          "bimonthly",
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	if repo.room.Status != "occupied" {
+		t.Fatalf("room status = %q, want occupied", repo.room.Status)
+	}
+	if repo.tenant.Status != "active" {
+		t.Fatalf("tenant status = %q, want active", repo.tenant.Status)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
 	}
 }
 
