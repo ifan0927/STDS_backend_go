@@ -92,7 +92,7 @@ func NewRepository(db *sql.DB) *SQLRepository {
 
 // ListLeaseExpiringSoonRecipients returns all organizers and property-assigned
 // staff who should receive lease expiration reminders.
-func (r *SQLRepository) ListLeaseExpiringSoonRecipients(ctx context.Context, propertyID string) ([]JobNotificationRecipient, error) {
+func (r *SQLRepository) ListLeaseExpiringSoonRecipients(ctx context.Context, propertyID string) (recipients []JobNotificationRecipient, err error) {
 	const query = `
 SELECT email, name
 FROM users
@@ -111,9 +111,13 @@ ORDER BY role ASC, created_at ASC, id ASC
 	if err != nil {
 		return nil, fmt.Errorf("list lease expiring soon recipients: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close lease expiring soon recipient rows: %w", cerr)
+		}
+	}()
 
-	recipients := make([]JobNotificationRecipient, 0)
+	recipients = make([]JobNotificationRecipient, 0)
 	for rows.Next() {
 		var recipient JobNotificationRecipient
 		if err := rows.Scan(&recipient.Email, &recipient.Name); err != nil {

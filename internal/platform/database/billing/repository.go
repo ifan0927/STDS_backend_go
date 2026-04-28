@@ -168,7 +168,7 @@ func NewRepository(db *sql.DB) *SQLRepository {
 }
 
 // ListOverdueScanCandidates returns pending-payment bills that should become overdue.
-func (r *SQLRepository) ListOverdueScanCandidates(ctx context.Context, today time.Time) ([]JobBillCandidate, error) {
+func (r *SQLRepository) ListOverdueScanCandidates(ctx context.Context, today time.Time) (candidates []JobBillCandidate, err error) {
 	const query = `
 SELECT id, version
 FROM bills
@@ -182,9 +182,13 @@ ORDER BY due_date ASC, id ASC
 	if err != nil {
 		return nil, fmt.Errorf("list overdue scan candidates: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close overdue scan candidate rows: %w", cerr)
+		}
+	}()
 
-	candidates := make([]JobBillCandidate, 0)
+	candidates = make([]JobBillCandidate, 0)
 	for rows.Next() {
 		var candidate JobBillCandidate
 		if err := rows.Scan(&candidate.ID, &candidate.Version); err != nil {
@@ -228,7 +232,7 @@ WHERE id = $1
 }
 
 // ListOverdueReminderCandidates returns overdue bills that have remaining reminder attempts.
-func (r *SQLRepository) ListOverdueReminderCandidates(ctx context.Context) ([]JobOverdueReminderCandidate, error) {
+func (r *SQLRepository) ListOverdueReminderCandidates(ctx context.Context) (candidates []JobOverdueReminderCandidate, err error) {
 	const query = `
 SELECT
 	b.id,
@@ -250,9 +254,13 @@ ORDER BY b.due_date ASC, b.id ASC
 	if err != nil {
 		return nil, fmt.Errorf("list overdue reminder candidates: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close overdue reminder candidate rows: %w", cerr)
+		}
+	}()
 
-	candidates := make([]JobOverdueReminderCandidate, 0)
+	candidates = make([]JobOverdueReminderCandidate, 0)
 	for rows.Next() {
 		var candidate JobOverdueReminderCandidate
 		if err := rows.Scan(
@@ -305,7 +313,7 @@ WHERE id = $1
 }
 
 // ListMonthlySnapshotProperties returns active property accounts for non-deleted properties.
-func (r *SQLRepository) ListMonthlySnapshotProperties(ctx context.Context) ([]JobMonthlySnapshotProperty, error) {
+func (r *SQLRepository) ListMonthlySnapshotProperties(ctx context.Context) (properties []JobMonthlySnapshotProperty, err error) {
 	const query = `
 SELECT pa.property_id
 FROM property_accounts pa
@@ -318,9 +326,13 @@ ORDER BY pa.property_id ASC
 	if err != nil {
 		return nil, fmt.Errorf("list monthly snapshot properties: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close monthly snapshot property rows: %w", cerr)
+		}
+	}()
 
-	properties := make([]JobMonthlySnapshotProperty, 0)
+	properties = make([]JobMonthlySnapshotProperty, 0)
 	for rows.Next() {
 		var property JobMonthlySnapshotProperty
 		if err := rows.Scan(&property.PropertyID); err != nil {

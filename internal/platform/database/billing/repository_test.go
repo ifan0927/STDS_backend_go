@@ -631,7 +631,6 @@ func TestMarkBillOverdueReturnsConcurrentUpdateWhenNoRowsAffected(t *testing.T) 
 	db, mock, repo := newBillingRepoTest(t)
 	defer closeBillingDB(t, db)
 	tx := beginBillingTx(t, db, mock)
-	defer tx.Rollback()
 
 	mock.ExpectExec(regexp.QuoteMeta(`UPDATE bills
 SET status = 'overdue',
@@ -649,6 +648,10 @@ WHERE id = $1
 		t.Fatalf("expected ErrConcurrentUpdate, got %v", err)
 	}
 
+	mock.ExpectRollback()
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("Rollback: %v", err)
+	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("ExpectationsWereMet: %v", err)
 	}
@@ -658,7 +661,6 @@ func TestMonthlySnapshotExistsReturnsTrue(t *testing.T) {
 	db, mock, repo := newBillingRepoTest(t)
 	defer closeBillingDB(t, db)
 	tx := beginBillingTx(t, db, mock)
-	defer tx.Rollback()
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT 1
 FROM monthly_snapshots
@@ -677,6 +679,10 @@ LIMIT 1`)).
 		t.Fatal("expected snapshot to exist")
 	}
 
+	mock.ExpectRollback()
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("Rollback: %v", err)
+	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("ExpectationsWereMet: %v", err)
 	}

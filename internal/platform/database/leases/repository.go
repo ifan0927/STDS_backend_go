@@ -205,7 +205,7 @@ func NewRepository(db *sql.DB) *SQLRepository {
 }
 
 // ListLeaseExpiryCandidates returns active leases that should be marked expired.
-func (r *SQLRepository) ListLeaseExpiryCandidates(ctx context.Context, today time.Time) ([]JobLeaseCandidate, error) {
+func (r *SQLRepository) ListLeaseExpiryCandidates(ctx context.Context, today time.Time) (candidates []JobLeaseCandidate, err error) {
 	const query = `
 SELECT id, version
 FROM leases
@@ -219,9 +219,13 @@ ORDER BY end_date ASC, id ASC
 	if err != nil {
 		return nil, fmt.Errorf("list lease expiry candidates: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close lease expiry candidate rows: %w", cerr)
+		}
+	}()
 
-	candidates := make([]JobLeaseCandidate, 0)
+	candidates = make([]JobLeaseCandidate, 0)
 	for rows.Next() {
 		var candidate JobLeaseCandidate
 		if err := rows.Scan(&candidate.ID, &candidate.Version); err != nil {
@@ -265,7 +269,7 @@ WHERE id = $1
 }
 
 // ListLeaseExpiringSoonCandidates returns active leases ending on targetDate.
-func (r *SQLRepository) ListLeaseExpiringSoonCandidates(ctx context.Context, targetDate time.Time) ([]JobLeaseExpiringSoonCandidate, error) {
+func (r *SQLRepository) ListLeaseExpiringSoonCandidates(ctx context.Context, targetDate time.Time) (candidates []JobLeaseExpiringSoonCandidate, err error) {
 	const query = `
 SELECT id, property_id, tenant_id, room_id, end_date
 FROM leases
@@ -279,9 +283,13 @@ ORDER BY property_id ASC, end_date ASC, id ASC
 	if err != nil {
 		return nil, fmt.Errorf("list lease expiring soon candidates: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close lease expiring soon candidate rows: %w", cerr)
+		}
+	}()
 
-	candidates := make([]JobLeaseExpiringSoonCandidate, 0)
+	candidates = make([]JobLeaseExpiringSoonCandidate, 0)
 	for rows.Next() {
 		var candidate JobLeaseExpiringSoonCandidate
 		if err := rows.Scan(&candidate.ID, &candidate.PropertyID, &candidate.TenantID, &candidate.RoomID, &candidate.EndDate); err != nil {
@@ -297,7 +305,7 @@ ORDER BY property_id ASC, end_date ASC, id ASC
 }
 
 // ListInProgressForceTerminations returns legacy force-termination rows that need compensation.
-func (r *SQLRepository) ListInProgressForceTerminations(ctx context.Context) ([]JobForceTerminationCandidate, error) {
+func (r *SQLRepository) ListInProgressForceTerminations(ctx context.Context) (candidates []JobForceTerminationCandidate, err error) {
 	const query = `
 SELECT id, reason
 FROM force_terminations
@@ -309,9 +317,13 @@ ORDER BY created_at ASC, id ASC
 	if err != nil {
 		return nil, fmt.Errorf("list in-progress force terminations: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close in-progress force termination rows: %w", cerr)
+		}
+	}()
 
-	candidates := make([]JobForceTerminationCandidate, 0)
+	candidates = make([]JobForceTerminationCandidate, 0)
 	for rows.Next() {
 		var candidate JobForceTerminationCandidate
 		if err := rows.Scan(&candidate.ID, &candidate.Reason); err != nil {
@@ -327,7 +339,7 @@ ORDER BY created_at ASC, id ASC
 }
 
 // ListPendingForceTerminationBillIDs locks pending force-termination bills.
-func (r *SQLRepository) ListPendingForceTerminationBillIDs(ctx context.Context, tx *sql.Tx, forceTerminationID string) ([]string, error) {
+func (r *SQLRepository) ListPendingForceTerminationBillIDs(ctx context.Context, tx *sql.Tx, forceTerminationID string) (billIDs []string, err error) {
 	const query = `
 SELECT bill_id
 FROM force_termination_bills
@@ -341,9 +353,13 @@ FOR UPDATE
 	if err != nil {
 		return nil, fmt.Errorf("list pending force termination bills: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close pending force termination bill rows: %w", cerr)
+		}
+	}()
 
-	billIDs := make([]string, 0)
+	billIDs = make([]string, 0)
 	for rows.Next() {
 		var billID string
 		if err := rows.Scan(&billID); err != nil {

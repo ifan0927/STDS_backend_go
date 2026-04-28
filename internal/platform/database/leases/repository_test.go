@@ -12,9 +12,8 @@ import (
 
 func TestMarkLeaseExpiredReturnsNotFoundWhenNoRowsAffected(t *testing.T) {
 	db, mock, repo := newLeaseRepoTest(t)
-	defer db.Close()
+	defer closeLeaseDB(t, db)
 	tx := beginLeaseTx(t, db, mock)
-	defer tx.Rollback()
 
 	mock.ExpectExec(regexp.QuoteMeta(`UPDATE leases
 SET status = 'expired',
@@ -32,6 +31,10 @@ WHERE id = $1
 		t.Fatalf("expected ErrLeaseNotFound, got %v", err)
 	}
 
+	mock.ExpectRollback()
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("Rollback: %v", err)
+	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("ExpectationsWereMet: %v", err)
 	}
@@ -39,9 +42,8 @@ WHERE id = $1
 
 func TestListPendingForceTerminationBillIDsLocksPendingRows(t *testing.T) {
 	db, mock, repo := newLeaseRepoTest(t)
-	defer db.Close()
+	defer closeLeaseDB(t, db)
 	tx := beginLeaseTx(t, db, mock)
-	defer tx.Rollback()
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT bill_id
 FROM force_termination_bills
@@ -60,6 +62,10 @@ FOR UPDATE`)).
 		t.Fatalf("unexpected bill ids: %+v", billIDs)
 	}
 
+	mock.ExpectRollback()
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("Rollback: %v", err)
+	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("ExpectationsWereMet: %v", err)
 	}
@@ -67,9 +73,8 @@ FOR UPDATE`)).
 
 func TestWriteOffBillsWithCountReturnsAffectedRows(t *testing.T) {
 	db, mock, repo := newLeaseRepoTest(t)
-	defer db.Close()
+	defer closeLeaseDB(t, db)
 	tx := beginLeaseTx(t, db, mock)
-	defer tx.Rollback()
 
 	mock.ExpectExec(regexp.QuoteMeta(`UPDATE bills
 SET status = 'written_off',
@@ -90,6 +95,10 @@ WHERE id IN ($2, $3)
 		t.Fatalf("expected 1 affected row, got %d", affected)
 	}
 
+	mock.ExpectRollback()
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("Rollback: %v", err)
+	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("ExpectationsWereMet: %v", err)
 	}
@@ -104,6 +113,14 @@ func newLeaseRepoTest(t *testing.T) (*sql.DB, sqlmock.Sqlmock, *SQLRepository) {
 	}
 
 	return db, mock, NewRepository(db)
+}
+
+func closeLeaseDB(t *testing.T, db *sql.DB) {
+	t.Helper()
+
+	if err := db.Close(); err != nil {
+		t.Logf("db.Close: %v", err)
+	}
 }
 
 func beginLeaseTx(t *testing.T, db *sql.DB, mock sqlmock.Sqlmock) *sql.Tx {
