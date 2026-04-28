@@ -15,7 +15,12 @@ func TestCreateRepairRequestAttachmentDefaultsNilSortOrderToZero(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sqlmock.New: %v", err)
 	}
-	defer db.Close()
+	t.Cleanup(func() {
+		mock.ExpectClose()
+		if err := db.Close(); err != nil {
+			t.Fatalf("db.Close: %v", err)
+		}
+	})
 
 	repo := NewRepository(db)
 	tx := beginAttachmentTx(t, db, mock)
@@ -96,7 +101,7 @@ RETURNING
 func beginAttachmentTx(t *testing.T, db *sql.DB, mock sqlmock.Sqlmock) *sql.Tx {
 	t.Helper()
 	mock.ExpectBegin()
-	tx, err := db.Begin()
+	tx, err := db.BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("db.Begin: %v", err)
 	}

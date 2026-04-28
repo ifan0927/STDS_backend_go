@@ -126,6 +126,21 @@ func TestCreateUploadURLRejectsUnassignedPropertyResource(t *testing.T) {
 	assertAppErrorCode(t, err, apperr.CodeForbidden)
 }
 
+func TestCreateUploadURLMapsResourceDeletedDuringTokenCreateToNotFound(t *testing.T) {
+	service := newTestService(&attachmentRepoStub{createTokenErr: ErrResourceNotFound}, &storageStub{uploadURL: "http://storage/upload"}, &resourceAccessStub{}, time.Now().UTC())
+
+	_, err := service.CreateUploadURL(context.Background(), CreateUploadURLInput{
+		ActorRole:    "admin",
+		ActorUserID:  testActorID,
+		ResourceType: ResourceTypeProperty,
+		ResourceID:   testPropertyID,
+		FileName:     "contract.pdf",
+		ContentType:  "application/pdf",
+		FileSize:     1024,
+	})
+	assertAppErrorCode(t, err, apperr.CodePropertyNotFound)
+}
+
 func TestRegisterAttachmentCreatesRowAndConsumesToken(t *testing.T) {
 	now := time.Date(2026, 4, 28, 10, 0, 0, 0, time.UTC)
 	repo := &attachmentRepoStub{
@@ -344,6 +359,7 @@ func (fakeTxRunner) WithinTransaction(ctx context.Context, fn func(context.Conte
 type attachmentRepoStub struct {
 	token                  *UploadToken
 	createdToken           *CreateUploadTokenParams
+	createTokenErr         error
 	createdAttachment      *Attachment
 	createAttachmentParams *CreateAttachmentParams
 	deletedToken           bool
@@ -352,6 +368,9 @@ type attachmentRepoStub struct {
 
 func (r *attachmentRepoStub) CreateUploadToken(_ context.Context, _ *sql.Tx, params CreateUploadTokenParams) (*UploadToken, error) {
 	r.createdToken = &params
+	if r.createTokenErr != nil {
+		return nil, r.createTokenErr
+	}
 	return &UploadToken{
 		Nonce:        params.Nonce,
 		ObjectPath:   params.ObjectPath,

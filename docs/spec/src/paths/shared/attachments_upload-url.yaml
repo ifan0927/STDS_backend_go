@@ -74,7 +74,7 @@ post:
               summary: BR-18 不支援的 MIME type
               value:
                 error_code: ATTACHMENT_CONTENT_TYPE_NOT_ALLOWED
-                message: 不支援的附件 MIME type
+                message: Unsupported attachment MIME type.
             file_too_large:
               summary: BR-18 檔案超過 20MB
               value:

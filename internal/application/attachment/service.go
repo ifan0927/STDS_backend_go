@@ -132,7 +132,7 @@ func (s *Service) CreateUploadURL(ctx context.Context, input CreateUploadURLInpu
 			ExpiresAt:    expiresAt,
 		})
 		if err != nil {
-			return mapRepositoryError(err)
+			return mapRepositoryError(resourceType, err)
 		}
 		return nil
 	})
@@ -184,7 +184,7 @@ func (s *Service) RegisterAttachment(ctx context.Context, input RegisterAttachme
 		if strings.TrimSpace(nonce) == "" || errorsIsNotFound(err) {
 			return nil, ErrUploadTokenNotFound
 		}
-		return nil, mapRepositoryError(err)
+		return nil, mapRepositoryError(resourceType, err)
 	}
 	if token.ExpiresAt.Before(s.now().UTC()) {
 		return nil, ErrUploadTokenExpired
@@ -219,7 +219,7 @@ func (s *Service) RegisterAttachment(ctx context.Context, input RegisterAttachme
 			if errorsIsNotFound(err) {
 				return ErrUploadTokenNotFound
 			}
-			return mapRepositoryError(err)
+			return mapRepositoryError(resourceType, err)
 		}
 		created, err = s.repo.CreateAttachment(ctx, tx, CreateAttachmentParams{
 			ResourceType: resourceType,
@@ -231,7 +231,7 @@ func (s *Service) RegisterAttachment(ctx context.Context, input RegisterAttachme
 			PhotoStage:   input.PhotoStage,
 		})
 		if err != nil {
-			return mapRepositoryError(err)
+			return mapRepositoryError(resourceType, err)
 		}
 		return nil
 	})
@@ -258,7 +258,7 @@ func (s *Service) ListAttachments(ctx context.Context, resourceType ResourceType
 
 	attachments, err := s.repo.ListByResource(ctx, normalizedType, normalizedID)
 	if err != nil {
-		return nil, mapRepositoryError(err)
+		return nil, mapRepositoryError(normalizedType, err)
 	}
 	return attachments, nil
 }
@@ -275,7 +275,7 @@ func (s *Service) DeleteAttachment(ctx context.Context, attachmentID string) err
 
 	return s.txRunner.WithinTransaction(ctx, func(ctx context.Context, tx *sql.Tx, _ *txrunner.EventRecorder) error {
 		if err := s.repo.SoftDeleteAttachmentByID(ctx, tx, id); err != nil {
-			return mapRepositoryError(err)
+			return mapAttachmentRepositoryError(err)
 		}
 		return nil
 	})

@@ -53,7 +53,7 @@ var (
 	)
 )
 
-func mapRepositoryError(err error) error {
+func mapRepositoryError(resourceType ResourceType, err error) error {
 	if err == nil {
 		return nil
 	}
@@ -61,7 +61,18 @@ func mapRepositoryError(err error) error {
 		return apperr.ErrAttachmentNotFound
 	}
 	if errors.Is(err, ErrResourceNotFound) {
-		return apperr.ErrInternalServerError.WithCause(err)
+		return mapResourceNotFound(resourceType)
+	}
+
+	return apperr.ErrInternalServerError.WithCause(err)
+}
+
+func mapAttachmentRepositoryError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, ErrNotFound) || errors.Is(err, ErrResourceNotFound) {
+		return apperr.ErrAttachmentNotFound
 	}
 
 	return apperr.ErrInternalServerError.WithCause(err)
