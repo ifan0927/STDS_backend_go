@@ -1,6 +1,6 @@
 Domain Model
 
-> 版本：v3.3
+> 版本：v3.4
 > 更新說明：
 > - v2.0：經四輪多角色設計評審產出
 > - v2.1-v2.8：歷次 Validation 修正
@@ -8,6 +8,7 @@ Domain Model
 > - v3.0：認證機制改為 Firebase Auth + Custom Claims，移除自建 JWT 與 password_hash，users table 改存 firebase_uid
 > - v3.2：新增共用附件機制（GCS Signed URL + nonce 綁定 + 各資源獨立附件表），補 BR-18、附件相關 Read Models、排程任務、ADR
 > - v3.3：電費單價改為可接受浮點數；電費帳單 amount 維持台幣整數，計算後採四捨五入
+> - v3.4：補事件邊界分類矩陣，對齊目前 in-process post-commit event bus 與 direct orchestration 邊界
 
 ---
 
@@ -56,14 +57,14 @@ Lease 於建立時決定 `electricityBillingCadence`（`monthly | bimonthly`）�
 
 ### Billing
 
-電表抄錄、帳單管理與收款確認。帳單分為租金帳單與電費帳單，電費帳單在租約建立時即依 `electricityBillingCadence` 預產（`pending_meter`），等待 `MeterRecorded` 事件觸發金額更新後進入 `pending_payment`。
+電表抄錄、帳單管理與收款確認。帳單分為租金帳單與電費帳單，電費帳單在租約建立時即依 `electricityBillingCadence` 預產（`pending_meter`）。抄表 command 在同一 transaction 內計算用電金額並將帳單更新為 `pending_payment`，`MeterRecorded` event 僅保留為 domain trace / future extension。
 
 每日排程任務掃描逾期帳單（`due_date < today AND status = pending_payment`），批次更新為 `overdue`。允許 `overdue → paid` 轉換（逾期帳單仍可收款）。
 
-收款確認後產生 `AccountingEntry`，透過 `BillPaid` event 寫入 `PropertyAccount`。
+收款確認後在同一 transaction 內產生 `AccountingEntry`；`BillPaid` event 不負責 PropertyAccount 寫入，僅保留為 domain trace / future notification candidate。
 收款金額必須等於帳單金額；系統不支援部分收款或溢收。可收款狀態限 `pending_payment` 與 `overdue`，其中 `overdue → paid` 明確允許。
 
-**LeaseTerminated 後的處理**：Billing BC 訂閱 `LeaseTerminated` 後，void 該租約所有剩餘 `pending_payment` 和 `pending_meter` 狀態的預產帳單（狀態改為 `voided`）。正常終止時帳單應已全清；強制終止時已到期未結清帳單在 command 內同步標記 `written_off`，此步驟只處理仍不應收取的剩餘預產帳單。
+**LeaseTerminated 後的處理**：目前沒有 Billing BC runtime subscriber。正常終止時帳單應已全清；強制終止時未結清帳單在 command 內同步標記 `written_off`、記錄 force termination progress，並完成 force termination。若未來需要處理剩餘預產帳單 void，應先確認是否需與 termination command 強一致。
 
 **強制終止租約**（呆帳情境）：由主辦以上角色執行，流程記錄於 `force_terminations` table（Billing BC），在同一 command 中同步將未結清帳單標記為 `written_off`、記錄 `deposit_handling` 決策、完成 ForceTermination，並發出 `LeaseTerminated`。
 
@@ -82,13 +83,13 @@ Lease 於建立時決定 `electricityBillingCadence`（`monthly | bimonthly`）�
 
 | 通知類型 | 觸發時機 | 收件人 | 觸發來源 |
 |---------|---------|-------|---------|
-| 帳單通知 | 帳單預產完成（`RentBillsGenerated`） | 租客 | Event（payload 需含：tenantEmail, tenantName, roomName, bills[]{amount, dueDate, type}） |
-| 收款收據 | 帳單收款確認（`BillPaid`） | 租客 | Event（payload 需含：tenantEmail, tenantName, roomName, amount, paidAt, billType） |
+| 帳單通知 | 帳單預產完成 | 租客 | 尚未承諾；`RentBillsGenerated` 不存在於目前 runtime event structs |
+| 收款收據 | 帳單收款確認（`BillPaid`） | 租客 | 尚未承諾；`BillPaid` 目前只保留為 trace / future notification candidate |
 | 逾期催收通知 | 每週排程，最多 3 次 | 租客 | 排程任務 |
-| 退租確認 | `LeaseTerminated`（forced: false **且** isReplacement: false） | 租客 | Event（payload 需含：tenantEmail, tenantName, roomName） |
-| 強制終止通知 | `LeaseTerminated`（forced: true） | 租客 | Event（payload 需含：tenantEmail, tenantName, roomName） |
+| 退租確認 | `LeaseTerminated`（forced: false **且** isReplacement: false） | 租客 | 尚未承諾 |
+| 強制終止通知 | `LeaseTerminated`（forced: true） | 租客 | 尚未承諾 |
 | 租約到期提醒 | 到期前 30 天排程 | 主辦、員工 | 排程任務 |
-| 財報寄送 | 主辦手動審核後觸發 | 業主 | 人工操作 |
+| 財報寄送 | 主辦手動審核後觸發 | 業主 | 應由 send flow direct orchestration 處理 |
 
 ---
 
@@ -142,7 +143,7 @@ Lease 於建立時決定 `electricityBillingCadence`（`monthly | bimonthly`）�
   - `vacant → occupied`：訂閱 `LeaseCreated`
   - `occupied → vacant`：訂閱 `LeaseTerminated`
   - `vacant → maintenance`：主辦或員工透過 `POST /rooms/{id}/maintenance` 手動操作；同一 transaction 內建立 room-scoped `RepairRequest`，並發出 `RoomSetToMaintenance`
-  - `maintenance → vacant`：訂閱 `RepairCompleted` 或 `RepairCancelled`，確認該 Room 所有 RepairRequest 均為 `completed` 或 `cancelled` 後才改回 `vacant`
+  - `maintenance → vacant`：應由 repair workflow direct orchestration 檢查該 Room 所有 RepairRequest 均為 `completed` 或 `cancelled` 後改回 `vacant`；目前 runtime 尚未實作此後置處理，不應依賴沒有 durable guarantee 的 post-commit subscriber 承擔此強一致性狀態更新
 - **一致性邊界**：房間隨物業刪除而刪除；房間狀態由 Property Aggregate 統一管理
 - **併發策略**：樂觀鎖
 
@@ -182,11 +183,11 @@ Lease 於建立時決定 `electricityBillingCadence`（`monthly | bimonthly`）�
 
 - **Root Entity**：PropertyAccount（一個物業一個）
 - **包含**：當月未結算的 AccountingEntry entities
-  - 來源：BillPaid、JournalExpenseRecorded、DepositRefunded、DepositDeducted events
+  - 來源：Bill payment command 直接寫入；JournalExpenseRecorded 目前由 runtime subscriber 寫入但標記為未來一致性調整；DepositRefunded / DepositDeducted 應改由押金處理 command 直接寫入
   - `category: rent_payment | electricity_payment | deposit_refund | deposit_deduction | journal_expense`（財報分類用）
 - **寫入邊界**：只載入當月資料，不載入歷史分錄
 - **月結快照**：每月月底排程執行，將當月 AccountingEntry 封存為 `monthly_snapshot_entries`，清空 Aggregate 內當月暫存資料
-- **初始化**：物業建立時自動建立，生命週期與物業綁定
+- **初始化**：物業建立時應自動建立，生命週期與物業綁定；目前 runtime 尚未實作，未來應優先由 property creation command direct orchestration 保證
 - **刪除策略**：物業軟刪除時 PropertyAccount 封存，MonthlySnapshot 永久保留
 - **讀取策略**：
   - 當月：讀取 PropertyAccount 當月 AccountingEntry
@@ -198,7 +199,7 @@ Lease 於建立時決定 `electricityBillingCadence`（`monthly | bimonthly`）�
 - **Root Entity**：JournalLog
 - **包含**：紀錄內容、費用條目（optional Value Object）
 - **無狀態機**
-- **費用流程**：記錄費用時發出 `JournalExpenseRecorded` event → PropertyAccount 訂閱新增 AccountingEntry
+- **費用流程**：目前記錄費用時發出 `JournalExpenseRecorded` event，runtime subscriber 會新增 AccountingEntry；因 accounting state 需要較強一致性，此邊界標記為 future consistency concern，未來宜改為 Journal command direct orchestration。
 
 ### RepairRequest Aggregate（Journal BC）
 
@@ -216,7 +217,7 @@ Lease 於建立時決定 `electricityBillingCadence`（`monthly | bimonthly`）�
   - `submitted → cancelled`
   - `assigned → cancelled`
   - `in_progress → cancelled`
-- **cancelled 後置處理**：Property BC 訂閱 `RepairCancelled` event，檢查該 Room 是否所有 RepairRequest 均為 `completed` 或 `cancelled`，若是則 Room 改回 `vacant`
+- **cancelled / completed 後置處理**：Room 狀態恢復應由 repair workflow direct orchestration 處理；目前 `RepairCompleted` / `RepairCancelled` 已發出 event，但沒有 runtime subscriber。
 - **派工**：指派系統內員工，員工負責線下聯絡廠商
 - **與 Room 狀態關聯**：只要該 Room 尚有未完成且未取消的 RepairRequest，Room 應維持 `maintenance`；因此 BR-08 可由 Room 狀態統一表達，不另定義獨立刪除規則
 
@@ -231,34 +232,45 @@ Lease 於建立時決定 `electricityBillingCadence`（`monthly | bimonthly`）�
 
 ## Domain Events
 
-| Event | 發出 BC | 說明 | 主要 Payload | 訂閱者 |
-|-------|---------|------|-------------|-------|
-| LeaseCreated | Leasing | 租約建立 | leaseId, roomId, tenantId, startDate, endDate, electricityBillingCadence | Property, Billing |
-| LeaseTerminated | Leasing | 租約終止（含強制終止） | leaseId, roomId, forced: bool, isRenewal: bool, isReplacement: bool | Property, Billing, Notification |
-| LeaseReplaced | Leasing | 以新 Lease 承接舊 Lease 的特殊條件重建 | oldLeaseId, newLeaseId, roomId, tenantId, reason, effectiveDate, changedFields[], depositHandling | Notification |
-| LeaseConditionChanged | Leasing | 租金金額調整 | leaseId, newRentAmount | Billing |
-| DepositRefunded | Leasing | 押金退還（含部分退還） | leaseId, refundAmount, propertyId | Billing |
-| DepositDeducted | Leasing | 押金扣款（含部分扣款） | leaseId, deductionAmount, reason, propertyId | Billing |
-| TenantInfoUpdated | Leasing | 租客資料變更 | tenantId | —（預留，審計用） |
-| RentBillsGenerated | Billing | 租約建立時預產帳單 | leaseId, tenantEmail, tenantName, roomName, bills[]{amount, dueDate, type} | Notification |
-| BillPaid | Billing | 帳單收款確認 | billId, amount, propertyId | PropertyAccount |
-| MeterRecorded | Billing | 電表抄錄完成，電費帳單金額更新 | billId, meterReading | — |
-| JournalExpenseRecorded | Journal | 日誌費用記錄 | journalLogId, amount, propertyId | Billing |
-| RepairCompleted | Journal | 維修完成 | repairRequestId, roomId, propertyId | Property |
-| RepairCancelled | Journal | 維修取消 | repairRequestId, roomId, propertyId | Property |
-| PropertyCreated | Property | 物業建立 | propertyId | Billing（建立 PropertyAccount） |
-| RoomSetToMaintenance | Property | 房間進入維修狀態 | roomId, propertyId, operatorId | — |
-| PropertyUnassigned | Identity & Access | 物業指派移除 | userId, propertyId | —（進行中操作不撤銷，下次操作時權限擋住） |
+目前 runtime 使用 synchronous in-process post-commit event bus。`txRunner` 在 command transaction commit 成功後才 publish recorded events；subscriber 失敗不能 rollback 原 command，且沒有 outbox、retry queue、dead-letter queue、durable delivery guarantee 或外部 broker。
 
-> **v2.2 修正**：
-> - LeaseConditionChanged payload 移除 newPaymentDay（付款日不可修改）
-> - RepairCompleted payload 補上 roomId（Property BC 需要判斷該 Room 是否所有 RepairRequest 完成）
-> - 新增 PropertyUnassigned event
-> - 已移除：LeaseRenewed（v2.1）
->
-> **RoomSetToMaintenance 補充**：
-> - maintenance request 的 `title` / `description` 持久化於 `repair_requests`
-> - `RoomSetToMaintenance` payload 維持輕量，不攜帶 repair reason/description
+分類定義：
+
+- `implemented pub/sub and intentionally kept`：目前有 runtime subscriber，且此專案接受 post-commit follow-up 風險。
+- `implemented pub/sub but future consistency concern`：目前有 runtime subscriber，但 side effect 屬於較強一致性資料，未來宜改 direct orchestration。
+- `command-owned direct orchestration and intentionally kept`：目前已由 command transaction 直接完成，或決策上確認應由 command transaction 直接完成，不應改成目前這種 post-commit pub/sub。
+- `published-only/reserved`：event 可作 domain trace、audit 或 future extension；目前沒有 required runtime subscriber。
+- `missing required subscriber candidate`：文件或產品語意看似要求 downstream behavior，但目前 runtime 未實作；後續仍需確認 boundary。
+- `obsolete event expectation`：現有實作已採其他路徑，event/subscriber 不應再被視為主流程承諾。
+- `decision needed`：目前不承諾 runtime behavior，需另行確認。
+
+| Event / side effect | Current runtime implementation | Classification | Transaction consistency reason | Follow-up status |
+|---------------------|--------------------------------|----------------|-------------------------------|------------------|
+| `LeaseCreated -> room occupied` | `LeaseCreated` is recorded by create / replacement lease commands; `OccupyRoomOnLeaseCreatedHandler` is wired in `server.New()` | implemented pub/sub and intentionally kept | Room state is updated after lease commit; this project accepts the post-commit inconsistency risk for now | Verify in #49, including replacement sequence |
+| `LeaseCreated -> tenant active` | `ActivateTenantOnLeaseCreatedHandler` is wired in `server.New()` | implemented pub/sub and intentionally kept | Tenant reactivation is post-commit follow-up; current project risk is acceptable | Verify in #49 |
+| `LeaseTerminated -> room vacant` | Normal termination, force termination, and replacement old-lease termination record `LeaseTerminated`; `ReleaseRoomOnLeaseTerminatedHandler` is wired | implemented pub/sub and intentionally kept | Room release happens after lease commit; replacement emits `LeaseTerminated` before `LeaseCreated`, so tests must confirm final state | Verify in #49, especially replacement |
+| `LeaseTerminated -> tenant inactive` | `DeactivateTenantOnLeaseTerminatedHandler` is wired and checks remaining active / expired leases | implemented pub/sub and intentionally kept | Post-commit tenant deactivation is accepted; replacement should not deactivate when successor lease exists | Verify in #49 |
+| Lease creation / replacement bill pre-generation | Lease create and replacement commands directly create rent and electricity bills in the lease transaction | command-owned direct orchestration and intentionally kept | Lease and initial bills should succeed or fail together | No subscriber needed |
+| Lease rent adjustment bill cleanup / regeneration | `UpdateLeaseService` directly voids future rent bills and creates replacement rent bills | command-owned direct orchestration and intentionally kept | Rent change and generated bill state are one business transaction | No subscriber needed |
+| `LeaseConditionChanged` | Event is recorded after rent adjustment; no runtime subscriber | published-only/reserved | Bill regeneration is already direct; event is trace/future extension only | No implementation commitment |
+| `LeaseReplaced` | Event is recorded after replacement; no runtime subscriber | published-only/reserved | Replacement state changes and bill generation are already direct; notification/audit behavior is not required now | No implementation commitment |
+| Normal termination deposit settlement | Termination command directly settles deposit state, then records `DepositRefunded` / `DepositDeducted` when applicable | command-owned direct orchestration and intentionally kept | Lease termination and deposit settlement must stay atomic | Deposit accounting follow-up below |
+| `DepositRefunded` / `DepositDeducted -> accounting entry` | Events are recorded, but accounting entry is not created yet | command-owned direct orchestration and intentionally kept | Deposit accounting is financial state and should be strongly consistent | Future implementation should add direct accounting, not pub/sub |
+| Force termination write-off and completion | `ForceTerminateLeaseService` directly writes off bills, marks force termination bills done, completes force termination, then records `LeaseTerminated` | command-owned direct orchestration and intentionally kept | Write-off progress and force termination completion must be atomic with the command | No subscriber needed |
+| `BillPaid -> accounting entry` | `RecordPaymentService` directly creates AccountingEntry in the payment transaction, then records `BillPaid` | command-owned direct orchestration and intentionally kept | Payment and accounting entry must succeed or fail together | No subscriber needed |
+| `BillPaid` receipt notification | `BillPaid` is recorded; no receipt notification subscriber exists | published-only/reserved | Receipt notification is not committed as required behavior now; do not overload accounting event semantics | No implementation commitment |
+| `MeterRecorded` bill amount / status update | `RecordMeterService` directly calculates amount and updates bill state, then records `MeterRecorded` | command-owned direct orchestration and intentionally kept | Meter command's core output is the updated bill; it must be atomic | Event remains trace/reserved |
+| `JournalExpenseRecorded -> accounting entry` | `JournalExpenseRecordedHandler` is wired and creates AccountingEntry in a separate post-commit transaction | implemented pub/sub but future consistency concern | Journal expense and accounting entry can diverge if subscriber fails; accounting state should eventually move into direct orchestration | Future issue should migrate to direct accounting |
+| `PropertyCreated -> PropertyAccount` | `PropertyCreated` is recorded by property creation, but PropertyAccount creation is not guaranteed yet | command-owned direct orchestration and intentionally kept | PropertyAccount lifecycle should be strongly tied to property creation | Future implementation should add direct orchestration |
+| `RoomSetToMaintenance` | `SetRoomMaintenanceService` directly creates room-scoped RepairRequest and sets room to maintenance, then records event | command-owned direct orchestration and intentionally kept | Room state and repair request creation must be atomic | Event remains trace/reserved; no subscriber needed |
+| `RepairCompleted` / `RepairCancelled -> room vacant` | Repair workflow records events, but room status recovery is not implemented yet | command-owned direct orchestration and intentionally kept | Room recovery affects Property aggregate state and should be strongly consistent with repair workflow | Future implementation should add direct orchestration |
+| `TenantInfoUpdated` | Tenant update records event; no runtime subscriber | published-only/reserved | No required downstream behavior currently exists | No implementation commitment |
+| `FinancialReportSendRequested` | Report send service publishes event directly after validation; no runtime subscriber sends report | obsolete event expectation | User-facing send behavior should be explicit; current event path has no delivery behavior | Future implementation should use direct send/orchestration |
+| `UserPasswordResetRequested` | Subscriber is wired, but current IAM create-user and password-reset flows call notification directly and do not publish this event | obsolete event expectation | Existing direct notification flow controls request failure semantics and is acceptable | Do not treat event path as required |
+| Scheduler overdue reminder notification | Job runner directly increments overdue notice count and sends notification in the job flow | command-owned direct orchestration and intentionally kept | Job summary depends on notification success/failure accounting | No event subscriber needed |
+| Scheduler lease expiring-soon notification | Job runner directly calls notification service per recipient | command-owned direct orchestration and intentionally kept | Job-level success/failure is owned by the scheduler use case | No event subscriber needed |
+
+> `PropertyUnassigned` and `RentBillsGenerated` are older design expectations but do not currently exist as event structs in `internal/domain/events`; they should not be treated as runtime commitments unless reintroduced by a focused issue.
 
 ---
 
@@ -482,10 +494,9 @@ PropertyOwnerView
   → 檢查所有帳單是否結清
   → 若有未付帳單 → 拒絕，回傳未付帳單清單
   → 全部結清 → 確認押金處理（退還或扣款）
-  → DepositRefunded / DepositDeducted event → PropertyAccount
+  → 更新押金狀態；DepositRefunded / DepositDeducted event 僅保留為 trace
   → LeaseTerminated event（forced: false）
   → Property BC 訂閱 → Room 狀態改為 vacant
-  → Notification BC 訂閱 → 寄送退租確認 Email
 ```
 
 ### 強制終止（呆帳）
@@ -498,7 +509,6 @@ PropertyOwnerView
   → 全部 written_off 完成 → 依 deposit_handling 人工決定將押金標記 written_off，或維持 held 等待後續押金處理
   → LeaseTerminated event（forced: true）
   → Property BC 訂閱 → Room 狀態改為 vacant
-  → Notification BC 訂閱 → 寄送強制終止通知
 ```
 
 > 最後一個月帳單按整月計算，不按天拆分。
@@ -631,18 +641,18 @@ attachment_upload_tokens(
 | PropertyAccount 架構 | 月結快照：Aggregate 只持有當月，歷史走 MonthlySnapshot | 解決 Aggregate 無限增長問題，寫入效能穩定 |
 | 租客角色 | 無系統帳號，Email 通知 | 降低系統複雜度，租客透過 Email 收帳單 |
 | 代管費 | 超出範圍 | 工作室財務另外處理，不在 STDS 範圍內 |
-| 跨 BC 傳遞 | In-process event bus | 單一服務架構，無需 message queue |
+| 跨 BC 傳遞 | In-process event bus + command-owned direct orchestration | 單一服務架構，無需 message queue；需要強一致性的 side effect 留在 command transaction |
 | 軟刪除 | 全部軟刪除，所有查詢加 deleted_at IS NULL filter | 歷史帳單和日誌需保留關聯，不可真刪除 |
 | 強制終止租約 | 同步完成 ForceTermination，保留已棄用補償式 `in_progress` 語意作歷史參考 | 目前事件匯流排為 in-process，強制終止 command 在交易內同步完成帳單 write-off、`deposit_handling` 記錄與 `completed` 狀態，避免引入尚未需要的排程補償流程 |
 | Room 競態防護 | 建立租約時對 Room 取悲觀鎖（select for update）再檢查 BR-12 | 防止兩個請求同時對同一 Room 建立租約 |
-| maintenance → vacant 條件 | 該 Room 所有 RepairRequest 均 completed 或 cancelled 才轉回 vacant | 多個 RepairRequest 場景下避免過早開放房間 |
+| maintenance → vacant 條件 | 該 Room 所有 RepairRequest 均 completed 或 cancelled 才轉回 vacant | 多個 RepairRequest 場景下避免過早開放房間；未來實作應走 repair workflow direct orchestration |
 | BR-09 移除 | 移除，BR-04 已完整涵蓋 | 退租流程統一由 BR-04 把關，不重複檢查 |
-| 物業指派移除 event | 新增 PropertyUnassigned event，進行中操作不撤銷 | 下次操作時權限自然擋住，不需要複雜的操作撤銷邏輯 |
+| 物業指派移除 event | 舊設計曾預留 PropertyUnassigned event，進行中操作不撤銷 | 目前 runtime 沒有此 event struct；下次操作時權限自然擋住，不需要複雜的操作撤銷邏輯 |
 | BR-08 維修中刪除 | 移除例外，維修中房間不得刪除；maintenance 狀態由 active RepairRequest 維持 | 刪除維修中 Room 導致 RepairRequest 狀態機孤立 |
 | 逾期競態 | 樂觀鎖，付款優先，批次跳過衝突 | 帳單已付款則批次自然不再掃到，無需額外處理 |
 | overdue → paid | 允許 | 逾期帳單仍應可收款，不因逾期狀態阻斷收款流程 |
-| 押金部分扣款 | Deposit VO 拆分 deductionAmount + refundAmount，status 改為 settled 取代 refunded/deducted | 台灣退租最常見情境是「扣一部分、退餘額」，原 refunded/deducted 二選一無法表達；DepositDeducted + DepositRefunded 兩事件可依序發出，PropertyAccount 分別記入 deposit_deduction 與 deposit_refund 分錄 |
-| Lease replacement 通知語意 | LeaseTerminated 加 `isReplacement: bool`，並新增 LeaseReplaced event | Notification BC 對 replacement 不寄退租確認，改由 LeaseReplaced 作為特殊通知或審計依據 |
+| 押金部分扣款 | Deposit VO 拆分 deductionAmount + refundAmount，status 改為 settled 取代 refunded/deducted | 台灣退租最常見情境是「扣一部分、退餘額」，原 refunded/deducted 二選一無法表達；DepositDeducted + DepositRefunded 兩事件可依序發出，但 PropertyAccount 分錄應由押金處理 command direct accounting 寫入 |
+| Lease replacement 通知語意 | LeaseTerminated 加 `isReplacement: bool`，並新增 LeaseReplaced event | Notification BC 對 replacement 不寄退租確認；LeaseReplaced 目前作為審計 / future notification candidate |
 | 認證機制 | Firebase Auth + Custom Claims | 降低自建 JWT 與密碼管理複雜度；Custom Claims 支援 server-side 更新，可在物業指派變更後立即同步 role 與 assigned_property_ids 至 token；users table 改存 firebase_uid 取代 password_hash |
 | 附件業務定位 | 純 CRUD，不參與業務規則 | 附件為輔助資訊，不影響任何 Aggregate 狀態機或業務決策；保持模型簡潔，避免過度設計 |
 | 附件表架構 | 方案 B：各資源獨立附件表 | 維持真實 FK 約束，符合現有 BC 邊界設計風格；軟刪除 cascade 由應用層 transaction 保證 |

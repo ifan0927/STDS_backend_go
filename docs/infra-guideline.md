@@ -1140,40 +1140,44 @@ type Publisher interface {
 
 ### 目前正式 wiring 狀態
 
-目前 `server.New()` 仍然是：
+目前 `server.New()` 會建立 runtime event bus：
 
 ```go
-txRunner := dbtxrunner.New(db, domainevents.NoopPublisher{})
+bus := eventbus.New()
+txRunner := dbtxrunner.New(db, bus)
 ```
 
 位置：
 
 - `internal/server/server.go`
 
-這代表現在正式 runtime 的行為是：
+正式 runtime 的行為是：
 
-- application 可以 record domain event
-- 但 event 不會真的 dispatch 到任何 subscriber
+- application service 在 DB transaction 內透過 `EventRecorder` 記錄 event
+- `txRunner` 只在 commit 成功後呼叫 `bus.Publish(ctx, event)`
+- `eventbus.Bus` 依 concrete event type 同步呼叫已註冊 subscriber
+- subscriber 由 composition root 明確註冊，不在 request flow 中動態註冊
 
-這不是 bug，這是目前系統尚未啟用 event subscriber wiring 的現況。
+目前已註冊的 runtime subscribers：
 
-### 現在要不要修成 infra bus
+- `UserPasswordResetRequested -> notificationService.HandleUserPasswordResetRequested`
+- `LeaseCreated -> OccupyRoomOnLeaseCreatedHandler.HandleLeaseCreated`
+- `LeaseCreated -> ActivateTenantOnLeaseCreatedHandler.HandleLeaseCreated`
+- `LeaseTerminated -> ReleaseRoomOnLeaseTerminatedHandler.HandleLeaseTerminated`
+- `LeaseTerminated -> DeactivateTenantOnLeaseTerminatedHandler.HandleLeaseTerminated`
+- `JournalExpenseRecorded -> JournalExpenseRecordedHandler.HandleJournalExpenseRecorded`
 
-目前判斷：**不需要急著修**。
+`domainevents.NoopPublisher{}` 仍是 `txrunner.New` 的 nil publisher fallback，並可用於不需要 dispatch event 的測試或局部 wiring；它不是目前 production `server.New()` 的 publisher。
 
-原因：
+### Boundary decision rule
 
-- repo 內目前沒有任何正式 runtime subscriber
-- `eventbus.Subscribe(...)` 只出現在 `eventbus` 自己的測試
-- 現在把 `NoopPublisher` 換成 `eventbus.Bus`，行為上沒有可見收益
+目前 event bus 是同步、in-process、post-commit dispatch。它沒有 outbox、retry queue、dead-letter queue、durable delivery guarantee，也不是跨服務 broker。
 
-只有在以下條件成立時，才值得現在接上：
+因此 boundary 判斷規則是：
 
-- 已經有明確的 post-commit subscriber 要執行
-- 該 subscriber 的行為屬於 in-process 同步 side effect
-- 你準備好在 bootstrap 明確註冊 subscriber
-
-如果這三件事都還沒成立，就維持 `NoopPublisher` 即可。
+- 需要與 command transaction 強一致的 side effect，應留在 application service transaction 內直接編排。
+- 可接受 command commit 後再補做、且失敗不需要 rollback 原 command 的 follow-up，才適合目前的 pub/sub subscriber。
+- 若只是保留 domain trace、審計語意或未來擴充點，可以 publish event 但不註冊 subscriber；文件必須明確標成 reserved/published-only，不能暗示 runtime 已實作。
 
 ### 標準使用方式
 
