@@ -27,8 +27,8 @@ type ExecutionSummary struct {
 	Note           string
 }
 
-// Runner executes a concrete job.
-type Runner func(context.Context) (*ExecutionSummary, error)
+// Runner executes a concrete job for one scheduler window.
+type Runner func(context.Context, string) (*ExecutionSummary, error)
 
 // TriggerResult is the transport-neutral result for a scheduler trigger call.
 type TriggerResult struct {
@@ -107,7 +107,7 @@ func (s *TriggerService) Execute(ctx context.Context, jobKey JobKey, windowKey s
 	defer cancel()
 
 	startedAt := time.Now()
-	summary, err := runner(runCtx)
+	summary, err := runner(runCtx, windowKey)
 	result.DurationMs = time.Since(startedAt).Milliseconds()
 	if summary == nil {
 		summary = &ExecutionSummary{}
@@ -137,11 +137,23 @@ func (s *TriggerService) Execute(ctx context.Context, jobKey JobKey, windowKey s
 
 func defaultRunners() map[JobKey]Runner {
 	return map[JobKey]Runner{
-		JobOverdueBillsScan:             func(context.Context) (*ExecutionSummary, error) { return &ExecutionSummary{Note: "job completed"}, nil },
-		JobOverdueBillReminders:         func(context.Context) (*ExecutionSummary, error) { return &ExecutionSummary{Note: "job completed"}, nil },
-		JobLeaseExpiryScan:              func(context.Context) (*ExecutionSummary, error) { return &ExecutionSummary{Note: "job completed"}, nil },
-		JobLeaseExpiringSoonReminder:    func(context.Context) (*ExecutionSummary, error) { return &ExecutionSummary{Note: "job completed"}, nil },
-		JobMonthlySnapshot:              func(context.Context) (*ExecutionSummary, error) { return &ExecutionSummary{Note: "job completed"}, nil },
-		JobForceTerminationCompensation: func(context.Context) (*ExecutionSummary, error) { return &ExecutionSummary{Note: "job completed"}, nil },
+		JobOverdueBillsScan: func(context.Context, string) (*ExecutionSummary, error) {
+			return &ExecutionSummary{Note: "job completed"}, nil
+		},
+		JobOverdueBillReminders: func(context.Context, string) (*ExecutionSummary, error) {
+			return &ExecutionSummary{Note: "job completed"}, nil
+		},
+		JobLeaseExpiryScan: func(context.Context, string) (*ExecutionSummary, error) {
+			return &ExecutionSummary{Note: "job completed"}, nil
+		},
+		JobLeaseExpiringSoonReminder: func(context.Context, string) (*ExecutionSummary, error) {
+			return &ExecutionSummary{Note: "job completed"}, nil
+		},
+		JobMonthlySnapshot: func(context.Context, string) (*ExecutionSummary, error) {
+			return &ExecutionSummary{Note: "job completed"}, nil
+		},
+		JobForceTerminationCompensation: func(context.Context, string) (*ExecutionSummary, error) {
+			return &ExecutionSummary{Note: "job completed"}, nil
+		},
 	}
 }

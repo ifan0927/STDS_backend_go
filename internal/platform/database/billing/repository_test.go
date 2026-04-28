@@ -627,6 +627,61 @@ func TestListFinancialReportSummariesIncludesEmptyLiveMonthWhenAccountExists(t *
 	}
 }
 
+func TestMarkBillOverdueReturnsConcurrentUpdateWhenNoRowsAffected(t *testing.T) {
+	db, mock, repo := newBillingRepoTest(t)
+	defer closeBillingDB(t, db)
+	tx := beginBillingTx(t, db, mock)
+	defer tx.Rollback()
+
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE bills
+SET status = 'overdue',
+	updated_at = now(),
+	version = version + 1
+WHERE id = $1
+  AND version = $2
+  AND status = 'pending_payment'
+  AND deleted_at IS NULL`)).
+		WithArgs("bill-1", 3).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	err := repo.MarkBillOverdue(context.Background(), tx, "bill-1", 3)
+	if !errors.Is(err, ErrConcurrentUpdate) {
+		t.Fatalf("expected ErrConcurrentUpdate, got %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestMonthlySnapshotExistsReturnsTrue(t *testing.T) {
+	db, mock, repo := newBillingRepoTest(t)
+	defer closeBillingDB(t, db)
+	tx := beginBillingTx(t, db, mock)
+	defer tx.Rollback()
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT 1
+FROM monthly_snapshots
+WHERE property_id = $1
+  AND year = $2
+  AND month = $3
+LIMIT 1`)).
+		WithArgs("property-1", 2026, 4).
+		WillReturnRows(sqlmock.NewRows([]string{"marker"}).AddRow(1))
+
+	exists, err := repo.MonthlySnapshotExists(context.Background(), tx, "property-1", 2026, 4)
+	if err != nil {
+		t.Fatalf("MonthlySnapshotExists: %v", err)
+	}
+	if !exists {
+		t.Fatal("expected snapshot to exist")
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
 func newBillingRepoTest(t *testing.T) (*sql.DB, sqlmock.Sqlmock, *SQLRepository) {
 	t.Helper()
 

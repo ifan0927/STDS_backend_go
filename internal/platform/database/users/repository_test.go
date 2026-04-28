@@ -295,3 +295,44 @@ RETURNING
 		t.Fatalf("ExpectationsWereMet: %v", err)
 	}
 }
+
+func TestListLeaseExpiringSoonRecipientsReturnsOrganizersAndAssignedStaff(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewRepository(db)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT email, name
+FROM users
+WHERE deleted_at IS NULL
+  AND (
+    role = 'organizer'
+    OR (
+      role = 'staff'
+      AND assigned_property_ids @> jsonb_build_array($1::text)
+    )
+  )
+ORDER BY role ASC, created_at ASC, id ASC`)).
+		WithArgs("property-1").
+		WillReturnRows(sqlmock.NewRows([]string{"email", "name"}).
+			AddRow("organizer@studio.com", "Organizer").
+			AddRow("staff@studio.com", "Staff"))
+
+	recipients, err := repo.ListLeaseExpiringSoonRecipients(context.Background(), "property-1")
+	if err != nil {
+		t.Fatalf("ListLeaseExpiringSoonRecipients: %v", err)
+	}
+	if len(recipients) != 2 {
+		t.Fatalf("expected 2 recipients, got %d", len(recipients))
+	}
+	if recipients[0].Email != "organizer@studio.com" || recipients[1].Email != "staff@studio.com" {
+		t.Fatalf("unexpected recipients: %+v", recipients)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}

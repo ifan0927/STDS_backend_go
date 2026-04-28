@@ -137,6 +137,27 @@ type ForceTerminationBill struct {
 	Status string
 }
 
+// JobLeaseCandidate is the minimal lease state needed by scheduler jobs.
+type JobLeaseCandidate struct {
+	ID      string
+	Version int
+}
+
+// JobLeaseExpiringSoonCandidate is the lease state needed for expiration reminders.
+type JobLeaseExpiringSoonCandidate struct {
+	ID         string
+	PropertyID string
+	TenantID   string
+	RoomID     string
+	EndDate    time.Time
+}
+
+// JobForceTerminationCandidate is a legacy in-progress force-termination row.
+type JobForceTerminationCandidate struct {
+	ID     string
+	Reason string
+}
+
 // UpdateLeaseParams contains supported normal lease-condition update fields.
 type UpdateLeaseParams struct {
 	LeaseID    string
@@ -181,6 +202,160 @@ type SQLRepository struct {
 // NewRepository returns a CommandRepository backed by the provided database handle.
 func NewRepository(db *sql.DB) *SQLRepository {
 	return &SQLRepository{db: db}
+}
+
+// ListLeaseExpiryCandidates returns active leases that should be marked expired.
+func (r *SQLRepository) ListLeaseExpiryCandidates(ctx context.Context, today time.Time) ([]JobLeaseCandidate, error) {
+	const query = `
+SELECT id, version
+FROM leases
+WHERE end_date < $1
+  AND status = 'active'
+  AND deleted_at IS NULL
+ORDER BY end_date ASC, id ASC
+`
+
+	rows, err := r.db.QueryContext(ctx, query, today)
+	if err != nil {
+		return nil, fmt.Errorf("list lease expiry candidates: %w", err)
+	}
+	defer rows.Close()
+
+	candidates := make([]JobLeaseCandidate, 0)
+	for rows.Next() {
+		var candidate JobLeaseCandidate
+		if err := rows.Scan(&candidate.ID, &candidate.Version); err != nil {
+			return nil, fmt.Errorf("scan lease expiry candidate: %w", err)
+		}
+		candidates = append(candidates, candidate)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate lease expiry candidates: %w", err)
+	}
+
+	return candidates, nil
+}
+
+// MarkLeaseExpired updates a lease to expired without changing room occupancy.
+func (r *SQLRepository) MarkLeaseExpired(ctx context.Context, tx *sql.Tx, leaseID string, expectedVersion int) error {
+	const query = `
+UPDATE leases
+SET status = 'expired',
+	updated_at = now(),
+	version = version + 1
+WHERE id = $1
+  AND version = $2
+  AND status = 'active'
+  AND deleted_at IS NULL
+`
+
+	result, err := tx.ExecContext(ctx, query, leaseID, expectedVersion)
+	if err != nil {
+		return fmt.Errorf("mark lease expired: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read mark lease expired affected rows: %w", err)
+	}
+	if affected == 0 {
+		return ErrLeaseNotFound
+	}
+
+	return nil
+}
+
+// ListLeaseExpiringSoonCandidates returns active leases ending on targetDate.
+func (r *SQLRepository) ListLeaseExpiringSoonCandidates(ctx context.Context, targetDate time.Time) ([]JobLeaseExpiringSoonCandidate, error) {
+	const query = `
+SELECT id, property_id, tenant_id, room_id, end_date
+FROM leases
+WHERE end_date = $1
+  AND status = 'active'
+  AND deleted_at IS NULL
+ORDER BY property_id ASC, end_date ASC, id ASC
+`
+
+	rows, err := r.db.QueryContext(ctx, query, targetDate)
+	if err != nil {
+		return nil, fmt.Errorf("list lease expiring soon candidates: %w", err)
+	}
+	defer rows.Close()
+
+	candidates := make([]JobLeaseExpiringSoonCandidate, 0)
+	for rows.Next() {
+		var candidate JobLeaseExpiringSoonCandidate
+		if err := rows.Scan(&candidate.ID, &candidate.PropertyID, &candidate.TenantID, &candidate.RoomID, &candidate.EndDate); err != nil {
+			return nil, fmt.Errorf("scan lease expiring soon candidate: %w", err)
+		}
+		candidates = append(candidates, candidate)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate lease expiring soon candidates: %w", err)
+	}
+
+	return candidates, nil
+}
+
+// ListInProgressForceTerminations returns legacy force-termination rows that need compensation.
+func (r *SQLRepository) ListInProgressForceTerminations(ctx context.Context) ([]JobForceTerminationCandidate, error) {
+	const query = `
+SELECT id, reason
+FROM force_terminations
+WHERE status = 'in_progress'
+ORDER BY created_at ASC, id ASC
+`
+
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list in-progress force terminations: %w", err)
+	}
+	defer rows.Close()
+
+	candidates := make([]JobForceTerminationCandidate, 0)
+	for rows.Next() {
+		var candidate JobForceTerminationCandidate
+		if err := rows.Scan(&candidate.ID, &candidate.Reason); err != nil {
+			return nil, fmt.Errorf("scan force termination candidate: %w", err)
+		}
+		candidates = append(candidates, candidate)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate force termination candidates: %w", err)
+	}
+
+	return candidates, nil
+}
+
+// ListPendingForceTerminationBillIDs locks pending force-termination bills.
+func (r *SQLRepository) ListPendingForceTerminationBillIDs(ctx context.Context, tx *sql.Tx, forceTerminationID string) ([]string, error) {
+	const query = `
+SELECT bill_id
+FROM force_termination_bills
+WHERE force_termination_id = $1
+  AND status = 'pending'
+ORDER BY created_at ASC, bill_id ASC
+FOR UPDATE
+`
+
+	rows, err := tx.QueryContext(ctx, query, forceTerminationID)
+	if err != nil {
+		return nil, fmt.Errorf("list pending force termination bills: %w", err)
+	}
+	defer rows.Close()
+
+	billIDs := make([]string, 0)
+	for rows.Next() {
+		var billID string
+		if err := rows.Scan(&billID); err != nil {
+			return nil, fmt.Errorf("scan pending force termination bill: %w", err)
+		}
+		billIDs = append(billIDs, billID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate pending force termination bills: %w", err)
+	}
+
+	return billIDs, nil
 }
 
 func (r *SQLRepository) FindTenantByID(ctx context.Context, tx *sql.Tx, tenantID string) (*Tenant, error) {
@@ -504,8 +679,13 @@ INSERT INTO force_termination_bills (
 }
 
 func (r *SQLRepository) WriteOffBills(ctx context.Context, tx *sql.Tx, billIDs []string, reason string) error {
+	_, err := r.WriteOffBillsWithCount(ctx, tx, billIDs, reason)
+	return err
+}
+
+func (r *SQLRepository) WriteOffBillsWithCount(ctx context.Context, tx *sql.Tx, billIDs []string, reason string) (int, error) {
 	if len(billIDs) == 0 {
-		return nil
+		return 0, nil
 	}
 
 	placeholders, args := placeholdersForStrings(2, billIDs)
@@ -516,16 +696,21 @@ SET status = 'written_off',
 	updated_at = now(),
 	version = version + 1
 WHERE id IN (` + strings.Join(placeholders, ", ") + `)
-  AND status NOT IN ('paid', 'voided', 'written_off')
+  AND status NOT IN ('paid', 'voided')
   AND deleted_at IS NULL
 `
 	args = append([]any{reason}, args...)
 
-	if _, err := tx.ExecContext(ctx, query, args...); err != nil {
-		return fmt.Errorf("write off bills: %w", err)
+	result, err := tx.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("write off bills: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("read write off bills affected rows: %w", err)
 	}
 
-	return nil
+	return int(affected), nil
 }
 
 func (r *SQLRepository) MarkForceTerminationBillsDone(ctx context.Context, tx *sql.Tx, forceTerminationID string, billIDs []string) error {

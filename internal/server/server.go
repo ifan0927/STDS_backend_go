@@ -148,7 +148,7 @@ func New(cfg *config.Config) (*Server, error) {
 	releaseRoomOnLeaseTerminated := applease.NewReleaseRoomOnLeaseTerminatedHandler(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
 	deactivateTenantOnLeaseTerminated := applease.NewDeactivateTenantOnLeaseTerminatedHandler(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
 	recordJournalExpense := newJournalExpenseRecordedHandler(db, txRunner)
-	jobTriggerService := appjobs.NewTriggerService(jobRunStoreAdapter{repo: jobRunsRepo}, nil, cfg.App.SchedulerJobTimeout, cfg.App.SchedulerMaxRetries)
+	jobTriggerService := appjobs.NewTriggerService(jobRunStoreAdapter{repo: jobRunsRepo}, newJobRunners(db, txRunner, notificationService), cfg.App.SchedulerJobTimeout, cfg.App.SchedulerMaxRetries)
 	eventbus.Subscribe(bus, occupyRoomOnLeaseCreated.HandleLeaseCreated)
 	eventbus.Subscribe(bus, activateTenantOnLeaseCreated.HandleLeaseCreated)
 	eventbus.Subscribe(bus, releaseRoomOnLeaseTerminated.HandleLeaseTerminated)
