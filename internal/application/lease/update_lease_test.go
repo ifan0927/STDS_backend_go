@@ -253,7 +253,8 @@ func TestUpdateDepositServiceSettlesDepositAndPublishesEvents(t *testing.T) {
 			DepositStatus:             "held",
 		},
 	}
-	service := NewUpdateDepositService(repo, dbtxrunner.New(db, publisher))
+	accountingRepo := &depositAccountingRepositoryStub{}
+	service := NewUpdateDepositService(repo, accountingRepo, dbtxrunner.New(db, publisher))
 
 	refundAmount := 30000
 	deductionAmount := 6000
@@ -281,6 +282,24 @@ func TestUpdateDepositServiceSettlesDepositAndPublishesEvents(t *testing.T) {
 	if lease.DepositDeductionReason == nil || *lease.DepositDeductionReason != reason {
 		t.Fatalf("DepositDeductionReason = %v, want %q", lease.DepositDeductionReason, reason)
 	}
+	if len(accountingRepo.entries) != 2 {
+		t.Fatalf("accounting entries = %d, want 2", len(accountingRepo.entries))
+	}
+	if accountingRepo.entries[0].Category != depositAccountingCategoryRefund || accountingRepo.entries[0].Amount != -refundAmount {
+		t.Fatalf("refund accounting entry = %+v", accountingRepo.entries[0])
+	}
+	if accountingRepo.entries[0].SourceRef["type"] != "DepositRefunded" || accountingRepo.entries[0].SourceRef["lease_id"] != updateLeaseTestLeaseID {
+		t.Fatalf("refund source ref = %#v", accountingRepo.entries[0].SourceRef)
+	}
+	if accountingRepo.entries[1].Category != depositAccountingCategoryDeduction || accountingRepo.entries[1].Amount != deductionAmount {
+		t.Fatalf("deduction accounting entry = %+v", accountingRepo.entries[1])
+	}
+	if accountingRepo.entries[1].Description == nil || *accountingRepo.entries[1].Description != reason {
+		t.Fatalf("deduction description = %v, want %q", accountingRepo.entries[1].Description, reason)
+	}
+	if accountingRepo.entries[1].SourceRef["type"] != "DepositDeducted" || accountingRepo.entries[1].SourceRef["lease_id"] != updateLeaseTestLeaseID || accountingRepo.entries[1].SourceRef["reason"] != reason {
+		t.Fatalf("deduction source ref = %#v", accountingRepo.entries[1].SourceRef)
+	}
 	if len(publisher.events) != 2 {
 		t.Fatalf("events = %d, want 2", len(publisher.events))
 	}
@@ -304,8 +323,115 @@ func TestUpdateDepositServiceSettlesDepositAndPublishesEvents(t *testing.T) {
 	}
 }
 
+func TestUpdateDepositServiceCreatesRefundAccountingEntry(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+
+	repo := &leaseRepositoryStub{
+		lease: &Lease{
+			ID:                        updateLeaseTestLeaseID,
+			TenantID:                  "tenant-1",
+			PropertyID:                "property-1",
+			RoomID:                    "room-1",
+			RentAmount:                18000,
+			StartDate:                 time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+			EndDate:                   time.Date(2026, 7, 31, 0, 0, 0, 0, time.UTC),
+			ElectricityBillingCadence: "monthly",
+			Status:                    "active",
+			DepositAmount:             36000,
+			DepositStatus:             "held",
+		},
+	}
+	accountingRepo := &depositAccountingRepositoryStub{}
+	service := NewUpdateDepositService(repo, accountingRepo, dbtxrunner.New(db, nil))
+
+	refundAmount := 36000
+	_, err = service.Execute(context.Background(), UpdateDepositInput{
+		ActorRole:           "admin",
+		AssignedPropertyIDs: []string{"property-1"},
+		LeaseID:             updateLeaseTestLeaseID,
+		RefundAmount:        &refundAmount,
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if len(accountingRepo.entries) != 1 {
+		t.Fatalf("accounting entries = %d, want 1", len(accountingRepo.entries))
+	}
+	entry := accountingRepo.entries[0]
+	if entry.Category != depositAccountingCategoryRefund || entry.Amount != -refundAmount {
+		t.Fatalf("accounting entry = %+v", entry)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestUpdateDepositServiceCreatesDeductionAccountingEntry(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+
+	repo := &leaseRepositoryStub{
+		lease: &Lease{
+			ID:                        updateLeaseTestLeaseID,
+			TenantID:                  "tenant-1",
+			PropertyID:                "property-1",
+			RoomID:                    "room-1",
+			RentAmount:                18000,
+			StartDate:                 time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+			EndDate:                   time.Date(2026, 7, 31, 0, 0, 0, 0, time.UTC),
+			ElectricityBillingCadence: "monthly",
+			Status:                    "active",
+			DepositAmount:             36000,
+			DepositStatus:             "held",
+		},
+	}
+	accountingRepo := &depositAccountingRepositoryStub{}
+	service := NewUpdateDepositService(repo, accountingRepo, dbtxrunner.New(db, nil))
+
+	deductionAmount := 36000
+	reason := "wall repair"
+	_, err = service.Execute(context.Background(), UpdateDepositInput{
+		ActorRole:           "admin",
+		AssignedPropertyIDs: []string{"property-1"},
+		LeaseID:             updateLeaseTestLeaseID,
+		DeductionAmount:     &deductionAmount,
+		DeductionReason:     &reason,
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if len(accountingRepo.entries) != 1 {
+		t.Fatalf("accounting entries = %d, want 1", len(accountingRepo.entries))
+	}
+	entry := accountingRepo.entries[0]
+	if entry.Category != depositAccountingCategoryDeduction || entry.Amount != deductionAmount {
+		t.Fatalf("accounting entry = %+v", entry)
+	}
+	if entry.Description == nil || *entry.Description != reason {
+		t.Fatalf("description = %v, want %q", entry.Description, reason)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
 func TestUpdateDepositServiceRejectsMalformedLeaseID(t *testing.T) {
-	service := NewUpdateDepositService(nil, nil)
+	service := NewUpdateDepositService(nil, nil, nil)
 	refundAmount := 36000
 
 	_, err := service.Execute(context.Background(), UpdateDepositInput{
@@ -344,7 +470,7 @@ func TestUpdateDepositServiceRejectsDeductionWithoutReason(t *testing.T) {
 			DepositStatus:             "held",
 		},
 	}
-	service := NewUpdateDepositService(repo, dbtxrunner.New(db, nil))
+	service := NewUpdateDepositService(repo, &depositAccountingRepositoryStub{}, dbtxrunner.New(db, nil))
 
 	refundAmount := 30000
 	deductionAmount := 6000
@@ -389,7 +515,7 @@ func TestUpdateDepositServiceRejectsNegativeSettlementAmount(t *testing.T) {
 			DepositStatus:             "held",
 		},
 	}
-	service := NewUpdateDepositService(repo, dbtxrunner.New(db, nil))
+	service := NewUpdateDepositService(repo, &depositAccountingRepositoryStub{}, dbtxrunner.New(db, nil))
 
 	refundAmount := -1
 	_, err = service.Execute(context.Background(), UpdateDepositInput{
@@ -403,6 +529,56 @@ func TestUpdateDepositServiceRejectsNegativeSettlementAmount(t *testing.T) {
 	}
 	if repo.settleDepositCalls != 0 {
 		t.Fatalf("SettleDeposit calls = %d, want 0", repo.settleDepositCalls)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestUpdateDepositServiceRollsBackWhenAccountingEntryFails(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectRollback()
+
+	repo := &leaseRepositoryStub{
+		lease: &Lease{
+			ID:                        updateLeaseTestLeaseID,
+			TenantID:                  "tenant-1",
+			PropertyID:                "property-1",
+			RoomID:                    "room-1",
+			RentAmount:                18000,
+			StartDate:                 time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+			EndDate:                   time.Date(2026, 7, 31, 0, 0, 0, 0, time.UTC),
+			ElectricityBillingCadence: "monthly",
+			Status:                    "active",
+			DepositAmount:             36000,
+			DepositStatus:             "held",
+		},
+	}
+	accountingRepo := &depositAccountingRepositoryStub{createErr: errors.New("accounting failed")}
+	service := NewUpdateDepositService(repo, accountingRepo, dbtxrunner.New(db, nil))
+
+	refundAmount := 36000
+	_, err = service.Execute(context.Background(), UpdateDepositInput{
+		ActorRole:           "admin",
+		AssignedPropertyIDs: []string{"property-1"},
+		LeaseID:             updateLeaseTestLeaseID,
+		RefundAmount:        &refundAmount,
+	})
+	if err == nil {
+		t.Fatal("Execute error = nil, want error")
+	}
+	if repo.settleDepositCalls != 1 {
+		t.Fatalf("SettleDeposit calls = %d, want 1", repo.settleDepositCalls)
+	}
+	if accountingRepo.createCalls != 1 {
+		t.Fatalf("CreateDepositAccountingEntry calls = %d, want 1", accountingRepo.createCalls)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {

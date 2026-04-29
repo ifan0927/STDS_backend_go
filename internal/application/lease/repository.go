@@ -12,6 +12,7 @@ var (
 	ErrTenantNotFound           = errors.New("tenant not found")
 	ErrRoomNotFound             = errors.New("room not found")
 	ErrForceTerminationNotFound = errors.New("force termination not found")
+	ErrPropertyAccountNotFound  = errors.New("property account not found")
 )
 
 // Lease is the application-facing lease shape.
@@ -121,6 +122,17 @@ type SettleDepositParams struct {
 	DepositDeductionReason *string
 }
 
+// DepositAccountingEntryParams contains accounting data derived from deposit settlement.
+type DepositAccountingEntryParams struct {
+	PropertyID  string
+	Category    string
+	Amount      int
+	Description *string
+	SourceRef   map[string]interface{}
+	Year        int
+	Month       int
+}
+
 // TerminateLeaseParams contains fields for predecessor termination.
 type TerminateLeaseParams struct {
 	LeaseID           string
@@ -168,4 +180,9 @@ type Repository interface {
 	MarkRoomVacant(ctx context.Context, tx *sql.Tx, roomID string) error
 	ActivateTenant(ctx context.Context, tx *sql.Tx, tenantID string) error
 	DeactivateTenantIfNoActiveLeases(ctx context.Context, tx *sql.Tx, tenantID string) error
+}
+
+// DepositAccountingRepository defines persistence required for deposit settlement accounting.
+type DepositAccountingRepository interface {
+	CreateDepositAccountingEntry(ctx context.Context, tx *sql.Tx, params DepositAccountingEntryParams) error
 }
