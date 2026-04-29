@@ -128,6 +128,24 @@ go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.4.1
 
 The generated Go bindings live in `internal/http/api/openapi.gen.go`.
 
+## CI checks
+
+The PR CI gate runs these checks for pull requests targeting `dev` and pushes to `dev`:
+
+```bash
+go test ./...
+go build -o /tmp/stds-api ./cmd/api
+npm ci
+go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.4.1
+npm run openapi:lint
+npm run openapi:generate
+git diff --exit-code -- docs/spec/openapi.yaml internal/http/api/openapi.gen.go
+docker exec stds-postgres psql -U stds -d postgres -c "DROP DATABASE IF EXISTS ci_migration_smoke"
+docker exec stds-postgres psql -U stds -d postgres -c "CREATE DATABASE ci_migration_smoke"
+DATABASE_URL=postgres://stds:stds@localhost:5432/ci_migration_smoke?sslmode=disable go run ./cmd/migrate up
+docker exec stds-postgres psql -U stds -d postgres -c "DROP DATABASE IF EXISTS ci_migration_smoke"
+```
+
 ## Database migrations
 
 - Run all pending migrations: `go run ./cmd/migrate up`

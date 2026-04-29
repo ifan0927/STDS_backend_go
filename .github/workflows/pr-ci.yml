@@ -1,0 +1,101 @@
+name: PR CI
+
+on:
+  pull_request:
+    branches:
+      - dev
+  push:
+    branches:
+      - dev
+
+jobs:
+  go:
+    name: Go test and build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run Go tests
+        run: go test ./...
+
+      - name: Build API
+        run: go build -o /tmp/stds-api ./cmd/api
+
+  openapi:
+    name: OpenAPI lint and generated sync
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Install oapi-codegen
+        run: go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.4.1
+
+      - name: Lint OpenAPI source
+        run: npm run openapi:lint
+
+      - name: Regenerate OpenAPI artifacts
+        run: npm run openapi:generate
+
+      - name: Check generated OpenAPI artifacts are committed
+        run: |
+          git diff --check --exit-code -- docs/spec/openapi.yaml internal/http/api/openapi.gen.go
+          git diff --exit-code -- docs/spec/openapi.yaml internal/http/api/openapi.gen.go
+
+  migration-smoke:
+    name: Migration smoke test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: stds_backend
+          POSTGRES_USER: stds
+          POSTGRES_PASSWORD: stds
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U stds -d stds_backend"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run migrations against empty PostgreSQL
+        env:
+          DATABASE_URL: postgres://stds:stds@localhost:5432/stds_backend?sslmode=disable
+        run: go run ./cmd/migrate up
