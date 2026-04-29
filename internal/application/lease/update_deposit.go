@@ -15,6 +15,11 @@ import (
 	"stds_backend/internal/shared/apperr"
 )
 
+const (
+	depositAccountingCategoryRefund    = "deposit_refund"
+	depositAccountingCategoryDeduction = "deposit_deduction"
+)
+
 // UpdateDepositInput is the command payload for deposit settlement.
 type UpdateDepositInput struct {
 	ActorRole           string
@@ -27,13 +32,14 @@ type UpdateDepositInput struct {
 
 // UpdateDepositService settles lease deposits.
 type UpdateDepositService struct {
-	repo     Repository
-	txRunner *txrunner.Runner
+	repo           Repository
+	accountingRepo DepositAccountingRepository
+	txRunner       *txrunner.Runner
 }
 
 // NewUpdateDepositService returns an UpdateDepositService.
-func NewUpdateDepositService(repo Repository, txRunner *txrunner.Runner) *UpdateDepositService {
-	return &UpdateDepositService{repo: repo, txRunner: txRunner}
+func NewUpdateDepositService(repo Repository, accountingRepo DepositAccountingRepository, txRunner *txrunner.Runner) *UpdateDepositService {
+	return &UpdateDepositService{repo: repo, accountingRepo: accountingRepo, txRunner: txRunner}
 }
 
 // Execute records a complete deposit settlement.
@@ -107,6 +113,9 @@ func (s *UpdateDepositService) Execute(ctx context.Context, input UpdateDepositI
 		}
 
 		occurredAt := time.Now().UTC()
+		if err := recordDepositAccountingEntries(ctx, tx, s.accountingRepo, updatedLease, refundAmount, deductionAmount, depositReasonValue(input.DeductionReason), occurredAt); err != nil {
+			return err
+		}
 		if refundAmount > 0 {
 			recorder.Record(domainevents.DepositRefunded{
 				LeaseID:    updatedLease.ID,
@@ -149,4 +158,63 @@ func depositReasonValue(value *string) string {
 	}
 
 	return strings.TrimSpace(*value)
+}
+
+func recordDepositAccountingEntries(ctx context.Context, tx *sql.Tx, repo DepositAccountingRepository, lease *Lease, refundAmount int, deductionAmount int, deductionReason string, occurredAt time.Time) error {
+	if refundAmount == 0 && deductionAmount == 0 {
+		return nil
+	}
+	if repo == nil {
+		return apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "deposit_accounting"})
+	}
+
+	if refundAmount > 0 {
+		if err := repo.CreateDepositAccountingEntry(ctx, tx, DepositAccountingEntryParams{
+			PropertyID: lease.PropertyID,
+			Category:   depositAccountingCategoryRefund,
+			Amount:     -refundAmount,
+			SourceRef: map[string]interface{}{
+				"type":     "DepositRefunded",
+				"lease_id": lease.ID,
+			},
+			Year:  occurredAt.Year(),
+			Month: int(occurredAt.Month()),
+		}); err != nil {
+			return mapDepositAccountingError(err)
+		}
+	}
+
+	if deductionAmount > 0 {
+		description := deductionReason
+		if err := repo.CreateDepositAccountingEntry(ctx, tx, DepositAccountingEntryParams{
+			PropertyID:  lease.PropertyID,
+			Category:    depositAccountingCategoryDeduction,
+			Amount:      deductionAmount,
+			Description: &description,
+			SourceRef: map[string]interface{}{
+				"type":     "DepositDeducted",
+				"lease_id": lease.ID,
+				"reason":   deductionReason,
+			},
+			Year:  occurredAt.Year(),
+			Month: int(occurredAt.Month()),
+		}); err != nil {
+			return mapDepositAccountingError(err)
+		}
+	}
+
+	return nil
+}
+
+func mapDepositAccountingError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	switch {
+	case errors.Is(err, ErrPropertyAccountNotFound):
+		return apperr.ErrInternalServerError.WithCause(err).WithDetails(map[string]interface{}{"dependency": "property_account"})
+	default:
+		return apperr.ErrInternalServerError.WithCause(err)
+	}
 }

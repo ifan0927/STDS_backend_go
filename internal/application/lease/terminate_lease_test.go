@@ -31,7 +31,8 @@ func TestTerminateLeaseServiceSettlesDepositAndPublishesEvent(t *testing.T) {
 	reason := "wall repair"
 	publisher := &recordingPublisher{}
 	repo := terminationRepoStub()
-	service := NewTerminateLeaseService(repo, dbtxrunner.New(db, publisher))
+	accountingRepo := &depositAccountingRepositoryStub{}
+	service := NewTerminateLeaseService(repo, accountingRepo, dbtxrunner.New(db, publisher))
 
 	lease, err := service.Execute(context.Background(), TerminateLeaseInput{
 		ActorRole:           "staff",
@@ -50,6 +51,15 @@ func TestTerminateLeaseServiceSettlesDepositAndPublishesEvent(t *testing.T) {
 	}
 	if repo.settleDepositCalls != 1 || repo.terminateCalls != 1 {
 		t.Fatalf("settleDepositCalls=%d terminateCalls=%d, want 1/1", repo.settleDepositCalls, repo.terminateCalls)
+	}
+	if len(accountingRepo.entries) != 2 {
+		t.Fatalf("accounting entries = %d, want 2", len(accountingRepo.entries))
+	}
+	if accountingRepo.entries[0].Category != depositAccountingCategoryRefund || accountingRepo.entries[0].Amount != -refundAmount {
+		t.Fatalf("refund accounting entry = %+v", accountingRepo.entries[0])
+	}
+	if accountingRepo.entries[1].Category != depositAccountingCategoryDeduction || accountingRepo.entries[1].Amount != deductionAmount {
+		t.Fatalf("deduction accounting entry = %+v", accountingRepo.entries[1])
 	}
 	if len(publisher.events) != 3 {
 		t.Fatalf("events = %d, want 3", len(publisher.events))
@@ -72,7 +82,7 @@ func TestTerminateLeaseServiceRejectsUnpaidBills(t *testing.T) {
 		PeriodStart: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
 		PeriodEnd:   time.Date(2026, 4, 30, 0, 0, 0, 0, time.UTC),
 	})
-	service := NewTerminateLeaseService(repo, txRunnerForRollback(t))
+	service := NewTerminateLeaseService(repo, &depositAccountingRepositoryStub{}, txRunnerForRollback(t))
 
 	refundAmount := 20000
 	_, err := service.Execute(context.Background(), TerminateLeaseInput{
@@ -91,7 +101,7 @@ func TestTerminateLeaseServiceRejectsUnpaidBills(t *testing.T) {
 
 func TestTerminateLeaseServiceRejectsDeductionWithoutReason(t *testing.T) {
 	repo := terminationRepoStub()
-	service := NewTerminateLeaseService(repo, txRunnerForRollback(t))
+	service := NewTerminateLeaseService(repo, &depositAccountingRepositoryStub{}, txRunnerForRollback(t))
 
 	refundAmount := 15000
 	deductionAmount := 5000
@@ -103,6 +113,39 @@ func TestTerminateLeaseServiceRejectsDeductionWithoutReason(t *testing.T) {
 	})
 	if !errors.Is(err, errDepositDeductionReasonRequired) {
 		t.Fatalf("expected errDepositDeductionReasonRequired, got %v", err)
+	}
+}
+
+func TestTerminateLeaseServiceRollsBackWhenAccountingEntryFails(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+	defer verifySQLMockExpectations(t, mock)
+
+	mock.ExpectBegin()
+	mock.ExpectRollback()
+
+	repo := terminationRepoStub()
+	accountingRepo := &depositAccountingRepositoryStub{createErr: errors.New("accounting failed")}
+	service := NewTerminateLeaseService(repo, accountingRepo, dbtxrunner.New(db, nil))
+
+	refundAmount := 20000
+	_, err = service.Execute(context.Background(), TerminateLeaseInput{
+		ActorRole:           "admin",
+		AssignedPropertyIDs: []string{"property-1"},
+		LeaseID:             terminateLeaseTestLeaseID,
+		RefundAmount:        &refundAmount,
+	})
+	if err == nil {
+		t.Fatal("Execute error = nil, want error")
+	}
+	if repo.settleDepositCalls != 1 || repo.terminateCalls != 1 {
+		t.Fatalf("settleDepositCalls=%d terminateCalls=%d, want 1/1", repo.settleDepositCalls, repo.terminateCalls)
+	}
+	if accountingRepo.createCalls != 1 {
+		t.Fatalf("CreateDepositAccountingEntry calls = %d, want 1", accountingRepo.createCalls)
 	}
 }
 

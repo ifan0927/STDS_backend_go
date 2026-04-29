@@ -27,13 +27,14 @@ type TerminateLeaseInput struct {
 
 // TerminateLeaseService normally terminates a lease after all bills are settled.
 type TerminateLeaseService struct {
-	repo     Repository
-	txRunner *txrunner.Runner
+	repo           Repository
+	accountingRepo DepositAccountingRepository
+	txRunner       *txrunner.Runner
 }
 
 // NewTerminateLeaseService returns a TerminateLeaseService.
-func NewTerminateLeaseService(repo Repository, txRunner *txrunner.Runner) *TerminateLeaseService {
-	return &TerminateLeaseService{repo: repo, txRunner: txRunner}
+func NewTerminateLeaseService(repo Repository, accountingRepo DepositAccountingRepository, txRunner *txrunner.Runner) *TerminateLeaseService {
+	return &TerminateLeaseService{repo: repo, accountingRepo: accountingRepo, txRunner: txRunner}
 }
 
 // Execute enforces BR-04, settles the deposit, terminates the lease, and records LeaseTerminated.
@@ -109,16 +110,19 @@ func (s *TerminateLeaseService) Execute(ctx context.Context, input TerminateLeas
 			return mapLeaseLookupError(err)
 		}
 
+		occurredAt := time.Now().UTC()
 		terminatedLease, err := s.repo.TerminateLease(ctx, tx, TerminateLeaseParams{
 			LeaseID:           leaseID,
-			EndDate:           normalizeDate(time.Now().UTC()),
+			EndDate:           normalizeDate(occurredAt),
 			TerminationReason: "normal termination",
 		})
 		if err != nil {
 			return mapLeaseLookupError(err)
 		}
 
-		occurredAt := time.Now().UTC()
+		if err := recordDepositAccountingEntries(ctx, tx, s.accountingRepo, settled, refundAmount, deductionAmount, depositReasonValue(input.DeductionReason), occurredAt); err != nil {
+			return err
+		}
 		if refundAmount > 0 {
 			recorder.Record(domainevents.DepositRefunded{
 				LeaseID:    settled.ID,

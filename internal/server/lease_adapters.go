@@ -3,14 +3,41 @@ package server
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"time"
 
 	applease "stds_backend/internal/application/lease"
+	dbbilling "stds_backend/internal/platform/database/billing"
 	dbleases "stds_backend/internal/platform/database/leases"
 )
 
 type leaseRepositoryAdapter struct {
 	repo dbleases.CommandRepository
+}
+
+type leaseDepositAccountingAdapter struct {
+	repo *dbbilling.SQLRepository
+}
+
+func (a leaseDepositAccountingAdapter) CreateDepositAccountingEntry(ctx context.Context, tx *sql.Tx, params applease.DepositAccountingEntryParams) error {
+	account, err := a.repo.FindPropertyAccountByPropertyID(ctx, tx, params.PropertyID)
+	if err != nil {
+		if errors.Is(err, dbbilling.ErrNotFound) {
+			return applease.ErrPropertyAccountNotFound
+		}
+
+		return err
+	}
+
+	return a.repo.InsertAccountingEntry(ctx, tx, dbbilling.CreateAccountingEntryParams{
+		PropertyAccountID: account.ID,
+		Category:          params.Category,
+		Amount:            params.Amount,
+		Description:       params.Description,
+		SourceRef:         params.SourceRef,
+		Year:              params.Year,
+		Month:             params.Month,
+	})
 }
 
 func (a leaseRepositoryAdapter) FindTenantByID(ctx context.Context, tx *sql.Tx, tenantID string) (*applease.Tenant, error) {

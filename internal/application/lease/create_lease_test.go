@@ -367,6 +367,21 @@ type leaseRepositoryStub struct {
 	replacementBills    []Bill
 }
 
+type depositAccountingRepositoryStub struct {
+	entries     []DepositAccountingEntryParams
+	createErr   error
+	createCalls int
+}
+
+func (s *depositAccountingRepositoryStub) CreateDepositAccountingEntry(_ context.Context, _ *sql.Tx, params DepositAccountingEntryParams) error {
+	s.createCalls++
+	if s.createErr != nil {
+		return s.createErr
+	}
+	s.entries = append(s.entries, params)
+	return nil
+}
+
 func (s *leaseRepositoryStub) FindTenantByID(context.Context, *sql.Tx, string) (*Tenant, error) {
 	if s.tenantErr != nil {
 		return nil, s.tenantErr
