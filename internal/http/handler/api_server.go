@@ -988,9 +988,6 @@ func (s *APIServer) CreateLeaseAttachment(c *gin.Context, id openapi_types.UUID)
 	s.createAttachment(c, appattachment.ResourceTypeLease, id)
 }
 
-// DeleteLease handles lease deletion.
-func (s *APIServer) DeleteLease(c *gin.Context, id string) { writeNotImplemented(c) }
-
 // GetLease handles lease detail retrieval.
 func (s *APIServer) GetLease(c *gin.Context, id string) {
 	principal, ok := requestctx.GetPrincipal(c)

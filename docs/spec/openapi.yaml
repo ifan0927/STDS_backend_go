@@ -2650,58 +2650,6 @@ paths:
                   value:
                     error_code: LEASE_RENT_AMOUNT_NON_POSITIVE
                     message: 租金必須大於零
-    delete:
-      operationId: deleteLease
-      summary: 刪除租約（軟刪除）
-      description: 'x-required-role: admin, organizer'
-      tags:
-        - Leasing
-      x-required-role:
-        - admin
-        - organizer
-      x-ownership-required: true
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '204':
-          description: 刪除成功
-        '401':
-          description: 未認證
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-              examples:
-                unauthorized:
-                  value:
-                    error_code: UNAUTHORIZED
-                    message: Unauthorized.
-        '403':
-          description: 權限不足
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-              examples:
-                forbidden:
-                  value:
-                    error_code: FORBIDDEN
-                    message: Forbidden.
-        '404':
-          description: 租約不存在
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-              examples:
-                not_found:
-                  value:
-                    error_code: LEASE_NOT_FOUND
-                    message: Lease not found.
   /leases/{id}/attachments:
     get:
       operationId: listLeaseAttachments

@@ -394,6 +394,8 @@ Lease 於建立時決定 `electricityBillingCadence`（`monthly | bimonthly`）�
 | `GET /leases` | 租約列表 | propertyId, roomId, tenantId, status |
 | `GET /leases/{id}` | 租約詳情（含帳單預產狀況、押金狀態） | — |
 
+Operational lease lifecycle changes use terminate, force-terminate, or replacement flows; generic lease deletion is not part of the public API.
+
 ### Billing BC
 
 | 查詢路徑 | 說明 | 主要 Filter |

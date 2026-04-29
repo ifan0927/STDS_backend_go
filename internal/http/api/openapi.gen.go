@@ -1273,9 +1273,6 @@ type ServerInterface interface {
 	// 建立租約（觸發 LeaseCreated event）
 	// (POST /leases)
 	CreateLease(c *gin.Context)
-	// 刪除租約（軟刪除）
-	// (DELETE /leases/{id})
-	DeleteLease(c *gin.Context, id string)
 	// 租約詳情（含帳單預產狀況、押金狀態）
 	// (GET /leases/{id})
 	GetLease(c *gin.Context, id string)
@@ -2247,32 +2244,6 @@ func (siw *ServerInterfaceWrapper) CreateLease(c *gin.Context) {
 	}
 
 	siw.Handler.CreateLease(c)
-}
-
-// DeleteLease operation middleware
-func (siw *ServerInterfaceWrapper) DeleteLease(c *gin.Context) {
-
-	var err error
-
-	// ------------- Path parameter "id" -------------
-	var id string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Param("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
-	if err != nil {
-		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter id: %w", err), http.StatusBadRequest)
-		return
-	}
-
-	c.Set(BearerAuthScopes, []string{})
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		middleware(c)
-		if c.IsAborted() {
-			return
-		}
-	}
-
-	siw.Handler.DeleteLease(c, id)
 }
 
 // GetLease operation middleware
@@ -3907,7 +3878,6 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.POST(options.BaseURL+"/journal-logs/:id/attachments", wrapper.CreateJournalLogAttachment)
 	router.GET(options.BaseURL+"/leases", wrapper.ListLeases)
 	router.POST(options.BaseURL+"/leases", wrapper.CreateLease)
-	router.DELETE(options.BaseURL+"/leases/:id", wrapper.DeleteLease)
 	router.GET(options.BaseURL+"/leases/:id", wrapper.GetLease)
 	router.PATCH(options.BaseURL+"/leases/:id", wrapper.UpdateLease)
 	router.GET(options.BaseURL+"/leases/:id/attachments", wrapper.ListLeaseAttachments)
