@@ -4351,10 +4351,10 @@ paths:
                     message: Unauthorized.
     post:
       operationId: createJournalLog
-      summary: 建立日誌（含費用時直接建立費用會計分錄）
+      summary: Create journal log and direct accounting entry
       description: |
         x-required-role: admin, organizer, staff
-        若有 expense_amount，command transaction 直接新增 PropertyAccount AccountingEntry； JournalExpenseRecorded event 僅保留為 trace/reserved event。
+        When expense_amount is present, the command transaction creates the PropertyAccount AccountingEntry directly. JournalExpenseRecorded remains a trace/reserved event only.
       tags:
         - Journal
       x-required-role:

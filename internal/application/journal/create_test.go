@@ -86,6 +86,9 @@ func TestCreateServiceCreatesAccountingEntryAndPublishesEventWhenExpensePresent(
 	if event.JournalLogID != testJournalID || event.PropertyID != testPropertyID || event.Amount != amount {
 		t.Fatalf("event = %+v", event)
 	}
+	if !event.OccurredAt.Equal(createdAt.UTC()) {
+		t.Fatalf("event.OccurredAt = %s, want %s", event.OccurredAt, createdAt.UTC())
+	}
 }
 
 func TestCreateServiceDoesNotCreateAccountingEntryOrPublishExpenseEventWithoutExpense(t *testing.T) {

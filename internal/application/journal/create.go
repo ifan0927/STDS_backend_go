@@ -72,6 +72,9 @@ func (s *CreateService) Execute(ctx context.Context, input CreateInput) (*Journa
 	if s.txRunner == nil {
 		return nil, apperr.ErrInternalServerError
 	}
+	if state.ExpenseAmount != nil && s.accountingRepo == nil {
+		return nil, apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "journal_accounting"})
+	}
 
 	var created *JournalLog
 	err = s.txRunner.WithinTransaction(ctx, func(ctx context.Context, tx *sql.Tx, recorder *txrunner.EventRecorder) error {
@@ -101,9 +104,6 @@ func (s *CreateService) Execute(ctx context.Context, input CreateInput) (*Journa
 		}
 
 		if journalLog.ExpenseAmount != nil {
-			if s.accountingRepo == nil {
-				return apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "journal_accounting"})
-			}
 			occurredAt := journalLog.CreatedAt.UTC()
 			if err := s.accountingRepo.CreateExpenseAccountingEntry(ctx, tx, ExpenseAccountingEntryParams{
 				PropertyID:  journalLog.PropertyID,
