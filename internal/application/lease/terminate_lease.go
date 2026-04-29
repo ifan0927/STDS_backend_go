@@ -110,16 +110,16 @@ func (s *TerminateLeaseService) Execute(ctx context.Context, input TerminateLeas
 			return mapLeaseLookupError(err)
 		}
 
+		occurredAt := time.Now().UTC()
 		terminatedLease, err := s.repo.TerminateLease(ctx, tx, TerminateLeaseParams{
 			LeaseID:           leaseID,
-			EndDate:           normalizeDate(time.Now().UTC()),
+			EndDate:           normalizeDate(occurredAt),
 			TerminationReason: "normal termination",
 		})
 		if err != nil {
 			return mapLeaseLookupError(err)
 		}
 
-		occurredAt := time.Now().UTC()
 		if err := recordDepositAccountingEntries(ctx, tx, s.accountingRepo, settled, refundAmount, deductionAmount, depositReasonValue(input.DeductionReason), occurredAt); err != nil {
 			return err
 		}
