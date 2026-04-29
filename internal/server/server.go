@@ -139,10 +139,11 @@ func New(cfg *config.Config) (*Server, error) {
 		Delete:   apprepair.NewDeleteService(repairRepo, txRunner),
 		Workflow: apprepair.NewWorkflowService(repairRepo, txRunner),
 	}
+	journalAccounting := journalExpenseAccountingAdapter{repo: billingRepo}
 	journalServices := handler.JournalServices{
 		List:   appjournal.NewListService(journalRepo),
 		Get:    appjournal.NewGetService(journalRepo),
-		Create: appjournal.NewCreateService(journalRepo, txRunner),
+		Create: appjournal.NewCreateService(journalRepo, journalAccounting, txRunner),
 		Update: appjournal.NewUpdateService(journalRepo, txRunner),
 		Delete: appjournal.NewDeleteService(journalRepo, txRunner),
 	}
@@ -150,13 +151,11 @@ func New(cfg *config.Config) (*Server, error) {
 	activateTenantOnLeaseCreated := applease.NewActivateTenantOnLeaseCreatedHandler(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
 	releaseRoomOnLeaseTerminated := applease.NewReleaseRoomOnLeaseTerminatedHandler(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
 	deactivateTenantOnLeaseTerminated := applease.NewDeactivateTenantOnLeaseTerminatedHandler(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
-	recordJournalExpense := newJournalExpenseRecordedHandler(db, txRunner)
 	jobTriggerService := appjobs.NewTriggerService(jobRunStoreAdapter{repo: jobRunsRepo}, newJobRunners(db, txRunner, notificationService), cfg.App.SchedulerJobTimeout, cfg.App.SchedulerMaxRetries)
 	eventbus.Subscribe(bus, occupyRoomOnLeaseCreated.HandleLeaseCreated)
 	eventbus.Subscribe(bus, activateTenantOnLeaseCreated.HandleLeaseCreated)
 	eventbus.Subscribe(bus, releaseRoomOnLeaseTerminated.HandleLeaseTerminated)
 	eventbus.Subscribe(bus, deactivateTenantOnLeaseTerminated.HandleLeaseTerminated)
-	eventbus.Subscribe(bus, recordJournalExpense.HandleJournalExpenseRecorded)
 
 	engine := router.New(cfg.App, logger, db, authenticator, userRepo, router.AuthorizationRepositories{
 		Properties:        propertyRepo,

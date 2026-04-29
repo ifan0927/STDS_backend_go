@@ -183,7 +183,7 @@ Lease 於建立時決定 `electricityBillingCadence`（`monthly | bimonthly`）�
 
 - **Root Entity**：PropertyAccount（一個物業一個）
 - **包含**：當月未結算的 AccountingEntry entities
-  - 來源：Bill payment command 直接寫入；JournalExpenseRecorded 目前由 runtime subscriber 寫入但標記為未來一致性調整；DepositRefunded / DepositDeducted 應改由押金處理 command 直接寫入
+  - 來源：Bill payment command 直接寫入；Journal expense command 直接寫入並保留 `JournalExpenseRecorded` 作 trace/reserved event；DepositRefunded / DepositDeducted 由押金處理 command 直接寫入
   - `category: rent_payment | electricity_payment | deposit_refund | deposit_deduction | journal_expense`（財報分類用）
 - **寫入邊界**：只載入當月資料，不載入歷史分錄
 - **月結快照**：每月月底排程執行，將當月 AccountingEntry 封存為 `monthly_snapshot_entries`，清空 Aggregate 內當月暫存資料
@@ -199,7 +199,7 @@ Lease 於建立時決定 `electricityBillingCadence`（`monthly | bimonthly`）�
 - **Root Entity**：JournalLog
 - **包含**：紀錄內容、費用條目（optional Value Object）
 - **無狀態機**
-- **費用流程**：目前記錄費用時發出 `JournalExpenseRecorded` event，runtime subscriber 會新增 AccountingEntry；因 accounting state 需要較強一致性，此邊界標記為 future consistency concern，未來宜改為 Journal command direct orchestration。
+- **費用流程**：記錄費用時，Journal command 在同一個 transaction 直接新增 AccountingEntry，並保留 `JournalExpenseRecorded` 作 trace/reserved event；accounting state 不依賴 post-commit subscriber。
 
 ### RepairRequest Aggregate（Journal BC）
 
@@ -260,7 +260,7 @@ Lease 於建立時決定 `electricityBillingCadence`（`monthly | bimonthly`）�
 | `BillPaid -> accounting entry` | `RecordPaymentService` directly creates AccountingEntry in the payment transaction, then records `BillPaid` | command-owned direct orchestration and intentionally kept | Payment and accounting entry must succeed or fail together | No subscriber needed |
 | `BillPaid` receipt notification | `BillPaid` is recorded; no receipt notification subscriber exists | published-only/reserved | Receipt notification is not committed as required behavior now; do not overload accounting event semantics | No implementation commitment |
 | `MeterRecorded` bill amount / status update | `RecordMeterService` directly calculates amount and updates bill state, then records `MeterRecorded` | command-owned direct orchestration and intentionally kept | Meter command's core output is the updated bill; it must be atomic | Event remains trace/reserved |
-| `JournalExpenseRecorded -> accounting entry` | `JournalExpenseRecordedHandler` is wired and creates AccountingEntry in a separate post-commit transaction | implemented pub/sub but future consistency concern | Journal expense and accounting entry can diverge if subscriber fails; accounting state should eventually move into direct orchestration | Future issue should migrate to direct accounting |
+| `JournalExpenseRecorded -> accounting entry` | Journal expense creation command directly creates AccountingEntry in the same transaction; `JournalExpenseRecorded` remains published-only/reserved with no accounting subscriber | command-owned direct orchestration and intentionally kept | Journal expense and accounting entry must succeed or fail together | Implemented by #53; no subscriber needed |
 | `PropertyCreated -> PropertyAccount` | Property creation directly creates PropertyAccount in the same command transaction, then records `PropertyCreated` as trace / future extension | command-owned direct orchestration and intentionally kept | PropertyAccount lifecycle is strongly tied to property creation | No subscriber needed |
 | `RoomSetToMaintenance` | `SetRoomMaintenanceService` directly creates room-scoped RepairRequest and sets room to maintenance, then records event | command-owned direct orchestration and intentionally kept | Room state and repair request creation must be atomic | Event remains trace/reserved; no subscriber needed |
 | `RepairCompleted` / `RepairCancelled -> room vacant` | Repair workflow records events, but room status recovery is not implemented yet | command-owned direct orchestration and intentionally kept | Room recovery affects Property aggregate state and should be strongly consistent with repair workflow | Future implementation should add direct orchestration |

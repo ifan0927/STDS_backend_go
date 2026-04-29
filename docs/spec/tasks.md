@@ -461,7 +461,7 @@ T-14~T-19 ── T-20（整合測試）
 - **輸入**: T-13 JournalLog/RepairRequest Aggregate 就緒
 - **產出**: CRUD for journal-logs/repair-requests、維修狀態機 action endpoints
 - **完成條件**:
-  - [ ] POST /journal-logs：含 expense_amount 時，JournalExpenseRecorded event 發出，PropertyAccount 的 accounting_entries 新增一筆 journal_expense 記錄
+  - [ ] POST /journal-logs：含 expense_amount 時，Journal command transaction 直接新增一筆 journal_expense accounting_entries 記錄，並保留發出 `JournalExpenseRecorded` trace event
   - [ ] POST /repair-requests/{id}/assign：非 submitted 狀態回傳 422 `REPAIR_INVALID_STATUS_FOR_ASSIGN`
   - [ ] POST /repair-requests/{id}/complete：成功後 RepairCompleted event 發出；若該 Room 所有 RepairRequest 均 completed/cancelled，Room status 改為 vacant
   - [ ] POST /repair-requests/{id}/cancel：completed 狀態回傳 422 `REPAIR_ALREADY_COMPLETED`；成功後 RepairCancelled event 發出

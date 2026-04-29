@@ -10,9 +10,10 @@ import (
 )
 
 var (
-	ErrJournalLogNotFound = errors.New("journal log not found")
-	ErrPropertyNotFound   = errors.New("journal property not found")
-	ErrRoomNotFound       = errors.New("journal room not found")
+	ErrJournalLogNotFound      = errors.New("journal log not found")
+	ErrPropertyNotFound        = errors.New("journal property not found")
+	ErrRoomNotFound            = errors.New("journal room not found")
+	ErrPropertyAccountNotFound = errors.New("journal property account not found")
 )
 
 // TransactionRunner is the txrunner.Runner surface required by journal use cases.
@@ -61,6 +62,17 @@ type CreateParams struct {
 	ExpenseDescription *string
 }
 
+// ExpenseAccountingEntryParams contains accounting data derived from journal expense creation.
+type ExpenseAccountingEntryParams struct {
+	PropertyID  string
+	Category    string
+	Amount      int
+	Description *string
+	SourceRef   map[string]interface{}
+	Year        int
+	Month       int
+}
+
 // UpdateParams contains mutable journal log fields.
 type UpdateParams struct {
 	ID                 string
@@ -79,4 +91,9 @@ type Repository interface {
 	Create(ctx context.Context, tx *sql.Tx, params CreateParams) (*JournalLog, error)
 	Update(ctx context.Context, tx *sql.Tx, params UpdateParams) (*JournalLog, error)
 	SoftDelete(ctx context.Context, tx *sql.Tx, id string) error
+}
+
+// ExpenseAccountingRepository defines persistence required for journal expense accounting.
+type ExpenseAccountingRepository interface {
+	CreateExpenseAccountingEntry(ctx context.Context, tx *sql.Tx, params ExpenseAccountingEntryParams) error
 }
