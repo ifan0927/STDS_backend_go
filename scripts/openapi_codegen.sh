@@ -22,3 +22,7 @@ cd "$REPO_ROOT/internal/http/api"
 "$OAPI_CODEGEN_BIN" \
   -config cfg.yaml \
   "$REPO_ROOT/docs/spec/openapi.yaml"
+
+# Keep localized API summaries in the OpenAPI spec while preserving English Go
+# comments required by the project coding style.
+perl -0pi -e 's@// 建立日誌並直接建立記帳分錄\n\t// \(POST /journal-logs\)\n\tCreateJournalLog@// Create journal log and direct accounting entry\n\t// (POST /journal-logs)\n\tCreateJournalLog@' openapi.gen.go
