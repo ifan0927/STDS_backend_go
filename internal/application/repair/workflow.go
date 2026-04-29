@@ -115,7 +115,7 @@ func (s *WorkflowService) Progress(ctx context.Context, id string) (*RepairReque
 		return aggregate.Progress()
 	}, func(ctx context.Context, tx *sql.Tx, state domainrepair.State) (*RepairRequest, error) {
 		return s.repo.Progress(ctx, tx, state.ID)
-	})
+	}, nil)
 }
 
 // Complete marks an in-progress repair request completed and emits RepairCompleted.
@@ -125,6 +125,8 @@ func (s *WorkflowService) Complete(ctx context.Context, id string) (*RepairReque
 		return aggregate.Complete(completedAt)
 	}, func(ctx context.Context, tx *sql.Tx, state domainrepair.State) (*RepairRequest, error) {
 		return s.repo.Complete(ctx, tx, CompleteParams{ID: state.ID, CompletedAt: completedAt})
+	}, func(ctx context.Context, tx *sql.Tx, updated *RepairRequest) error {
+		return s.repo.RestoreRoomVacantIfNoActiveRepairs(ctx, tx, updated.RoomID)
 	}, func(updated *RepairRequest, recorder *txrunner.EventRecorder) {
 		recorder.Record(domainevents.RepairCompleted{
 			RepairRequestID: updated.ID,
@@ -143,6 +145,8 @@ func (s *WorkflowService) Cancel(ctx context.Context, input CancelInput) (*Repai
 		return aggregate.Cancel(reason)
 	}, func(ctx context.Context, tx *sql.Tx, state domainrepair.State) (*RepairRequest, error) {
 		return s.repo.Cancel(ctx, tx, CancelParams{ID: state.ID, CancelReason: state.CancelReason})
+	}, func(ctx context.Context, tx *sql.Tx, updated *RepairRequest) error {
+		return s.repo.RestoreRoomVacantIfNoActiveRepairs(ctx, tx, updated.RoomID)
 	}, func(updated *RepairRequest, recorder *txrunner.EventRecorder) {
 		recorder.Record(domainevents.RepairCancelled{
 			RepairRequestID: updated.ID,
@@ -158,6 +162,7 @@ func (s *WorkflowService) transition(
 	rawID string,
 	mutate func(*domainrepair.Aggregate, *txrunner.EventRecorder) error,
 	persist func(context.Context, *sql.Tx, domainrepair.State) (*RepairRequest, error),
+	afterPersistInTx func(context.Context, *sql.Tx, *RepairRequest) error,
 	afterPersist ...func(*RepairRequest, *txrunner.EventRecorder),
 ) (*RepairRequest, error) {
 	id, err := normalizeRequiredUUID(rawID, "id", ErrRepairRequestNotFound)
@@ -187,6 +192,11 @@ func (s *WorkflowService) transition(
 		repairRequest, err := persist(ctx, tx, state)
 		if err != nil {
 			return mapRepositoryError(err)
+		}
+		if afterPersistInTx != nil {
+			if err := afterPersistInTx(ctx, tx, repairRequest); err != nil {
+				return mapRepositoryError(err)
+			}
 		}
 		for _, fn := range afterPersist {
 			fn(repairRequest, recorder)
