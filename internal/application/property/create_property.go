@@ -77,7 +77,10 @@ func (s *CreatePropertyService) Execute(ctx context.Context, input CreatePropert
 		}
 
 		if err := s.propertyAccountRepo.CreatePropertyAccount(ctx, tx, CreatePropertyAccountParams{PropertyID: property.ID}); err != nil {
-			return apperr.ErrInternalServerError.WithCause(err)
+			return apperr.ErrInternalServerError.WithCause(err).WithDetails(map[string]interface{}{
+				"property_id": property.ID,
+				"operation":   "create_property_account",
+			})
 		}
 
 		recorder.Record(domainevents.PropertyCreated{
