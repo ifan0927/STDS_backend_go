@@ -44,6 +44,7 @@ type APIServer struct {
 	assignProperties  *appiam.AssignUserPropertiesService
 	jobTriggerService *appjobs.TriggerService
 	propertyQueryRepo dbpropertyquery.Repository
+	propertyDashboard *appproperty.DashboardService
 	leaseQueryRepo    dbleasequery.Repository
 	repairQueryRepo   RepairQueryRepository
 	tenantQueryRepo   dbtenantquery.Repository
@@ -283,6 +284,7 @@ func NewAPIServer(
 	assignProperties *appiam.AssignUserPropertiesService,
 	jobTriggerService *appjobs.TriggerService,
 	propertyQueryRepo dbpropertyquery.Repository,
+	propertyDashboard *appproperty.DashboardService,
 	leaseQueryRepo dbleasequery.Repository,
 	repairQueryRepo RepairQueryRepository,
 	tenantQueryRepo dbtenantquery.Repository,
@@ -310,6 +312,7 @@ func NewAPIServer(
 		assignProperties:  assignProperties,
 		jobTriggerService: jobTriggerService,
 		propertyQueryRepo: propertyQueryRepo,
+		propertyDashboard: propertyDashboard,
 		leaseQueryRepo:    leaseQueryRepo,
 		repairQueryRepo:   repairQueryRepo,
 		tenantQueryRepo:   tenantQueryRepo,
@@ -1322,7 +1325,22 @@ func (s *APIServer) UpdateProperty(c *gin.Context, id string) {
 }
 
 // GetPropertyDashboard handles property dashboard retrieval.
-func (s *APIServer) GetPropertyDashboard(c *gin.Context, id string) { writeNotImplemented(c) }
+func (s *APIServer) GetPropertyDashboard(c *gin.Context, id string) {
+	if s.propertyDashboard == nil {
+		c.Error(apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "property_dashboard"}))
+		return
+	}
+
+	dashboard, err := s.propertyDashboard.Execute(c.Request.Context(), appproperty.DashboardInput{
+		PropertyID: id,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toDashboardResponse(dashboard))
+}
 
 // GetPropertyFinancialReportSummary handles financial report summary retrieval
 // for a property.
@@ -2624,6 +2642,70 @@ func toFinancialReportEntryItem(entry BillingFinancialReportEntry) api.Financial
 		Category:    &category,
 		Description: entry.Description,
 	}
+}
+
+func toDashboardResponse(dashboard *appproperty.Dashboard) api.DashboardResponse {
+	propertyID, propertyOK := parseUUID(dashboard.PropertyID)
+	rooms := make([]api.DashboardRoomItem, 0, len(dashboard.Rooms))
+	for i := range dashboard.Rooms {
+		rooms = append(rooms, toDashboardRoomItem(dashboard.Rooms[i]))
+	}
+	recentJournals := make([]api.DashboardRecentJournalItem, 0, len(dashboard.RecentJournals))
+	for i := range dashboard.RecentJournals {
+		recentJournals = append(recentJournals, toDashboardRecentJournalItem(dashboard.RecentJournals[i]))
+	}
+
+	expectedRent := dashboard.MonthlySummary.ExpectedRent
+	collectedRent := dashboard.MonthlySummary.CollectedRent
+	overdueBillCount := dashboard.MonthlySummary.OverdueBillCount
+	response := api.DashboardResponse{
+		MonthlySummary: &api.DashboardMonthlySummary{
+			ExpectedRent:     &expectedRent,
+			CollectedRent:    &collectedRent,
+			OverdueBillCount: &overdueBillCount,
+		},
+		RecentJournals: &recentJournals,
+		Rooms:          &rooms,
+	}
+	if propertyOK {
+		response.PropertyId = &propertyID
+	}
+
+	return response
+}
+
+func toDashboardRoomItem(room appproperty.DashboardRoom) api.DashboardRoomItem {
+	id, idOK := parseUUID(room.ID)
+	name := room.Name
+	status := api.DashboardRoomItemStatus(room.Status)
+
+	response := api.DashboardRoomItem{
+		Name:   &name,
+		Status: &status,
+	}
+	if idOK {
+		response.Id = &id
+	}
+
+	return response
+}
+
+func toDashboardRecentJournalItem(journal appproperty.DashboardRecentJournal) api.DashboardRecentJournalItem {
+	id, idOK := parseUUID(journal.ID)
+	content := journal.Content
+	createdAt := journal.CreatedAt
+	itemType := journal.Type
+
+	response := api.DashboardRecentJournalItem{
+		Content:   &content,
+		CreatedAt: &createdAt,
+		Type:      &itemType,
+	}
+	if idOK {
+		response.Id = &id
+	}
+
+	return response
 }
 
 func (s *APIServer) runJob(c *gin.Context, jobKey appjobs.JobKey, windowKey string) {

@@ -769,6 +769,7 @@ func TestCreateLeaseReturnsCreatedLease(t *testing.T) {
 			findRoomID:   &findRoomID,
 			createParams: &createParams,
 		}, dbtxrunner.New(db, nil)),
+		nil,
 	)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/leases", strings.NewReader(`{
@@ -899,6 +900,7 @@ func TestCreateLeaseRejectsUnassignedRoomProperty(t *testing.T) {
 				DefaultElectricityBillingCadence: "monthly",
 			},
 		}, dbtxrunner.New(db, nil)),
+		nil,
 	)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/leases", strings.NewReader(`{
@@ -2370,6 +2372,119 @@ func TestListJournalLogsRejectsUnassignedPropertyFilter(t *testing.T) {
 	}
 }
 
+func TestGetPropertyDashboardReturnsAccessibleDashboard(t *testing.T) {
+	dashboardRepo := &fakeDashboardRepository{
+		dashboard: &appproperty.Dashboard{
+			PropertyID: testPropertyID1,
+			Rooms: []appproperty.DashboardRoom{
+				{ID: testRoomID1, Name: "101 Room", Status: "occupied"},
+			},
+			MonthlySummary: appproperty.DashboardMonthlySummary{
+				ExpectedRent:     50000,
+				CollectedRent:    40000,
+				OverdueBillCount: 2,
+			},
+			RecentJournals: []appproperty.DashboardRecentJournal{
+				{ID: "60000000-0000-0000-0000-000000000001", Type: "journal_log", Content: "Changed lobby light", CreatedAt: time.Date(2026, 4, 29, 10, 0, 0, 0, time.UTC)},
+				{ID: "70000000-0000-0000-0000-000000000001", Type: "repair_request", Content: "Fix leak", CreatedAt: time.Date(2026, 4, 29, 11, 0, 0, 0, time.UTC)},
+			},
+		},
+	}
+	engine := newTestEngineWithPropertyDashboard(
+		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
+		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}},
+		fakePropertyRepo{
+			ownerByPropertyID: map[string]string{
+				testPropertyID1: "owner-1",
+			},
+		},
+		fakeResourceOwnershipRepo{},
+		"",
+		fakeJobRunsRepo{},
+		appproperty.NewDashboardService(dashboardRepo),
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/properties/"+testPropertyID1+"/dashboard", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if dashboardRepo.propertyID != testPropertyID1 {
+		t.Fatalf("unexpected dashboard property id %q", dashboardRepo.propertyID)
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if payload["property_id"] != testPropertyID1 {
+		t.Fatalf("expected property_id %s, got %v", testPropertyID1, payload["property_id"])
+	}
+	recent, ok := payload["recent_journals"].([]any)
+	if !ok || len(recent) != 2 {
+		t.Fatalf("expected 2 recent items, got %v", payload["recent_journals"])
+	}
+}
+
+func TestGetPropertyDashboardRejectsUnassignedProperty(t *testing.T) {
+	engine := newTestEngineWithPropertyDashboard(
+		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID2}},
+		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID2}},
+		fakePropertyRepo{
+			ownerByPropertyID: map[string]string{
+				testPropertyID1: "owner-1",
+			},
+		},
+		fakeResourceOwnershipRepo{},
+		"",
+		fakeJobRunsRepo{},
+		appproperty.NewDashboardService(&fakeDashboardRepository{}),
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/properties/"+testPropertyID1+"/dashboard", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestGetPropertyDashboardReturnsPropertyNotFound(t *testing.T) {
+	engine := newTestEngineWithPropertyDashboard(
+		fakeUserRepo{role: "admin"},
+		fakeAuthenticator{role: "admin"},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{},
+		"",
+		fakeJobRunsRepo{},
+		appproperty.NewDashboardService(&fakeDashboardRepository{}),
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/properties/"+testMissingPropertyID+"/dashboard", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", resp.Code, resp.Body.String())
+	}
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if payload["error_code"] != apperr.CodePropertyNotFound {
+		t.Fatalf("expected PROPERTY_NOT_FOUND, got %v", payload["error_code"])
+	}
+}
+
 func TestListPropertyRoomsReturnsAccessibleRooms(t *testing.T) {
 	call := &listRoomsCall{}
 	propertyQueryRepo := fakePropertyQueryRepo{
@@ -2739,6 +2854,7 @@ func TestGetForceTerminationReturnsNotFoundWhenRecordMissing(t *testing.T) {
 		apptenant.NewCreateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
 		apptenant.NewUpdateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
 		applease.NewCreateLeaseService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil)),
+		nil,
 		handler.LeaseCommandServices{
 			GetForceTermination: applease.NewGetForceTerminationService(leaseRepo, dbtxrunner.New(db, nil)),
 		},
@@ -3111,6 +3227,28 @@ type fakePropertyQueryRepo struct {
 	rooms          []dbpropertyquery.Room
 	listRoomsCall  *listRoomsCall
 	findRoomIDSink *string
+}
+
+type fakeDashboardRepository struct {
+	propertyID string
+	year       int
+	month      int
+	dashboard  *appproperty.Dashboard
+	err        error
+}
+
+func (r *fakeDashboardRepository) GetDashboard(_ context.Context, propertyID string, year int, month int) (*appproperty.Dashboard, error) {
+	r.propertyID = propertyID
+	r.year = year
+	r.month = month
+	if r.err != nil {
+		return nil, r.err
+	}
+	if r.dashboard == nil {
+		return nil, appproperty.ErrPropertyNotFound
+	}
+
+	return r.dashboard, nil
 }
 
 type fakeTenantRepo struct {
@@ -4484,12 +4622,31 @@ func newTestEngineWithBilling(userRepo fakeUserRepo, authenticator fakeAuthentic
 		apptenant.NewCreateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
 		apptenant.NewUpdateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
 		applease.NewCreateLeaseService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil)),
+		nil,
 		handler.LeaseCommandServices{Billing: billing},
 	)
 }
 
 func newTestEngineWithPropertyQueryRepo(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo, propertyQueryRepo dbpropertyquery.Repository) *gin.Engine {
 	return newTestEngineWithAllQueryRepos(userRepo, authenticator, propertyRepo, ownershipRepo, schedulerKey, jobRunsRepo, propertyQueryRepo, fakeLeaseQueryRepo{}, fakeTenantQueryRepo{})
+}
+
+func newTestEngineWithPropertyDashboard(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo, propertyDashboard *appproperty.DashboardService) *gin.Engine {
+	return newTestEngineWithAllServices(
+		userRepo,
+		authenticator,
+		propertyRepo,
+		ownershipRepo,
+		schedulerKey,
+		jobRunsRepo,
+		fakePropertyQueryRepo{},
+		fakeLeaseQueryRepo{},
+		fakeTenantQueryRepo{},
+		apptenant.NewCreateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
+		apptenant.NewUpdateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
+		applease.NewCreateLeaseService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil)),
+		propertyDashboard,
+	)
 }
 
 func newTestEngineWithQueryRepos(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo, propertyQueryRepo dbpropertyquery.Repository, tenantQueryRepo dbtenantquery.Repository) *gin.Engine {
@@ -4520,6 +4677,7 @@ func newTestEngineWithAllQueryRepos(userRepo fakeUserRepo, authenticator fakeAut
 		apptenant.NewCreateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
 		apptenant.NewUpdateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
 		applease.NewCreateLeaseService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil)),
+		nil,
 	)
 }
 
@@ -4537,10 +4695,11 @@ func newTestEngineWithTenantServices(userRepo fakeUserRepo, authenticator fakeAu
 		createTenantService,
 		updateTenantService,
 		applease.NewCreateLeaseService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil)),
+		nil,
 	)
 }
 
-func newTestEngineWithAllServices(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo, propertyQueryRepo dbpropertyquery.Repository, leaseQueryRepo dbleasequery.Repository, tenantQueryRepo dbtenantquery.Repository, createTenantService *apptenant.CreateTenantService, updateTenantService *apptenant.UpdateTenantService, createLeaseService *applease.CreateLeaseService, leaseCommands ...handler.LeaseCommandServices) *gin.Engine {
+func newTestEngineWithAllServices(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo, propertyQueryRepo dbpropertyquery.Repository, leaseQueryRepo dbleasequery.Repository, tenantQueryRepo dbtenantquery.Repository, createTenantService *apptenant.CreateTenantService, updateTenantService *apptenant.UpdateTenantService, createLeaseService *applease.CreateLeaseService, propertyDashboard *appproperty.DashboardService, leaseCommands ...handler.LeaseCommandServices) *gin.Engine {
 	repo := &userRepo
 	userAccountRepo := testUserAccountRepositoryAdapter{repo: repo}
 	return New(
@@ -4565,6 +4724,7 @@ func newTestEngineWithAllServices(userRepo fakeUserRepo, authenticator fakeAuthe
 		),
 		appjobs.NewTriggerService(jobRunsRepo, nil, time.Minute, 3),
 		propertyQueryRepo,
+		propertyDashboard,
 		leaseQueryRepo,
 		fakeRepairQueryRepo{},
 		tenantQueryRepo,
@@ -4628,6 +4788,7 @@ func newTestEngineWithNotificationSender(userRepo fakeUserRepo, authenticator fa
 		),
 		appjobs.NewTriggerService(jobRunsRepo, nil, time.Minute, 3),
 		propertyQueryRepo,
+		nil,
 		fakeLeaseQueryRepo{},
 		fakeRepairQueryRepo{},
 		fakeTenantQueryRepo{},
@@ -4671,6 +4832,7 @@ func newTestEngineWithRoomServices(userRepo fakeUserRepo, authenticator fakeAuth
 		),
 		appjobs.NewTriggerService(jobRunsRepo, nil, time.Minute, 3),
 		propertyQueryRepo,
+		nil,
 		fakeLeaseQueryRepo{},
 		fakeRepairQueryRepo{},
 		fakeTenantQueryRepo{},

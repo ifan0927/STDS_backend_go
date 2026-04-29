@@ -15,6 +15,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	appattachment "stds_backend/internal/application/attachment"
+	appproperty "stds_backend/internal/application/property"
 	apprepair "stds_backend/internal/application/repair"
 	"stds_backend/internal/http/api"
 	"stds_backend/internal/http/middleware"
@@ -74,6 +75,59 @@ func TestToRoomResponseAllowsNilOptionalFields(t *testing.T) {
 		if value, ok := payload[field]; !ok || value != nil {
 			t.Fatalf("expected %s null, got %v", field, payload[field])
 		}
+	}
+}
+
+func TestGetPropertyDashboardReturnsDashboardResponse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	propertyID := "10000000-0000-0000-0000-000000000001"
+	createdAt := time.Date(2026, 4, 29, 10, 0, 0, 0, time.UTC)
+	repo := &recordingDashboardRepository{
+		dashboard: &appproperty.Dashboard{
+			PropertyID: propertyID,
+			Rooms: []appproperty.DashboardRoom{
+				{ID: "20000000-0000-0000-0000-000000000001", Name: "101 Room", Status: "occupied"},
+			},
+			MonthlySummary: appproperty.DashboardMonthlySummary{
+				ExpectedRent:     50000,
+				CollectedRent:    40000,
+				OverdueBillCount: 2,
+			},
+			RecentJournals: []appproperty.DashboardRecentJournal{
+				{ID: "60000000-0000-0000-0000-000000000001", Type: "journal_log", Content: "Changed lobby light", CreatedAt: createdAt},
+			},
+		},
+	}
+	server := &APIServer{propertyDashboard: appproperty.NewDashboardService(repo)}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/properties/"+propertyID+"/dashboard", nil)
+
+	server.GetPropertyDashboard(c, propertyID)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if repo.propertyID != propertyID {
+		t.Fatalf("unexpected dashboard query: %+v", repo)
+	}
+
+	var response api.DashboardResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if response.PropertyId == nil || response.PropertyId.String() != propertyID {
+		t.Fatalf("unexpected dashboard response: %+v", response)
+	}
+	if response.MonthlySummary == nil || response.MonthlySummary.ExpectedRent == nil || *response.MonthlySummary.ExpectedRent != 50000 {
+		t.Fatalf("unexpected monthly summary: %+v", response.MonthlySummary)
+	}
+	if response.Rooms == nil || len(*response.Rooms) != 1 || (*response.Rooms)[0].Status == nil || string(*(*response.Rooms)[0].Status) != "occupied" {
+		t.Fatalf("unexpected rooms: %+v", response.Rooms)
+	}
+	if response.RecentJournals == nil || len(*response.RecentJournals) != 1 || (*response.RecentJournals)[0].Type == nil || *(*response.RecentJournals)[0].Type != "journal_log" {
+		t.Fatalf("unexpected recent journals: %+v", response.RecentJournals)
 	}
 }
 
@@ -718,6 +772,25 @@ func (r *recordingFinancialReports) GetFinancialReport(_ context.Context, input 
 func (r *recordingFinancialReports) SendFinancialReport(_ context.Context, input BillingFinancialReportInput) (*BillingFinancialReport, error) {
 	r.sendInput = input
 	return &r.sentReport, nil
+}
+
+type recordingDashboardRepository struct {
+	propertyID string
+	year       int
+	month      int
+	dashboard  *appproperty.Dashboard
+	err        error
+}
+
+func (r *recordingDashboardRepository) GetDashboard(_ context.Context, propertyID string, year int, month int) (*appproperty.Dashboard, error) {
+	r.propertyID = propertyID
+	r.year = year
+	r.month = month
+	if r.err != nil {
+		return nil, r.err
+	}
+
+	return r.dashboard, nil
 }
 
 type recordingRepairQueryRepo struct {

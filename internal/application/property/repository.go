@@ -50,6 +50,36 @@ type RepairRequest struct {
 	UpdatedAt   time.Time
 }
 
+// Dashboard contains the property owner dashboard read model.
+type Dashboard struct {
+	PropertyID     string
+	Rooms          []DashboardRoom
+	MonthlySummary DashboardMonthlySummary
+	RecentJournals []DashboardRecentJournal
+}
+
+// DashboardRoom contains one room row in the dashboard.
+type DashboardRoom struct {
+	ID     string
+	Name   string
+	Status string
+}
+
+// DashboardMonthlySummary contains current-month rent and overdue bill totals.
+type DashboardMonthlySummary struct {
+	ExpectedRent     int
+	CollectedRent    int
+	OverdueBillCount int
+}
+
+// DashboardRecentJournal contains one recent journal entry in the dashboard.
+type DashboardRecentJournal struct {
+	ID        string
+	Type      string
+	Content   string
+	CreatedAt time.Time
+}
+
 // CreatePropertyParams contains the writable fields required to create a
 // property.
 type CreatePropertyParams struct {
@@ -118,4 +148,9 @@ type Repository interface {
 // property creation needs from billing.
 type PropertyAccountRepository interface {
 	CreatePropertyAccount(ctx context.Context, tx *sql.Tx, params CreatePropertyAccountParams) error
+}
+
+// DashboardRepository defines the read model needed by the property dashboard.
+type DashboardRepository interface {
+	GetDashboard(ctx context.Context, propertyID string, year int, month int) (*Dashboard, error)
 }

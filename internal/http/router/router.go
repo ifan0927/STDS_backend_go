@@ -57,6 +57,7 @@ func New(
 	assignUserPropertiesService *appiam.AssignUserPropertiesService,
 	jobTriggerService *appjobs.TriggerService,
 	propertyQueryRepo dbpropertyquery.Repository,
+	propertyDashboard *appproperty.DashboardService,
 	leaseQueryRepo dbleasequery.Repository,
 	repairQueryRepo handler.RepairQueryRepository,
 	tenantQueryRepo dbtenantquery.Repository,
@@ -89,7 +90,7 @@ func New(
 	engine.GET("/openapi.yaml", docsHandler.OpenAPI)
 	engine.GET("/scalar", docsHandler.Scalar)
 
-	api.RegisterHandlersWithOptions(engine, handler.NewAPIServer(userRepo, createUserService, sendPasswordResetService, syncAuthService, updateCurrentUserService, updateUserService, assignUserPropertiesService, jobTriggerService, propertyQueryRepo, leaseQueryRepo, repairQueryRepo, tenantQueryRepo, createPropertyService, updatePropertyService, deletePropertyService, createRoomService, updateRoomService, deleteRoomService, setRoomMaintenanceService, createTenantService, updateTenantService, createLeaseService, journalServices, repairServices, leaseCommands...), api.GinServerOptions{
+	api.RegisterHandlersWithOptions(engine, handler.NewAPIServer(userRepo, createUserService, sendPasswordResetService, syncAuthService, updateCurrentUserService, updateUserService, assignUserPropertiesService, jobTriggerService, propertyQueryRepo, propertyDashboard, leaseQueryRepo, repairQueryRepo, tenantQueryRepo, createPropertyService, updatePropertyService, deletePropertyService, createRoomService, updateRoomService, deleteRoomService, setRoomMaintenanceService, createTenantService, updateTenantService, createLeaseService, journalServices, repairServices, leaseCommands...), api.GinServerOptions{
 		BaseURL: "/api/v1",
 		Middlewares: []api.MiddlewareFunc{
 			protectedAPIMiddleware(appCfg, authenticator, userRepo, authzRepos),
