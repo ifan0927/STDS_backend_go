@@ -1,7 +1,7 @@
 .DS_Store
 .env
 /bin
-api
+/api
 /dist
 /tmp
 /coverage.out
