@@ -62,7 +62,9 @@ jobs:
         run: npm run openapi:generate
 
       - name: Check generated OpenAPI artifacts are committed
-        run: git diff --exit-code -- docs/spec/openapi.yaml internal/http/api/openapi.gen.go
+        run: |
+          git diff --check --exit-code -- docs/spec/openapi.yaml internal/http/api/openapi.gen.go
+          git diff --exit-code -- docs/spec/openapi.yaml internal/http/api/openapi.gen.go
 
   migration-smoke:
     name: Migration smoke test
