@@ -22,7 +22,16 @@ type DashboardService struct {
 	now  func() time.Time
 }
 
-var taiwanDashboardLocation = time.FixedZone("Asia/Taipei", 8*60*60)
+var taiwanDashboardLocation = loadTaiwanDashboardLocation()
+
+func loadTaiwanDashboardLocation() *time.Location {
+	location, err := time.LoadLocation("Asia/Taipei")
+	if err != nil {
+		return time.FixedZone("Asia/Taipei", 8*60*60)
+	}
+
+	return location
+}
 
 // NewDashboardService returns a DashboardService.
 func NewDashboardService(repo DashboardRepository) *DashboardService {

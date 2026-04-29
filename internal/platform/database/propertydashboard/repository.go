@@ -103,7 +103,7 @@ func (r *SQLRepository) getMonthlySummary(ctx context.Context, propertyID string
 SELECT
 	COALESCE(SUM(CASE WHEN type = 'rent' AND status NOT IN ('voided', 'written_off') AND period_start >= $2 AND period_start < $3 THEN amount ELSE 0 END), 0) AS expected_rent,
 	COALESCE(SUM(CASE WHEN type = 'rent' AND period_start >= $2 AND period_start < $3 AND status = 'paid' THEN paid_amount ELSE 0 END), 0) AS collected_rent,
-	COUNT(*) FILTER (WHERE status = 'overdue') AS overdue_bill_count
+	COUNT(*) FILTER (WHERE status = 'overdue' AND period_start >= $2 AND period_start < $3) AS overdue_bill_count
 FROM bills
 WHERE property_id = $1
   AND deleted_at IS NULL

@@ -30,7 +30,7 @@ func TestGetDashboardReturnsPropertyDashboard(t *testing.T) {
 		WithArgs(propertyID).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "status"}).
 			AddRow("20000000-0000-0000-0000-000000000001", "101 Room", "occupied"))
-	mock.ExpectQuery("(?s)type = 'rent' AND status NOT IN \\('voided', 'written_off'\\).*AS expected_rent").
+	mock.ExpectQuery("(?s)type = 'rent' AND status NOT IN \\('voided', 'written_off'\\).*AS expected_rent.*status = 'overdue' AND period_start >= \\$2 AND period_start < \\$3.*AS overdue_bill_count").
 		WithArgs(
 			propertyID,
 			time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),

@@ -102,7 +102,7 @@ func TestGetPropertyDashboardReturnsDashboardResponse(t *testing.T) {
 	server := &APIServer{propertyDashboard: appproperty.NewDashboardService(repo)}
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/properties/"+propertyID+"/dashboard", nil)
+	c.Request = httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/properties/"+propertyID+"/dashboard", nil)
 
 	server.GetPropertyDashboard(c, propertyID)
 
