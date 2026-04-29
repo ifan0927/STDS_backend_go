@@ -187,7 +187,7 @@ Lease 於建立時決定 `electricityBillingCadence`（`monthly | bimonthly`）�
   - `category: rent_payment | electricity_payment | deposit_refund | deposit_deduction | journal_expense`（財報分類用）
 - **寫入邊界**：只載入當月資料，不載入歷史分錄
 - **月結快照**：每月月底排程執行，將當月 AccountingEntry 封存為 `monthly_snapshot_entries`，清空 Aggregate 內當月暫存資料
-- **初始化**：物業建立時應自動建立，生命週期與物業綁定；目前 runtime 尚未實作，未來應優先由 property creation command direct orchestration 保證
+- **初始化**：物業建立時由 property creation command direct orchestration 自動建立，生命週期與物業綁定
 - **刪除策略**：物業軟刪除時 PropertyAccount 封存，MonthlySnapshot 永久保留
 - **讀取策略**：
   - 當月：讀取 PropertyAccount 當月 AccountingEntry
@@ -261,7 +261,7 @@ Lease 於建立時決定 `electricityBillingCadence`（`monthly | bimonthly`）�
 | `BillPaid` receipt notification | `BillPaid` is recorded; no receipt notification subscriber exists | published-only/reserved | Receipt notification is not committed as required behavior now; do not overload accounting event semantics | No implementation commitment |
 | `MeterRecorded` bill amount / status update | `RecordMeterService` directly calculates amount and updates bill state, then records `MeterRecorded` | command-owned direct orchestration and intentionally kept | Meter command's core output is the updated bill; it must be atomic | Event remains trace/reserved |
 | `JournalExpenseRecorded -> accounting entry` | `JournalExpenseRecordedHandler` is wired and creates AccountingEntry in a separate post-commit transaction | implemented pub/sub but future consistency concern | Journal expense and accounting entry can diverge if subscriber fails; accounting state should eventually move into direct orchestration | Future issue should migrate to direct accounting |
-| `PropertyCreated -> PropertyAccount` | `PropertyCreated` is recorded by property creation, but PropertyAccount creation is not guaranteed yet | command-owned direct orchestration and intentionally kept | PropertyAccount lifecycle should be strongly tied to property creation | Future implementation should add direct orchestration |
+| `PropertyCreated -> PropertyAccount` | Property creation directly creates PropertyAccount in the same command transaction, then records `PropertyCreated` as trace / future extension | command-owned direct orchestration and intentionally kept | PropertyAccount lifecycle is strongly tied to property creation | No subscriber needed |
 | `RoomSetToMaintenance` | `SetRoomMaintenanceService` directly creates room-scoped RepairRequest and sets room to maintenance, then records event | command-owned direct orchestration and intentionally kept | Room state and repair request creation must be atomic | Event remains trace/reserved; no subscriber needed |
 | `RepairCompleted` / `RepairCancelled -> room vacant` | Repair workflow records events, but room status recovery is not implemented yet | command-owned direct orchestration and intentionally kept | Room recovery affects Property aggregate state and should be strongly consistent with repair workflow | Future implementation should add direct orchestration |
 | `TenantInfoUpdated` | Tenant update records event; no runtime subscriber | published-only/reserved | No required downstream behavior currently exists | No implementation commitment |

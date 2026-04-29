@@ -5,6 +5,7 @@ import (
 	"database/sql"
 
 	appproperty "stds_backend/internal/application/property"
+	dbbilling "stds_backend/internal/platform/database/billing"
 	dbproperties "stds_backend/internal/platform/database/properties"
 	dbpropertyquery "stds_backend/internal/platform/database/propertyquery"
 	"stds_backend/internal/shared/apperr"
@@ -28,6 +29,14 @@ func (a propertyExistenceCheckerAdapter) Exists(ctx context.Context, propertyID 
 
 type propertyRepositoryAdapter struct {
 	repo dbproperties.CommandRepository
+}
+
+type propertyAccountRepositoryAdapter struct {
+	repo *dbbilling.SQLRepository
+}
+
+func (a propertyAccountRepositoryAdapter) CreatePropertyAccount(ctx context.Context, tx *sql.Tx, params appproperty.CreatePropertyAccountParams) error {
+	return a.repo.CreatePropertyAccount(ctx, tx, params.PropertyID)
 }
 
 func (a propertyRepositoryAdapter) Create(ctx context.Context, tx *sql.Tx, params appproperty.CreatePropertyParams) (*appproperty.Property, error) {

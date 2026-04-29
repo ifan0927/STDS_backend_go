@@ -45,6 +45,16 @@ type propertyRepoStub struct {
 	deleteRoomErr   error
 }
 
+type propertyAccountRepoStub struct {
+	propertyID string
+	err        error
+}
+
+func (s *propertyAccountRepoStub) CreatePropertyAccount(_ context.Context, _ *sql.Tx, params CreatePropertyAccountParams) error {
+	s.propertyID = params.PropertyID
+	return s.err
+}
+
 func (s propertyRepoStub) Create(context.Context, *sql.Tx, CreatePropertyParams) (*Property, error) {
 	return s.created, s.createErr
 }
@@ -112,6 +122,7 @@ func TestCreatePropertyServicePublishesPropertyCreatedAfterCommit(t *testing.T) 
 
 	publisher := &recordingPublisher{}
 	electricityUnitPrice := 4.5
+	accountRepo := &propertyAccountRepoStub{}
 	service := NewCreatePropertyService(propertyRepoStub{
 		created: &Property{
 			ID:                               "property-1",
@@ -124,7 +135,7 @@ func TestCreatePropertyServicePublishesPropertyCreatedAfterCommit(t *testing.T) 
 			UpdatedAt:                        time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
 			Version:                          1,
 		},
-	}, dbtxrunner.New(db, publisher))
+	}, accountRepo, dbtxrunner.New(db, publisher))
 
 	if _, err := service.Execute(context.Background(), CreatePropertyInput{
 		Name:                             "Property A",
@@ -141,6 +152,54 @@ func TestCreatePropertyServicePublishesPropertyCreatedAfterCommit(t *testing.T) 
 	}
 	if _, ok := publisher.events[0].(domainevents.PropertyCreated); !ok {
 		t.Fatalf("expected PropertyCreated event, got %T", publisher.events[0])
+	}
+	if accountRepo.propertyID != "property-1" {
+		t.Fatalf("expected property account for property-1, got %q", accountRepo.propertyID)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestCreatePropertyServiceRollsBackWhenPropertyAccountCreateFails(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectRollback()
+
+	publisher := &recordingPublisher{}
+	electricityUnitPrice := 4.5
+	service := NewCreatePropertyService(propertyRepoStub{
+		created: &Property{
+			ID:                               "property-1",
+			Name:                             "Property A",
+			Address:                          "Address A",
+			ElectricityUnitPrice:             &electricityUnitPrice,
+			DefaultElectricityBillingCadence: domainproperty.BillingCadenceMonthly,
+			OwnerID:                          "owner-1",
+			CreatedAt:                        time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+			UpdatedAt:                        time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+			Version:                          1,
+		},
+	}, &propertyAccountRepoStub{err: errors.New("create property account failed")}, dbtxrunner.New(db, publisher))
+
+	if _, err := service.Execute(context.Background(), CreatePropertyInput{
+		Name:                             "Property A",
+		Address:                          "Address A",
+		ElectricityUnitPrice:             4.5,
+		DefaultElectricityBillingCadence: domainproperty.BillingCadenceMonthly,
+		OwnerID:                          "owner-1",
+	}); err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	if len(publisher.events) != 0 {
+		t.Fatalf("expected no published events, got %d", len(publisher.events))
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {

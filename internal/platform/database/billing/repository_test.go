@@ -429,6 +429,28 @@ func TestInsertAccountingEntryWritesCategoryAmountSourceRefYearAndMonth(t *testi
 	}
 }
 
+func TestCreatePropertyAccountInsertsPropertyAccount(t *testing.T) {
+	db, mock, repo := newBillingRepoTest(t)
+	defer closeBillingDB(t, db)
+
+	tx := beginBillingTx(t, db, mock)
+	mock.ExpectExec(`(?s)INSERT INTO property_accounts \(\s+property_id\s+\) VALUES \(\$1\)`).
+		WithArgs("property-1").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	if err := repo.CreatePropertyAccount(context.Background(), tx, "property-1"); err != nil {
+		t.Fatalf("CreatePropertyAccount: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
 func TestGetFinancialReportFinalizedMapsSnapshotEntries(t *testing.T) {
 	db, mock, repo := newBillingRepoTest(t)
 	defer closeBillingDB(t, db)
