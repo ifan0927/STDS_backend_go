@@ -10,6 +10,9 @@
 -- ============================================================
 
 
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+
 -- ============================================================
 -- Table: users
 -- Aggregate: User Aggregate（Identity & Access BC）
@@ -21,8 +24,8 @@ CREATE TABLE users (
     id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     -- firebase_uid：對應 Firebase Auth 中的使用者 UID，由 Firebase 管理認證
     -- v3.0：取代原本的 password_hash，後端不儲存密碼
-    firebase_uid    VARCHAR(128) NOT NULL UNIQUE,
-    email           VARCHAR(255) NOT NULL UNIQUE,
+    firebase_uid    VARCHAR(128) NOT NULL,
+    email           VARCHAR(255) NOT NULL,
     name            VARCHAR(100) NOT NULL,
     -- role 為 Value Object，展開為欄位；RBAC 授權模型基礎
     -- role 與 assigned_property_ids 也透過 Firebase Custom Claims 存於 ID token
@@ -61,7 +64,7 @@ CREATE TABLE properties (
     address                 TEXT         NOT NULL,
     -- electricityUnitPrice：台幣正數/度，物業層級電價，可接受小數
     electricity_unit_price  NUMERIC(10,4) CHECK (electricity_unit_price > 0),
-    default_electricity_billing_cadence VARCHAR(20) NOT NULL CHECK (default_electricity_billing_cadence IN ('monthly', 'bimonthly')),
+    default_electricity_billing_cadence VARCHAR(20) NOT NULL DEFAULT 'monthly' CHECK (default_electricity_billing_cadence IN ('monthly', 'bimonthly')),
     -- owner_id：業主帳號，resource-based 存取控制用
     owner_id                UUID         NOT NULL REFERENCES users(id),
     subtitle                VARCHAR(200),
@@ -163,7 +166,7 @@ CREATE TABLE leases (
     rent_amount             INTEGER      NOT NULL CHECK (rent_amount > 0),  -- BR-02
     start_date              DATE         NOT NULL,
     end_date                DATE         NOT NULL,
-    electricity_billing_cadence VARCHAR(20) NOT NULL CHECK (electricity_billing_cadence IN ('monthly', 'bimonthly')),
+    electricity_billing_cadence VARCHAR(20) NOT NULL DEFAULT 'monthly' CHECK (electricity_billing_cadence IN ('monthly', 'bimonthly')),
     -- status：active | expired | terminated | force_terminated
     status                  VARCHAR(30)  NOT NULL CHECK (status IN ('active', 'expired', 'terminated', 'force_terminated'))
                                          DEFAULT 'active',
@@ -244,7 +247,8 @@ CREATE TABLE bills (
     deleted_at          TIMESTAMPTZ,
     created_at          TIMESTAMPTZ  NOT NULL DEFAULT now(),
     updated_at          TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    version             INTEGER      NOT NULL DEFAULT 1
+    version             INTEGER      NOT NULL DEFAULT 1,
+    CONSTRAINT bills_period_range_check CHECK (period_start <= period_end)
 );
 
 -- Index 說明:
@@ -422,6 +426,29 @@ CREATE INDEX idx_repair_requests_property_status ON repair_requests (property_id
 CREATE INDEX idx_repair_requests_room_id ON repair_requests (room_id) WHERE deleted_at IS NULL;
 -- idx_repair_requests_assigned_to: 外鍵關聯
 CREATE INDEX idx_repair_requests_assigned_to ON repair_requests (assigned_to) WHERE deleted_at IS NULL AND assigned_to IS NOT NULL;
+
+
+-- ============================================================
+-- Table: scheduler_job_runs
+-- 說明: 排程任務執行紀錄，用於 job window 去重與重試追蹤
+-- ============================================================
+
+CREATE TABLE scheduler_job_runs (
+    id          UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    job_key     VARCHAR(100) NOT NULL,
+    window_key  VARCHAR(100) NOT NULL,
+    request_id  VARCHAR(100),
+    retry_count INTEGER      NOT NULL DEFAULT 0,
+    status      VARCHAR(20)  NOT NULL CHECK (status IN ('started', 'completed', 'failed', 'skipped')),
+    message     TEXT,
+    started_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    finished_at TIMESTAMPTZ,
+    created_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    UNIQUE (job_key, window_key)
+);
+
+CREATE INDEX idx_scheduler_job_runs_job_window ON scheduler_job_runs (job_key, window_key);
 
 
 -- ============================================================
