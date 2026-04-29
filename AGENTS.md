@@ -67,8 +67,11 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - Use GoLang
 - Use Gin
 - Follow [`docs/.rules/coding-style.md`](docs/.rules/coding-style.md) for layer boundaries,
-  error handling, shared utility reuse, and testing rules.
+  error handling, shared utility reuse, and implementation rules.
+- Follow [`docs/.rules/testing.md`](docs/.rules/testing.md) for test type selection,
+  PR gate expectations, and AI test-writing rules.
+- When generating or modifying test code, use the `stds-test-writer` skill if available.
 - Keep project-specific implementation aligned with idiomatic Go and the
-  established patterns in `docs/.rules/coding-style.md`.
+  established patterns in `docs/.rules/coding-style.md` and `docs/.rules/testing.md`.
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
