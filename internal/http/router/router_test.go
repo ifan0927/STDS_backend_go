@@ -16,8 +16,10 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gin-gonic/gin"
 
+	appattachment "stds_backend/internal/application/attachment"
 	appiam "stds_backend/internal/application/iam"
 	appjobs "stds_backend/internal/application/jobs"
+	appjournal "stds_backend/internal/application/journal"
 	applease "stds_backend/internal/application/lease"
 	appnotification "stds_backend/internal/application/notification"
 	appproperty "stds_backend/internal/application/property"
@@ -2885,8 +2887,8 @@ func TestGetForceTerminationReturnsNotFoundWhenRecordMissing(t *testing.T) {
 		apptenant.NewUpdateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
 		applease.NewCreateLeaseService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil)),
 		nil,
-		handler.LeaseCommandServices{
-			GetForceTermination: applease.NewGetForceTerminationService(leaseRepo, dbtxrunner.New(db, nil)),
+		func(deps *handler.APIServerDeps) {
+			deps.Leases.GetForceTermination = applease.NewGetForceTerminationService(leaseRepo, dbtxrunner.New(db, nil))
 		},
 	)
 
@@ -3403,6 +3405,48 @@ func (fakeBillingQuery) ListBills(_ context.Context, _ handler.BillingListInput)
 
 func (fakeBillingQuery) GetBill(_ context.Context, _ handler.BillingGetInput) (*handler.BillingBill, error) {
 	return nil, apperr.ErrBillNotFound
+}
+
+type fakeBillingMeter struct{}
+
+func (fakeBillingMeter) SubmitBillMeter(_ context.Context, _ handler.BillingMeterInput) (*handler.BillingBill, error) {
+	return &handler.BillingBill{}, nil
+}
+
+type fakeBillingPayment struct{}
+
+func (fakeBillingPayment) RecordBillPayment(_ context.Context, _ handler.BillingPaymentInput) (*handler.BillingBill, error) {
+	return &handler.BillingBill{}, nil
+}
+
+type fakeBillingPropertyMeters struct{}
+
+func (fakeBillingPropertyMeters) ListPropertyPendingMeters(_ context.Context, _ handler.BillingPropertyMetersInput) ([]handler.BillingBill, error) {
+	return nil, nil
+}
+
+func (fakeBillingPropertyMeters) ListPropertyMeterHistory(_ context.Context, _ handler.BillingPropertyMeterHistoryInput) ([]handler.BillingBill, error) {
+	return nil, nil
+}
+
+type fakeBillingRoomMeters struct{}
+
+func (fakeBillingRoomMeters) ListRoomMeterHistory(_ context.Context, _ handler.BillingRoomMeterHistoryInput) ([]handler.BillingBill, error) {
+	return nil, nil
+}
+
+type fakeBillingFinancialReports struct{}
+
+func (fakeBillingFinancialReports) ListFinancialReportSummaries(_ context.Context, _ handler.BillingFinancialReportSummaryInput) ([]handler.BillingFinancialReportSummary, error) {
+	return nil, nil
+}
+
+func (fakeBillingFinancialReports) GetFinancialReport(_ context.Context, _ handler.BillingFinancialReportInput) (*handler.BillingFinancialReport, error) {
+	return nil, apperr.ErrInternalServerError
+}
+
+func (fakeBillingFinancialReports) SendFinancialReport(_ context.Context, _ handler.BillingFinancialReportInput) (*handler.BillingFinancialReport, error) {
+	return nil, apperr.ErrInternalServerError
 }
 
 type testUserAccountRepositoryAdapter struct {
@@ -4653,7 +4697,9 @@ func newTestEngineWithBilling(userRepo fakeUserRepo, authenticator fakeAuthentic
 		apptenant.NewUpdateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
 		applease.NewCreateLeaseService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil)),
 		nil,
-		handler.LeaseCommandServices{Billing: billing},
+		func(deps *handler.APIServerDeps) {
+			deps.Billing = mergeBillingServices(deps.Billing, billing)
+		},
 	)
 }
 
@@ -4729,9 +4775,19 @@ func newTestEngineWithTenantServices(userRepo fakeUserRepo, authenticator fakeAu
 	)
 }
 
-func newTestEngineWithAllServices(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo, propertyQueryRepo dbpropertyquery.Repository, leaseQueryRepo dbleasequery.Repository, tenantQueryRepo dbtenantquery.Repository, createTenantService *apptenant.CreateTenantService, updateTenantService *apptenant.UpdateTenantService, createLeaseService *applease.CreateLeaseService, propertyDashboard *appproperty.DashboardService, leaseCommands ...handler.LeaseCommandServices) *gin.Engine {
+func newTestEngineWithAllServices(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo, propertyQueryRepo dbpropertyquery.Repository, leaseQueryRepo dbleasequery.Repository, tenantQueryRepo dbtenantquery.Repository, createTenantService *apptenant.CreateTenantService, updateTenantService *apptenant.UpdateTenantService, createLeaseService *applease.CreateLeaseService, propertyDashboard *appproperty.DashboardService, overrides ...func(*handler.APIServerDeps)) *gin.Engine {
 	repo := &userRepo
-	userAccountRepo := testUserAccountRepositoryAdapter{repo: repo}
+	apiDeps := defaultAPIServerDeps(repo, authenticator, propertyRepo, propertyQueryRepo, leaseQueryRepo, tenantQueryRepo, jobRunsRepo)
+	apiDeps.CreateTenant = createTenantService
+	apiDeps.UpdateTenant = updateTenantService
+	apiDeps.CreateLease = createLeaseService
+	if propertyDashboard != nil {
+		apiDeps.PropertyDashboard = propertyDashboard
+	}
+	for _, override := range overrides {
+		override(&apiDeps)
+	}
+
 	return New(
 		config.AppConfig{Name: "test", Env: "test", SchedulerKey: schedulerKey, ReadTimeout: time.Second, WriteTimeout: time.Second},
 		testLogger(),
@@ -4742,36 +4798,90 @@ func newTestEngineWithAllServices(userRepo fakeUserRepo, authenticator fakeAuthe
 			Properties:        propertyRepo,
 			ResourceOwnership: ownershipRepo,
 		},
-		appiam.NewCreateUserService(userAccountRepo, authenticator, appnotification.NewService(&testNotificationSender{})),
-		appiam.NewSendUserPasswordResetService(userAccountRepo, authenticator, appnotification.NewService(&testNotificationSender{})),
-		appiam.NewSyncAuthService(userAccountRepo, appiam.NewCustomClaimsService(authenticator)),
-		appiam.NewUpdateCurrentUserService(repo),
-		appiam.NewUpdateUserService(userAccountRepo, appiam.NewCustomClaimsService(authenticator)),
-		appiam.NewAssignUserPropertiesService(
-			testManagedUserRepositoryAdapter{repo: repo},
-			testPropertyExistenceChecker{repo: fakePropertyQueryRepo{}},
-			appiam.NewCustomClaimsService(authenticator),
-		),
-		appjobs.NewTriggerService(jobRunsRepo, nil, time.Minute, 3),
-		propertyQueryRepo,
-		propertyDashboard,
-		leaseQueryRepo,
-		fakeRepairQueryRepo{},
-		tenantQueryRepo,
-		appproperty.NewCreatePropertyService(propertyRepo, fakePropertyAccountRepo{}, dbtxrunner.New(nil, nil)),
-		appproperty.NewUpdatePropertyService(propertyRepo, dbtxrunner.New(nil, nil)),
-		appproperty.NewDeletePropertyService(propertyRepo, dbtxrunner.New(nil, nil)),
-		appproperty.NewCreateRoomService(propertyRepo, dbtxrunner.New(nil, nil)),
-		appproperty.NewUpdateRoomService(propertyRepo, dbtxrunner.New(nil, nil)),
-		appproperty.NewDeleteRoomService(propertyRepo, dbtxrunner.New(nil, nil)),
-		appproperty.NewSetRoomMaintenanceService(propertyRepo, dbtxrunner.New(nil, nil)),
-		createTenantService,
-		updateTenantService,
-		createLeaseService,
-		handler.JournalServices{},
-		handler.RepairServices{},
-		leaseCommands...,
+		apiDeps,
 	)
+}
+
+func defaultAPIServerDeps(userRepo *fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, propertyQueryRepo dbpropertyquery.Repository, leaseQueryRepo dbleasequery.Repository, tenantQueryRepo dbtenantquery.Repository, jobRunsRepo fakeJobRunsRepo) handler.APIServerDeps {
+	userAccountRepo := testUserAccountRepositoryAdapter{repo: userRepo}
+	notificationService := appnotification.NewService(&testNotificationSender{})
+	return handler.APIServerDeps{
+		UserRepo:          userRepo,
+		CreateUser:        appiam.NewCreateUserService(userAccountRepo, authenticator, notificationService),
+		SendPasswordReset: appiam.NewSendUserPasswordResetService(userAccountRepo, authenticator, notificationService),
+		SyncAuth:          appiam.NewSyncAuthService(userAccountRepo, appiam.NewCustomClaimsService(authenticator)),
+		UpdateCurrentUser: appiam.NewUpdateCurrentUserService(userRepo),
+		UpdateUser:        appiam.NewUpdateUserService(userAccountRepo, appiam.NewCustomClaimsService(authenticator)),
+		AssignProperties:  appiam.NewAssignUserPropertiesService(testManagedUserRepositoryAdapter{repo: userRepo}, testPropertyExistenceChecker{repo: fakePropertyQueryRepo{}}, appiam.NewCustomClaimsService(authenticator)),
+		JobTrigger:        appjobs.NewTriggerService(jobRunsRepo, nil, time.Minute, 3),
+		PropertyQuery:     propertyQueryRepo,
+		PropertyDashboard: appproperty.NewDashboardService(nil),
+		LeaseQuery:        leaseQueryRepo,
+		RepairQuery:       fakeRepairQueryRepo{},
+		TenantQuery:       tenantQueryRepo,
+		CreateProperty:    appproperty.NewCreatePropertyService(propertyRepo, fakePropertyAccountRepo{}, dbtxrunner.New(nil, nil)),
+		UpdateProperty:    appproperty.NewUpdatePropertyService(propertyRepo, dbtxrunner.New(nil, nil)),
+		DeleteProperty:    appproperty.NewDeletePropertyService(propertyRepo, dbtxrunner.New(nil, nil)),
+		CreateRoom:        appproperty.NewCreateRoomService(propertyRepo, dbtxrunner.New(nil, nil)),
+		UpdateRoom:        appproperty.NewUpdateRoomService(propertyRepo, dbtxrunner.New(nil, nil)),
+		DeleteRoom:        appproperty.NewDeleteRoomService(propertyRepo, dbtxrunner.New(nil, nil)),
+		SetMaintenance:    appproperty.NewSetRoomMaintenanceService(propertyRepo, dbtxrunner.New(nil, nil)),
+		CreateTenant:      apptenant.NewCreateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
+		UpdateTenant:      apptenant.NewUpdateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
+		CreateLease:       applease.NewCreateLeaseService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil)),
+		Leases: handler.LeaseServices{
+			UpdateLease:         applease.NewUpdateLeaseService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil)),
+			UpdateDeposit:       applease.NewUpdateDepositService(fakeLeaseRepo{}, nil, dbtxrunner.New(nil, nil)),
+			ReplaceLease:        applease.NewReplaceLeaseService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil)),
+			TerminateLease:      applease.NewTerminateLeaseService(fakeLeaseRepo{}, nil, dbtxrunner.New(nil, nil)),
+			ForceTerminateLease: applease.NewForceTerminateLeaseService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil)),
+			GetForceTermination: applease.NewGetForceTerminationService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil)),
+		},
+		Billing: handler.BillingServices{
+			Query:            fakeBillingQuery{},
+			Meter:            fakeBillingMeter{},
+			Payment:          fakeBillingPayment{},
+			PropertyMeters:   fakeBillingPropertyMeters{},
+			RoomMeters:       fakeBillingRoomMeters{},
+			FinancialReports: fakeBillingFinancialReports{},
+		},
+		Journal: handler.JournalServices{
+			List:   appjournal.NewListService(nil),
+			Get:    appjournal.NewGetService(nil),
+			Create: appjournal.NewCreateService(nil, nil, nil),
+			Update: appjournal.NewUpdateService(nil, nil),
+			Delete: appjournal.NewDeleteService(nil, nil),
+		},
+		Repair: handler.RepairServices{
+			Create:   apprepair.NewCreateService(nil, nil),
+			Update:   apprepair.NewUpdateService(nil, nil),
+			Delete:   apprepair.NewDeleteService(nil, nil),
+			Workflow: apprepair.NewWorkflowService(nil, nil),
+		},
+		Attachment: appattachment.NewService(nil, nil, nil, nil, 0),
+	}
+}
+
+func mergeBillingServices(base handler.BillingServices, override handler.BillingServices) handler.BillingServices {
+	if override.Query != nil {
+		base.Query = override.Query
+	}
+	if override.Meter != nil {
+		base.Meter = override.Meter
+	}
+	if override.Payment != nil {
+		base.Payment = override.Payment
+	}
+	if override.PropertyMeters != nil {
+		base.PropertyMeters = override.PropertyMeters
+	}
+	if override.RoomMeters != nil {
+		base.RoomMeters = override.RoomMeters
+	}
+	if override.FinancialReports != nil {
+		base.FinancialReports = override.FinancialReports
+	}
+	return base
 }
 
 func newTestEngineWithCreatePropertyService(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo, propertyQueryRepo dbpropertyquery.Repository, createPropertyService *appproperty.CreatePropertyService, updatePropertyService *appproperty.UpdatePropertyService, deletePropertyService *appproperty.DeletePropertyService) *gin.Engine {
@@ -4794,90 +4904,57 @@ func newTestEngineWithCreatePropertyService(userRepo fakeUserRepo, authenticator
 }
 
 func newTestEngineWithNotificationSender(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo, notificationSender *testNotificationSender, propertyQueryRepo dbpropertyquery.Repository, createPropertyService *appproperty.CreatePropertyService, updatePropertyService *appproperty.UpdatePropertyService, deletePropertyService *appproperty.DeletePropertyService) *gin.Engine {
-	repo := &userRepo
-	userAccountRepo := testUserAccountRepositoryAdapter{repo: repo}
-	return New(
-		config.AppConfig{Name: "test", Env: "test", SchedulerKey: schedulerKey, ReadTimeout: time.Second, WriteTimeout: time.Second},
-		testLogger(),
-		nil,
+	return newTestEngineWithAllServices(
+		userRepo,
 		authenticator,
-		repo,
-		AuthorizationRepositories{
-			Properties:        propertyRepo,
-			ResourceOwnership: ownershipRepo,
-		},
-		appiam.NewCreateUserService(userAccountRepo, authenticator, appnotification.NewService(notificationSender)),
-		appiam.NewSendUserPasswordResetService(userAccountRepo, authenticator, appnotification.NewService(notificationSender)),
-		appiam.NewSyncAuthService(userAccountRepo, appiam.NewCustomClaimsService(authenticator)),
-		appiam.NewUpdateCurrentUserService(repo),
-		appiam.NewUpdateUserService(userAccountRepo, appiam.NewCustomClaimsService(authenticator)),
-		appiam.NewAssignUserPropertiesService(
-			testManagedUserRepositoryAdapter{repo: repo},
-			testPropertyExistenceChecker{repo: fakePropertyQueryRepo{}},
-			appiam.NewCustomClaimsService(authenticator),
-		),
-		appjobs.NewTriggerService(jobRunsRepo, nil, time.Minute, 3),
+		propertyRepo,
+		ownershipRepo,
+		schedulerKey,
+		jobRunsRepo,
 		propertyQueryRepo,
-		nil,
 		fakeLeaseQueryRepo{},
-		fakeRepairQueryRepo{},
 		fakeTenantQueryRepo{},
-		createPropertyService,
-		updatePropertyService,
-		deletePropertyService,
-		appproperty.NewCreateRoomService(propertyRepo, dbtxrunner.New(nil, nil)),
-		appproperty.NewUpdateRoomService(propertyRepo, dbtxrunner.New(nil, nil)),
-		appproperty.NewDeleteRoomService(propertyRepo, dbtxrunner.New(nil, nil)),
-		appproperty.NewSetRoomMaintenanceService(propertyRepo, dbtxrunner.New(nil, nil)),
 		apptenant.NewCreateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
 		apptenant.NewUpdateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
 		applease.NewCreateLeaseService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil)),
-		handler.JournalServices{},
-		handler.RepairServices{},
+		nil,
+		func(deps *handler.APIServerDeps) {
+			repo := &userRepo
+			userAccountRepo := testUserAccountRepositoryAdapter{repo: repo}
+			notificationService := appnotification.NewService(notificationSender)
+			deps.CreateUser = appiam.NewCreateUserService(userAccountRepo, authenticator, notificationService)
+			deps.SendPasswordReset = appiam.NewSendUserPasswordResetService(userAccountRepo, authenticator, notificationService)
+			deps.CreateProperty = createPropertyService
+			deps.UpdateProperty = updatePropertyService
+			deps.DeleteProperty = deletePropertyService
+		},
 	)
 }
 
 func newTestEngineWithRoomServices(userRepo fakeUserRepo, authenticator fakeAuthenticator, propertyRepo fakePropertyRepo, ownershipRepo fakeResourceOwnershipRepo, schedulerKey string, jobRunsRepo fakeJobRunsRepo, propertyQueryRepo dbpropertyquery.Repository, createPropertyService *appproperty.CreatePropertyService, updatePropertyService *appproperty.UpdatePropertyService, deletePropertyService *appproperty.DeletePropertyService, createRoomService *appproperty.CreateRoomService, updateRoomService *appproperty.UpdateRoomService, deleteRoomService *appproperty.DeleteRoomService, setRoomMaintenanceService *appproperty.SetRoomMaintenanceService) *gin.Engine {
-	repo := &userRepo
-	userAccountRepo := testUserAccountRepositoryAdapter{repo: repo}
-	return New(
-		config.AppConfig{Name: "test", Env: "test", SchedulerKey: schedulerKey, ReadTimeout: time.Second, WriteTimeout: time.Second},
-		testLogger(),
-		nil,
+	return newTestEngineWithAllServices(
+		userRepo,
 		authenticator,
-		repo,
-		AuthorizationRepositories{
-			Properties:        propertyRepo,
-			ResourceOwnership: ownershipRepo,
-		},
-		appiam.NewCreateUserService(userAccountRepo, authenticator, appnotification.NewService(&testNotificationSender{})),
-		appiam.NewSendUserPasswordResetService(userAccountRepo, authenticator, appnotification.NewService(&testNotificationSender{})),
-		appiam.NewSyncAuthService(userAccountRepo, appiam.NewCustomClaimsService(authenticator)),
-		appiam.NewUpdateCurrentUserService(repo),
-		appiam.NewUpdateUserService(userAccountRepo, appiam.NewCustomClaimsService(authenticator)),
-		appiam.NewAssignUserPropertiesService(
-			testManagedUserRepositoryAdapter{repo: repo},
-			testPropertyExistenceChecker{repo: fakePropertyQueryRepo{}},
-			appiam.NewCustomClaimsService(authenticator),
-		),
-		appjobs.NewTriggerService(jobRunsRepo, nil, time.Minute, 3),
+		propertyRepo,
+		ownershipRepo,
+		schedulerKey,
+		jobRunsRepo,
 		propertyQueryRepo,
-		nil,
 		fakeLeaseQueryRepo{},
-		fakeRepairQueryRepo{},
 		fakeTenantQueryRepo{},
-		createPropertyService,
-		updatePropertyService,
-		deletePropertyService,
-		createRoomService,
-		updateRoomService,
-		deleteRoomService,
-		setRoomMaintenanceService,
 		apptenant.NewCreateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
 		apptenant.NewUpdateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
 		applease.NewCreateLeaseService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil)),
-		handler.JournalServices{},
-		handler.RepairServices{},
+		nil,
+		func(deps *handler.APIServerDeps) {
+			deps.CreateProperty = createPropertyService
+			deps.UpdateProperty = updatePropertyService
+			deps.DeleteProperty = deletePropertyService
+			deps.CreateRoom = createRoomService
+			deps.UpdateRoom = updateRoomService
+			deps.DeleteRoom = deleteRoomService
+			deps.SetMaintenance = setRoomMaintenanceService
+		},
 	)
 }
 

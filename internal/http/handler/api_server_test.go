@@ -78,6 +78,20 @@ func TestToRoomResponseAllowsNilOptionalFields(t *testing.T) {
 	}
 }
 
+func TestNewAPIServerPanicsWhenRequiredDependencyMissing(t *testing.T) {
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatal("expected panic")
+		}
+		if recovered != "handler.NewAPIServer missing dependency: user_repo" {
+			t.Fatalf("unexpected panic: %v", recovered)
+		}
+	}()
+
+	NewAPIServer(APIServerDeps{})
+}
+
 func TestGetPropertyDashboardReturnsDashboardResponse(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

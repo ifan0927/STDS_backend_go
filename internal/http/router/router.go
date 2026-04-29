@@ -6,20 +6,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	appiam "stds_backend/internal/application/iam"
-	appjobs "stds_backend/internal/application/jobs"
-	applease "stds_backend/internal/application/lease"
-	appproperty "stds_backend/internal/application/property"
-	apptenant "stds_backend/internal/application/tenant"
 	"stds_backend/internal/config"
 	"stds_backend/internal/http/api"
 	"stds_backend/internal/http/handler"
 	"stds_backend/internal/http/middleware"
-	dbleasequery "stds_backend/internal/platform/database/leasequery"
 	dbproperties "stds_backend/internal/platform/database/properties"
-	dbpropertyquery "stds_backend/internal/platform/database/propertyquery"
 	dbresourceownership "stds_backend/internal/platform/database/resourceownership"
-	dbtenantquery "stds_backend/internal/platform/database/tenantquery"
 	"stds_backend/internal/platform/database/users"
 	platformfirebase "stds_backend/internal/platform/firebase"
 	"stds_backend/internal/shared/apperr"
@@ -49,31 +41,7 @@ func New(
 	authenticator platformfirebase.Authenticator,
 	userRepo users.Repository,
 	authzRepos AuthorizationRepositories,
-	createUserService *appiam.CreateUserService,
-	sendPasswordResetService *appiam.SendUserPasswordResetService,
-	syncAuthService *appiam.SyncAuthService,
-	updateCurrentUserService *appiam.UpdateCurrentUserService,
-	updateUserService *appiam.UpdateUserService,
-	assignUserPropertiesService *appiam.AssignUserPropertiesService,
-	jobTriggerService *appjobs.TriggerService,
-	propertyQueryRepo dbpropertyquery.Repository,
-	propertyDashboard *appproperty.DashboardService,
-	leaseQueryRepo dbleasequery.Repository,
-	repairQueryRepo handler.RepairQueryRepository,
-	tenantQueryRepo dbtenantquery.Repository,
-	createPropertyService *appproperty.CreatePropertyService,
-	updatePropertyService *appproperty.UpdatePropertyService,
-	deletePropertyService *appproperty.DeletePropertyService,
-	createRoomService *appproperty.CreateRoomService,
-	updateRoomService *appproperty.UpdateRoomService,
-	deleteRoomService *appproperty.DeleteRoomService,
-	setRoomMaintenanceService *appproperty.SetRoomMaintenanceService,
-	createTenantService *apptenant.CreateTenantService,
-	updateTenantService *apptenant.UpdateTenantService,
-	createLeaseService *applease.CreateLeaseService,
-	journalServices handler.JournalServices,
-	repairServices handler.RepairServices,
-	leaseCommands ...handler.LeaseCommandServices,
+	apiDeps handler.APIServerDeps,
 ) *gin.Engine {
 	engine := gin.New()
 	engine.Use(
@@ -90,7 +58,7 @@ func New(
 	engine.GET("/openapi.yaml", docsHandler.OpenAPI)
 	engine.GET("/scalar", docsHandler.Scalar)
 
-	api.RegisterHandlersWithOptions(engine, handler.NewAPIServer(userRepo, createUserService, sendPasswordResetService, syncAuthService, updateCurrentUserService, updateUserService, assignUserPropertiesService, jobTriggerService, propertyQueryRepo, propertyDashboard, leaseQueryRepo, repairQueryRepo, tenantQueryRepo, createPropertyService, updatePropertyService, deletePropertyService, createRoomService, updateRoomService, deleteRoomService, setRoomMaintenanceService, createTenantService, updateTenantService, createLeaseService, journalServices, repairServices, leaseCommands...), api.GinServerOptions{
+	api.RegisterHandlersWithOptions(engine, handler.NewAPIServer(apiDeps), api.GinServerOptions{
 		BaseURL: "/api/v1",
 		Middlewares: []api.MiddlewareFunc{
 			protectedAPIMiddleware(appCfg, authenticator, userRepo, authzRepos),

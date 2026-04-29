@@ -70,16 +70,47 @@ type APIServer struct {
 	attachment        *appattachment.Service
 }
 
-// LeaseCommandServices groups optional lease command services beyond creation.
-type LeaseCommandServices struct {
+// APIServerDeps groups the application entry points required by exposed API
+// endpoints.
+type APIServerDeps struct {
+	UserRepo          users.Repository
+	CreateUser        *appiam.CreateUserService
+	SendPasswordReset *appiam.SendUserPasswordResetService
+	SyncAuth          *appiam.SyncAuthService
+	UpdateCurrentUser *appiam.UpdateCurrentUserService
+	UpdateUser        *appiam.UpdateUserService
+	AssignProperties  *appiam.AssignUserPropertiesService
+	JobTrigger        *appjobs.TriggerService
+	PropertyQuery     dbpropertyquery.Repository
+	PropertyDashboard *appproperty.DashboardService
+	LeaseQuery        dbleasequery.Repository
+	RepairQuery       RepairQueryRepository
+	TenantQuery       dbtenantquery.Repository
+	CreateProperty    *appproperty.CreatePropertyService
+	UpdateProperty    *appproperty.UpdatePropertyService
+	DeleteProperty    *appproperty.DeletePropertyService
+	CreateRoom        *appproperty.CreateRoomService
+	UpdateRoom        *appproperty.UpdateRoomService
+	DeleteRoom        *appproperty.DeleteRoomService
+	SetMaintenance    *appproperty.SetRoomMaintenanceService
+	CreateTenant      *apptenant.CreateTenantService
+	UpdateTenant      *apptenant.UpdateTenantService
+	CreateLease       *applease.CreateLeaseService
+	Leases            LeaseServices
+	Billing           BillingServices
+	Journal           JournalServices
+	Repair            RepairServices
+	Attachment        *appattachment.Service
+}
+
+// LeaseServices groups lease command services beyond creation.
+type LeaseServices struct {
 	UpdateLease         *applease.UpdateLeaseService
 	UpdateDeposit       *applease.UpdateDepositService
 	ReplaceLease        *applease.ReplaceLeaseService
 	TerminateLease      *applease.TerminateLeaseService
 	ForceTerminateLease *applease.ForceTerminateLeaseService
 	GetForceTermination *applease.GetForceTerminationService
-	Billing             BillingServices
-	Attachment          *appattachment.Service
 }
 
 // BillingServices groups the billing application entry points used by the
@@ -272,90 +303,108 @@ type BillingFinancialReportEntry struct {
 	Amount      int
 }
 
-// NewAPIServer returns an API server with only the currently implemented
-// vertical slices wired in.
-func NewAPIServer(
-	userRepo users.Repository,
-	createUserService *appiam.CreateUserService,
-	sendPasswordReset *appiam.SendUserPasswordResetService,
-	syncAuthService *appiam.SyncAuthService,
-	updateCurrentUser *appiam.UpdateCurrentUserService,
-	updateUser *appiam.UpdateUserService,
-	assignProperties *appiam.AssignUserPropertiesService,
-	jobTriggerService *appjobs.TriggerService,
-	propertyQueryRepo dbpropertyquery.Repository,
-	propertyDashboard *appproperty.DashboardService,
-	leaseQueryRepo dbleasequery.Repository,
-	repairQueryRepo RepairQueryRepository,
-	tenantQueryRepo dbtenantquery.Repository,
-	createPropertySvc *appproperty.CreatePropertyService,
-	updatePropertySvc *appproperty.UpdatePropertyService,
-	deletePropertySvc *appproperty.DeletePropertyService,
-	createRoomSvc *appproperty.CreateRoomService,
-	updateRoomSvc *appproperty.UpdateRoomService,
-	deleteRoomSvc *appproperty.DeleteRoomService,
-	setMaintenanceSvc *appproperty.SetRoomMaintenanceService,
-	createTenantSvc *apptenant.CreateTenantService,
-	updateTenantSvc *apptenant.UpdateTenantService,
-	createLeaseSvc *applease.CreateLeaseService,
-	journalServices JournalServices,
-	repairServices RepairServices,
-	leaseCommands ...LeaseCommandServices,
-) *APIServer {
-	server := &APIServer{
-		userRepo:          userRepo,
-		createUserService: createUserService,
-		sendPasswordReset: sendPasswordReset,
-		syncAuthService:   syncAuthService,
-		updateCurrentUser: updateCurrentUser,
-		updateUser:        updateUser,
-		assignProperties:  assignProperties,
-		jobTriggerService: jobTriggerService,
-		propertyQueryRepo: propertyQueryRepo,
-		propertyDashboard: propertyDashboard,
-		leaseQueryRepo:    leaseQueryRepo,
-		repairQueryRepo:   repairQueryRepo,
-		tenantQueryRepo:   tenantQueryRepo,
-		createPropertySvc: createPropertySvc,
-		updatePropertySvc: updatePropertySvc,
-		deletePropertySvc: deletePropertySvc,
-		createRoomSvc:     createRoomSvc,
-		updateRoomSvc:     updateRoomSvc,
-		deleteRoomSvc:     deleteRoomSvc,
-		setMaintenanceSvc: setMaintenanceSvc,
-		createTenantSvc:   createTenantSvc,
-		updateTenantSvc:   updateTenantSvc,
-		createLeaseSvc:    createLeaseSvc,
-		journal:           journalServices,
-		repair:            repairServices,
-	}
-	if len(leaseCommands) > 0 {
-		server.updateLeaseSvc = leaseCommands[0].UpdateLease
-		server.updateDepositSvc = leaseCommands[0].UpdateDeposit
-		server.replaceLeaseSvc = leaseCommands[0].ReplaceLease
-		server.terminateLeaseSvc = leaseCommands[0].TerminateLease
-		server.forceTerminateSvc = leaseCommands[0].ForceTerminateLease
-		server.getForceTermSvc = leaseCommands[0].GetForceTermination
-		server.billing = leaseCommands[0].Billing
-		server.attachment = leaseCommands[0].Attachment
-	}
+// NewAPIServer returns an API server with all exposed endpoint dependencies
+// wired. Missing dependencies fail during construction instead of at request
+// time.
+func NewAPIServer(deps APIServerDeps) *APIServer {
+	validateAPIServerDeps(deps)
 
-	return server
+	return &APIServer{
+		userRepo:          deps.UserRepo,
+		createUserService: deps.CreateUser,
+		sendPasswordReset: deps.SendPasswordReset,
+		syncAuthService:   deps.SyncAuth,
+		updateCurrentUser: deps.UpdateCurrentUser,
+		updateUser:        deps.UpdateUser,
+		assignProperties:  deps.AssignProperties,
+		jobTriggerService: deps.JobTrigger,
+		propertyQueryRepo: deps.PropertyQuery,
+		propertyDashboard: deps.PropertyDashboard,
+		leaseQueryRepo:    deps.LeaseQuery,
+		repairQueryRepo:   deps.RepairQuery,
+		tenantQueryRepo:   deps.TenantQuery,
+		createPropertySvc: deps.CreateProperty,
+		updatePropertySvc: deps.UpdateProperty,
+		deletePropertySvc: deps.DeleteProperty,
+		createRoomSvc:     deps.CreateRoom,
+		updateRoomSvc:     deps.UpdateRoom,
+		deleteRoomSvc:     deps.DeleteRoom,
+		setMaintenanceSvc: deps.SetMaintenance,
+		createTenantSvc:   deps.CreateTenant,
+		updateTenantSvc:   deps.UpdateTenant,
+		createLeaseSvc:    deps.CreateLease,
+		updateLeaseSvc:    deps.Leases.UpdateLease,
+		updateDepositSvc:  deps.Leases.UpdateDeposit,
+		replaceLeaseSvc:   deps.Leases.ReplaceLease,
+		terminateLeaseSvc: deps.Leases.TerminateLease,
+		forceTerminateSvc: deps.Leases.ForceTerminateLease,
+		getForceTermSvc:   deps.Leases.GetForceTermination,
+		billing:           deps.Billing,
+		journal:           deps.Journal,
+		repair:            deps.Repair,
+		attachment:        deps.Attachment,
+	}
 }
 
-func writeNotImplemented(c *gin.Context) {
-	message := "Not implemented yet."
-	c.AbortWithStatusJSON(http.StatusNotImplemented, api.ErrorResponse{
-		Message: &message,
-	})
+func validateAPIServerDeps(deps APIServerDeps) {
+	required := []struct {
+		name string
+		dep  any
+	}{
+		{"user_repo", deps.UserRepo},
+		{"create_user", deps.CreateUser},
+		{"send_password_reset", deps.SendPasswordReset},
+		{"sync_auth", deps.SyncAuth},
+		{"update_current_user", deps.UpdateCurrentUser},
+		{"update_user", deps.UpdateUser},
+		{"assign_properties", deps.AssignProperties},
+		{"job_trigger", deps.JobTrigger},
+		{"property_query", deps.PropertyQuery},
+		{"property_dashboard", deps.PropertyDashboard},
+		{"lease_query", deps.LeaseQuery},
+		{"repair_query", deps.RepairQuery},
+		{"tenant_query", deps.TenantQuery},
+		{"create_property", deps.CreateProperty},
+		{"update_property", deps.UpdateProperty},
+		{"delete_property", deps.DeleteProperty},
+		{"create_room", deps.CreateRoom},
+		{"update_room", deps.UpdateRoom},
+		{"delete_room", deps.DeleteRoom},
+		{"set_maintenance", deps.SetMaintenance},
+		{"create_tenant", deps.CreateTenant},
+		{"update_tenant", deps.UpdateTenant},
+		{"create_lease", deps.CreateLease},
+		{"update_lease", deps.Leases.UpdateLease},
+		{"update_deposit", deps.Leases.UpdateDeposit},
+		{"replace_lease", deps.Leases.ReplaceLease},
+		{"terminate_lease", deps.Leases.TerminateLease},
+		{"force_terminate", deps.Leases.ForceTerminateLease},
+		{"get_force_termination", deps.Leases.GetForceTermination},
+		{"billing_query", deps.Billing.Query},
+		{"billing_meter", deps.Billing.Meter},
+		{"billing_payment", deps.Billing.Payment},
+		{"billing_property_meters", deps.Billing.PropertyMeters},
+		{"billing_room_meters", deps.Billing.RoomMeters},
+		{"billing_financial_reports", deps.Billing.FinancialReports},
+		{"journal_list", deps.Journal.List},
+		{"journal_get", deps.Journal.Get},
+		{"journal_create", deps.Journal.Create},
+		{"journal_update", deps.Journal.Update},
+		{"journal_delete", deps.Journal.Delete},
+		{"repair_create", deps.Repair.Create},
+		{"repair_update", deps.Repair.Update},
+		{"repair_delete", deps.Repair.Delete},
+		{"repair_workflow", deps.Repair.Workflow},
+		{"attachment", deps.Attachment},
+	}
+	for _, item := range required {
+		if item.dep == nil {
+			panic("handler.NewAPIServer missing dependency: " + item.name)
+		}
+	}
 }
 
 func (s *APIServer) listAttachments(c *gin.Context, resourceType appattachment.ResourceType, id openapi_types.UUID) {
-	if s.attachment == nil {
-		c.Error(apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "attachment"}))
-		return
-	}
-
 	attachments, err := s.attachment.ListAttachments(c.Request.Context(), resourceType, id.String())
 	if err != nil {
 		c.Error(err)
@@ -371,10 +420,6 @@ func (s *APIServer) listAttachments(c *gin.Context, resourceType appattachment.R
 }
 
 func (s *APIServer) createAttachment(c *gin.Context, resourceType appattachment.ResourceType, id openapi_types.UUID) {
-	if s.attachment == nil {
-		c.Error(apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "attachment"}))
-		return
-	}
 	principal, ok := requestctx.GetPrincipal(c)
 	if !ok {
 		c.Error(apperr.ErrUnauthorized)
@@ -461,11 +506,6 @@ func (s *APIServer) SyncAuth(c *gin.Context) {
 
 // ListBills handles the bill listing endpoint.
 func (s *APIServer) ListBills(c *gin.Context, params api.ListBillsParams) {
-	if s.billing.Query == nil {
-		c.Error(apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "billing_query"}))
-		return
-	}
-
 	principal, ok := requestctx.GetPrincipal(c)
 	if !ok {
 		c.Error(apperr.ErrUnauthorized)
@@ -524,10 +564,6 @@ func (s *APIServer) ListBills(c *gin.Context, params api.ListBillsParams) {
 
 // CreateAttachmentUploadURL handles attachment upload URL creation.
 func (s *APIServer) CreateAttachmentUploadURL(c *gin.Context) {
-	if s.attachment == nil {
-		c.Error(apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "attachment"}))
-		return
-	}
 	principal, ok := requestctx.GetPrincipal(c)
 	if !ok {
 		c.Error(apperr.ErrUnauthorized)
@@ -563,10 +599,6 @@ func (s *APIServer) CreateAttachmentUploadURL(c *gin.Context) {
 
 // DeleteAttachment handles attachment deletion.
 func (s *APIServer) DeleteAttachment(c *gin.Context, id openapi_types.UUID) {
-	if s.attachment == nil {
-		c.Error(apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "attachment"}))
-		return
-	}
 	if err := s.attachment.DeleteAttachment(c.Request.Context(), id.String()); err != nil {
 		c.Error(err)
 		return
@@ -587,11 +619,6 @@ func (s *APIServer) CreateBillAttachment(c *gin.Context, id openapi_types.UUID) 
 
 // GetBill handles the bill detail endpoint.
 func (s *APIServer) GetBill(c *gin.Context, id string) {
-	if s.billing.Query == nil {
-		c.Error(apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "billing_query"}))
-		return
-	}
-
 	principal, ok := requestctx.GetPrincipal(c)
 	if !ok {
 		c.Error(apperr.ErrUnauthorized)
@@ -614,11 +641,6 @@ func (s *APIServer) GetBill(c *gin.Context, id string) {
 
 // SubmitBillMeter handles meter submission for a bill.
 func (s *APIServer) SubmitBillMeter(c *gin.Context, id string) {
-	if s.billing.Meter == nil {
-		c.Error(apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "billing_meter"}))
-		return
-	}
-
 	principal, ok := requestctx.GetPrincipal(c)
 	if !ok {
 		c.Error(apperr.ErrUnauthorized)
@@ -653,11 +675,6 @@ func (s *APIServer) SubmitBillMeter(c *gin.Context, id string) {
 
 // RecordBillPayment handles payment recording for a bill.
 func (s *APIServer) RecordBillPayment(c *gin.Context, id string) {
-	if s.billing.Payment == nil {
-		c.Error(apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "billing_payment"}))
-		return
-	}
-
 	principal, ok := requestctx.GetPrincipal(c)
 	if !ok {
 		c.Error(apperr.ErrUnauthorized)
@@ -688,11 +705,6 @@ func (s *APIServer) RecordBillPayment(c *gin.Context, id string) {
 
 // GetForceTermination handles force-termination detail retrieval.
 func (s *APIServer) GetForceTermination(c *gin.Context, id openapi_types.UUID) {
-	if s.getForceTermSvc == nil {
-		writeNotImplemented(c)
-		return
-	}
-
 	principal, ok := requestctx.GetPrincipal(c)
 	if !ok {
 		c.Error(apperr.ErrUnauthorized)
@@ -743,10 +755,6 @@ func (s *APIServer) RunOverdueBillsScanJob(c *gin.Context, params api.RunOverdue
 
 // ListJournalLogs handles the journal log listing endpoint.
 func (s *APIServer) ListJournalLogs(c *gin.Context, params api.ListJournalLogsParams) {
-	if s.journal.List == nil {
-		writeNotImplemented(c)
-		return
-	}
 	principal, ok := requestctx.GetPrincipal(c)
 	if !ok {
 		c.Error(apperr.ErrUnauthorized)
@@ -802,10 +810,6 @@ func (s *APIServer) ListJournalLogs(c *gin.Context, params api.ListJournalLogsPa
 
 // CreateJournalLog handles journal log creation.
 func (s *APIServer) CreateJournalLog(c *gin.Context) {
-	if s.journal.Create == nil {
-		writeNotImplemented(c)
-		return
-	}
 	principal, ok := requestctx.GetPrincipal(c)
 	if !ok {
 		c.Error(apperr.ErrUnauthorized)
@@ -852,10 +856,6 @@ func (s *APIServer) CreateJournalLogAttachment(c *gin.Context, id openapi_types.
 
 // DeleteJournalLog handles journal log deletion.
 func (s *APIServer) DeleteJournalLog(c *gin.Context, id string) {
-	if s.journal.Delete == nil {
-		writeNotImplemented(c)
-		return
-	}
 	if err := s.journal.Delete.Execute(c.Request.Context(), appjournal.DeleteInput{ID: id}); err != nil {
 		c.Error(err)
 		return
@@ -866,10 +866,6 @@ func (s *APIServer) DeleteJournalLog(c *gin.Context, id string) {
 
 // GetJournalLog handles journal log detail retrieval.
 func (s *APIServer) GetJournalLog(c *gin.Context, id string) {
-	if s.journal.Get == nil {
-		writeNotImplemented(c)
-		return
-	}
 	journalLog, err := s.journal.Get.Execute(c.Request.Context(), appjournal.GetInput{ID: id})
 	if err != nil {
 		c.Error(err)
@@ -881,10 +877,6 @@ func (s *APIServer) GetJournalLog(c *gin.Context, id string) {
 
 // UpdateJournalLog handles journal log updates.
 func (s *APIServer) UpdateJournalLog(c *gin.Context, id string) {
-	if s.journal.Update == nil {
-		writeNotImplemented(c)
-		return
-	}
 	var request api.UpdateJournalLogRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.Error(apperr.ErrBadRequest.WithCause(err))
@@ -1018,11 +1010,6 @@ func (s *APIServer) GetLease(c *gin.Context, id string) {
 
 // UpdateLease handles lease updates.
 func (s *APIServer) UpdateLease(c *gin.Context, id string) {
-	if s.updateLeaseSvc == nil {
-		writeNotImplemented(c)
-		return
-	}
-
 	principal, ok := requestctx.GetPrincipal(c)
 	if !ok {
 		c.Error(apperr.ErrUnauthorized)
@@ -1058,11 +1045,6 @@ func (s *APIServer) UpdateLease(c *gin.Context, id string) {
 
 // UpdateLeaseDeposit handles lease deposit updates.
 func (s *APIServer) UpdateLeaseDeposit(c *gin.Context, id string) {
-	if s.updateDepositSvc == nil {
-		writeNotImplemented(c)
-		return
-	}
-
 	principal, ok := requestctx.GetPrincipal(c)
 	if !ok {
 		c.Error(apperr.ErrUnauthorized)
@@ -1093,11 +1075,6 @@ func (s *APIServer) UpdateLeaseDeposit(c *gin.Context, id string) {
 
 // ReplaceLease handles lease replacement.
 func (s *APIServer) ReplaceLease(c *gin.Context, id string) {
-	if s.replaceLeaseSvc == nil {
-		writeNotImplemented(c)
-		return
-	}
-
 	principal, ok := requestctx.GetPrincipal(c)
 	if !ok {
 		c.Error(apperr.ErrUnauthorized)
@@ -1140,11 +1117,6 @@ func (s *APIServer) ReplaceLease(c *gin.Context, id string) {
 
 // ForceTerminateLease handles forced lease termination.
 func (s *APIServer) ForceTerminateLease(c *gin.Context, id string) {
-	if s.forceTerminateSvc == nil {
-		writeNotImplemented(c)
-		return
-	}
-
 	principal, ok := requestctx.GetPrincipal(c)
 	if !ok {
 		c.Error(apperr.ErrUnauthorized)
@@ -1175,11 +1147,6 @@ func (s *APIServer) ForceTerminateLease(c *gin.Context, id string) {
 
 // TerminateLease handles lease termination.
 func (s *APIServer) TerminateLease(c *gin.Context, id string) {
-	if s.terminateLeaseSvc == nil {
-		writeNotImplemented(c)
-		return
-	}
-
 	principal, ok := requestctx.GetPrincipal(c)
 	if !ok {
 		c.Error(apperr.ErrUnauthorized)
@@ -1333,11 +1300,6 @@ func (s *APIServer) UpdateProperty(c *gin.Context, id string) {
 
 // GetPropertyDashboard handles property dashboard retrieval.
 func (s *APIServer) GetPropertyDashboard(c *gin.Context, id string) {
-	if s.propertyDashboard == nil {
-		c.Error(apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "property_dashboard"}))
-		return
-	}
-
 	dashboard, err := s.propertyDashboard.Execute(c.Request.Context(), appproperty.DashboardInput{
 		PropertyID: id,
 	})
@@ -1352,11 +1314,6 @@ func (s *APIServer) GetPropertyDashboard(c *gin.Context, id string) {
 // GetPropertyFinancialReportSummary handles financial report summary retrieval
 // for a property.
 func (s *APIServer) GetPropertyFinancialReportSummary(c *gin.Context, id string, params api.GetPropertyFinancialReportSummaryParams) {
-	if s.billing.FinancialReports == nil {
-		c.Error(apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "billing_financial_reports"}))
-		return
-	}
-
 	principal, ok := requestctx.GetPrincipal(c)
 	if !ok {
 		c.Error(apperr.ErrUnauthorized)
@@ -1386,10 +1343,6 @@ func (s *APIServer) GetPropertyFinancialReportSummary(c *gin.Context, id string,
 // GetPropertyFinancialReport handles financial report retrieval for a property
 // month.
 func (s *APIServer) GetPropertyFinancialReport(c *gin.Context, id string, year int, month int) {
-	if s.billing.FinancialReports == nil {
-		c.Error(apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "billing_financial_reports"}))
-		return
-	}
 	if !isValidMonth(month) {
 		c.Error(apperr.ErrBadRequest.WithDetails(map[string]interface{}{
 			"field":  "month",
@@ -1422,10 +1375,6 @@ func (s *APIServer) GetPropertyFinancialReport(c *gin.Context, id string, year i
 
 // SendPropertyFinancialReport handles sending a property's financial report.
 func (s *APIServer) SendPropertyFinancialReport(c *gin.Context, id string, year int, month int) {
-	if s.billing.FinancialReports == nil {
-		c.Error(apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "billing_financial_reports"}))
-		return
-	}
 	if !isValidMonth(month) {
 		c.Error(apperr.ErrBadRequest.WithDetails(map[string]interface{}{
 			"field":  "month",
@@ -1458,11 +1407,6 @@ func (s *APIServer) SendPropertyFinancialReport(c *gin.Context, id string, year 
 
 // ListPropertyMeterHistory handles property meter history retrieval.
 func (s *APIServer) ListPropertyMeterHistory(c *gin.Context, id string, params api.ListPropertyMeterHistoryParams) {
-	if s.billing.PropertyMeters == nil {
-		c.Error(apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "billing_property_meters"}))
-		return
-	}
-
 	principal, ok := requestctx.GetPrincipal(c)
 	if !ok {
 		c.Error(apperr.ErrUnauthorized)
@@ -1486,11 +1430,6 @@ func (s *APIServer) ListPropertyMeterHistory(c *gin.Context, id string, params a
 
 // ListPropertyPendingMeters handles pending meter retrieval for a property.
 func (s *APIServer) ListPropertyPendingMeters(c *gin.Context, id string) {
-	if s.billing.PropertyMeters == nil {
-		c.Error(apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "billing_property_meters"}))
-		return
-	}
-
 	principal, ok := requestctx.GetPrincipal(c)
 	if !ok {
 		c.Error(apperr.ErrUnauthorized)
@@ -1580,10 +1519,6 @@ func (s *APIServer) CreatePropertyRoom(c *gin.Context, id string) {
 
 // ListRepairRequests handles the repair request listing endpoint.
 func (s *APIServer) ListRepairRequests(c *gin.Context, params api.ListRepairRequestsParams) {
-	if s.repairQueryRepo == nil {
-		writeNotImplemented(c)
-		return
-	}
 	principal, ok := requestctx.GetPrincipal(c)
 	if !ok {
 		c.Error(apperr.ErrUnauthorized)
@@ -1642,10 +1577,6 @@ func (s *APIServer) ListRepairRequests(c *gin.Context, params api.ListRepairRequ
 
 // CreateRepairRequest handles repair request creation.
 func (s *APIServer) CreateRepairRequest(c *gin.Context) {
-	if s.repair.Create == nil {
-		writeNotImplemented(c)
-		return
-	}
 	principal, ok := requestctx.GetPrincipal(c)
 	if !ok {
 		c.Error(apperr.ErrUnauthorized)
@@ -1681,10 +1612,6 @@ func (s *APIServer) ListRepairRequestAttachments(c *gin.Context, id openapi_type
 
 // CreateRepairRequestAttachment handles repair request attachment registration.
 func (s *APIServer) CreateRepairRequestAttachment(c *gin.Context, id openapi_types.UUID) {
-	if s.attachment == nil {
-		c.Error(apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "attachment"}))
-		return
-	}
 	principal, ok := requestctx.GetPrincipal(c)
 	if !ok {
 		c.Error(apperr.ErrUnauthorized)
@@ -1722,10 +1649,6 @@ func (s *APIServer) CreateRepairRequestAttachment(c *gin.Context, id openapi_typ
 
 // DeleteRepairRequest handles repair request deletion.
 func (s *APIServer) DeleteRepairRequest(c *gin.Context, id string) {
-	if s.repair.Delete == nil {
-		writeNotImplemented(c)
-		return
-	}
 	if err := s.repair.Delete.Execute(c.Request.Context(), apprepair.DeleteInput{ID: id}); err != nil {
 		c.Error(err)
 		return
@@ -1736,10 +1659,6 @@ func (s *APIServer) DeleteRepairRequest(c *gin.Context, id string) {
 
 // GetRepairRequest handles repair request detail retrieval.
 func (s *APIServer) GetRepairRequest(c *gin.Context, id string) {
-	if s.repairQueryRepo == nil {
-		writeNotImplemented(c)
-		return
-	}
 	repairRequest, err := s.repairQueryRepo.FindByID(c.Request.Context(), id)
 	if err != nil {
 		c.Error(mapRepairQueryError(err))
@@ -1751,10 +1670,6 @@ func (s *APIServer) GetRepairRequest(c *gin.Context, id string) {
 
 // UpdateRepairRequest handles repair request updates.
 func (s *APIServer) UpdateRepairRequest(c *gin.Context, id string) {
-	if s.repair.Update == nil {
-		writeNotImplemented(c)
-		return
-	}
 	var request api.UpdateRepairRequestRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.Error(apperr.ErrBadRequest.WithCause(err))
@@ -1776,10 +1691,6 @@ func (s *APIServer) UpdateRepairRequest(c *gin.Context, id string) {
 
 // AssignRepairRequest handles repair request assignment.
 func (s *APIServer) AssignRepairRequest(c *gin.Context, id string) {
-	if s.repair.Workflow == nil {
-		writeNotImplemented(c)
-		return
-	}
 	principal, ok := requestctx.GetPrincipal(c)
 	if !ok {
 		c.Error(apperr.ErrUnauthorized)
@@ -1807,10 +1718,6 @@ func (s *APIServer) AssignRepairRequest(c *gin.Context, id string) {
 
 // CancelRepairRequest handles repair request cancellation.
 func (s *APIServer) CancelRepairRequest(c *gin.Context, id string) {
-	if s.repair.Workflow == nil {
-		writeNotImplemented(c)
-		return
-	}
 	var request api.CancelRepairRequest
 	if c.Request.Body != nil && c.Request.ContentLength != 0 {
 		if err := c.ShouldBindJSON(&request); err != nil {
@@ -1833,10 +1740,6 @@ func (s *APIServer) CancelRepairRequest(c *gin.Context, id string) {
 
 // CompleteRepairRequest handles repair request completion.
 func (s *APIServer) CompleteRepairRequest(c *gin.Context, id string) {
-	if s.repair.Workflow == nil {
-		writeNotImplemented(c)
-		return
-	}
 	repairRequest, err := s.repair.Workflow.Complete(c.Request.Context(), id)
 	if err != nil {
 		c.Error(err)
@@ -1848,10 +1751,6 @@ func (s *APIServer) CompleteRepairRequest(c *gin.Context, id string) {
 
 // ProgressRepairRequest handles repair request progress updates.
 func (s *APIServer) ProgressRepairRequest(c *gin.Context, id string) {
-	if s.repair.Workflow == nil {
-		writeNotImplemented(c)
-		return
-	}
 	repairRequest, err := s.repair.Workflow.Progress(c.Request.Context(), id)
 	if err != nil {
 		c.Error(err)
@@ -1966,11 +1865,6 @@ func (s *APIServer) ListRoomMeterHistory(c *gin.Context, id string, params api.L
 		c.Status(http.StatusBadRequest)
 		return
 	}
-	if s.billing.RoomMeters == nil {
-		c.Error(apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "billing_room_meters"}))
-		return
-	}
-
 	principal, ok := requestctx.GetPrincipal(c)
 	if !ok {
 		c.Error(apperr.ErrUnauthorized)
