@@ -167,6 +167,21 @@ func NewRepository(db *sql.DB) *SQLRepository {
 	return &SQLRepository{db: db}
 }
 
+// CreatePropertyAccount creates the accounting lifecycle record for a property.
+func (r *SQLRepository) CreatePropertyAccount(ctx context.Context, tx *sql.Tx, propertyID string) error {
+	const query = `
+INSERT INTO property_accounts (
+	property_id
+) VALUES ($1)
+`
+
+	if _, err := tx.ExecContext(ctx, query, propertyID); err != nil {
+		return fmt.Errorf("create property account: %w", err)
+	}
+
+	return nil
+}
+
 // ListOverdueScanCandidates returns pending-payment bills that should become overdue.
 func (r *SQLRepository) ListOverdueScanCandidates(ctx context.Context, today time.Time) (candidates []JobBillCandidate, err error) {
 	const query = `

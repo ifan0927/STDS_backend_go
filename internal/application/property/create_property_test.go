@@ -9,6 +9,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 
 	domainevents "stds_backend/internal/domain/events"
+	dbbilling "stds_backend/internal/platform/database/billing"
 	dbproperties "stds_backend/internal/platform/database/properties"
 	dbtxrunner "stds_backend/internal/platform/database/txrunner"
 )
@@ -26,9 +27,12 @@ func TestCreatePropertyServiceCreatesProperty(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "name", "address", "electricity_unit_price", "default_electricity_billing_cadence", "owner_id", "created_at", "updated_at", "version",
 		}).AddRow("property-1", "Property A", "Address A", 4.5, "monthly", "owner-1", time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), 1))
+	mock.ExpectExec("INSERT INTO property_accounts").
+		WithArgs("property-1").
+		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
-	service := NewCreatePropertyService(sqlPropertyRepositoryAdapter{repo: dbproperties.NewRepository(db)}, dbtxrunner.New(db, domainevents.NoopPublisher{}))
+	service := NewCreatePropertyService(sqlPropertyRepositoryAdapter{repo: dbproperties.NewRepository(db)}, sqlPropertyAccountRepositoryAdapter{repo: dbbilling.NewRepository(db)}, dbtxrunner.New(db, domainevents.NoopPublisher{}))
 	property, err := service.Execute(context.Background(), CreatePropertyInput{
 		Name:                             "Property A",
 		Address:                          "Address A",
@@ -59,6 +63,14 @@ type sqlPropertyRepositoryAdapter struct {
 	repo dbproperties.CommandRepository
 }
 
+type sqlPropertyAccountRepositoryAdapter struct {
+	repo *dbbilling.SQLRepository
+}
+
+func (a sqlPropertyAccountRepositoryAdapter) CreatePropertyAccount(ctx context.Context, tx *sql.Tx, params CreatePropertyAccountParams) error {
+	return a.repo.CreatePropertyAccount(ctx, tx, params.PropertyID)
+}
+
 func (a sqlPropertyRepositoryAdapter) Create(ctx context.Context, tx *sql.Tx, params CreatePropertyParams) (*Property, error) {
 	property, err := a.repo.Create(ctx, tx, dbproperties.CreatePropertyParams{
 		Name:                             params.Name,
@@ -85,7 +97,7 @@ func (a sqlPropertyRepositoryAdapter) Create(ctx context.Context, tx *sql.Tx, pa
 }
 
 func TestCreatePropertyServiceValidatesInput(t *testing.T) {
-	service := NewCreatePropertyService(nil, nil)
+	service := NewCreatePropertyService(nil, nil, nil)
 
 	if _, err := service.Execute(context.Background(), CreatePropertyInput{}); err == nil {
 		t.Fatal("expected validation error, got nil")

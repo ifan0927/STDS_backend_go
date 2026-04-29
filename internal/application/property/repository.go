@@ -60,6 +60,12 @@ type CreatePropertyParams struct {
 	OwnerID                          string
 }
 
+// CreatePropertyAccountParams contains the fields required to create the
+// accounting lifecycle record for a property.
+type CreatePropertyAccountParams struct {
+	PropertyID string
+}
+
 // UpdatePropertyParams contains the writable fields required to persist a
 // property update.
 type UpdatePropertyParams struct {
@@ -106,4 +112,10 @@ type Repository interface {
 	UpdateRoom(ctx context.Context, tx *sql.Tx, params UpdateRoomParams) (*Room, error)
 	SoftDeleteRoom(ctx context.Context, tx *sql.Tx, id string) error
 	CreateRepairRequest(ctx context.Context, tx *sql.Tx, params CreateRepairRequestParams) (*RepairRequest, error)
+}
+
+// PropertyAccountRepository defines the strong-consistency lifecycle operation
+// property creation needs from billing.
+type PropertyAccountRepository interface {
+	CreatePropertyAccount(ctx context.Context, tx *sql.Tx, params CreatePropertyAccountParams) error
 }

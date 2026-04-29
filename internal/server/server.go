@@ -21,6 +21,7 @@ import (
 	"stds_backend/internal/http/router"
 	"stds_backend/internal/platform/database"
 	dbattachments "stds_backend/internal/platform/database/attachments"
+	dbbilling "stds_backend/internal/platform/database/billing"
 	dbjobruns "stds_backend/internal/platform/database/jobruns"
 	dbjournal "stds_backend/internal/platform/database/journal"
 	dbleasequery "stds_backend/internal/platform/database/leasequery"
@@ -66,6 +67,7 @@ func New(cfg *config.Config) (*Server, error) {
 
 	userRepo := dbusers.NewRepository(db)
 	propertyRepo := dbproperties.NewRepository(db)
+	billingRepo := dbbilling.NewRepository(db)
 	leaseRepo := dbleases.NewRepository(db)
 	propertyQueryRepo := dbpropertyquery.NewRepository(db)
 	leaseQueryRepo := dbleasequery.NewRepository(db)
@@ -107,7 +109,7 @@ func New(cfg *config.Config) (*Server, error) {
 		customClaimsService,
 	)
 	txRunner := dbtxrunner.New(db, bus)
-	createPropertyService := appproperty.NewCreatePropertyService(propertyRepositoryAdapter{repo: propertyRepo}, txRunner)
+	createPropertyService := appproperty.NewCreatePropertyService(propertyRepositoryAdapter{repo: propertyRepo}, propertyAccountRepositoryAdapter{repo: billingRepo}, txRunner)
 	updatePropertyService := appproperty.NewUpdatePropertyService(propertyRepositoryAdapter{repo: propertyRepo}, txRunner)
 	deletePropertyService := appproperty.NewDeletePropertyService(propertyRepositoryAdapter{repo: propertyRepo}, txRunner)
 	createRoomService := appproperty.NewCreateRoomService(propertyRepositoryAdapter{repo: propertyRepo}, txRunner)

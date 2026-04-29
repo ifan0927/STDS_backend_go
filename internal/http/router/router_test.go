@@ -26,6 +26,7 @@ import (
 	"stds_backend/internal/config"
 	domainusers "stds_backend/internal/domain/users"
 	"stds_backend/internal/http/handler"
+	dbbilling "stds_backend/internal/platform/database/billing"
 	dbleasequery "stds_backend/internal/platform/database/leasequery"
 	dbproperties "stds_backend/internal/platform/database/properties"
 	dbpropertyquery "stds_backend/internal/platform/database/propertyquery"
@@ -1376,7 +1377,7 @@ func TestTriggerUserPasswordResetReturnsNoContent(t *testing.T) {
 		fakeJobRunsRepo{},
 		notificationSender,
 		fakePropertyQueryRepo{},
-		appproperty.NewCreatePropertyService(fakePropertyRepo{}, dbtxrunner.New(nil, nil)),
+		appproperty.NewCreatePropertyService(fakePropertyRepo{}, fakePropertyAccountRepo{}, dbtxrunner.New(nil, nil)),
 		appproperty.NewUpdatePropertyService(fakePropertyRepo{}, dbtxrunner.New(nil, nil)),
 		appproperty.NewDeletePropertyService(fakePropertyRepo{}, dbtxrunner.New(nil, nil)),
 	)
@@ -1540,7 +1541,7 @@ func TestCreateUserReturnsNotificationErrorCodeWhenDispatchFails(t *testing.T) {
 		fakeJobRunsRepo{},
 		&testNotificationSender{sendErr: errors.New("resend down")},
 		fakePropertyQueryRepo{},
-		appproperty.NewCreatePropertyService(fakePropertyRepo{}, dbtxrunner.New(nil, nil)),
+		appproperty.NewCreatePropertyService(fakePropertyRepo{}, fakePropertyAccountRepo{}, dbtxrunner.New(nil, nil)),
 		appproperty.NewUpdatePropertyService(fakePropertyRepo{}, dbtxrunner.New(nil, nil)),
 		appproperty.NewDeletePropertyService(fakePropertyRepo{}, dbtxrunner.New(nil, nil)),
 	)
@@ -1627,7 +1628,7 @@ func TestCreatePropertyRoomReturnsCreatedRoom(t *testing.T) {
 	repo := fakeUserRepo{}
 	propertyRepo := fakePropertyRepo{}
 	engine := newTestEngineWithRoomServices(repo, fakeAuthenticator{}, propertyRepo, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{}, fakePropertyQueryRepo{},
-		appproperty.NewCreatePropertyService(propertyRepo, dbtxrunner.New(db, nil)),
+		appproperty.NewCreatePropertyService(propertyRepo, fakePropertyAccountRepo{}, dbtxrunner.New(db, nil)),
 		appproperty.NewUpdatePropertyService(propertyRepo, dbtxrunner.New(db, nil)),
 		appproperty.NewDeletePropertyService(propertyRepo, dbtxrunner.New(db, nil)),
 		appproperty.NewCreateRoomService(propertyRepo, dbtxrunner.New(db, nil)),
@@ -1672,7 +1673,7 @@ func TestUpdateRoomReturnsUpdatedRoom(t *testing.T) {
 	repo := fakeUserRepo{}
 	propertyRepo := fakePropertyRepo{}
 	engine := newTestEngineWithRoomServices(repo, fakeAuthenticator{}, propertyRepo, fakeResourceOwnershipRepo{propertyByRoomID: map[string]string{testRoomID1: testPropertyID1}}, "", fakeJobRunsRepo{}, fakePropertyQueryRepo{},
-		appproperty.NewCreatePropertyService(propertyRepo, dbtxrunner.New(db, nil)),
+		appproperty.NewCreatePropertyService(propertyRepo, fakePropertyAccountRepo{}, dbtxrunner.New(db, nil)),
 		appproperty.NewUpdatePropertyService(propertyRepo, dbtxrunner.New(db, nil)),
 		appproperty.NewDeletePropertyService(propertyRepo, dbtxrunner.New(db, nil)),
 		appproperty.NewCreateRoomService(propertyRepo, dbtxrunner.New(db, nil)),
@@ -1726,7 +1727,7 @@ func TestDeleteRoomRejectsMaintenanceRoom(t *testing.T) {
 		},
 	}
 	engine := newTestEngineWithRoomServices(repo, fakeAuthenticator{role: "admin"}, propertyRepo, fakeResourceOwnershipRepo{propertyByRoomID: map[string]string{testRoomID1: testPropertyID1}}, "", fakeJobRunsRepo{}, fakePropertyQueryRepo{},
-		appproperty.NewCreatePropertyService(propertyRepo, dbtxrunner.New(db, nil)),
+		appproperty.NewCreatePropertyService(propertyRepo, fakePropertyAccountRepo{}, dbtxrunner.New(db, nil)),
 		appproperty.NewUpdatePropertyService(propertyRepo, dbtxrunner.New(db, nil)),
 		appproperty.NewDeletePropertyService(propertyRepo, dbtxrunner.New(db, nil)),
 		appproperty.NewCreateRoomService(propertyRepo, dbtxrunner.New(db, nil)),
@@ -1771,7 +1772,7 @@ func TestDeleteRoomRejectsOccupiedRoom(t *testing.T) {
 		},
 	}
 	engine := newTestEngineWithRoomServices(repo, fakeAuthenticator{role: "admin"}, propertyRepo, fakeResourceOwnershipRepo{propertyByRoomID: map[string]string{testRoomID1: testPropertyID1}}, "", fakeJobRunsRepo{}, fakePropertyQueryRepo{},
-		appproperty.NewCreatePropertyService(propertyRepo, dbtxrunner.New(db, nil)),
+		appproperty.NewCreatePropertyService(propertyRepo, fakePropertyAccountRepo{}, dbtxrunner.New(db, nil)),
 		appproperty.NewUpdatePropertyService(propertyRepo, dbtxrunner.New(db, nil)),
 		appproperty.NewDeletePropertyService(propertyRepo, dbtxrunner.New(db, nil)),
 		appproperty.NewCreateRoomService(propertyRepo, dbtxrunner.New(db, nil)),
@@ -1807,7 +1808,7 @@ func TestCreateRoomMaintenanceReturnsCompositeResponse(t *testing.T) {
 	repo := fakeUserRepo{}
 	propertyRepo := fakePropertyRepo{}
 	engine := newTestEngineWithRoomServices(repo, fakeAuthenticator{}, propertyRepo, fakeResourceOwnershipRepo{propertyByRoomID: map[string]string{testRoomID1: testPropertyID1}}, "", fakeJobRunsRepo{}, fakePropertyQueryRepo{},
-		appproperty.NewCreatePropertyService(propertyRepo, dbtxrunner.New(db, nil)),
+		appproperty.NewCreatePropertyService(propertyRepo, fakePropertyAccountRepo{}, dbtxrunner.New(db, nil)),
 		appproperty.NewUpdatePropertyService(propertyRepo, dbtxrunner.New(db, nil)),
 		appproperty.NewDeletePropertyService(propertyRepo, dbtxrunner.New(db, nil)),
 		appproperty.NewCreateRoomService(propertyRepo, dbtxrunner.New(db, nil)),
@@ -1873,7 +1874,7 @@ func TestCreateRoomMaintenanceRejectsOccupiedRoom(t *testing.T) {
 		},
 	}
 	engine := newTestEngineWithRoomServices(repo, fakeAuthenticator{}, propertyRepo, fakeResourceOwnershipRepo{propertyByRoomID: map[string]string{testRoomID1: testPropertyID1}}, "", fakeJobRunsRepo{}, fakePropertyQueryRepo{},
-		appproperty.NewCreatePropertyService(propertyRepo, dbtxrunner.New(db, nil)),
+		appproperty.NewCreatePropertyService(propertyRepo, fakePropertyAccountRepo{}, dbtxrunner.New(db, nil)),
 		appproperty.NewUpdatePropertyService(propertyRepo, dbtxrunner.New(db, nil)),
 		appproperty.NewDeletePropertyService(propertyRepo, dbtxrunner.New(db, nil)),
 		appproperty.NewCreateRoomService(propertyRepo, dbtxrunner.New(db, nil)),
@@ -1919,7 +1920,7 @@ func TestCreateRoomMaintenanceRejectsMaintenanceRoom(t *testing.T) {
 		},
 	}
 	engine := newTestEngineWithRoomServices(repo, fakeAuthenticator{}, propertyRepo, fakeResourceOwnershipRepo{propertyByRoomID: map[string]string{testRoomID1: testPropertyID1}}, "", fakeJobRunsRepo{}, fakePropertyQueryRepo{},
-		appproperty.NewCreatePropertyService(propertyRepo, dbtxrunner.New(db, nil)),
+		appproperty.NewCreatePropertyService(propertyRepo, fakePropertyAccountRepo{}, dbtxrunner.New(db, nil)),
 		appproperty.NewUpdatePropertyService(propertyRepo, dbtxrunner.New(db, nil)),
 		appproperty.NewDeletePropertyService(propertyRepo, dbtxrunner.New(db, nil)),
 		appproperty.NewCreateRoomService(propertyRepo, dbtxrunner.New(db, nil)),
@@ -1966,10 +1967,13 @@ func TestCreatePropertyAcceptsDecimalElectricityPrice(t *testing.T) {
 			time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
 			1,
 		))
+	mock.ExpectExec("INSERT INTO property_accounts").
+		WithArgs("property-new").
+		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
 	repo := fakeUserRepo{}
-	createPropertyService := appproperty.NewCreatePropertyService(testSQLPropertyRepositoryAdapter{repo: dbproperties.NewRepository(db)}, dbtxrunner.New(db, nil))
+	createPropertyService := appproperty.NewCreatePropertyService(testSQLPropertyRepositoryAdapter{repo: dbproperties.NewRepository(db)}, testSQLPropertyAccountRepositoryAdapter{repo: dbbilling.NewRepository(db)}, dbtxrunner.New(db, nil))
 	engine := newTestEngineWithCreatePropertyService(
 		repo,
 		fakeAuthenticator{},
@@ -2049,7 +2053,7 @@ func TestUpdatePropertyRejectsStaffElectricityPriceMutation(t *testing.T) {
 		"",
 		fakeJobRunsRepo{},
 		fakePropertyQueryRepo{},
-		appproperty.NewCreatePropertyService(fakePropertyRepo{}, dbtxrunner.New(nil, nil)),
+		appproperty.NewCreatePropertyService(fakePropertyRepo{}, fakePropertyAccountRepo{}, dbtxrunner.New(nil, nil)),
 		updatePropertyService,
 		appproperty.NewDeletePropertyService(fakePropertyRepo{}, dbtxrunner.New(nil, nil)),
 	)
@@ -2113,7 +2117,7 @@ func TestDeletePropertyReturnsOccupiedRoomDetails(t *testing.T) {
 		"",
 		fakeJobRunsRepo{},
 		fakePropertyQueryRepo{},
-		appproperty.NewCreatePropertyService(fakePropertyRepo{}, dbtxrunner.New(nil, nil)),
+		appproperty.NewCreatePropertyService(fakePropertyRepo{}, fakePropertyAccountRepo{}, dbtxrunner.New(nil, nil)),
 		appproperty.NewUpdatePropertyService(fakePropertyRepo{}, dbtxrunner.New(nil, nil)),
 		deletePropertyService,
 	)
@@ -3092,6 +3096,12 @@ type fakePropertyRepo struct {
 	roomByID          map[string]*appproperty.Room
 }
 
+type fakePropertyAccountRepo struct{}
+
+func (fakePropertyAccountRepo) CreatePropertyAccount(context.Context, *sql.Tx, appproperty.CreatePropertyAccountParams) error {
+	return nil
+}
+
 type fakePropertyQueryRepo struct {
 	property       *dbpropertyquery.Property
 	propertyErr    error
@@ -3200,6 +3210,10 @@ type fakeResourceOwnershipRepo struct {
 
 type testSQLPropertyRepositoryAdapter struct {
 	repo dbproperties.CommandRepository
+}
+
+type testSQLPropertyAccountRepositoryAdapter struct {
+	repo *dbbilling.SQLRepository
 }
 
 type fakeJobRunsRepo struct {
@@ -3699,6 +3713,10 @@ func (a testSQLPropertyRepositoryAdapter) Create(ctx context.Context, tx *sql.Tx
 		UpdatedAt:                        property.UpdatedAt,
 		Version:                          property.Version,
 	}, nil
+}
+
+func (a testSQLPropertyAccountRepositoryAdapter) CreatePropertyAccount(ctx context.Context, tx *sql.Tx, params appproperty.CreatePropertyAccountParams) error {
+	return a.repo.CreatePropertyAccount(ctx, tx, params.PropertyID)
 }
 
 func (a testSQLPropertyRepositoryAdapter) FindByID(ctx context.Context, tx *sql.Tx, id string) (*appproperty.Property, error) {
@@ -4550,7 +4568,7 @@ func newTestEngineWithAllServices(userRepo fakeUserRepo, authenticator fakeAuthe
 		leaseQueryRepo,
 		fakeRepairQueryRepo{},
 		tenantQueryRepo,
-		appproperty.NewCreatePropertyService(propertyRepo, dbtxrunner.New(nil, nil)),
+		appproperty.NewCreatePropertyService(propertyRepo, fakePropertyAccountRepo{}, dbtxrunner.New(nil, nil)),
 		appproperty.NewUpdatePropertyService(propertyRepo, dbtxrunner.New(nil, nil)),
 		appproperty.NewDeletePropertyService(propertyRepo, dbtxrunner.New(nil, nil)),
 		appproperty.NewCreateRoomService(propertyRepo, dbtxrunner.New(nil, nil)),

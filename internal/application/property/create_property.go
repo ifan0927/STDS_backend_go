@@ -24,17 +24,19 @@ type CreatePropertyInput struct {
 // CreatePropertyService creates properties in a transaction and publishes the
 // resulting event only after commit.
 type CreatePropertyService struct {
-	propertyRepo Repository
-	txRunner     *txrunner.Runner
-	now          func() time.Time
+	propertyRepo        Repository
+	propertyAccountRepo PropertyAccountRepository
+	txRunner            *txrunner.Runner
+	now                 func() time.Time
 }
 
 // NewCreatePropertyService returns a CreatePropertyService.
-func NewCreatePropertyService(propertyRepo Repository, txRunner *txrunner.Runner) *CreatePropertyService {
+func NewCreatePropertyService(propertyRepo Repository, propertyAccountRepo PropertyAccountRepository, txRunner *txrunner.Runner) *CreatePropertyService {
 	return &CreatePropertyService{
-		propertyRepo: propertyRepo,
-		txRunner:     txRunner,
-		now:          time.Now,
+		propertyRepo:        propertyRepo,
+		propertyAccountRepo: propertyAccountRepo,
+		txRunner:            txRunner,
+		now:                 time.Now,
 	}
 }
 
@@ -72,6 +74,13 @@ func (s *CreatePropertyService) Execute(ctx context.Context, input CreatePropert
 		})
 		if err != nil {
 			return apperr.ErrInternalServerError.WithCause(err)
+		}
+
+		if err := s.propertyAccountRepo.CreatePropertyAccount(ctx, tx, CreatePropertyAccountParams{PropertyID: property.ID}); err != nil {
+			return apperr.ErrInternalServerError.WithCause(err).WithDetails(map[string]interface{}{
+				"property_id": property.ID,
+				"operation":   "create_property_account",
+			})
 		}
 
 		recorder.Record(domainevents.PropertyCreated{
