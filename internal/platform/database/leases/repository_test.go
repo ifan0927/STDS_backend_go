@@ -619,7 +619,7 @@ func TestCreateBillsPreparesAndExecsMultipleRows(t *testing.T) {
 	periodEnd := time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC)
 	dueDate := time.Date(2026, 5, 5, 0, 0, 0, 0, time.UTC)
 
-	mock.ExpectPrepare(regexp.QuoteMeta(`INSERT INTO bills (
+	prepared := mock.ExpectPrepare(regexp.QuoteMeta(`INSERT INTO bills (
 	lease_id,
 	tenant_id,
 	room_id,
@@ -630,22 +630,11 @@ func TestCreateBillsPreparesAndExecsMultipleRows(t *testing.T) {
 	period_end,
 	due_date,
 	status
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`)).
-		ExpectExec().
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`))
+	prepared.ExpectExec().
 		WithArgs("lease-1", "tenant-1", "room-1", "property-1", "rent", amount, periodStart, periodEnd, dueDate, "pending_payment").
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO bills (
-	lease_id,
-	tenant_id,
-	room_id,
-	property_id,
-	type,
-	amount,
-	period_start,
-	period_end,
-	due_date,
-	status
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`)).
+	prepared.ExpectExec().
 		WithArgs("lease-1", "tenant-1", "room-1", "property-1", "electricity", nil, periodStart, periodEnd, dueDate, "pending_meter").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 

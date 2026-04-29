@@ -694,15 +694,14 @@ WHERE id = $1
 
 func TestCreateRepairRequestScansNullableAssignmentFields(t *testing.T) {
 	tests := []struct {
-		name              string
-		assignedTo        any
-		assignedAt        any
-		completedAt       any
-		wantAssignedTo    *string
-		wantAssignedAt    *time.Time
-		wantCompletedAt   *time.Time
-		wantStatus        string
-		wantCompletedScan bool
+		name            string
+		assignedTo      any
+		assignedAt      any
+		completedAt     any
+		wantAssignedTo  *string
+		wantAssignedAt  *time.Time
+		wantCompletedAt *time.Time
+		wantStatus      string
 	}{
 		{
 			name:        "null assignment fields",
@@ -712,15 +711,14 @@ func TestCreateRepairRequestScansNullableAssignmentFields(t *testing.T) {
 			wantStatus:  "open",
 		},
 		{
-			name:              "populated assignment fields",
-			assignedTo:        "staff-1",
-			assignedAt:        time.Date(2026, 4, 29, 11, 0, 0, 0, time.UTC),
-			completedAt:       time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC),
-			wantAssignedTo:    stringPtr("staff-1"),
-			wantAssignedAt:    timePtr(time.Date(2026, 4, 29, 11, 0, 0, 0, time.UTC)),
-			wantCompletedAt:   timePtr(time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC)),
-			wantStatus:        "completed",
-			wantCompletedScan: true,
+			name:            "populated assignment fields",
+			assignedTo:      "staff-1",
+			assignedAt:      time.Date(2026, 4, 29, 11, 0, 0, 0, time.UTC),
+			completedAt:     time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC),
+			wantAssignedTo:  stringPtr("staff-1"),
+			wantAssignedAt:  timePtr(time.Date(2026, 4, 29, 11, 0, 0, 0, time.UTC)),
+			wantCompletedAt: timePtr(time.Date(2026, 4, 29, 12, 0, 0, 0, time.UTC)),
+			wantStatus:      "completed",
 		},
 	}
 
@@ -789,8 +787,8 @@ RETURNING
 			assertStringPtr(t, "AssignedTo", repairRequest.AssignedTo, tt.wantAssignedTo)
 			assertTimePtr(t, "AssignedAt", repairRequest.AssignedAt, tt.wantAssignedAt)
 			assertTimePtr(t, "CompletedAt", repairRequest.CompletedAt, tt.wantCompletedAt)
-			if tt.wantCompletedScan && repairRequest.Status != "completed" {
-				t.Fatalf("Status = %q, want completed", repairRequest.Status)
+			if repairRequest.Status != tt.wantStatus {
+				t.Fatalf("Status = %q, want %q", repairRequest.Status, tt.wantStatus)
 			}
 
 			mock.ExpectCommit()

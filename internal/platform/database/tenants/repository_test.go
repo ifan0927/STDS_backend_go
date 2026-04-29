@@ -67,7 +67,7 @@ RETURNING
 	if tenant.ID != "tenant-1" {
 		t.Fatalf("expected tenant-1, got %s", tenant.ID)
 	}
-	if len(tenant.Contacts) != 0 {
+	if tenant.Contacts == nil || len(tenant.Contacts) != 0 {
 		t.Fatalf("expected empty contacts, got %#v", tenant.Contacts)
 	}
 
