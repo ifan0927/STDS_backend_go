@@ -112,4 +112,5 @@ type Repository interface {
 	Progress(ctx context.Context, tx *sql.Tx, id string) (*RepairRequest, error)
 	Complete(ctx context.Context, tx *sql.Tx, params CompleteParams) (*RepairRequest, error)
 	Cancel(ctx context.Context, tx *sql.Tx, params CancelParams) (*RepairRequest, error)
+	RestoreRoomVacantIfNoActiveRepairs(ctx context.Context, tx *sql.Tx, roomID string) error
 }

@@ -863,6 +863,10 @@ func (r *handlerRepairRepositoryStub) Cancel(context.Context, *sql.Tx, apprepair
 	return nil, nil
 }
 
+func (r *handlerRepairRepositoryStub) RestoreRoomVacantIfNoActiveRepairs(context.Context, *sql.Tx, string) error {
+	return nil
+}
+
 func testBillingBill() BillingBill {
 	amount := 12000
 	now := time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC)

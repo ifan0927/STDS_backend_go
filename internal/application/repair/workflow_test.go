@@ -128,6 +128,80 @@ func TestCancelPersistsReason(t *testing.T) {
 	}
 }
 
+func TestCompleteRestoresRoomVacantWhenNoActiveRepairsRemain(t *testing.T) {
+	repairRequest := submittedRepairRequest()
+	repairRequest.Status = "in_progress"
+	repo := &workflowRepoStub{
+		repairRequests: map[string]*RepairRequest{testRepairID: repairRequest},
+		roomStatus:     "maintenance",
+	}
+	service := NewWorkflowService(repo, fakeTxRunner{})
+
+	_, err := service.Complete(context.Background(), testRepairID)
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+
+	if repo.restoreRoomID != testRoomID {
+		t.Fatalf("expected restore room %s, got %s", testRoomID, repo.restoreRoomID)
+	}
+	if repo.roomStatus != "vacant" {
+		t.Fatalf("expected room vacant, got %s", repo.roomStatus)
+	}
+}
+
+func TestCancelRestoresRoomVacantWhenNoActiveRepairsRemain(t *testing.T) {
+	repo := &workflowRepoStub{
+		repairRequests: map[string]*RepairRequest{testRepairID: submittedRepairRequest()},
+		roomStatus:     "maintenance",
+	}
+	service := NewWorkflowService(repo, fakeTxRunner{})
+
+	_, err := service.Cancel(context.Background(), CancelInput{ID: testRepairID})
+	if err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+
+	if repo.restoreRoomID != testRoomID {
+		t.Fatalf("expected restore room %s, got %s", testRoomID, repo.restoreRoomID)
+	}
+	if repo.roomStatus != "vacant" {
+		t.Fatalf("expected room vacant, got %s", repo.roomStatus)
+	}
+}
+
+func TestRoomStaysMaintenanceUntilAllRoomRepairsAreCompletedOrCancelled(t *testing.T) {
+	first := submittedRepairRequest()
+	first.Status = "in_progress"
+	second := submittedRepairRequest()
+	second.ID = testOtherRepairID
+	second.Status = "assigned"
+	repo := &workflowRepoStub{
+		repairRequests: map[string]*RepairRequest{
+			testRepairID:      first,
+			testOtherRepairID: second,
+		},
+		roomStatus: "maintenance",
+	}
+	service := NewWorkflowService(repo, fakeTxRunner{})
+
+	_, err := service.Complete(context.Background(), testRepairID)
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	if repo.roomStatus != "maintenance" {
+		t.Fatalf("expected room to remain maintenance while another repair is active, got %s", repo.roomStatus)
+	}
+
+	_, err = service.Cancel(context.Background(), CancelInput{ID: testOtherRepairID})
+	if err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	if repo.roomStatus != "vacant" {
+		t.Fatalf("expected room vacant after all repairs are closed, got %s", repo.roomStatus)
+	}
+}
+
 func TestCancelCompletedRepairReturnsAlreadyCompleted(t *testing.T) {
 	repairRequest := submittedRepairRequest()
 	repairRequest.Status = "completed"
@@ -223,12 +297,13 @@ func TestCancelPublishesRepairCancelledAfterCommit(t *testing.T) {
 }
 
 const (
-	testRepairID    = "70000000-0000-0000-0000-000000000001"
-	testPropertyID  = "10000000-0000-0000-0000-000000000001"
-	testRoomID      = "20000000-0000-0000-0000-000000000001"
-	testStaffID     = "00000000-0000-0000-0000-000000000002"
-	testOrganizerID = "00000000-0000-0000-0000-000000000003"
-	testOwnerID     = "00000000-0000-0000-0000-000000000004"
+	testRepairID      = "70000000-0000-0000-0000-000000000001"
+	testOtherRepairID = "70000000-0000-0000-0000-000000000002"
+	testPropertyID    = "10000000-0000-0000-0000-000000000001"
+	testRoomID        = "20000000-0000-0000-0000-000000000001"
+	testStaffID       = "00000000-0000-0000-0000-000000000002"
+	testOrganizerID   = "00000000-0000-0000-0000-000000000003"
+	testOwnerID       = "00000000-0000-0000-0000-000000000004"
 )
 
 var testNow = time.Date(2026, 4, 27, 10, 0, 0, 0, time.UTC)
@@ -249,10 +324,13 @@ func (p *repairRecordingPublisher) Publish(_ context.Context, event any) error {
 }
 
 type workflowRepoStub struct {
-	user          *User
-	repairRequest *RepairRequest
-	assignParams  AssignParams
-	cancelParams  CancelParams
+	user           *User
+	repairRequest  *RepairRequest
+	repairRequests map[string]*RepairRequest
+	roomStatus     string
+	assignParams   AssignParams
+	cancelParams   CancelParams
+	restoreRoomID  string
 }
 
 func (r *workflowRepoStub) List(context.Context, ListQuery) ([]RepairRequest, error) {
@@ -263,12 +341,18 @@ func (r *workflowRepoStub) FindByID(context.Context, string) (*RepairRequest, er
 	return r.repairRequest, nil
 }
 
-func (r *workflowRepoStub) FindByIDForUpdate(context.Context, *sql.Tx, string) (*RepairRequest, error) {
+func (r *workflowRepoStub) FindByIDForUpdate(_ context.Context, _ *sql.Tx, id string) (*RepairRequest, error) {
+	if r.repairRequests != nil {
+		repairRequest := r.repairRequests[id]
+		if repairRequest == nil {
+			return nil, ErrRepairRequestNotFound
+		}
+		return cloneRepairRequest(repairRequest), nil
+	}
 	if r.repairRequest == nil {
 		return nil, ErrRepairRequestNotFound
 	}
-	cloned := *r.repairRequest
-	return &cloned, nil
+	return cloneRepairRequest(r.repairRequest), nil
 }
 
 func (r *workflowRepoStub) FindRoomByID(context.Context, *sql.Tx, string) (*Room, error) {
@@ -309,18 +393,63 @@ func (r *workflowRepoStub) Progress(context.Context, *sql.Tx, string) (*RepairRe
 	return repairRequest, nil
 }
 
-func (r *workflowRepoStub) Complete(context.Context, *sql.Tx, CompleteParams) (*RepairRequest, error) {
+func (r *workflowRepoStub) Complete(_ context.Context, _ *sql.Tx, params CompleteParams) (*RepairRequest, error) {
+	if r.repairRequests != nil {
+		repairRequest := r.repairRequests[params.ID]
+		if repairRequest == nil {
+			return nil, ErrRepairRequestNotFound
+		}
+		repairRequest.Status = "completed"
+		repairRequest.CompletedAt = &params.CompletedAt
+		return cloneRepairRequest(repairRequest), nil
+	}
 	repairRequest := submittedRepairRequest()
 	repairRequest.Status = "completed"
+	repairRequest.CompletedAt = &params.CompletedAt
 	return repairRequest, nil
 }
 
 func (r *workflowRepoStub) Cancel(_ context.Context, _ *sql.Tx, params CancelParams) (*RepairRequest, error) {
 	r.cancelParams = params
+	if r.repairRequests != nil {
+		repairRequest := r.repairRequests[params.ID]
+		if repairRequest == nil {
+			return nil, ErrRepairRequestNotFound
+		}
+		repairRequest.Status = "cancelled"
+		repairRequest.CancelReason = params.CancelReason
+		return cloneRepairRequest(repairRequest), nil
+	}
 	repairRequest := submittedRepairRequest()
 	repairRequest.Status = "cancelled"
 	repairRequest.CancelReason = params.CancelReason
 	return repairRequest, nil
+}
+
+func (r *workflowRepoStub) RestoreRoomVacantIfNoActiveRepairs(_ context.Context, _ *sql.Tx, roomID string) error {
+	r.restoreRoomID = roomID
+	if r.repairRequests == nil || r.roomStatus != "maintenance" {
+		return nil
+	}
+	for _, repairRequest := range r.repairRequests {
+		if repairRequest.RoomID == roomID && isActiveRepairStatus(repairRequest.Status) {
+			return nil
+		}
+	}
+	r.roomStatus = "vacant"
+	return nil
+}
+
+func isActiveRepairStatus(status string) bool {
+	return status != "completed" && status != "cancelled"
+}
+
+func cloneRepairRequest(repairRequest *RepairRequest) *RepairRequest {
+	if repairRequest == nil {
+		return nil
+	}
+	cloned := *repairRequest
+	return &cloned
 }
 
 func submittedRepairRequest() *RepairRequest {
