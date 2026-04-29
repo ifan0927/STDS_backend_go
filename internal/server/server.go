@@ -27,6 +27,7 @@ import (
 	dbleasequery "stds_backend/internal/platform/database/leasequery"
 	dbleases "stds_backend/internal/platform/database/leases"
 	dbproperties "stds_backend/internal/platform/database/properties"
+	dbpropertydashboard "stds_backend/internal/platform/database/propertydashboard"
 	dbpropertyquery "stds_backend/internal/platform/database/propertyquery"
 	dbrepair "stds_backend/internal/platform/database/repair"
 	dbresourceownership "stds_backend/internal/platform/database/resourceownership"
@@ -69,6 +70,7 @@ func New(cfg *config.Config) (*Server, error) {
 	propertyRepo := dbproperties.NewRepository(db)
 	billingRepo := dbbilling.NewRepository(db)
 	leaseRepo := dbleases.NewRepository(db)
+	propertyDashboardRepo := dbpropertydashboard.NewRepository(db)
 	propertyQueryRepo := dbpropertyquery.NewRepository(db)
 	leaseQueryRepo := dbleasequery.NewRepository(db)
 	journalRepo := dbjournal.NewRepository(db)
@@ -116,6 +118,7 @@ func New(cfg *config.Config) (*Server, error) {
 	updateRoomService := appproperty.NewUpdateRoomService(propertyRepositoryAdapter{repo: propertyRepo}, txRunner)
 	deleteRoomService := appproperty.NewDeleteRoomService(propertyRepositoryAdapter{repo: propertyRepo}, txRunner)
 	setRoomMaintenanceService := appproperty.NewSetRoomMaintenanceService(propertyRepositoryAdapter{repo: propertyRepo}, txRunner)
+	propertyDashboardService := appproperty.NewDashboardService(propertyDashboardRepo)
 	createTenantService := apptenant.NewCreateTenantService(tenantRepositoryAdapter{repo: tenantRepo}, txRunner)
 	updateTenantService := apptenant.NewUpdateTenantService(tenantRepositoryAdapter{repo: tenantRepo}, txRunner)
 	createLeaseService := applease.NewCreateLeaseService(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
@@ -160,7 +163,7 @@ func New(cfg *config.Config) (*Server, error) {
 	engine := router.New(cfg.App, logger, db, authenticator, userRepo, router.AuthorizationRepositories{
 		Properties:        propertyRepo,
 		ResourceOwnership: resourceOwnershipRepo,
-	}, createUserService, sendPasswordResetService, syncAuthService, updateCurrentUserService, updateUserService, assignUserPropertiesService, jobTriggerService, propertyQueryRepo, leaseQueryRepo, repairRepo, tenantQueryRepo, createPropertyService, updatePropertyService, deletePropertyService, createRoomService, updateRoomService, deleteRoomService, setRoomMaintenanceService, createTenantService, updateTenantService, createLeaseService, journalServices, repairServices, handler.LeaseCommandServices{
+	}, createUserService, sendPasswordResetService, syncAuthService, updateCurrentUserService, updateUserService, assignUserPropertiesService, jobTriggerService, propertyQueryRepo, propertyDashboardService, leaseQueryRepo, repairRepo, tenantQueryRepo, createPropertyService, updatePropertyService, deletePropertyService, createRoomService, updateRoomService, deleteRoomService, setRoomMaintenanceService, createTenantService, updateTenantService, createLeaseService, journalServices, repairServices, handler.LeaseCommandServices{
 		UpdateLease:         updateLeaseService,
 		UpdateDeposit:       updateDepositService,
 		ReplaceLease:        replaceLeaseService,
