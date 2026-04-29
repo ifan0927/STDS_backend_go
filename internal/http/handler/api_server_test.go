@@ -257,6 +257,52 @@ func TestRecordBillPaymentBindsRequest(t *testing.T) {
 	}
 }
 
+func TestSubmitBillMeterRejectsMissingCurrentReading(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	meter := &recordingBillingMeter{bill: testBillingBill()}
+	server := &APIServer{billing: BillingServices{Meter: meter}}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/bills/30000000-0000-0000-0000-000000000001/meter", bytes.NewBufferString(`{}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	requestctx.SetPrincipal(c, requestctx.Principal{Role: "staff"})
+
+	server.SubmitBillMeter(c, "30000000-0000-0000-0000-000000000001")
+
+	if len(c.Errors) != 1 {
+		t.Fatalf("expected one handler error, got %d", len(c.Errors))
+	}
+	var appErr *apperr.Error
+	if !errors.As(c.Errors[0].Err, &appErr) || appErr.Code != apperr.CodeBadRequest {
+		t.Fatalf("expected BAD_REQUEST, got %#v", c.Errors[0].Err)
+	}
+	if meter.called {
+		t.Fatal("meter service should not be called")
+	}
+}
+
+func TestSubmitBillMeterBindsCurrentReading(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	meter := &recordingBillingMeter{bill: testBillingBill()}
+	server := &APIServer{billing: BillingServices{Meter: meter}}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/bills/30000000-0000-0000-0000-000000000001/meter", bytes.NewBufferString(`{"current_reading":0}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	requestctx.SetPrincipal(c, requestctx.Principal{Role: "staff"})
+
+	server.SubmitBillMeter(c, "30000000-0000-0000-0000-000000000001")
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if !meter.called || meter.input.CurrentReading != 0 {
+		t.Fatalf("unexpected meter input: %+v", meter.input)
+	}
+}
+
 func TestListPropertyPendingMetersReturnsBillListResponseAndForwardsActorScope(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -721,6 +767,18 @@ type recordingBillingPayment struct {
 func (p *recordingBillingPayment) RecordBillPayment(_ context.Context, input BillingPaymentInput) (*BillingBill, error) {
 	p.input = input
 	return &p.bill, nil
+}
+
+type recordingBillingMeter struct {
+	input  BillingMeterInput
+	bill   BillingBill
+	called bool
+}
+
+func (m *recordingBillingMeter) SubmitBillMeter(_ context.Context, input BillingMeterInput) (*BillingBill, error) {
+	m.input = input
+	m.called = true
+	return &m.bill, nil
 }
 
 type recordingPropertyMeters struct {

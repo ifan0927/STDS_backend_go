@@ -243,6 +243,9 @@ func TestListPropertyPendingMetersFiltersPendingMeterAndReturnsPeriodBounds(t *t
 			"bill-1", "lease-1", "tenant-1", "room-1", "property-1", "electricity", nil,
 			periodStart, periodEnd, now, "pending_meter", nil, nil, nil, nil, nil, nil, nil, nil, 0, now, now, 1,
 		))
+	mock.ExpectQuery(`(?s)SELECT meter_current_reading\s+FROM bills\s+WHERE room_id = \$1\s+AND type = 'electricity'\s+AND meter_current_reading IS NOT NULL\s+AND period_end < \$2\s+AND deleted_at IS NULL\s+ORDER BY period_end DESC, due_date DESC, created_at DESC\s+LIMIT 1`).
+		WithArgs("room-1", periodStart).
+		WillReturnRows(sqlmock.NewRows([]string{"meter_current_reading"}).AddRow(1250))
 
 	bills, err := repo.ListPropertyPendingMeters(context.Background(), Scope{Role: "admin"}, "property-1")
 	if err != nil {
@@ -253,6 +256,9 @@ func TestListPropertyPendingMetersFiltersPendingMeterAndReturnsPeriodBounds(t *t
 	}
 	if !bills[0].PeriodStart.Equal(periodStart) || !bills[0].PeriodEnd.Equal(periodEnd) {
 		t.Fatalf("period = %s..%s, want %s..%s", bills[0].PeriodStart, bills[0].PeriodEnd, periodStart, periodEnd)
+	}
+	if bills[0].MeterPreviousReading == nil || *bills[0].MeterPreviousReading != 1250 {
+		t.Fatalf("MeterPreviousReading = %v, want 1250", bills[0].MeterPreviousReading)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {

@@ -1617,6 +1617,36 @@ func TestCreatePropertyRejectsMalformedJSONAsBadRequest(t *testing.T) {
 	}
 }
 
+func TestCreatePropertyRejectsMissingOwnerIDAsBadRequest(t *testing.T) {
+	repo := fakeUserRepo{}
+	engine := newTestEngine(repo, fakeAuthenticator{}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/properties", strings.NewReader(`{
+		"name":"Property A",
+		"address":"Address A",
+		"electricity_unit_price":4.5,
+		"default_electricity_billing_cadence":"monthly"
+	}`))
+	req.Header.Set("Authorization", "Bearer valid-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if payload["error_code"] != apperr.CodeValidationOwnerIDRequired {
+		t.Fatalf("expected error_code %s, got %v", apperr.CodeValidationOwnerIDRequired, payload["error_code"])
+	}
+}
+
 func TestCreatePropertyRoomReturnsCreatedRoom(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

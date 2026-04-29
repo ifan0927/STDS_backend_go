@@ -657,7 +657,25 @@ WHERE b.property_id = $1
 	}
 	query += "ORDER BY b.period_start ASC, b.period_end ASC, b.created_at ASC\n"
 
-	return r.listBills(ctx, query, "list property pending meters", args...)
+	bills, err = r.listBills(ctx, query, "list property pending meters", args...)
+	if err != nil {
+		return nil, err
+	}
+	for i := range bills {
+		if bills[i].MeterPreviousReading != nil {
+			continue
+		}
+		previous, err := r.FindPreviousMeterReading(ctx, bills[i].RoomID, bills[i].PeriodStart)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				continue
+			}
+			return nil, err
+		}
+		bills[i].MeterPreviousReading = &previous
+	}
+
+	return bills, nil
 }
 
 // ListPropertyMeterHistory returns recorded electricity bills for a property.

@@ -625,9 +625,15 @@ func (s *APIServer) SubmitBillMeter(c *gin.Context, id string) {
 		return
 	}
 
-	var request api.RecordMeterRequest
+	var request struct {
+		CurrentReading *int `json:"current_reading"`
+	}
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.Error(apperr.ErrBadRequest.WithCause(err))
+		return
+	}
+	if request.CurrentReading == nil {
+		c.Error(apperr.ErrBadRequest.WithDetails(map[string]interface{}{"field": "current_reading"}))
 		return
 	}
 
@@ -635,7 +641,7 @@ func (s *APIServer) SubmitBillMeter(c *gin.Context, id string) {
 		ActorRole:           principal.Role,
 		AssignedPropertyIDs: principal.AssignedPropertyIDs,
 		BillID:              id,
-		CurrentReading:      request.CurrentReading,
+		CurrentReading:      *request.CurrentReading,
 	})
 	if err != nil {
 		c.Error(err)
@@ -1229,6 +1235,10 @@ func (s *APIServer) CreateProperty(c *gin.Context) {
 	var request api.CreatePropertyRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.Error(apperr.ErrBadRequest.WithCause(err))
+		return
+	}
+	if request.OwnerId == uuid.Nil {
+		c.Error(apperr.ErrValidationOwnerIDRequired)
 		return
 	}
 
