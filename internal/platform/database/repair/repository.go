@@ -295,20 +295,29 @@ WHERE id = $1
 
 // RestoreRoomVacantIfNoActiveRepairs restores a maintenance room when no active repairs remain.
 func (r *SQLRepository) RestoreRoomVacantIfNoActiveRepairs(ctx context.Context, tx *sql.Tx, roomID string) error {
-	const query = `
-WITH locked_room AS (
-  SELECT id
-  FROM rooms
-  WHERE id = $1
-    AND status = 'maintenance'
-    AND deleted_at IS NULL
-  FOR UPDATE
-)
+	const lockQuery = `
+SELECT id
+FROM rooms
+WHERE id = $1
+  AND status = 'maintenance'
+  AND deleted_at IS NULL
+FOR UPDATE
+`
+	var lockedRoomID string
+	if err := tx.QueryRowContext(ctx, lockQuery, roomID).Scan(&lockedRoomID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return fmt.Errorf("lock maintenance room before restore vacant: %w", err)
+	}
+
+	const updateQuery = `
 UPDATE rooms
 SET status = 'vacant',
     updated_at = now()
-FROM locked_room
-WHERE rooms.id = locked_room.id
+WHERE id = $1
+  AND status = 'maintenance'
+  AND deleted_at IS NULL
   AND NOT EXISTS (
     SELECT 1
     FROM repair_requests
@@ -317,7 +326,7 @@ WHERE rooms.id = locked_room.id
       AND status NOT IN ('completed', 'cancelled')
   )
 `
-	if _, err := tx.ExecContext(ctx, query, roomID); err != nil {
+	if _, err := tx.ExecContext(ctx, updateQuery, roomID); err != nil {
 		return fmt.Errorf("restore room vacant after repair workflow: %w", err)
 	}
 

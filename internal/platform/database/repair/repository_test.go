@@ -2,6 +2,7 @@ package repair
 
 import (
 	"context"
+	"database/sql"
 	"regexp"
 	"testing"
 	"time"
@@ -125,7 +126,10 @@ func TestRestoreRoomVacantIfNoActiveRepairsUpdatesMaintenanceRoom(t *testing.T) 
 	defer db.Close()
 
 	mock.ExpectBegin()
-	mock.ExpectExec(`WITH locked_room AS \([\s\S]+AND status = 'maintenance'[\s\S]+AND deleted_at IS NULL[\s\S]+FOR UPDATE[\s\S]+UPDATE rooms[\s\S]+FROM locked_room[\s\S]+NOT EXISTS[\s\S]+status NOT IN \('completed', 'cancelled'\)`).
+	mock.ExpectQuery(`SELECT id[\s\S]+FROM rooms[\s\S]+AND status = 'maintenance'[\s\S]+AND deleted_at IS NULL[\s\S]+FOR UPDATE`).
+		WithArgs(testRoomID).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testRoomID))
+	mock.ExpectExec(`UPDATE rooms[\s\S]+AND status = 'maintenance'[\s\S]+AND deleted_at IS NULL[\s\S]+NOT EXISTS[\s\S]+status NOT IN \('completed', 'cancelled'\)`).
 		WithArgs(testRoomID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
@@ -154,9 +158,41 @@ func TestRestoreRoomVacantIfNoActiveRepairsAllowsRemainingActiveRepair(t *testin
 	defer db.Close()
 
 	mock.ExpectBegin()
-	mock.ExpectExec(`WITH locked_room AS \([\s\S]+FOR UPDATE[\s\S]+UPDATE rooms[\s\S]+NOT EXISTS[\s\S]+status NOT IN \('completed', 'cancelled'\)`).
+	mock.ExpectQuery(`SELECT id[\s\S]+FROM rooms[\s\S]+FOR UPDATE`).
+		WithArgs(testRoomID).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testRoomID))
+	mock.ExpectExec(`UPDATE rooms[\s\S]+NOT EXISTS[\s\S]+status NOT IN \('completed', 'cancelled'\)`).
 		WithArgs(testRoomID).
 		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+
+	tx, err := db.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	repo := NewRepository(db)
+	if err := repo.RestoreRoomVacantIfNoActiveRepairs(context.Background(), tx, testRoomID); err != nil {
+		t.Fatalf("RestoreRoomVacantIfNoActiveRepairs: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestRestoreRoomVacantIfNoActiveRepairsSkipsNonMaintenanceRoom(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT id[\s\S]+FROM rooms[\s\S]+FOR UPDATE`).
+		WithArgs(testRoomID).
+		WillReturnError(sql.ErrNoRows)
 	mock.ExpectCommit()
 
 	tx, err := db.BeginTx(context.Background(), nil)
