@@ -21,9 +21,10 @@ const (
 	testActorID    = "00000000-0000-0000-0000-000000000002"
 )
 
-func TestCreateServicePublishesJournalExpenseRecordedWhenExpensePresent(t *testing.T) {
+func TestCreateServiceCreatesAccountingEntryAndPublishesEventWhenExpensePresent(t *testing.T) {
 	amount := 3500
 	description := "Pipe repair"
+	createdAt := time.Date(2026, 4, 15, 11, 0, 0, 0, time.UTC)
 	repo := &journalRepositoryStub{
 		propertyExists: true,
 		room:           &Room{ID: testRoomID, PropertyID: testPropertyID},
@@ -35,13 +36,14 @@ func TestCreateServicePublishesJournalExpenseRecordedWhenExpensePresent(t *testi
 			Content:            "Bathroom repair",
 			ExpenseAmount:      &amount,
 			ExpenseDescription: &description,
-			CreatedAt:          time.Now(),
-			UpdatedAt:          time.Now(),
+			CreatedAt:          createdAt,
+			UpdatedAt:          createdAt,
 		},
 	}
+	accountingRepo := &expenseAccountingRepositoryStub{}
 	runner, publisher, cleanup := newJournalTxRunner(t)
 	defer cleanup()
-	service := NewCreateService(repo, runner)
+	service := NewCreateService(repo, accountingRepo, runner)
 
 	created, err := service.Execute(context.Background(), CreateInput{
 		ActorRole:           "organizer",
@@ -59,6 +61,21 @@ func TestCreateServicePublishesJournalExpenseRecordedWhenExpensePresent(t *testi
 	if created.ID != testJournalID {
 		t.Fatalf("created.ID = %s, want %s", created.ID, testJournalID)
 	}
+	if accountingRepo.createCalls != 1 {
+		t.Fatalf("CreateExpenseAccountingEntry calls = %d, want 1", accountingRepo.createCalls)
+	}
+	if accountingRepo.entry.PropertyID != testPropertyID || accountingRepo.entry.Category != accountingCategoryJournalExpense || accountingRepo.entry.Amount != amount {
+		t.Fatalf("accounting entry = %+v", accountingRepo.entry)
+	}
+	if accountingRepo.entry.Description == nil || *accountingRepo.entry.Description != description {
+		t.Fatalf("accounting description = %v, want %s", accountingRepo.entry.Description, description)
+	}
+	if accountingRepo.entry.Year != 2026 || accountingRepo.entry.Month != 4 {
+		t.Fatalf("accounting Year/Month = %d/%d, want 2026/4", accountingRepo.entry.Year, accountingRepo.entry.Month)
+	}
+	if accountingRepo.entry.SourceRef["type"] != "JournalExpenseRecorded" || accountingRepo.entry.SourceRef["journal_log_id"] != testJournalID {
+		t.Fatalf("accounting SourceRef = %#v", accountingRepo.entry.SourceRef)
+	}
 	if len(publisher.events) != 1 {
 		t.Fatalf("published events = %d, want 1", len(publisher.events))
 	}
@@ -69,9 +86,12 @@ func TestCreateServicePublishesJournalExpenseRecordedWhenExpensePresent(t *testi
 	if event.JournalLogID != testJournalID || event.PropertyID != testPropertyID || event.Amount != amount {
 		t.Fatalf("event = %+v", event)
 	}
+	if !event.OccurredAt.Equal(createdAt.UTC()) {
+		t.Fatalf("event.OccurredAt = %s, want %s", event.OccurredAt, createdAt.UTC())
+	}
 }
 
-func TestCreateServiceDoesNotPublishExpenseEventWithoutExpense(t *testing.T) {
+func TestCreateServiceDoesNotCreateAccountingEntryOrPublishExpenseEventWithoutExpense(t *testing.T) {
 	repo := &journalRepositoryStub{
 		propertyExists: true,
 		created: &JournalLog{
@@ -83,9 +103,10 @@ func TestCreateServiceDoesNotPublishExpenseEventWithoutExpense(t *testing.T) {
 			UpdatedAt:  time.Now(),
 		},
 	}
+	accountingRepo := &expenseAccountingRepositoryStub{}
 	runner, publisher, cleanup := newJournalTxRunner(t)
 	defer cleanup()
-	service := NewCreateService(repo, runner)
+	service := NewCreateService(repo, accountingRepo, runner)
 
 	if _, err := service.Execute(context.Background(), CreateInput{
 		ActorRole:           "staff",
@@ -99,10 +120,51 @@ func TestCreateServiceDoesNotPublishExpenseEventWithoutExpense(t *testing.T) {
 	if len(publisher.events) != 0 {
 		t.Fatalf("published events = %d, want 0", len(publisher.events))
 	}
+	if accountingRepo.createCalls != 0 {
+		t.Fatalf("CreateExpenseAccountingEntry calls = %d, want 0", accountingRepo.createCalls)
+	}
+}
+
+func TestCreateServiceRollsBackWhenAccountingEntryFails(t *testing.T) {
+	amount := 3500
+	repo := &journalRepositoryStub{
+		propertyExists: true,
+		created: &JournalLog{
+			ID:            testJournalID,
+			PropertyID:    testPropertyID,
+			AuthorID:      testActorID,
+			Content:       "Bathroom repair",
+			ExpenseAmount: &amount,
+			CreatedAt:     time.Date(2026, 4, 15, 11, 0, 0, 0, time.UTC),
+			UpdatedAt:     time.Date(2026, 4, 15, 11, 0, 0, 0, time.UTC),
+		},
+	}
+	accountingRepo := &expenseAccountingRepositoryStub{err: errors.New("insert accounting entry")}
+	runner, publisher, cleanup := newJournalTxRunnerExpectRollback(t)
+	defer cleanup()
+	service := NewCreateService(repo, accountingRepo, runner)
+
+	_, err := service.Execute(context.Background(), CreateInput{
+		ActorRole:           "staff",
+		ActorUserID:         testActorID,
+		AssignedPropertyIDs: []string{testPropertyID},
+		PropertyID:          testPropertyID,
+		Content:             "Bathroom repair",
+		ExpenseAmount:       &amount,
+	})
+	if err == nil {
+		t.Fatal("Execute() error = nil, want error")
+	}
+	if accountingRepo.createCalls != 1 {
+		t.Fatalf("CreateExpenseAccountingEntry calls = %d, want 1", accountingRepo.createCalls)
+	}
+	if len(publisher.events) != 0 {
+		t.Fatalf("published events = %d, want 0", len(publisher.events))
+	}
 }
 
 func TestCreateServiceRejectsEmptyContent(t *testing.T) {
-	service := NewCreateService(&journalRepositoryStub{}, nil)
+	service := NewCreateService(&journalRepositoryStub{}, nil, nil)
 
 	_, err := service.Execute(context.Background(), CreateInput{
 		ActorRole:           "admin",
@@ -117,7 +179,7 @@ func TestCreateServiceRejectsEmptyContent(t *testing.T) {
 }
 
 func TestCreateServiceRejectsUnassignedProperty(t *testing.T) {
-	service := NewCreateService(&journalRepositoryStub{}, nil)
+	service := NewCreateService(&journalRepositoryStub{}, nil, nil)
 
 	_, err := service.Execute(context.Background(), CreateInput{
 		ActorRole:           "staff",
@@ -138,7 +200,7 @@ func TestCreateServiceRejectsRoomFromDifferentProperty(t *testing.T) {
 	}
 	runner, _, cleanup := newJournalTxRunnerExpectRollback(t)
 	defer cleanup()
-	service := NewCreateService(repo, runner)
+	service := NewCreateService(repo, &expenseAccountingRepositoryStub{}, runner)
 
 	_, err := service.Execute(context.Background(), CreateInput{
 		ActorRole:           "admin",
@@ -156,7 +218,7 @@ func TestCreateServiceRejectsRoomFromDifferentProperty(t *testing.T) {
 func TestCreateServiceMapsMissingPropertyToNotFound(t *testing.T) {
 	runner, _, cleanup := newJournalTxRunnerExpectRollback(t)
 	defer cleanup()
-	service := NewCreateService(&journalRepositoryStub{}, runner)
+	service := NewCreateService(&journalRepositoryStub{}, &expenseAccountingRepositoryStub{}, runner)
 
 	_, err := service.Execute(context.Background(), CreateInput{
 		ActorRole:           "admin",
@@ -305,6 +367,18 @@ type journalPublisherStub struct {
 func (s *journalPublisherStub) Publish(_ context.Context, event any) error {
 	s.events = append(s.events, event)
 	return nil
+}
+
+type expenseAccountingRepositoryStub struct {
+	entry       ExpenseAccountingEntryParams
+	err         error
+	createCalls int
+}
+
+func (s *expenseAccountingRepositoryStub) CreateExpenseAccountingEntry(_ context.Context, _ *sql.Tx, params ExpenseAccountingEntryParams) error {
+	s.createCalls++
+	s.entry = params
+	return s.err
 }
 
 func newJournalTxRunner(t *testing.T) (*txrunner.Runner, *journalPublisherStub, func()) {

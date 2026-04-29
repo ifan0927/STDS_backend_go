@@ -10,6 +10,8 @@ import (
 	"stds_backend/internal/shared/apperr"
 )
 
+const accountingCategoryJournalExpense = "journal_expense"
+
 // CreateInput is the command payload for journal log creation.
 type CreateInput struct {
 	ActorRole           string
@@ -24,13 +26,14 @@ type CreateInput struct {
 
 // CreateService creates journal logs.
 type CreateService struct {
-	repo     Repository
-	txRunner TransactionRunner
+	repo           Repository
+	accountingRepo ExpenseAccountingRepository
+	txRunner       TransactionRunner
 }
 
 // NewCreateService returns a CreateService.
-func NewCreateService(repo Repository, txRunner TransactionRunner) *CreateService {
-	return &CreateService{repo: repo, txRunner: txRunner}
+func NewCreateService(repo Repository, accountingRepo ExpenseAccountingRepository, txRunner TransactionRunner) *CreateService {
+	return &CreateService{repo: repo, accountingRepo: accountingRepo, txRunner: txRunner}
 }
 
 // Execute creates a journal log.
@@ -69,6 +72,9 @@ func (s *CreateService) Execute(ctx context.Context, input CreateInput) (*Journa
 	if s.txRunner == nil {
 		return nil, apperr.ErrInternalServerError
 	}
+	if state.ExpenseAmount != nil && s.accountingRepo == nil {
+		return nil, apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "journal_accounting"})
+	}
 
 	var created *JournalLog
 	err = s.txRunner.WithinTransaction(ctx, func(ctx context.Context, tx *sql.Tx, recorder *txrunner.EventRecorder) error {
@@ -98,12 +104,25 @@ func (s *CreateService) Execute(ctx context.Context, input CreateInput) (*Journa
 		}
 
 		if journalLog.ExpenseAmount != nil {
+			occurredAt := journalLog.CreatedAt.UTC()
+			if err := s.accountingRepo.CreateExpenseAccountingEntry(ctx, tx, ExpenseAccountingEntryParams{
+				PropertyID:  journalLog.PropertyID,
+				Category:    accountingCategoryJournalExpense,
+				Amount:      *journalLog.ExpenseAmount,
+				Description: journalLog.ExpenseDescription,
+				SourceRef:   map[string]interface{}{"type": "JournalExpenseRecorded", "journal_log_id": journalLog.ID},
+				Year:        occurredAt.Year(),
+				Month:       int(occurredAt.Month()),
+			}); err != nil {
+				return mapAccountingRepositoryError(err)
+			}
+
 			recorder.Record(domainevents.JournalExpenseRecorded{
 				JournalLogID: journalLog.ID,
 				PropertyID:   journalLog.PropertyID,
 				Amount:       *journalLog.ExpenseAmount,
 				Description:  journalLog.ExpenseDescription,
-				OccurredAt:   journalLog.CreatedAt.UTC(),
+				OccurredAt:   occurredAt,
 			})
 		}
 

@@ -37,6 +37,19 @@ func mapRepositoryError(err error) error {
 	}
 }
 
+func mapAccountingRepositoryError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	switch {
+	case errors.Is(err, ErrPropertyAccountNotFound):
+		return apperr.ErrInternalServerError.WithCause(err).WithDetails(map[string]interface{}{"dependency": "property_account"})
+	default:
+		return apperr.ErrInternalServerError.WithCause(err)
+	}
+}
+
 func mapDomainError(err error) error {
 	if err == nil {
 		return nil

@@ -1249,7 +1249,7 @@ type ServerInterface interface {
 	// 日誌列表
 	// (GET /journal-logs)
 	ListJournalLogs(c *gin.Context, params ListJournalLogsParams)
-	// 建立日誌（含費用時觸發 JournalExpenseRecorded event）
+	// Create journal log and direct accounting entry
 	// (POST /journal-logs)
 	CreateJournalLog(c *gin.Context)
 	// 刪除日誌（軟刪除）

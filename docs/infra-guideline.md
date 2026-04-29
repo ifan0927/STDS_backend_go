@@ -1165,7 +1165,6 @@ txRunner := dbtxrunner.New(db, bus)
 - `LeaseCreated -> ActivateTenantOnLeaseCreatedHandler.HandleLeaseCreated`
 - `LeaseTerminated -> ReleaseRoomOnLeaseTerminatedHandler.HandleLeaseTerminated`
 - `LeaseTerminated -> DeactivateTenantOnLeaseTerminatedHandler.HandleLeaseTerminated`
-- `JournalExpenseRecorded -> JournalExpenseRecordedHandler.HandleJournalExpenseRecorded`
 
 `domainevents.NoopPublisher{}` 仍是 `txrunner.New` 的 nil publisher fallback，並可用於不需要 dispatch event 的測試或局部 wiring；它不是目前 production `server.New()` 的 publisher。
 
