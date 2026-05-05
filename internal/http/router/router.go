@@ -72,11 +72,12 @@ func New(
 }
 
 type routePolicy struct {
-	method           string
-	path             string
-	authStrategy     authStrategy
-	allowedRoles     []string
-	propertyResolver middleware.PropertyIDResolver
+	method              string
+	path                string
+	authStrategy        authStrategy
+	allowedRoles        []string
+	propertyResolver    middleware.PropertyIDResolver
+	propertyIDsResolver middleware.PropertyIDsResolver
 }
 
 type compiledRoutePolicy struct {
@@ -134,6 +135,9 @@ func compileRoutePolicies(appCfg config.AppConfig, authenticator platformfirebas
 		}
 		if policy.propertyResolver != nil {
 			compiled.requirePropertyAccess = middleware.RequirePropertyAccess(policy.propertyResolver, authzRepos.Properties)
+		}
+		if policy.propertyIDsResolver != nil {
+			compiled.requirePropertyAccess = middleware.RequireAnyPropertyAccess(policy.propertyIDsResolver)
 		}
 
 		policies[routePolicyKey(policy.method, policy.path)] = compiled
@@ -226,8 +230,8 @@ func routePolicies(authzRepos AuthorizationRepositories) []routePolicy {
 
 		{method: "GET", path: "/api/v1/tenants", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.QueryPropertyID("property_id")},
 		{method: "POST", path: "/api/v1/tenants", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
-		{method: "GET", path: "/api/v1/tenants/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyIDWithNotFound("id", ownership.FindPropertyIDByTenantID, apperr.ErrTenantNotFound)},
-		{method: "POST", path: "/api/v1/tenants/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyIDWithNotFound("id", ownership.FindPropertyIDByTenantID, apperr.ErrTenantNotFound)},
+		{method: "GET", path: "/api/v1/tenants/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyIDsResolver: middleware.ResourcePropertyIDsWithNotFound("id", ownership.FindPropertyIDsByTenantID, apperr.ErrTenantNotFound)},
+		{method: "POST", path: "/api/v1/tenants/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyIDsResolver: middleware.ResourcePropertyIDsWithNotFound("id", ownership.FindPropertyIDsByTenantID, apperr.ErrTenantNotFound)},
 		{method: "GET", path: "/api/v1/tenants/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
 		{method: "PATCH", path: "/api/v1/tenants/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
 		{method: "GET", path: "/api/v1/tenants/:id/leases", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},

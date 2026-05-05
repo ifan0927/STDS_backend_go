@@ -3554,6 +3554,7 @@ type fakeResourceOwnershipRepo struct {
 	propertyByRoomID             map[string]string
 	roomIDLookup                 *string
 	propertyByTenantID           map[string]string
+	propertyIDsByTenantID        map[string][]string
 	propertyByLeaseID            map[string]string
 	propertyByBillID             map[string]string
 	billIDLookup                 *string
@@ -4788,6 +4789,25 @@ func (f fakeResourceOwnershipRepo) FindPropertyIDByRoomID(_ context.Context, roo
 
 func (f fakeResourceOwnershipRepo) FindPropertyIDByTenantID(_ context.Context, tenantID string) (string, error) {
 	return lookupPropertyID(f.propertyByTenantID, tenantID)
+}
+
+func (f fakeResourceOwnershipRepo) FindPropertyIDsByTenantID(_ context.Context, tenantID string) ([]string, error) {
+	if f.propertyIDsByTenantID != nil {
+		if propertyIDs, ok := f.propertyIDsByTenantID[tenantID]; ok {
+			return propertyIDs, nil
+		}
+	}
+	if f.propertyByTenantID != nil {
+		propertyID, err := lookupPropertyID(f.propertyByTenantID, tenantID)
+		if err != nil {
+			return nil, err
+		}
+		return []string{propertyID}, nil
+	}
+	if f.tenantExists != nil && f.tenantExists[tenantID] {
+		return []string{}, nil
+	}
+	return nil, dbresourceownership.ErrNotFound
 }
 
 func (f fakeResourceOwnershipRepo) FindPropertyIDByLeaseID(_ context.Context, leaseID string) (string, error) {

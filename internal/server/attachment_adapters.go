@@ -107,6 +107,17 @@ func (a attachmentResourceAccessAdapter) EnsureGlobalTenantExists(ctx context.Co
 	return mapAttachmentResourceError(a.ownership.EnsureTenantExists(ctx, tenantID))
 }
 
+func (a attachmentResourceAccessAdapter) FindPropertyIDsByTenant(ctx context.Context, tenantID string) ([]string, error) {
+	propertyIDs, err := a.ownership.FindPropertyIDsByTenantID(ctx, tenantID)
+	if err != nil {
+		if errors.Is(err, dbresourceownership.ErrNotFound) {
+			return nil, appattachment.ErrResourceNotFound
+		}
+		return nil, err
+	}
+	return propertyIDs, nil
+}
+
 func mapOwnershipResult(propertyID string, err error) (string, error) {
 	if err != nil {
 		if errors.Is(err, dbresourceownership.ErrNotFound) {
