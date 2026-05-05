@@ -17,9 +17,23 @@ import (
 
 // GCSStorage implements attachment storage operations with Google Cloud Storage.
 type GCSStorage struct {
-	client       *gcstorage.Client
-	bucketName   string
+	client      *gcstorage.Client
+	bucketName  string
+	attrsReader gcsAttrsReader
+
 	emulatorHost string
+}
+
+type gcsAttrsReader interface {
+	Attrs(ctx context.Context, bucketName string, objectPath string) (*gcstorage.ObjectAttrs, error)
+}
+
+type gcsClientAttrsReader struct {
+	client *gcstorage.Client
+}
+
+func (r gcsClientAttrsReader) Attrs(ctx context.Context, bucketName string, objectPath string) (*gcstorage.ObjectAttrs, error) {
+	return r.client.Bucket(bucketName).Object(objectPath).Attrs(ctx)
 }
 
 // NewGCSStorage creates a Cloud Storage-backed attachment storage adapter.
@@ -42,6 +56,7 @@ func NewGCSStorage(ctx context.Context, cfg config.StorageConfig) (*GCSStorage, 
 	return &GCSStorage{
 		client:       client,
 		bucketName:   cfg.GCSBucketName,
+		attrsReader:  gcsClientAttrsReader{client: client},
 		emulatorHost: strings.TrimRight(cfg.GCSEmulatorHost, "/"),
 	}, nil
 }
@@ -70,7 +85,12 @@ func (s *GCSStorage) GenerateUploadURL(ctx context.Context, objectPath string, c
 
 // GetObjectMetadata returns metadata for an uploaded object.
 func (s *GCSStorage) GetObjectMetadata(ctx context.Context, objectPath string) (*appattachment.ObjectMetadata, error) {
-	attrs, err := s.client.Bucket(s.bucketName).Object(objectPath).Attrs(ctx)
+	attrsReader := s.attrsReader
+	if attrsReader == nil {
+		attrsReader = gcsClientAttrsReader{client: s.client}
+	}
+
+	attrs, err := attrsReader.Attrs(ctx, s.bucketName, objectPath)
 	if err != nil {
 		if errors.Is(err, gcstorage.ErrObjectNotExist) {
 			return nil, appattachment.ErrStorageObjectMissing
