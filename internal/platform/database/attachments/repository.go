@@ -77,6 +77,16 @@ var resourceSpecs = map[ResourceType]resourceSpec{
 	},
 }
 
+var softDeleteResourceOrder = []ResourceType{
+	ResourceTypeProperty,
+	ResourceTypeRoom,
+	ResourceTypeTenant,
+	ResourceTypeLease,
+	ResourceTypeJournalLog,
+	ResourceTypeRepairRequest,
+	ResourceTypeBill,
+}
+
 // Attachment is the persistence model shared by all attachment tables.
 type Attachment struct {
 	ID           string
@@ -388,7 +398,8 @@ func (r *SQLRepository) SoftDeleteAttachmentByID(ctx context.Context, tx *sql.Tx
 		return errors.New("soft delete attachment requires transaction")
 	}
 
-	for resourceType, spec := range resourceSpecs {
+	for _, resourceType := range softDeleteResourceOrder {
+		spec := resourceSpecs[resourceType]
 		query := fmt.Sprintf(`
 UPDATE %s
 SET deleted_at = now()

@@ -380,6 +380,89 @@ func TestRegisterAttachmentRejectsRevokedResourceAccess(t *testing.T) {
 	assertAppErrorCode(t, err, apperr.CodeForbidden)
 }
 
+func TestListAttachmentsReturnsRepositoryAttachments(t *testing.T) {
+	now := time.Date(2026, 4, 28, 10, 0, 0, 0, time.UTC)
+	repo := &attachmentRepoStub{
+		listAttachments: []Attachment{
+			{
+				ID:           "10000000-0000-0000-0000-000000000011",
+				ResourceType: ResourceTypeProperty,
+				ResourceID:   testPropertyID,
+				ObjectPath:   "attachments/property/object.pdf",
+				FileName:     "object.pdf",
+				CreatedAt:    now,
+			},
+		},
+	}
+	service := newTestService(repo, &storageStub{}, &resourceAccessStub{}, now)
+
+	attachments, err := service.ListAttachments(context.Background(), ResourceTypeProperty, testPropertyID)
+	if err != nil {
+		t.Fatalf("ListAttachments returned error: %v", err)
+	}
+	if len(attachments) != 1 {
+		t.Fatalf("expected 1 attachment, got %d", len(attachments))
+	}
+	if attachments[0].ID != "10000000-0000-0000-0000-000000000011" {
+		t.Fatalf("unexpected attachment: %#v", attachments[0])
+	}
+	if repo.listResourceType != ResourceTypeProperty || repo.listResourceID != testPropertyID {
+		t.Fatalf("unexpected list params: %s %s", repo.listResourceType, repo.listResourceID)
+	}
+}
+
+func TestListAttachmentsRejectsInvalidResourceType(t *testing.T) {
+	service := newTestService(&attachmentRepoStub{}, &storageStub{}, &resourceAccessStub{}, time.Now().UTC())
+
+	_, err := service.ListAttachments(context.Background(), ResourceType("invalid"), testPropertyID)
+	assertAppErrorCode(t, err, apperr.CodeBadRequest)
+}
+
+func TestListAttachmentsRejectsInvalidResourceID(t *testing.T) {
+	service := newTestService(&attachmentRepoStub{}, &storageStub{}, &resourceAccessStub{}, time.Now().UTC())
+
+	_, err := service.ListAttachments(context.Background(), ResourceTypeProperty, "not-a-uuid")
+	assertAppErrorCode(t, err, apperr.CodeBadRequest)
+}
+
+func TestListAttachmentsMapsRepositoryNotFoundToResourceNotFound(t *testing.T) {
+	service := newTestService(&attachmentRepoStub{listErr: ErrResourceNotFound}, &storageStub{}, &resourceAccessStub{}, time.Now().UTC())
+
+	_, err := service.ListAttachments(context.Background(), ResourceTypeRoom, "10000000-0000-0000-0000-000000000004")
+	assertAppErrorCode(t, err, apperr.CodeRoomNotFound)
+}
+
+func TestDeleteAttachmentSoftDeletesRepositoryRow(t *testing.T) {
+	repo := &attachmentRepoStub{}
+	service := newTestService(repo, &storageStub{}, &resourceAccessStub{}, time.Now().UTC())
+
+	err := service.DeleteAttachment(context.Background(), "10000000-0000-0000-0000-000000000011")
+	if err != nil {
+		t.Fatalf("DeleteAttachment returned error: %v", err)
+	}
+	if repo.deletedAttachmentID != "10000000-0000-0000-0000-000000000011" {
+		t.Fatalf("expected deleted attachment id to be captured, got %q", repo.deletedAttachmentID)
+	}
+}
+
+func TestDeleteAttachmentRejectsInvalidID(t *testing.T) {
+	repo := &attachmentRepoStub{}
+	service := newTestService(repo, &storageStub{}, &resourceAccessStub{}, time.Now().UTC())
+
+	err := service.DeleteAttachment(context.Background(), "not-a-uuid")
+	assertAppErrorCode(t, err, apperr.CodeBadRequest)
+	if repo.deletedAttachmentID != "" {
+		t.Fatalf("expected repository not to be called, got %q", repo.deletedAttachmentID)
+	}
+}
+
+func TestDeleteAttachmentMapsRepositoryNotFoundToAttachmentNotFound(t *testing.T) {
+	service := newTestService(&attachmentRepoStub{softDeleteErr: ErrNotFound}, &storageStub{}, &resourceAccessStub{}, time.Now().UTC())
+
+	err := service.DeleteAttachment(context.Background(), "10000000-0000-0000-0000-000000000011")
+	assertAppErrorCode(t, err, apperr.CodeAttachmentNotFound)
+}
+
 func newTestService(repo *attachmentRepoStub, storage *storageStub, access *resourceAccessStub, now time.Time) *Service {
 	service := NewService(repo, storage, access, fakeTxRunner{}, 15*time.Minute)
 	service.now = func() time.Time { return now }
@@ -411,6 +494,12 @@ type attachmentRepoStub struct {
 	createAttachmentParams *CreateAttachmentParams
 	deletedToken           bool
 	deleteErr              error
+	listAttachments        []Attachment
+	listResourceType       ResourceType
+	listResourceID         string
+	listErr                error
+	deletedAttachmentID    string
+	softDeleteErr          error
 }
 
 func (r *attachmentRepoStub) CreateUploadToken(_ context.Context, _ *sql.Tx, params CreateUploadTokenParams) (*UploadToken, error) {
@@ -443,8 +532,13 @@ func (r *attachmentRepoStub) DeleteUploadTokenByNonce(_ context.Context, _ *sql.
 	return nil
 }
 
-func (r *attachmentRepoStub) ListByResource(_ context.Context, _ ResourceType, _ string) ([]Attachment, error) {
-	return nil, nil
+func (r *attachmentRepoStub) ListByResource(_ context.Context, resourceType ResourceType, resourceID string) ([]Attachment, error) {
+	r.listResourceType = resourceType
+	r.listResourceID = resourceID
+	if r.listErr != nil {
+		return nil, r.listErr
+	}
+	return r.listAttachments, nil
 }
 
 func (r *attachmentRepoStub) CreateAttachment(_ context.Context, _ *sql.Tx, params CreateAttachmentParams) (*Attachment, error) {
@@ -465,7 +559,11 @@ func (r *attachmentRepoStub) CreateAttachment(_ context.Context, _ *sql.Tx, para
 	}, nil
 }
 
-func (r *attachmentRepoStub) SoftDeleteAttachmentByID(_ context.Context, _ *sql.Tx, _ string) error {
+func (r *attachmentRepoStub) SoftDeleteAttachmentByID(_ context.Context, _ *sql.Tx, attachmentID string) error {
+	r.deletedAttachmentID = attachmentID
+	if r.softDeleteErr != nil {
+		return r.softDeleteErr
+	}
 	return nil
 }
 
