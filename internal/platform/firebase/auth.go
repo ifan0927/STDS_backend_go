@@ -44,8 +44,17 @@ type UserProvisioner interface {
 
 // Client is the Firebase-backed implementation of Authenticator.
 type Client struct {
-	auth                     *firebaseauth.Client
+	auth                     firebaseAuthClient
 	passwordResetRedirectURL string
+}
+
+type firebaseAuthClient interface {
+	VerifyIDToken(ctx context.Context, token string) (*firebaseauth.Token, error)
+	SetCustomUserClaims(ctx context.Context, uid string, customClaims map[string]interface{}) error
+	CreateUser(ctx context.Context, user *firebaseauth.UserToCreate) (*firebaseauth.UserRecord, error)
+	PasswordResetLink(ctx context.Context, email string) (string, error)
+	PasswordResetLinkWithSettings(ctx context.Context, email string, settings *firebaseauth.ActionCodeSettings) (string, error)
+	DeleteUser(ctx context.Context, uid string) error
 }
 
 // New creates a Firebase auth client from the provided configuration.
