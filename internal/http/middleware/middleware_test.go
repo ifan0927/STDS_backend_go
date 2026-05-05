@@ -26,6 +26,7 @@ const (
 	testPropertyID2       = "10000000-0000-0000-0000-000000000002"
 	testPropertyID9       = "10000000-0000-0000-0000-000000000009"
 	testMissingPropertyID = "10000000-0000-0000-0000-000000000099"
+	testTenantID1         = "40000000-0000-0000-0000-000000000001"
 	testRoomID1           = "20000000-0000-0000-0000-000000000001"
 	testMissingRoomID     = "20000000-0000-0000-0000-000000000099"
 	testBillID1           = "30000000-0000-0000-0000-000000000001"
@@ -440,6 +441,95 @@ func TestRequirePropertyAccessReturnsInternalServerErrorForUnexpectedResolverFai
 	engine.ServeHTTP(resp, req)
 
 	assertErrorCode(t, resp, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR")
+}
+
+func TestRequireAnyPropertyAccessAllowsNonAdminWhenAssignedPropertyMatchesAnyResolvedProperty(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	engine := gin.New()
+	engine.Use(RequestID(), ErrorHandler(testLoggerBuffer(nil)))
+	engine.GET("/tenants/:id/attachments", func(c *gin.Context) {
+		requestctx.SetPrincipal(c, requestctx.Principal{
+			Role:                "staff",
+			AssignedPropertyIDs: []string{testPropertyID2},
+		})
+		c.Next()
+	}, RequireAnyPropertyAccess(ResourcePropertyIDsWithNotFound("id", func(_ context.Context, tenantID string) ([]string, error) {
+		if tenantID != testTenantID1 {
+			return nil, errors.New("unexpected tenant id")
+		}
+
+		return []string{testPropertyID1, testPropertyID2}, nil
+	}, apperr.ErrTenantNotFound)), func(c *gin.Context) {
+		propertyID := requestctx.GetPropertyID(c)
+		if propertyID != testPropertyID2 {
+			t.Fatalf("propertyID = %q, want %q", propertyID, testPropertyID2)
+		}
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/tenants/"+testTenantID1+"/attachments", nil)
+	resp := httptest.NewRecorder()
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestRequireAnyPropertyAccessReturnsForbiddenWhenNoResolvedPropertyIsAssigned(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	engine := gin.New()
+	engine.Use(RequestID(), ErrorHandler(testLoggerBuffer(nil)))
+	engine.GET("/tenants/:id/attachments", func(c *gin.Context) {
+		requestctx.SetPrincipal(c, requestctx.Principal{
+			Role:                "staff",
+			AssignedPropertyIDs: []string{testPropertyID9},
+		})
+		c.Next()
+	}, RequireAnyPropertyAccess(ResourcePropertyIDsWithNotFound("id", func(_ context.Context, tenantID string) ([]string, error) {
+		if tenantID != testTenantID1 {
+			return nil, errors.New("unexpected tenant id")
+		}
+
+		return []string{testPropertyID1, testPropertyID2}, nil
+	}, apperr.ErrTenantNotFound)), func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/tenants/"+testTenantID1+"/attachments", nil)
+	resp := httptest.NewRecorder()
+	engine.ServeHTTP(resp, req)
+
+	assertErrorCode(t, resp, http.StatusForbidden, "FORBIDDEN")
+}
+
+func TestRequireAnyPropertyAccessAllowsAdminWhenTenantExistsWithoutResolvedProperties(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	engine := gin.New()
+	engine.Use(RequestID(), ErrorHandler(testLoggerBuffer(nil)))
+	engine.GET("/tenants/:id/attachments", func(c *gin.Context) {
+		requestctx.SetPrincipal(c, requestctx.Principal{Role: "admin"})
+		c.Next()
+	}, RequireAnyPropertyAccess(ResourcePropertyIDsWithNotFound("id", func(_ context.Context, tenantID string) ([]string, error) {
+		if tenantID != testTenantID1 {
+			return nil, errors.New("unexpected tenant id")
+		}
+
+		return []string{}, nil
+	}, apperr.ErrTenantNotFound)), func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/tenants/"+testTenantID1+"/attachments", nil)
+	resp := httptest.NewRecorder()
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
 }
 
 func TestRequirePropertyAccessAllowsOwnerForOwnedProperty(t *testing.T) {

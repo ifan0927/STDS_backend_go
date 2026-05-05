@@ -93,6 +93,7 @@ type Repository interface {
 // ResourceAccess resolves host-resource existence and property ownership.
 type ResourceAccess interface {
 	FindPropertyIDByResource(ctx context.Context, resourceType ResourceType, resourceID string) (string, error)
+	FindPropertyIDsByTenant(ctx context.Context, tenantID string) ([]string, error)
 	EnsureGlobalTenantExists(ctx context.Context, tenantID string) error
 }
 

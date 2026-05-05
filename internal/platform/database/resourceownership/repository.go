@@ -16,6 +16,7 @@ type Repository interface {
 	FindPropertyIDByPropertyID(ctx context.Context, propertyID string) (string, error)
 	FindPropertyIDByRoomID(ctx context.Context, roomID string) (string, error)
 	FindPropertyIDByTenantID(ctx context.Context, tenantID string) (string, error)
+	FindPropertyIDsByTenantID(ctx context.Context, tenantID string) ([]string, error)
 	FindPropertyIDByLeaseID(ctx context.Context, leaseID string) (string, error)
 	FindPropertyIDByBillID(ctx context.Context, billID string) (string, error)
 	FindPropertyIDByJournalLogID(ctx context.Context, journalLogID string) (string, error)
@@ -60,15 +61,49 @@ LIMIT 1
 }
 
 func (r *SQLRepository) FindPropertyIDByTenantID(ctx context.Context, tenantID string) (string, error) {
+	propertyIDs, err := r.FindPropertyIDsByTenantID(ctx, tenantID)
+	if err != nil {
+		return "", err
+	}
+	if len(propertyIDs) == 0 {
+		return "", ErrNotFound
+	}
+
+	return propertyIDs[0], nil
+}
+
+func (r *SQLRepository) FindPropertyIDsByTenantID(ctx context.Context, tenantID string) ([]string, error) {
+	if err := r.EnsureTenantExists(ctx, tenantID); err != nil {
+		return nil, err
+	}
+
 	const query = `
-SELECT property_id
+SELECT DISTINCT property_id
 FROM leases
 WHERE tenant_id = $1
   AND deleted_at IS NULL
-LIMIT 1
+ORDER BY property_id
 `
 
-	return r.findPropertyID(ctx, query, tenantID, "query tenant property by id")
+	rows, err := r.db.QueryContext(ctx, query, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("query tenant property ids by id: %w", err)
+	}
+	defer rows.Close()
+
+	propertyIDs := []string{}
+	for rows.Next() {
+		var propertyID string
+		if err := rows.Scan(&propertyID); err != nil {
+			return nil, fmt.Errorf("scan tenant property ids by id: %w", err)
+		}
+		propertyIDs = append(propertyIDs, propertyID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate tenant property ids by id: %w", err)
+	}
+
+	return propertyIDs, nil
 }
 
 func (r *SQLRepository) FindPropertyIDByLeaseID(ctx context.Context, leaseID string) (string, error) {
@@ -138,8 +173,10 @@ SELECT property_id
 FROM (
     SELECT property_id AS property_id
     FROM property_attachments
-    WHERE id = $1
-      AND deleted_at IS NULL
+    JOIN properties ON properties.id = property_attachments.property_id
+    WHERE property_attachments.id = $1
+      AND property_attachments.deleted_at IS NULL
+      AND properties.deleted_at IS NULL
 
     UNION ALL
 
@@ -152,12 +189,14 @@ FROM (
 
     UNION ALL
 
-	    SELECT leases.property_id AS property_id
-	    FROM tenant_attachments
-	    JOIN leases ON leases.tenant_id = tenant_attachments.tenant_id
-	    WHERE tenant_attachments.id = $1
-	      AND tenant_attachments.deleted_at IS NULL
-	      AND leases.deleted_at IS NULL
+    SELECT leases.property_id AS property_id
+    FROM tenant_attachments
+    JOIN tenants ON tenants.id = tenant_attachments.tenant_id
+    JOIN leases ON leases.tenant_id = tenants.id
+    WHERE tenant_attachments.id = $1
+      AND tenant_attachments.deleted_at IS NULL
+      AND tenants.deleted_at IS NULL
+      AND leases.deleted_at IS NULL
 
     UNION ALL
 

@@ -5,8 +5,8 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/google/uuid"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"stds_backend/internal/http/requestctx"
 	dbproperties "stds_backend/internal/platform/database/properties"
@@ -18,8 +18,15 @@ import (
 // the current request.
 type PropertyIDResolver func(*gin.Context) (string, error)
 
+// PropertyIDsResolver extracts property IDs that should be authorized for the
+// current request.
+type PropertyIDsResolver func(*gin.Context) ([]string, error)
+
 // PropertyLookup resolves a resource id to its owning property id.
 type PropertyLookup func(context.Context, string) (string, error)
+
+// PropertyIDsLookup resolves a resource id to its associated property ids.
+type PropertyIDsLookup func(context.Context, string) ([]string, error)
 
 // RequireRoles rejects requests whose authenticated principal does not match
 // one of the allowed roles.
@@ -46,6 +53,44 @@ func RequireRoles(allowedRoles ...string) gin.HandlerFunc {
 		}
 
 		c.Next()
+	}
+}
+
+// RequireAnyPropertyAccess rejects requests when none of the resolved
+// properties is assigned to the authenticated principal.
+func RequireAnyPropertyAccess(resolvePropertyIDs PropertyIDsResolver) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		principal, ok := requestctx.GetPrincipal(c)
+		if !ok {
+			c.Error(apperr.ErrUnauthorized)
+			c.Abort()
+			return
+		}
+
+		propertyIDs, err := resolvePropertyIDs(c)
+		if err != nil {
+			c.Error(mapPropertyResolverError(err))
+			c.Abort()
+			return
+		}
+
+		if principal.Role == "admin" {
+			c.Next()
+			return
+		}
+
+		for _, propertyID := range propertyIDs {
+			for _, assignedPropertyID := range principal.AssignedPropertyIDs {
+				if assignedPropertyID == propertyID {
+					requestctx.SetPropertyID(c, propertyID)
+					c.Next()
+					return
+				}
+			}
+		}
+
+		c.Error(apperr.ErrForbidden)
+		c.Abort()
 	}
 }
 
@@ -191,6 +236,36 @@ func ResourcePropertyIDWithNotFound(param string, lookup PropertyLookup, notFoun
 		}
 
 		return propertyID, nil
+	}
+}
+
+// ResourcePropertyIDsWithNotFound returns a resolver that maps a route resource
+// id to all associated property ids, translating lookup not-found results into
+// the provided application error when configured.
+func ResourcePropertyIDsWithNotFound(param string, lookup PropertyIDsLookup, notFoundErr *apperr.Error) PropertyIDsResolver {
+	return func(c *gin.Context) ([]string, error) {
+		if param == "" {
+			return nil, errors.New("resource param is required")
+		}
+		if lookup == nil {
+			return nil, errors.New("property lookup is required")
+		}
+
+		resourceID := c.Param(param)
+		if _, err := resolveUUIDParam(c, param); err != nil {
+			return nil, err
+		}
+
+		propertyIDs, err := lookup(c.Request.Context(), resourceID)
+		if err != nil {
+			if errors.Is(err, dbresourceownership.ErrNotFound) && notFoundErr != nil {
+				return nil, notFoundErr.WithCause(err)
+			}
+
+			return nil, err
+		}
+
+		return propertyIDs, nil
 	}
 }
 

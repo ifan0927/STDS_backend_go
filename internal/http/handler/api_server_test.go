@@ -948,6 +948,10 @@ func (handlerAttachmentResourceAccessStub) FindPropertyIDByResource(_ context.Co
 	return "", appattachment.ErrResourceNotFound
 }
 
+func (handlerAttachmentResourceAccessStub) FindPropertyIDsByTenant(context.Context, string) ([]string, error) {
+	return nil, appattachment.ErrResourceNotFound
+}
+
 func (handlerAttachmentResourceAccessStub) EnsureGlobalTenantExists(context.Context, string) error {
 	return appattachment.ErrResourceNotFound
 }

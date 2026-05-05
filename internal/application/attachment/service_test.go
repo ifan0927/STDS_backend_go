@@ -285,6 +285,33 @@ func TestTenantUploadURLUsesGlobalTenantExistence(t *testing.T) {
 	}
 }
 
+func TestTenantUploadURLAllowsAssignedTenantPropertyWhenMatchIsNotFirstAssociation(t *testing.T) {
+	assignedPropertyID := "10000000-0000-0000-0000-000000000004"
+	unassignedPropertyID := "10000000-0000-0000-0000-000000000099"
+	access := resourceAccessStub{
+		tenantPropertyIDs: []string{unassignedPropertyID, assignedPropertyID},
+		globalTenantIDs:   map[string]bool{testTenantID: true},
+	}
+	service := newTestService(&attachmentRepoStub{}, &storageStub{uploadURL: "http://storage/upload"}, &access, time.Now().UTC())
+
+	_, err := service.CreateUploadURL(context.Background(), CreateUploadURLInput{
+		ActorRole:           "staff",
+		ActorUserID:         testActorID,
+		AssignedPropertyIDs: []string{assignedPropertyID},
+		ResourceType:        ResourceTypeTenant,
+		ResourceID:          testTenantID,
+		FileName:            "id.pdf",
+		ContentType:         "application/pdf",
+		FileSize:            1024,
+	})
+	if err != nil {
+		t.Fatalf("CreateUploadURL returned error: %v", err)
+	}
+	if !access.globalTenantChecked {
+		t.Fatal("expected global tenant existence check")
+	}
+}
+
 func TestTenantUploadURLRejectsUnassignedTenantProperty(t *testing.T) {
 	access := resourceAccessStub{
 		propertyByResource: map[ResourceType]string{ResourceTypeTenant: testPropertyID},
@@ -296,6 +323,26 @@ func TestTenantUploadURLRejectsUnassignedTenantProperty(t *testing.T) {
 		ActorRole:           "staff",
 		ActorUserID:         testActorID,
 		AssignedPropertyIDs: []string{"10000000-0000-0000-0000-000000000099"},
+		ResourceType:        ResourceTypeTenant,
+		ResourceID:          testTenantID,
+		FileName:            "id.pdf",
+		ContentType:         "application/pdf",
+		FileSize:            1024,
+	})
+	assertAppErrorCode(t, err, apperr.CodeForbidden)
+}
+
+func TestTenantUploadURLRejectsStaffWhenTenantExistsWithoutAssociatedProperties(t *testing.T) {
+	access := resourceAccessStub{
+		tenantPropertyIDs: []string{},
+		globalTenantIDs:   map[string]bool{testTenantID: true},
+	}
+	service := newTestService(&attachmentRepoStub{}, &storageStub{uploadURL: "http://storage/upload"}, &access, time.Now().UTC())
+
+	_, err := service.CreateUploadURL(context.Background(), CreateUploadURLInput{
+		ActorRole:           "staff",
+		ActorUserID:         testActorID,
+		AssignedPropertyIDs: []string{testPropertyID},
 		ResourceType:        ResourceTypeTenant,
 		ResourceID:          testTenantID,
 		FileName:            "id.pdf",
@@ -445,6 +492,7 @@ func (s *storageStub) GetObjectMetadata(_ context.Context, _ string) (*ObjectMet
 
 type resourceAccessStub struct {
 	propertyByResource  map[ResourceType]string
+	tenantPropertyIDs   []string
 	globalTenantIDs     map[string]bool
 	globalTenantChecked bool
 }
@@ -457,6 +505,18 @@ func (r *resourceAccessStub) FindPropertyIDByResource(_ context.Context, resourc
 		return propertyID, nil
 	}
 	return "", ErrResourceNotFound
+}
+
+func (r *resourceAccessStub) FindPropertyIDsByTenant(_ context.Context, tenantID string) ([]string, error) {
+	if r.globalTenantIDs[tenantID] {
+		if r.tenantPropertyIDs == nil {
+			if propertyID, ok := r.propertyByResource[ResourceTypeTenant]; ok {
+				return []string{propertyID}, nil
+			}
+		}
+		return r.tenantPropertyIDs, nil
+	}
+	return nil, ErrResourceNotFound
 }
 
 func (r *resourceAccessStub) EnsureGlobalTenantExists(_ context.Context, tenantID string) error {

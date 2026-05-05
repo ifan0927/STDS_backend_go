@@ -299,14 +299,27 @@ func (s *Service) ensureResourceAccess(ctx context.Context, actorRole string, as
 		if actorRole == "admin" {
 			return nil
 		}
+
+		propertyIDs, err := s.resourceAccess.FindPropertyIDsByTenant(ctx, resourceID)
+		if err != nil {
+			if errorsIsNotFound(err) {
+				return mapResourceNotFound(resourceType)
+			}
+			return apperr.ErrInternalServerError.WithCause(err)
+		}
+		for _, propertyID := range propertyIDs {
+			for _, assignedPropertyID := range assignedPropertyIDs {
+				if assignedPropertyID == propertyID {
+					return nil
+				}
+			}
+		}
+		return apperr.ErrForbidden
 	}
 
 	propertyID, err := s.resourceAccess.FindPropertyIDByResource(ctx, resourceType, resourceID)
 	if err != nil {
 		if errorsIsNotFound(err) {
-			if resourceType == ResourceTypeTenant {
-				return apperr.ErrForbidden
-			}
 			return mapResourceNotFound(resourceType)
 		}
 		return apperr.ErrInternalServerError.WithCause(err)
