@@ -14,6 +14,188 @@ import (
 	"stds_backend/internal/shared/apperr"
 )
 
+func TestCreatePersistsTrimmedRoomScopedRepair(t *testing.T) {
+	repo := &workflowRepoStub{
+		room: &Room{ID: testRoomID, PropertyID: testPropertyID},
+	}
+	service := NewCreateService(repo, fakeTxRunner{})
+
+	repairRequest, err := service.Execute(context.Background(), CreateInput{
+		ActorRole:           " organizer ",
+		ActorUserID:         testOrganizerID,
+		AssignedPropertyIDs: []string{testPropertyID},
+		PropertyID:          testPropertyID,
+		RoomID:              testRoomID,
+		Title:               " Leak ",
+		Description:         " Bathroom leak ",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if repo.createParams.PropertyID != testPropertyID {
+		t.Fatalf("expected property_id %s, got %s", testPropertyID, repo.createParams.PropertyID)
+	}
+	if repo.createParams.RoomID != testRoomID {
+		t.Fatalf("expected room_id %s, got %s", testRoomID, repo.createParams.RoomID)
+	}
+	if repo.createParams.SubmittedBy != testOrganizerID {
+		t.Fatalf("expected submitted_by %s, got %s", testOrganizerID, repo.createParams.SubmittedBy)
+	}
+	if repo.createParams.Title != "Leak" {
+		t.Fatalf("expected trimmed title, got %q", repo.createParams.Title)
+	}
+	if repo.createParams.Description != "Bathroom leak" {
+		t.Fatalf("expected trimmed description, got %q", repo.createParams.Description)
+	}
+	if repairRequest.Status != "submitted" {
+		t.Fatalf("expected submitted status, got %s", repairRequest.Status)
+	}
+}
+
+func TestCreateRejectsBlankTitle(t *testing.T) {
+	service := NewCreateService(&workflowRepoStub{}, fakeTxRunner{})
+
+	_, err := service.Execute(context.Background(), CreateInput{
+		ActorRole:           "organizer",
+		ActorUserID:         testOrganizerID,
+		AssignedPropertyIDs: []string{testPropertyID},
+		PropertyID:          testPropertyID,
+		RoomID:              testRoomID,
+		Title:               " ",
+	})
+
+	if !errors.Is(err, ErrValidationRepairTitleRequired) {
+		t.Fatalf("expected title validation error, got %v", err)
+	}
+}
+
+func TestCreateRejectsActorOutsideProperty(t *testing.T) {
+	service := NewCreateService(&workflowRepoStub{}, fakeTxRunner{})
+
+	_, err := service.Execute(context.Background(), CreateInput{
+		ActorRole:           "staff",
+		ActorUserID:         testStaffID,
+		AssignedPropertyIDs: []string{testOtherPropertyID},
+		PropertyID:          testPropertyID,
+		RoomID:              testRoomID,
+		Title:               "Leak",
+	})
+
+	if !errors.Is(err, apperr.ErrForbidden) {
+		t.Fatalf("expected forbidden, got %v", err)
+	}
+}
+
+func TestCreateRejectsRoomOutsideProperty(t *testing.T) {
+	repo := &workflowRepoStub{
+		room: &Room{ID: testRoomID, PropertyID: testOtherPropertyID},
+	}
+	service := NewCreateService(repo, fakeTxRunner{})
+
+	_, err := service.Execute(context.Background(), CreateInput{
+		ActorRole:           "organizer",
+		ActorUserID:         testOrganizerID,
+		AssignedPropertyIDs: []string{testPropertyID},
+		PropertyID:          testPropertyID,
+		RoomID:              testRoomID,
+		Title:               "Leak",
+	})
+
+	if !errors.Is(err, apperr.ErrBadRequest) {
+		t.Fatalf("expected bad request, got %v", err)
+	}
+}
+
+func TestUpdatePersistsTrimmedDescriptiveFields(t *testing.T) {
+	repo := &workflowRepoStub{repairRequest: submittedRepairRequest()}
+	service := NewUpdateService(repo, fakeTxRunner{})
+	title := " Updated leak "
+	description := " Updated description "
+
+	repairRequest, err := service.Execute(context.Background(), UpdateInput{
+		ID:          testRepairID,
+		Title:       &title,
+		Description: &description,
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	if repo.updateParams.Title != "Updated leak" {
+		t.Fatalf("expected trimmed title, got %q", repo.updateParams.Title)
+	}
+	if repo.updateParams.Description != "Updated description" {
+		t.Fatalf("expected trimmed description, got %q", repo.updateParams.Description)
+	}
+	if repairRequest.Title != "Updated leak" {
+		t.Fatalf("expected updated repair title, got %q", repairRequest.Title)
+	}
+}
+
+func TestUpdateRejectsNoFields(t *testing.T) {
+	service := NewUpdateService(&workflowRepoStub{}, fakeTxRunner{})
+
+	_, err := service.Execute(context.Background(), UpdateInput{ID: testRepairID})
+
+	if !errors.Is(err, apperr.ErrBadRequest) {
+		t.Fatalf("expected bad request, got %v", err)
+	}
+}
+
+func TestUpdateRejectsBlankTitle(t *testing.T) {
+	repo := &workflowRepoStub{repairRequest: submittedRepairRequest()}
+	service := NewUpdateService(repo, fakeTxRunner{})
+	title := " "
+
+	_, err := service.Execute(context.Background(), UpdateInput{
+		ID:    testRepairID,
+		Title: &title,
+	})
+
+	if !errors.Is(err, ErrValidationRepairTitleRequired) {
+		t.Fatalf("expected title validation error, got %v", err)
+	}
+}
+
+func TestUpdateMapsMissingRepair(t *testing.T) {
+	service := NewUpdateService(&workflowRepoStub{}, fakeTxRunner{})
+	title := "Leak"
+
+	_, err := service.Execute(context.Background(), UpdateInput{
+		ID:    testRepairID,
+		Title: &title,
+	})
+
+	if !errors.Is(err, apperr.ErrRepairRequestNotFound) {
+		t.Fatalf("expected repair request not found, got %v", err)
+	}
+}
+
+func TestDeleteSoftDeletesRepair(t *testing.T) {
+	repo := &workflowRepoStub{}
+	service := NewDeleteService(repo, fakeTxRunner{})
+
+	if err := service.Execute(context.Background(), DeleteInput{ID: testRepairID}); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
+	if repo.softDeleteID != testRepairID {
+		t.Fatalf("expected soft delete id %s, got %s", testRepairID, repo.softDeleteID)
+	}
+}
+
+func TestDeleteMapsMissingRepair(t *testing.T) {
+	repo := &workflowRepoStub{softDeleteErr: ErrRepairRequestNotFound}
+	service := NewDeleteService(repo, fakeTxRunner{})
+
+	err := service.Execute(context.Background(), DeleteInput{ID: testRepairID})
+
+	if !errors.Is(err, apperr.ErrRepairRequestNotFound) {
+		t.Fatalf("expected repair request not found, got %v", err)
+	}
+}
+
 func TestAssignRejectsStaffAssigningAnotherUser(t *testing.T) {
 	service := NewWorkflowService(&workflowRepoStub{}, fakeTxRunner{})
 
@@ -96,6 +278,27 @@ func TestAssignRejectsOwnerAssignee(t *testing.T) {
 	}
 }
 
+func TestAssignRejectsInvalidRepairStatus(t *testing.T) {
+	repairRequest := submittedRepairRequest()
+	repairRequest.Status = "assigned"
+	repo := &workflowRepoStub{
+		user:          &User{ID: testOrganizerID, Role: "organizer", AssignedPropertyIDs: []string{testPropertyID}},
+		repairRequest: repairRequest,
+	}
+	service := NewWorkflowService(repo, fakeTxRunner{})
+
+	_, err := service.Assign(context.Background(), AssignInput{
+		ActorRole:   "organizer",
+		ActorUserID: testOrganizerID,
+		ID:          testRepairID,
+		AssignedTo:  testOrganizerID,
+	})
+
+	if !errors.Is(err, ErrInvalidStatusForAssign) {
+		t.Fatalf("expected invalid assign status, got %v", err)
+	}
+}
+
 func TestProgressRejectsNonAssignedRepair(t *testing.T) {
 	repo := &workflowRepoStub{repairRequest: submittedRepairRequest()}
 	service := NewWorkflowService(repo, fakeTxRunner{})
@@ -104,6 +307,72 @@ func TestProgressRejectsNonAssignedRepair(t *testing.T) {
 
 	if !errors.Is(err, ErrInvalidStatusForProgress) {
 		t.Fatalf("expected invalid progress status, got %v", err)
+	}
+}
+
+func TestProgressPersistsAssignedRepair(t *testing.T) {
+	repairRequest := submittedRepairRequest()
+	repairRequest.Status = "assigned"
+	repo := &workflowRepoStub{repairRequest: repairRequest}
+	service := NewWorkflowService(repo, fakeTxRunner{})
+
+	updated, err := service.Progress(context.Background(), testRepairID)
+	if err != nil {
+		t.Fatalf("Progress: %v", err)
+	}
+
+	if repo.progressID != testRepairID {
+		t.Fatalf("expected progress id %s, got %s", testRepairID, repo.progressID)
+	}
+	if updated.Status != "in_progress" {
+		t.Fatalf("expected in_progress status, got %s", updated.Status)
+	}
+}
+
+func TestCompleteRejectsNonInProgressRepair(t *testing.T) {
+	repo := &workflowRepoStub{repairRequest: submittedRepairRequest()}
+	service := NewWorkflowService(repo, fakeTxRunner{})
+
+	_, err := service.Complete(context.Background(), testRepairID)
+
+	if !errors.Is(err, ErrInvalidStatusForComplete) {
+		t.Fatalf("expected invalid complete status, got %v", err)
+	}
+}
+
+func TestCompletePersistsCompletedAt(t *testing.T) {
+	repairRequest := submittedRepairRequest()
+	repairRequest.Status = "in_progress"
+	repo := &workflowRepoStub{repairRequest: repairRequest}
+	service := NewWorkflowService(repo, fakeTxRunner{})
+	service.now = func() time.Time { return testNow }
+
+	_, err := service.Complete(context.Background(), testRepairID)
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+
+	if repo.completeParams.ID != testRepairID {
+		t.Fatalf("expected complete id %s, got %s", testRepairID, repo.completeParams.ID)
+	}
+	if !repo.completeParams.CompletedAt.Equal(testNow) {
+		t.Fatalf("expected completed_at %s, got %s", testNow, repo.completeParams.CompletedAt)
+	}
+}
+
+func TestCompleteReturnsRestoreRoomFailure(t *testing.T) {
+	repairRequest := submittedRepairRequest()
+	repairRequest.Status = "in_progress"
+	repo := &workflowRepoStub{
+		repairRequest: repairRequest,
+		restoreErr:    errors.New("restore failed"),
+	}
+	service := NewWorkflowService(repo, fakeTxRunner{})
+
+	_, err := service.Complete(context.Background(), testRepairID)
+
+	if !errors.Is(err, apperr.ErrInternalServerError) {
+		t.Fatalf("expected internal server error, got %v", err)
 	}
 }
 
@@ -297,13 +566,14 @@ func TestCancelPublishesRepairCancelledAfterCommit(t *testing.T) {
 }
 
 const (
-	testRepairID      = "70000000-0000-0000-0000-000000000001"
-	testOtherRepairID = "70000000-0000-0000-0000-000000000002"
-	testPropertyID    = "10000000-0000-0000-0000-000000000001"
-	testRoomID        = "20000000-0000-0000-0000-000000000001"
-	testStaffID       = "00000000-0000-0000-0000-000000000002"
-	testOrganizerID   = "00000000-0000-0000-0000-000000000003"
-	testOwnerID       = "00000000-0000-0000-0000-000000000004"
+	testRepairID        = "70000000-0000-0000-0000-000000000001"
+	testOtherRepairID   = "70000000-0000-0000-0000-000000000002"
+	testPropertyID      = "10000000-0000-0000-0000-000000000001"
+	testOtherPropertyID = "10000000-0000-0000-0000-000000000099"
+	testRoomID          = "20000000-0000-0000-0000-000000000001"
+	testStaffID         = "00000000-0000-0000-0000-000000000002"
+	testOrganizerID     = "00000000-0000-0000-0000-000000000003"
+	testOwnerID         = "00000000-0000-0000-0000-000000000004"
 )
 
 var testNow = time.Date(2026, 4, 27, 10, 0, 0, 0, time.UTC)
@@ -325,12 +595,20 @@ func (p *repairRecordingPublisher) Publish(_ context.Context, event any) error {
 
 type workflowRepoStub struct {
 	user           *User
+	room           *Room
 	repairRequest  *RepairRequest
 	repairRequests map[string]*RepairRequest
 	roomStatus     string
+	createParams   CreateParams
+	updateParams   UpdateParams
 	assignParams   AssignParams
+	progressID     string
+	completeParams CompleteParams
 	cancelParams   CancelParams
+	softDeleteID   string
+	softDeleteErr  error
 	restoreRoomID  string
+	restoreErr     error
 }
 
 func (r *workflowRepoStub) List(context.Context, ListQuery) ([]RepairRequest, error) {
@@ -356,6 +634,9 @@ func (r *workflowRepoStub) FindByIDForUpdate(_ context.Context, _ *sql.Tx, id st
 }
 
 func (r *workflowRepoStub) FindRoomByID(context.Context, *sql.Tx, string) (*Room, error) {
+	if r.room != nil {
+		return r.room, nil
+	}
 	return &Room{ID: testRoomID, PropertyID: testPropertyID}, nil
 }
 
@@ -366,16 +647,33 @@ func (r *workflowRepoStub) FindUserByID(context.Context, *sql.Tx, string) (*User
 	return r.user, nil
 }
 
-func (r *workflowRepoStub) Create(context.Context, *sql.Tx, CreateParams) (*RepairRequest, error) {
-	return nil, nil
+func (r *workflowRepoStub) Create(_ context.Context, _ *sql.Tx, params CreateParams) (*RepairRequest, error) {
+	r.createParams = params
+	return &RepairRequest{
+		ID:          testRepairID,
+		PropertyID:  params.PropertyID,
+		RoomID:      params.RoomID,
+		SubmittedBy: params.SubmittedBy,
+		Title:       params.Title,
+		Description: params.Description,
+		Status:      "submitted",
+		SubmittedAt: testNow,
+		CreatedAt:   testNow,
+		UpdatedAt:   testNow,
+	}, nil
 }
 
-func (r *workflowRepoStub) Update(context.Context, *sql.Tx, UpdateParams) (*RepairRequest, error) {
-	return nil, nil
+func (r *workflowRepoStub) Update(_ context.Context, _ *sql.Tx, params UpdateParams) (*RepairRequest, error) {
+	r.updateParams = params
+	repairRequest := submittedRepairRequest()
+	repairRequest.Title = params.Title
+	repairRequest.Description = params.Description
+	return repairRequest, nil
 }
 
-func (r *workflowRepoStub) SoftDelete(context.Context, *sql.Tx, string) error {
-	return nil
+func (r *workflowRepoStub) SoftDelete(_ context.Context, _ *sql.Tx, id string) error {
+	r.softDeleteID = id
+	return r.softDeleteErr
 }
 
 func (r *workflowRepoStub) Assign(_ context.Context, _ *sql.Tx, params AssignParams) (*RepairRequest, error) {
@@ -387,13 +685,15 @@ func (r *workflowRepoStub) Assign(_ context.Context, _ *sql.Tx, params AssignPar
 	return repairRequest, nil
 }
 
-func (r *workflowRepoStub) Progress(context.Context, *sql.Tx, string) (*RepairRequest, error) {
+func (r *workflowRepoStub) Progress(_ context.Context, _ *sql.Tx, id string) (*RepairRequest, error) {
+	r.progressID = id
 	repairRequest := submittedRepairRequest()
 	repairRequest.Status = "in_progress"
 	return repairRequest, nil
 }
 
 func (r *workflowRepoStub) Complete(_ context.Context, _ *sql.Tx, params CompleteParams) (*RepairRequest, error) {
+	r.completeParams = params
 	if r.repairRequests != nil {
 		repairRequest := r.repairRequests[params.ID]
 		if repairRequest == nil {
@@ -428,6 +728,9 @@ func (r *workflowRepoStub) Cancel(_ context.Context, _ *sql.Tx, params CancelPar
 
 func (r *workflowRepoStub) RestoreRoomVacantIfNoActiveRepairs(_ context.Context, _ *sql.Tx, roomID string) error {
 	r.restoreRoomID = roomID
+	if r.restoreErr != nil {
+		return r.restoreErr
+	}
 	if r.repairRequests == nil || r.roomStatus != "maintenance" {
 		return nil
 	}
