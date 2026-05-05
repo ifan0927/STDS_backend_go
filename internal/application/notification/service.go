@@ -56,6 +56,9 @@ func (s *Service) SendUserPasswordResetEmail(ctx context.Context, input UserPass
 	email := strings.TrimSpace(input.Email)
 	name := strings.TrimSpace(input.Name)
 	resetURL := strings.TrimSpace(input.ResetURL)
+	if email == "" || resetURL == "" {
+		return ErrNotificationInvalidInput
+	}
 
 	subject := "Set your STDS password"
 	html := fmt.Sprintf(
@@ -90,6 +93,11 @@ func (s *Service) SendOverdueBillReminderEmail(ctx context.Context, input Overdu
 		return ErrNotificationSenderNotConfigured
 	}
 
+	email := strings.TrimSpace(input.Email)
+	if email == "" || input.DueDate.IsZero() {
+		return ErrNotificationInvalidInput
+	}
+
 	amount := "the outstanding amount"
 	if input.Amount != nil {
 		amount = fmt.Sprintf("NT$%d", *input.Amount)
@@ -102,7 +110,7 @@ func (s *Service) SendOverdueBillReminderEmail(ctx context.Context, input Overdu
 	if err := s.sender.Send(ctx, platformnotification.SendCommand{
 		Channel: platformnotification.ChannelEmail,
 		Email: &platformnotification.EmailMessage{
-			To:      []string{strings.TrimSpace(input.Email)},
+			To:      []string{email},
 			Subject: subject,
 			HTML:    html,
 			Text:    text,
@@ -120,16 +128,22 @@ func (s *Service) SendLeaseExpiringSoonEmail(ctx context.Context, input LeaseExp
 		return ErrNotificationSenderNotConfigured
 	}
 
+	email := strings.TrimSpace(input.Email)
 	name := defaultName(strings.TrimSpace(input.Name))
+	leaseID := strings.TrimSpace(input.LeaseID)
+	if email == "" || leaseID == "" || input.EndDate.IsZero() {
+		return ErrNotificationInvalidInput
+	}
+
 	endDate := input.EndDate.Format("2006-01-02")
 	subject := "Lease expiring soon"
-	html := fmt.Sprintf("<p>Hello %s,</p><p>Lease %s is scheduled to end on %s.</p>", htmlEscape(name), htmlEscape(input.LeaseID), htmlEscape(endDate))
-	text := fmt.Sprintf("Hello %s,\n\nLease %s is scheduled to end on %s.\n", name, input.LeaseID, endDate)
+	html := fmt.Sprintf("<p>Hello %s,</p><p>Lease %s is scheduled to end on %s.</p>", htmlEscape(name), htmlEscape(leaseID), htmlEscape(endDate))
+	text := fmt.Sprintf("Hello %s,\n\nLease %s is scheduled to end on %s.\n", name, leaseID, endDate)
 
 	if err := s.sender.Send(ctx, platformnotification.SendCommand{
 		Channel: platformnotification.ChannelEmail,
 		Email: &platformnotification.EmailMessage{
-			To:      []string{strings.TrimSpace(input.Email)},
+			To:      []string{email},
 			Subject: subject,
 			HTML:    html,
 			Text:    text,

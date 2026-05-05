@@ -105,6 +105,32 @@ func TestOverdueBillReminderSkipsConcurrentUpdateWithoutSending(t *testing.T) {
 	}
 }
 
+func TestOverdueBillReminderCountsNotificationErrorAsFailed(t *testing.T) {
+	email := "tenant@example.com"
+	repo := &batchBillingRepoStub{
+		overdueReminderCandidates: []OverdueReminderCandidate{
+			{ID: "bill-1", TenantEmail: &email, Version: 7},
+		},
+	}
+	notifier := &jobNotifierStub{overdueErr: errors.New("notification failed")}
+	runner := NewOverdueBillReminderRunner(repo, notifier, txRunnerStub{})
+
+	summary, err := runner(context.Background(), "2026-04-16")
+	if err != nil {
+		t.Fatalf("runner: %v", err)
+	}
+
+	if summary.FailedCount != 1 || summary.ProcessedCount != 0 || summary.SkippedCount != 0 {
+		t.Fatalf("unexpected summary: %+v", summary)
+	}
+	if notifier.overdueCalls != 1 {
+		t.Fatalf("expected one notification call, got %d", notifier.overdueCalls)
+	}
+	if repo.incrementBillID != "bill-1" || repo.incrementVersion != 7 {
+		t.Fatalf("unexpected increment call: bill=%s version=%d", repo.incrementBillID, repo.incrementVersion)
+	}
+}
+
 func TestLeaseExpiringSoonReminderSendsToFilteredRecipients(t *testing.T) {
 	repo := &batchLeaseRepoStub{
 		expiringSoonCandidates: []LeaseExpiringSoonCandidate{
@@ -133,6 +159,31 @@ func TestLeaseExpiringSoonReminderSendsToFilteredRecipients(t *testing.T) {
 	}
 	if repo.recipientPropertyID != "property-1" {
 		t.Fatalf("expected property-1 recipient lookup, got %q", repo.recipientPropertyID)
+	}
+}
+
+func TestLeaseExpiringSoonReminderCountsNotificationErrorAsFailed(t *testing.T) {
+	repo := &batchLeaseRepoStub{
+		expiringSoonCandidates: []LeaseExpiringSoonCandidate{
+			{ID: "lease-1", PropertyID: "property-1", EndDate: time.Date(2026, 5, 16, 0, 0, 0, 0, time.UTC)},
+		},
+		recipients: []NotificationRecipient{
+			{Email: "organizer@example.com", Name: "Organizer"},
+		},
+	}
+	notifier := &jobNotifierStub{leaseErr: errors.New("notification failed")}
+	runner := NewLeaseExpiringSoonReminderRunner(repo, notifier)
+
+	summary, err := runner(context.Background(), "2026-04-16")
+	if err != nil {
+		t.Fatalf("runner: %v", err)
+	}
+
+	if summary.FailedCount != 1 || summary.ProcessedCount != 0 || summary.SkippedCount != 0 {
+		t.Fatalf("unexpected summary: %+v", summary)
+	}
+	if notifier.leaseCalls != 1 {
+		t.Fatalf("expected one notification call, got %d", notifier.leaseCalls)
 	}
 }
 
@@ -387,14 +438,16 @@ func (s *batchForceTerminationRepoStub) CompleteForceTermination(context.Context
 type jobNotifierStub struct {
 	overdueCalls int
 	leaseCalls   int
+	overdueErr   error
+	leaseErr     error
 }
 
 func (s *jobNotifierStub) SendOverdueBillReminder(context.Context, NotificationRecipient, OverdueReminderCandidate) error {
 	s.overdueCalls++
-	return nil
+	return s.overdueErr
 }
 
 func (s *jobNotifierStub) SendLeaseExpiringSoon(context.Context, NotificationRecipient, LeaseExpiringSoonCandidate) error {
 	s.leaseCalls++
-	return nil
+	return s.leaseErr
 }
