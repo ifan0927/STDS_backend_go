@@ -4816,7 +4816,9 @@ func (f fakeResourceOwnershipRepo) FindPropertyIDsByTenantID(_ context.Context, 
 			if propertyIDs == nil {
 				return []string{}, nil
 			}
-			return append([]string(nil), propertyIDs...), nil
+			copied := make([]string, len(propertyIDs))
+			copy(copied, propertyIDs)
+			return copied, nil
 		}
 	}
 	if f.tenantExists != nil && f.tenantExists[tenantID] {
