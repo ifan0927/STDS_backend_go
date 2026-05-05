@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -67,6 +68,191 @@ func TestGetPropertyUsesFormalAPIWiring(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
 	}
+}
+
+func TestGeneratedAPIRoutesHaveRoutePolicies(t *testing.T) {
+	engine := newTestEngine(fakeUserRepo{}, fakeAuthenticator{}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+
+	registeredRoutes := map[string]struct{}{}
+	for _, route := range engine.Routes() {
+		if strings.HasPrefix(route.Path, "/api/v1/") {
+			registeredRoutes[routePolicyKey(route.Method, route.Path)] = struct{}{}
+		}
+	}
+
+	policyRoutes := map[string]struct{}{}
+	for _, policy := range routePolicies(AuthorizationRepositories{ResourceOwnership: fakeResourceOwnershipRepo{}}) {
+		policyRoutes[routePolicyKey(policy.method, policy.path)] = struct{}{}
+	}
+
+	var missingPolicies []string
+	for key := range registeredRoutes {
+		if _, ok := policyRoutes[key]; !ok {
+			missingPolicies = append(missingPolicies, key)
+		}
+	}
+
+	var stalePolicies []string
+	for key := range policyRoutes {
+		if _, ok := registeredRoutes[key]; !ok {
+			stalePolicies = append(stalePolicies, key)
+		}
+	}
+
+	sort.Strings(missingPolicies)
+	sort.Strings(stalePolicies)
+	if len(missingPolicies) > 0 || len(stalePolicies) > 0 {
+		t.Fatalf("route policy drift: missing policies=%v stale policies=%v", missingPolicies, stalePolicies)
+	}
+}
+
+func TestGeneratedWrapperBindingErrorsUseStandardErrorResponse(t *testing.T) {
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   io.Reader
+	}{
+		{name: "path uuid", method: http.MethodGet, path: "/api/v1/rooms/not-a-uuid/attachments"},
+		{name: "query int", method: http.MethodGet, path: "/api/v1/properties/" + testPropertyID1 + "/rooms?page=not-an-int"},
+		{name: "path int", method: http.MethodGet, path: "/api/v1/properties/" + testPropertyID1 + "/financial-report/not-a-year/4"},
+		{name: "required query parameter", method: http.MethodPost, path: "/api/v1/internal/jobs/leases/expire"},
+		{name: "malformed json body", method: http.MethodPost, path: "/api/v1/properties", body: strings.NewReader(`{"name":`)},
+		{name: "enum query validation", method: http.MethodGet, path: "/api/v1/properties/" + testPropertyID1 + "/rooms?status=not-a-status"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			engine := newTestEngineWithPropertyQueryRepo(
+				fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
+				fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}},
+				fakePropertyRepo{},
+				fakeResourceOwnershipRepo{},
+				"test-scheduler-key",
+				fakeJobRunsRepo{},
+				fakePropertyQueryRepo{},
+			)
+
+			req := httptest.NewRequest(tt.method, tt.path, tt.body)
+			req.Header.Set("Authorization", "Bearer valid-token")
+			req.Header.Set("Content-Type", "application/json")
+			resp := httptest.NewRecorder()
+
+			engine.ServeHTTP(resp, req)
+
+			assertStandardErrorResponse(t, resp, http.StatusBadRequest, apperr.CodeBadRequest)
+		})
+	}
+}
+
+func TestPropertyAccessResolverMatrixAtRouterBoundary(t *testing.T) {
+	t.Run("param property id rejects unassigned property", func(t *testing.T) {
+		engine := newTestEngine(
+			fakeUserRepo{assignedPropertyIDs: []string{testPropertyID2}},
+			fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID2}},
+			fakePropertyRepo{
+				ownerByPropertyID: map[string]string{
+					testPropertyID1: "owner-1",
+				},
+			},
+			fakeResourceOwnershipRepo{},
+			"",
+			fakeJobRunsRepo{},
+		)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/properties/"+testPropertyID1, nil)
+		req.Header.Set("Authorization", "Bearer valid-token")
+		resp := httptest.NewRecorder()
+
+		engine.ServeHTTP(resp, req)
+
+		assertStandardErrorResponse(t, resp, http.StatusForbidden, apperr.CodeForbidden)
+	})
+
+	t.Run("query property id rejects unassigned property before handler", func(t *testing.T) {
+		engine := newTestEngine(
+			fakeUserRepo{assignedPropertyIDs: []string{testPropertyID2}},
+			fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID2}},
+			fakePropertyRepo{
+				ownerByPropertyID: map[string]string{
+					testPropertyID1: "owner-1",
+				},
+			},
+			fakeResourceOwnershipRepo{},
+			"",
+			fakeJobRunsRepo{},
+		)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/repair-requests?property_id="+testPropertyID1, nil)
+		req.Header.Set("Authorization", "Bearer valid-token")
+		resp := httptest.NewRecorder()
+
+		engine.ServeHTTP(resp, req)
+
+		assertStandardErrorResponse(t, resp, http.StatusForbidden, apperr.CodeForbidden)
+	})
+
+	t.Run("resource id resolves property before handler", func(t *testing.T) {
+		var capturedRoomID string
+		engine := newTestEngineWithPropertyQueryRepo(
+			fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
+			fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}},
+			fakePropertyRepo{},
+			fakeResourceOwnershipRepo{
+				propertyByRoomID: map[string]string{
+					testRoomID1: testPropertyID1,
+				},
+				roomIDLookup: &capturedRoomID,
+			},
+			"",
+			fakeJobRunsRepo{},
+			fakePropertyQueryRepo{},
+		)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/rooms/"+testRoomID1, nil)
+		req.Header.Set("Authorization", "Bearer valid-token")
+		resp := httptest.NewRecorder()
+
+		engine.ServeHTTP(resp, req)
+
+		if capturedRoomID != testRoomID1 {
+			t.Fatalf("room resolver id = %q, want %q", capturedRoomID, testRoomID1)
+		}
+		if resp.Code != http.StatusOK {
+			t.Fatalf("expected request to pass resource policy, got %d: %s", resp.Code, resp.Body.String())
+		}
+	})
+
+	t.Run("admin still validates property uuid", func(t *testing.T) {
+		engine := newTestEngine(fakeUserRepo{role: "admin"}, fakeAuthenticator{role: "admin"}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/properties/not-a-uuid", nil)
+		req.Header.Set("Authorization", "Bearer valid-token")
+		resp := httptest.NewRecorder()
+
+		engine.ServeHTTP(resp, req)
+
+		assertStandardErrorResponse(t, resp, http.StatusBadRequest, apperr.CodeBadRequest)
+	})
+
+	t.Run("resource lookup not found maps to resource error", func(t *testing.T) {
+		engine := newTestEngine(
+			fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
+			fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}},
+			fakePropertyRepo{},
+			fakeResourceOwnershipRepo{},
+			"",
+			fakeJobRunsRepo{},
+		)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/rooms/"+testMissingRoomID, nil)
+		req.Header.Set("Authorization", "Bearer valid-token")
+		resp := httptest.NewRecorder()
+
+		engine.ServeHTTP(resp, req)
+
+		assertStandardErrorResponse(t, resp, http.StatusNotFound, apperr.CodeRoomNotFound)
+	})
 }
 
 func TestPropertyScopedRoutesRejectInvalidPropertyID(t *testing.T) {
@@ -4987,6 +5173,29 @@ func TestRepairRequestListRouteUsesQueryPropertyResolver(t *testing.T) {
 	}
 
 	t.Fatalf("repair request list route policy not found")
+}
+
+func assertStandardErrorResponse(t *testing.T, resp *httptest.ResponseRecorder, expectedStatus int, expectedCode string) {
+	t.Helper()
+
+	if resp.Code != expectedStatus {
+		t.Fatalf("expected %d, got %d: %s", expectedStatus, resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if payload["error_code"] != expectedCode {
+		t.Fatalf("expected error_code %s, got %v", expectedCode, payload["error_code"])
+	}
+	if _, ok := payload["message"].(string); !ok {
+		t.Fatalf("expected message string, got %#v", payload["message"])
+	}
+	if _, ok := payload["details"].(map[string]any); !ok {
+		t.Fatalf("expected details object, got %#v", payload["details"])
+	}
 }
 
 func firstRole(role string) string {
