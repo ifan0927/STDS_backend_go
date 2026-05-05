@@ -133,10 +133,12 @@ func compileRoutePolicies(appCfg config.AppConfig, authenticator platformfirebas
 		if len(policy.allowedRoles) > 0 {
 			compiled.requireRoles = middleware.RequireRoles(policy.allowedRoles...)
 		}
-		if policy.propertyResolver != nil {
+		switch {
+		case policy.propertyResolver != nil && policy.propertyIDsResolver != nil:
+			panic("route policy cannot set both propertyResolver and propertyIDsResolver")
+		case policy.propertyResolver != nil:
 			compiled.requirePropertyAccess = middleware.RequirePropertyAccess(policy.propertyResolver, authzRepos.Properties)
-		}
-		if policy.propertyIDsResolver != nil {
+		case policy.propertyIDsResolver != nil:
 			compiled.requirePropertyAccess = middleware.RequireAnyPropertyAccess(policy.propertyIDsResolver)
 		}
 

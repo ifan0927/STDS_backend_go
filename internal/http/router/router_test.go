@@ -3202,11 +3202,30 @@ func TestDeleteAttachmentReturnsAttachmentNotFound(t *testing.T) {
 	}
 }
 
-func TestGetTenantAttachmentsUsesTenantPropertyAccessPolicy(t *testing.T) {
-	repo := fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}}
-	engine := newTestEngine(repo, fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}}, fakePropertyRepo{}, fakeResourceOwnershipRepo{
-		propertyByTenantID: map[string]string{
-			"10000000-0000-0000-0000-000000000111": testPropertyID1,
+func TestCompileRoutePoliciesRejectsConflictingPropertyResolvers(t *testing.T) {
+	defer func() {
+		if recovered := recover(); recovered == nil {
+			t.Fatal("expected panic for conflicting property resolvers")
+		}
+	}()
+
+	compileRoutePolicies(config.AppConfig{}, fakeAuthenticator{}, &fakeUserRepo{}, AuthorizationRepositories{Properties: fakePropertyRepo{}}, []routePolicy{
+		{
+			method:           http.MethodGet,
+			path:             "/api/v1/test",
+			propertyResolver: func(*gin.Context) (string, error) { return testPropertyID1, nil },
+			propertyIDsResolver: func(*gin.Context) ([]string, error) {
+				return []string{testPropertyID1}, nil
+			},
+		},
+	})
+}
+
+func TestGetTenantAttachmentsUsesTenantMultiPropertyAccessPolicy(t *testing.T) {
+	repo := fakeUserRepo{assignedPropertyIDs: []string{testPropertyID2}}
+	engine := newTestEngine(repo, fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID2}}, fakePropertyRepo{}, fakeResourceOwnershipRepo{
+		propertyIDsByTenantID: map[string][]string{
+			"10000000-0000-0000-0000-000000000111": []string{testPropertyID1, testPropertyID2},
 		},
 	}, "", fakeJobRunsRepo{})
 
@@ -3228,8 +3247,8 @@ func TestGetTenantAttachmentsRejectsUnauthorizedTenantProperty(t *testing.T) {
 			testPropertyID1: "user-1",
 		},
 	}, fakeResourceOwnershipRepo{
-		propertyByTenantID: map[string]string{
-			"10000000-0000-0000-0000-000000000111": testPropertyID1,
+		propertyIDsByTenantID: map[string][]string{
+			"10000000-0000-0000-0000-000000000111": []string{testPropertyID1},
 		},
 	}, "", fakeJobRunsRepo{})
 
@@ -4794,15 +4813,11 @@ func (f fakeResourceOwnershipRepo) FindPropertyIDByTenantID(_ context.Context, t
 func (f fakeResourceOwnershipRepo) FindPropertyIDsByTenantID(_ context.Context, tenantID string) ([]string, error) {
 	if f.propertyIDsByTenantID != nil {
 		if propertyIDs, ok := f.propertyIDsByTenantID[tenantID]; ok {
-			return propertyIDs, nil
+			if propertyIDs == nil {
+				return []string{}, nil
+			}
+			return append([]string(nil), propertyIDs...), nil
 		}
-	}
-	if f.propertyByTenantID != nil {
-		propertyID, err := lookupPropertyID(f.propertyByTenantID, tenantID)
-		if err != nil {
-			return nil, err
-		}
-		return []string{propertyID}, nil
 	}
 	if f.tenantExists != nil && f.tenantExists[tenantID] {
 		return []string{}, nil

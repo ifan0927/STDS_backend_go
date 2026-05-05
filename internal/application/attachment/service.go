@@ -320,9 +320,6 @@ func (s *Service) ensureResourceAccess(ctx context.Context, actorRole string, as
 	propertyID, err := s.resourceAccess.FindPropertyIDByResource(ctx, resourceType, resourceID)
 	if err != nil {
 		if errorsIsNotFound(err) {
-			if resourceType == ResourceTypeTenant {
-				return apperr.ErrForbidden
-			}
 			return mapResourceNotFound(resourceType)
 		}
 		return apperr.ErrInternalServerError.WithCause(err)
