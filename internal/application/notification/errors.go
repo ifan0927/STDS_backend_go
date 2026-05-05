@@ -11,6 +11,8 @@ const (
 	CodeNotificationSenderNotConfigured = "NOTIFICATION_SENDER_NOT_CONFIGURED"
 	// CodeNotificationSendFailed identifies a notification delivery failure.
 	CodeNotificationSendFailed = "NOTIFICATION_SEND_FAILED"
+	// CodeNotificationInvalidInput identifies invalid notification input.
+	CodeNotificationInvalidInput = "NOTIFICATION_INVALID_INPUT"
 )
 
 var (
@@ -25,5 +27,11 @@ var (
 		CodeNotificationSendFailed,
 		http.StatusInternalServerError,
 		"Notification send failed.",
+	)
+	// ErrNotificationInvalidInput is returned when notification input is invalid.
+	ErrNotificationInvalidInput = apperr.New(
+		CodeNotificationInvalidInput,
+		http.StatusInternalServerError,
+		"Notification input is invalid.",
 	)
 )
