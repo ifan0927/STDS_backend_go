@@ -150,15 +150,8 @@ func New(cfg *config.Config) (*Server, error) {
 		Update: appjournal.NewUpdateService(journalRepo, txRunner),
 		Delete: appjournal.NewDeleteService(journalRepo, txRunner),
 	}
-	occupyRoomOnLeaseCreated := applease.NewOccupyRoomOnLeaseCreatedHandler(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
-	activateTenantOnLeaseCreated := applease.NewActivateTenantOnLeaseCreatedHandler(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
-	releaseRoomOnLeaseTerminated := applease.NewReleaseRoomOnLeaseTerminatedHandler(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
-	deactivateTenantOnLeaseTerminated := applease.NewDeactivateTenantOnLeaseTerminatedHandler(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
 	jobTriggerService := appjobs.NewTriggerService(jobRunStoreAdapter{repo: jobRunsRepo}, newJobRunners(db, txRunner, notificationService), cfg.App.SchedulerJobTimeout, cfg.App.SchedulerMaxRetries)
-	eventbus.Subscribe(bus, occupyRoomOnLeaseCreated.HandleLeaseCreated)
-	eventbus.Subscribe(bus, activateTenantOnLeaseCreated.HandleLeaseCreated)
-	eventbus.Subscribe(bus, releaseRoomOnLeaseTerminated.HandleLeaseTerminated)
-	eventbus.Subscribe(bus, deactivateTenantOnLeaseTerminated.HandleLeaseTerminated)
+	registerLeaseEventSubscribers(bus, leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
 
 	engine := router.New(cfg.App, logger, db, authenticator, userRepo, router.AuthorizationRepositories{
 		Properties:        propertyRepo,
@@ -212,6 +205,18 @@ func New(cfg *config.Config) (*Server, error) {
 		logger:  logger,
 		storage: storageClient,
 	}, nil
+}
+
+func registerLeaseEventSubscribers(bus *eventbus.Bus, repo applease.Repository, txRunner *dbtxrunner.Runner) {
+	occupyRoomOnLeaseCreated := applease.NewOccupyRoomOnLeaseCreatedHandler(repo, txRunner)
+	activateTenantOnLeaseCreated := applease.NewActivateTenantOnLeaseCreatedHandler(repo, txRunner)
+	releaseRoomOnLeaseTerminated := applease.NewReleaseRoomOnLeaseTerminatedHandler(repo, txRunner)
+	deactivateTenantOnLeaseTerminated := applease.NewDeactivateTenantOnLeaseTerminatedHandler(repo, txRunner)
+
+	eventbus.Subscribe(bus, occupyRoomOnLeaseCreated.HandleLeaseCreated)
+	eventbus.Subscribe(bus, activateTenantOnLeaseCreated.HandleLeaseCreated)
+	eventbus.Subscribe(bus, releaseRoomOnLeaseTerminated.HandleLeaseTerminated)
+	eventbus.Subscribe(bus, deactivateTenantOnLeaseTerminated.HandleLeaseTerminated)
 }
 
 // Run starts the HTTP server and blocks until it exits.

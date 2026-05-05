@@ -51,11 +51,21 @@ func newJobRunners(db *sql.DB, txRunner *dbtxrunner.Runner, notificationService 
 	leaseRepo := dbleases.NewRepository(db)
 	userRepo := dbusers.NewRepository(db)
 
-	return appjobs.NewRunners(
+	return buildJobRunners(
 		billingJobRepositoryAdapter{repo: billingRepo},
 		leaseJobRepositoryAdapter{leases: leaseRepo, users: userRepo},
 		forceTerminationJobRepositoryAdapter{repo: leaseRepo},
 		jobNotificationAdapter{service: notificationService},
+		txRunner,
+	)
+}
+
+func buildJobRunners(billing appjobs.BillingJobRepository, leases appjobs.LeaseJobRepository, forceTerminations appjobs.ForceTerminationJobRepository, notifier appjobs.NotificationSender, txRunner appjobs.TransactionRunner) map[appjobs.JobKey]appjobs.Runner {
+	return appjobs.NewRunners(
+		billing,
+		leases,
+		forceTerminations,
+		notifier,
 		txRunner,
 	)
 }
