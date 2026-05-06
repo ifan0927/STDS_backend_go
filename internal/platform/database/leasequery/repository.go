@@ -22,6 +22,7 @@ type Lease struct {
 	RentAmount                int
 	StartDate                 time.Time
 	EndDate                   time.Time
+	RentBillingCadence        string
 	ElectricityBillingCadence string
 	Status                    string
 	DepositAmount             int
@@ -73,6 +74,7 @@ SELECT
 	l.rent_amount,
 	l.start_date,
 	l.end_date,
+	l.rent_billing_cadence,
 	l.electricity_billing_cadence,
 	l.status,
 	l.deposit_amount,
@@ -161,6 +163,7 @@ SELECT
 	l.rent_amount,
 	l.start_date,
 	l.end_date,
+	l.rent_billing_cadence,
 	l.electricity_billing_cadence,
 	l.status,
 	l.deposit_amount,
@@ -229,6 +232,7 @@ func scanLease(row rowScanner) (*Lease, error) {
 		&lease.RentAmount,
 		&lease.StartDate,
 		&lease.EndDate,
+		&lease.RentBillingCadence,
 		&lease.ElectricityBillingCadence,
 		&lease.Status,
 		&lease.DepositAmount,

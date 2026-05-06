@@ -6,7 +6,7 @@ post:
     以「終止舊 Lease + 建立新 Lease」處理 cadence change、renewal、contract reissue 等少數例外。
     replacement 不是一般編輯租約，而是特殊條件重建操作。
 
-    BR-20：僅允許在完整 electricity billing period boundary 執行
+    BR-20：僅允許在完整 rent billing period boundary 與完整 electricity billing period boundary 執行
     BR-21：boundary 前帳單必須全部結清
     BR-22：僅支援同 tenant、同 room、同 property 的條件重建
     BR-23：第一版僅支援 deposit_handling = carry_over
@@ -33,7 +33,7 @@ post:
           $ref: ../../components/schemas/tenancy/LeaseReplaceRequest.yaml
         examples:
           cadence_change:
-            summary: 切換電費 cadence
+            summary: 切換租金與電費 cadence
             value:
               reason: cadence_change
               effective_start_date: '2026-07-01'
@@ -41,6 +41,7 @@ post:
               new_lease:
                 end_date: '2027-04-30'
                 rent_amount: 18000
+                rent_billing_cadence: quarterly
                 electricity_billing_cadence: bimonthly
   responses:
     '200':
@@ -58,6 +59,7 @@ post:
                   room_id: 20000000-0000-0000-0000-000000000002
                   property_id: 10000000-0000-0000-0000-000000000001
                   rent_amount: 18000
+                  rent_billing_cadence: monthly
                   start_date: '2026-05-01'
                   end_date: '2026-06-30'
                   electricity_billing_cadence: monthly
@@ -70,6 +72,7 @@ post:
                   room_id: 20000000-0000-0000-0000-000000000002
                   property_id: 10000000-0000-0000-0000-000000000001
                   rent_amount: 18000
+                  rent_billing_cadence: quarterly
                   start_date: '2026-07-01'
                   end_date: '2027-04-30'
                   electricity_billing_cadence: bimonthly
@@ -81,6 +84,7 @@ post:
                   effective_start_date: '2026-07-01'
                   deposit_handling: carry_over
                   changed_fields:
+                    - rent_billing_cadence
                     - electricity_billing_cadence
     '401':
       description: 未認證

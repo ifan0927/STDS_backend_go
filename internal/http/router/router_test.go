@@ -730,6 +730,7 @@ func TestListTenantLeasesReturnsLeaseHistory(t *testing.T) {
 					RentAmount:                12000,
 					StartDate:                 time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 					EndDate:                   time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+					RentBillingCadence:        "quarterly",
 					ElectricityBillingCadence: "monthly",
 					Status:                    "active",
 					DepositAmount:             24000,
@@ -764,6 +765,10 @@ func TestListTenantLeasesReturnsLeaseHistory(t *testing.T) {
 	if !ok || len(data) != 1 {
 		t.Fatalf("expected one lease entry, got %#v", payload["data"])
 	}
+	item := data[0].(map[string]any)
+	if item["rent_billing_cadence"] != "quarterly" {
+		t.Fatalf("expected rent_billing_cadence quarterly, got %v", item["rent_billing_cadence"])
+	}
 }
 
 func TestListLeasesReturnsAccessibleLeases(t *testing.T) {
@@ -787,6 +792,7 @@ func TestListLeasesReturnsAccessibleLeases(t *testing.T) {
 					RentAmount:                18000,
 					StartDate:                 time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
 					EndDate:                   time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+					RentBillingCadence:        "quarterly",
 					ElectricityBillingCadence: "monthly",
 					Status:                    "active",
 					DepositAmount:             36000,
@@ -817,6 +823,10 @@ func TestListLeasesReturnsAccessibleLeases(t *testing.T) {
 	data, ok := payload["data"].([]any)
 	if !ok || len(data) != 1 {
 		t.Fatalf("expected one lease entry, got %#v", payload["data"])
+	}
+	item := data[0].(map[string]any)
+	if item["rent_billing_cadence"] != "quarterly" {
+		t.Fatalf("expected rent_billing_cadence quarterly, got %v", item["rent_billing_cadence"])
 	}
 	if leaseCall.params.Status != "active" {
 		t.Fatalf("expected status active, got %q", leaseCall.params.Status)
@@ -892,6 +902,7 @@ func TestGetLeaseReturnsAccessibleLease(t *testing.T) {
 				RentAmount:                18000,
 				StartDate:                 time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
 				EndDate:                   time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+				RentBillingCadence:        "quarterly",
 				ElectricityBillingCadence: "monthly",
 				Status:                    "active",
 				DepositAmount:             36000,
@@ -920,6 +931,9 @@ func TestGetLeaseReturnsAccessibleLease(t *testing.T) {
 	}
 	if payload["id"] != "40000000-0000-0000-0000-000000000001" {
 		t.Fatalf("expected lease id, got %v", payload["id"])
+	}
+	if payload["rent_billing_cadence"] != "quarterly" {
+		t.Fatalf("expected rent_billing_cadence quarterly, got %v", payload["rent_billing_cadence"])
 	}
 	if findCall.leaseID != "40000000-0000-0000-0000-000000000001" {
 		t.Fatalf("expected lease lookup id, got %q", findCall.leaseID)
@@ -964,6 +978,7 @@ func TestCreateLeaseReturnsCreatedLease(t *testing.T) {
 		"tenant_id":"30000000-0000-0000-0000-000000000001",
 		"room_id":"20000000-0000-0000-0000-000000000001",
 		"rent_amount":18000,
+		"rent_billing_cadence":"quarterly",
 		"start_date":"2026-05-01",
 		"end_date":"2026-12-31",
 		"deposit_amount":36000
@@ -988,6 +1003,9 @@ func TestCreateLeaseReturnsCreatedLease(t *testing.T) {
 	if payload["status"] != "active" {
 		t.Fatalf("expected active status, got %v", payload["status"])
 	}
+	if payload["rent_billing_cadence"] != "quarterly" {
+		t.Fatalf("expected rent_billing_cadence quarterly, got %v", payload["rent_billing_cadence"])
+	}
 	if findTenantID != "30000000-0000-0000-0000-000000000001" {
 		t.Fatalf("expected tenant lookup id, got %q", findTenantID)
 	}
@@ -1003,6 +1021,9 @@ func TestCreateLeaseReturnsCreatedLease(t *testing.T) {
 	if createParams.RentAmount != 18000 {
 		t.Fatalf("expected rent_amount 18000, got %d", createParams.RentAmount)
 	}
+	if createParams.RentBillingCadence != "quarterly" {
+		t.Fatalf("expected rent_billing_cadence quarterly, got %q", createParams.RentBillingCadence)
+	}
 	if createParams.DepositAmount != 36000 {
 		t.Fatalf("expected deposit_amount 36000, got %d", createParams.DepositAmount)
 	}
@@ -1012,6 +1033,57 @@ func TestCreateLeaseReturnsCreatedLease(t *testing.T) {
 	if !createParams.EndDate.Equal(time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)) {
 		t.Fatalf("expected end_date 2026-12-31, got %s", createParams.EndDate)
 	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestCreateLeaseRejectsInvalidRentBillingCadence(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectRollback()
+
+	engine := newTestEngineWithAllServices(
+		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
+		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{},
+		"",
+		fakeJobRunsRepo{},
+		fakePropertyQueryRepo{},
+		fakeLeaseQueryRepo{},
+		fakeTenantQueryRepo{},
+		apptenant.NewCreateTenantService(fakeTenantRepo{}, dbtxrunner.New(db, nil)),
+		apptenant.NewUpdateTenantService(fakeTenantRepo{}, dbtxrunner.New(db, nil)),
+		applease.NewCreateLeaseService(fakeLeaseRepo{}, dbtxrunner.New(db, nil)),
+		nil,
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/leases", strings.NewReader(`{
+		"tenant_id":"30000000-0000-0000-0000-000000000001",
+		"room_id":"20000000-0000-0000-0000-000000000001",
+		"rent_amount":18000,
+		"rent_billing_cadence":"weekly",
+		"start_date":"2026-05-01",
+		"end_date":"2026-12-31",
+		"deposit_amount":36000
+	}`))
+	req.Header.Set("Authorization", "Bearer valid-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", resp.Code, resp.Body.String())
+	}
+	assertErrorField(t, resp.Body.Bytes(), "BAD_REQUEST", "rent_billing_cadence")
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("ExpectationsWereMet: %v", err)
@@ -1112,6 +1184,179 @@ func TestCreateLeaseRejectsUnassignedRoomProperty(t *testing.T) {
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("ExpectationsWereMet: %v", err)
 	}
+}
+
+func TestReplaceLeaseForwardsRentBillingCadence(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+
+	createParams := applease.CreateLeaseParams{}
+	leaseRepo := fakeLeaseRepo{
+		createParams: &createParams,
+		createdLease: &applease.Lease{
+			ID:                        "40000000-0000-0000-0000-000000000099",
+			TenantID:                  "30000000-0000-0000-0000-000000000001",
+			PropertyID:                testPropertyID1,
+			RoomID:                    testRoomID1,
+			RentAmount:                54000,
+			StartDate:                 time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+			EndDate:                   time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+			RentBillingCadence:        "quarterly",
+			ElectricityBillingCadence: "monthly",
+			Status:                    "active",
+			DepositAmount:             36000,
+			DepositStatus:             "held",
+			CreatedAt:                 time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
+			UpdatedAt:                 time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
+			Version:                   1,
+		},
+	}
+	engine := newTestEngineWithAllServices(
+		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
+		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{
+			propertyByLeaseID: map[string]string{
+				"40000000-0000-0000-0000-000000000001": testPropertyID1,
+			},
+		},
+		"",
+		fakeJobRunsRepo{},
+		fakePropertyQueryRepo{},
+		fakeLeaseQueryRepo{},
+		fakeTenantQueryRepo{},
+		apptenant.NewCreateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
+		apptenant.NewUpdateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
+		applease.NewCreateLeaseService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil)),
+		nil,
+		func(deps *handler.APIServerDeps) {
+			deps.Leases.ReplaceLease = applease.NewReplaceLeaseService(leaseRepo, dbtxrunner.New(db, nil))
+		},
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/leases/40000000-0000-0000-0000-000000000001/replace", strings.NewReader(`{
+		"reason":"cadence_change",
+		"effective_start_date":"2026-06-01",
+		"deposit_handling":"carry_over",
+		"new_lease":{
+			"rent_amount":54000,
+			"rent_billing_cadence":"quarterly",
+			"electricity_billing_cadence":"monthly",
+			"end_date":"2026-12-31"
+		}
+	}`))
+	req.Header.Set("Authorization", "Bearer valid-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if createParams.RentBillingCadence != "quarterly" {
+		t.Fatalf("expected rent_billing_cadence quarterly, got %q", createParams.RentBillingCadence)
+	}
+	if createParams.ElectricityBillingCadence != "monthly" {
+		t.Fatalf("expected electricity_billing_cadence monthly, got %q", createParams.ElectricityBillingCadence)
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	newLease := payload["new_lease"].(map[string]any)
+	if newLease["rent_billing_cadence"] != "quarterly" {
+		t.Fatalf("expected new lease rent_billing_cadence quarterly, got %v", newLease["rent_billing_cadence"])
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestReplaceLeaseRejectsMissingRentBillingCadence(t *testing.T) {
+	engine := newTestEngineWithAllServices(
+		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
+		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{
+			propertyByLeaseID: map[string]string{
+				"40000000-0000-0000-0000-000000000001": testPropertyID1,
+			},
+		},
+		"",
+		fakeJobRunsRepo{},
+		fakePropertyQueryRepo{},
+		fakeLeaseQueryRepo{},
+		fakeTenantQueryRepo{},
+		apptenant.NewCreateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
+		apptenant.NewUpdateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
+		applease.NewCreateLeaseService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil)),
+		nil,
+		func(deps *handler.APIServerDeps) {
+			deps.Leases.ReplaceLease = applease.NewReplaceLeaseService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil))
+		},
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/leases/40000000-0000-0000-0000-000000000001/replace", strings.NewReader(`{
+		"reason":"cadence_change",
+		"effective_start_date":"2026-06-01",
+		"deposit_handling":"carry_over",
+		"new_lease":{
+			"rent_amount":54000,
+			"electricity_billing_cadence":"monthly",
+			"end_date":"2026-12-31"
+		}
+	}`))
+	req.Header.Set("Authorization", "Bearer valid-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", resp.Code, resp.Body.String())
+	}
+	assertErrorField(t, resp.Body.Bytes(), "BAD_REQUEST", "rent_billing_cadence")
+}
+
+func TestUpdateLeaseRejectsRentBillingCadencePatch(t *testing.T) {
+	engine := newTestEngineWithAllQueryRepos(
+		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
+		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{
+			propertyByLeaseID: map[string]string{
+				"40000000-0000-0000-0000-000000000001": testPropertyID1,
+			},
+		},
+		"",
+		fakeJobRunsRepo{},
+		fakePropertyQueryRepo{},
+		fakeLeaseQueryRepo{},
+		fakeTenantQueryRepo{},
+	)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/leases/40000000-0000-0000-0000-000000000001", strings.NewReader(`{
+		"rent_billing_cadence":"quarterly"
+	}`))
+	req.Header.Set("Authorization", "Bearer valid-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", resp.Code, resp.Body.String())
+	}
+	assertErrorField(t, resp.Body.Bytes(), "LEASE_UNSUPPORTED_UPDATE", "rent_billing_cadence")
 }
 
 func TestListUsersReturnsActiveUsers(t *testing.T) {
@@ -4509,6 +4754,7 @@ func (f fakeLeaseRepo) CreateLease(_ context.Context, _ *sql.Tx, params applease
 		RentAmount:                18000,
 		StartDate:                 time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
 		EndDate:                   time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+		RentBillingCadence:        params.RentBillingCadence,
 		ElectricityBillingCadence: "monthly",
 		Status:                    "active",
 		DepositAmount:             36000,
@@ -4528,6 +4774,7 @@ func (f fakeLeaseRepo) FindLeaseByIDForUpdate(_ context.Context, _ *sql.Tx, leas
 		RentAmount:                18000,
 		StartDate:                 time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
 		EndDate:                   time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+		RentBillingCadence:        "monthly",
 		ElectricityBillingCadence: "monthly",
 		Status:                    "active",
 		DepositAmount:             36000,
@@ -4583,6 +4830,13 @@ func (f fakeLeaseRepo) ForceTerminateLease(_ context.Context, _ *sql.Tx, params 
 
 func (f fakeLeaseRepo) ListBillsByLeaseIDForUpdate(_ context.Context, _ *sql.Tx, _ string) ([]applease.Bill, error) {
 	return []applease.Bill{
+		{
+			ID:          "50000000-0000-0000-0000-000000000000",
+			Type:        "rent",
+			Status:      "paid",
+			PeriodStart: time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+			PeriodEnd:   time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC),
+		},
 		{
 			ID:          "50000000-0000-0000-0000-000000000001",
 			Type:        "electricity",
@@ -4771,6 +5025,7 @@ func (f fakeLeaseQueryRepo) FindByIDAccessible(_ context.Context, id string, rol
 		RentAmount:                18000,
 		StartDate:                 time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
 		EndDate:                   time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+		RentBillingCadence:        "monthly",
 		ElectricityBillingCadence: "monthly",
 		Status:                    "active",
 		DepositAmount:             36000,
@@ -5232,6 +5487,25 @@ func assertStandardErrorResponse(t *testing.T, resp *httptest.ResponseRecorder, 
 	}
 	if _, ok := payload["details"].(map[string]any); !ok {
 		t.Fatalf("expected details object, got %#v", payload["details"])
+	}
+}
+
+func assertErrorField(t *testing.T, body []byte, expectedCode string, expectedField string) {
+	t.Helper()
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if payload["error_code"] != expectedCode {
+		t.Fatalf("expected error_code %s, got %v", expectedCode, payload["error_code"])
+	}
+	details, ok := payload["details"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected details object, got %#v", payload["details"])
+	}
+	if details["field"] != expectedField {
+		t.Fatalf("expected field %s, got %v", expectedField, details["field"])
 	}
 }
 

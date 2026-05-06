@@ -22,16 +22,17 @@ const (
 
 // ReplaceLeaseInput is the command payload for lease replacement.
 type ReplaceLeaseInput struct {
-	ActorRole           string
-	AssignedPropertyIDs []string
-	LeaseID             string
-	Reason              string
-	EffectiveStartDate  time.Time
-	DepositHandling     string
-	NewEndDate          time.Time
-	NewRentAmount       int
-	NewCadence          string
-	NewNotes            *string
+	ActorRole             string
+	AssignedPropertyIDs   []string
+	LeaseID               string
+	Reason                string
+	EffectiveStartDate    time.Time
+	DepositHandling       string
+	NewEndDate            time.Time
+	NewRentAmount         int
+	NewRentBillingCadence string
+	NewCadence            string
+	NewNotes              *string
 }
 
 // ReplaceLeaseResult contains predecessor, successor, and replacement metadata.
@@ -87,7 +88,11 @@ func (s *ReplaceLeaseService) Execute(ctx context.Context, input ReplaceLeaseInp
 	default:
 		return nil, apperr.ErrBadRequest.WithDetails(map[string]interface{}{"field": "reason"})
 	}
-	cadence := strings.TrimSpace(input.NewCadence)
+	rentCadence := strings.TrimSpace(input.NewRentBillingCadence)
+	if rentCadence == "" {
+		return nil, apperr.ErrBadRequest.WithDetails(map[string]interface{}{"field": "rent_billing_cadence"})
+	}
+	electricityCadence := strings.TrimSpace(input.NewCadence)
 	effectiveStart := normalizeDate(input.EffectiveStartDate)
 	newEndDate := normalizeDate(input.NewEndDate)
 
@@ -137,7 +142,7 @@ func (s *ReplaceLeaseService) Execute(ctx context.Context, input ReplaceLeaseInp
 		if err != nil {
 			return apperr.ErrInternalServerError.WithCause(err)
 		}
-		if !isReplacementBoundary(bills, effectiveStart) {
+		if !isReplacementBoundary(current, bills, effectiveStart) {
 			return errReplacementNotAtBillingBoundary
 		}
 		if unsettledBillIDs := unsettledBeforeBoundary(bills, effectiveStart); len(unsettledBillIDs) > 0 {
@@ -151,7 +156,8 @@ func (s *ReplaceLeaseService) Execute(ctx context.Context, input ReplaceLeaseInp
 			RentAmount:                input.NewRentAmount,
 			StartDate:                 effectiveStart,
 			EndDate:                   newEndDate,
-			ElectricityBillingCadence: cadence,
+			RentBillingCadence:        rentCadence,
+			ElectricityBillingCadence: electricityCadence,
 			DepositAmount:             current.DepositAmount,
 		})
 		if err != nil {
@@ -182,6 +188,7 @@ func (s *ReplaceLeaseService) Execute(ctx context.Context, input ReplaceLeaseInp
 			RentAmount:                state.RentAmount,
 			StartDate:                 state.StartDate,
 			EndDate:                   state.EndDate,
+			RentBillingCadence:        state.RentBillingCadence,
 			ElectricityBillingCadence: state.ElectricityBillingCadence,
 			DepositAmount:             state.DepositAmount,
 			Notes:                     input.NewNotes,
@@ -190,7 +197,7 @@ func (s *ReplaceLeaseService) Execute(ctx context.Context, input ReplaceLeaseInp
 			return apperr.ErrInternalServerError.WithCause(err)
 		}
 
-		rentPeriods, err := domainlease.BuildBillingPeriods(state.StartDate, state.EndDate, domainlease.BillingCadenceMonthly)
+		rentPeriods, err := domainlease.BuildRentBillingPeriods(state.StartDate, state.EndDate, state.RentBillingCadence)
 		if err != nil {
 			return mapDomainError(err)
 		}
@@ -220,6 +227,7 @@ func (s *ReplaceLeaseService) Execute(ctx context.Context, input ReplaceLeaseInp
 			TenantID:                  successor.TenantID,
 			StartDate:                 successor.StartDate,
 			EndDate:                   successor.EndDate,
+			RentBillingCadence:        successor.RentBillingCadence,
 			ElectricityBillingCadence: successor.ElectricityBillingCadence,
 			OccurredAt:                now,
 		})
@@ -253,17 +261,47 @@ func (s *ReplaceLeaseService) Execute(ctx context.Context, input ReplaceLeaseInp
 	return result, nil
 }
 
-func isReplacementBoundary(bills []Bill, effectiveStart time.Time) bool {
+func isReplacementBoundary(lease *Lease, bills []Bill, effectiveStart time.Time) bool {
+	hasRentBoundary := false
+	hasElectricityBoundary := false
 	for _, bill := range bills {
-		if bill.Type != billTypeElectricity {
-			continue
-		}
 		if normalizeDate(bill.PeriodEnd).AddDate(0, 0, 1).Equal(effectiveStart) {
-			return true
+			switch bill.Type {
+			case billTypeRent:
+				hasRentBoundary = isCompleteBoundaryBill(lease, bill)
+			case billTypeElectricity:
+				hasElectricityBoundary = isCompleteBoundaryBill(lease, bill)
+			}
 		}
 	}
 
-	return false
+	return hasRentBoundary && hasElectricityBoundary
+}
+
+func isCompleteBoundaryBill(lease *Lease, bill Bill) bool {
+	if lease == nil {
+		return false
+	}
+
+	var periods []domainlease.BillingPeriod
+	var err error
+	switch bill.Type {
+	case billTypeRent:
+		periods, err = domainlease.BuildRentBillingPeriodsFromAnchor(bill.PeriodStart, bill.PeriodStart.AddDate(2, 0, 0), lease.RentBillingCadence, lease.StartDate.Day())
+	case billTypeElectricity:
+		if lease.ElectricityBillingCadence == domainlease.BillingCadenceMonthly {
+			periods, err = domainlease.BuildMonthlyBillingPeriodsFromAnchor(bill.PeriodStart, bill.PeriodStart.AddDate(2, 0, 0), lease.StartDate.Day())
+		} else {
+			periods, err = domainlease.BuildBillingPeriods(bill.PeriodStart, bill.PeriodStart.AddDate(2, 0, 0), lease.ElectricityBillingCadence)
+		}
+	default:
+		return false
+	}
+	if err != nil || len(periods) == 0 {
+		return false
+	}
+
+	return normalizeDate(periods[0].PeriodEnd).Equal(normalizeDate(bill.PeriodEnd))
 }
 
 func unsettledBeforeBoundary(bills []Bill, effectiveStart time.Time) []string {
@@ -281,7 +319,7 @@ func unsettledBeforeBoundary(bills []Bill, effectiveStart time.Time) []string {
 }
 
 func replacementChangedFields(oldLease *Lease, newLease *Lease) []string {
-	fields := make([]string, 0, 3)
+	fields := make([]string, 0, 4)
 	if oldLease.RentAmount != newLease.RentAmount {
 		fields = append(fields, "rent_amount")
 	}
@@ -290,6 +328,9 @@ func replacementChangedFields(oldLease *Lease, newLease *Lease) []string {
 	}
 	if oldLease.ElectricityBillingCadence != newLease.ElectricityBillingCadence {
 		fields = append(fields, "electricity_billing_cadence")
+	}
+	if oldLease.RentBillingCadence != newLease.RentBillingCadence {
+		fields = append(fields, "rent_billing_cadence")
 	}
 
 	return fields

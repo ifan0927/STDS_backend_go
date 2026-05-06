@@ -186,6 +186,7 @@ LIMIT 1`)).
 	l.rent_amount,
 	l.start_date,
 	l.end_date,
+	l.rent_billing_cadence,
 	l.electricity_billing_cadence,
 	l.status,
 	l.deposit_amount,
@@ -207,7 +208,7 @@ WHERE l.tenant_id = $1
 ORDER BY l.created_at DESC`)).
 		WithArgs("30000000-0000-0000-0000-000000000001", "10000000-0000-0000-0000-000000000001", "active").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "tenant_id", "property_id", "room_id", "rent_amount", "start_date", "end_date", "electricity_billing_cadence", "status", "deposit_amount", "deposit_refund_amount", "deposit_deduction_amount", "deposit_status", "deposit_deduction_reason", "notes", "termination_reason", "settlement_detail", "created_at", "updated_at", "version",
+			"id", "tenant_id", "property_id", "room_id", "rent_amount", "start_date", "end_date", "rent_billing_cadence", "electricity_billing_cadence", "status", "deposit_amount", "deposit_refund_amount", "deposit_deduction_amount", "deposit_status", "deposit_deduction_reason", "notes", "termination_reason", "settlement_detail", "created_at", "updated_at", "version",
 		}).AddRow(
 			"40000000-0000-0000-0000-000000000001",
 			"30000000-0000-0000-0000-000000000001",
@@ -216,6 +217,7 @@ ORDER BY l.created_at DESC`)).
 			12000,
 			startDate,
 			endDate,
+			"quarterly",
 			"monthly",
 			"active",
 			24000,
@@ -241,6 +243,9 @@ ORDER BY l.created_at DESC`)).
 	}
 	if leases[0].ElectricityBillingCadence != "monthly" {
 		t.Fatalf("expected monthly cadence, got %s", leases[0].ElectricityBillingCadence)
+	}
+	if leases[0].RentBillingCadence != "quarterly" {
+		t.Fatalf("expected quarterly rent cadence, got %s", leases[0].RentBillingCadence)
 	}
 
 }

@@ -15,6 +15,14 @@ properties:
     format: uuid
   rent_amount:
     type: integer
+  rent_billing_cadence:
+    type: string
+    enum:
+      - monthly
+      - quarterly
+      - semiannual
+      - annual
+    description: 可省略；預設 monthly。rent_amount 為每個租金計費週期的金額。
   start_date:
     type: string
     format: date

@@ -22,31 +22,101 @@ func BuildBillingPeriods(startDate time.Time, endDate time.Time, cadence string)
 	case BillingCadenceBimonthly:
 		return buildNaturalBimonthlyPeriods(startDate, endDate, anchorDay), nil
 	default:
-		return nil, ErrInvalidCadence
+		return nil, ErrInvalidElectricityBillingCadence
+	}
+}
+
+// BuildRentBillingPeriods expands a lease date range into rent billing periods.
+func BuildRentBillingPeriods(startDate time.Time, endDate time.Time, cadence string) ([]BillingPeriod, error) {
+	return BuildRentBillingPeriodsFromAnchor(startDate, endDate, cadence, startDate.Day())
+}
+
+// BuildRentBillingPeriodsFromAnchor expands rent periods from a chosen boundary
+// while preserving the original lease start-day anchor.
+func BuildRentBillingPeriodsFromAnchor(startDate time.Time, endDate time.Time, cadence string, anchorDay int) ([]BillingPeriod, error) {
+	if startDate.After(endDate) {
+		return nil, ErrInvalidDateRange
+	}
+	if anchorDay < 1 || anchorDay > 31 {
+		return nil, ErrInvalidBillingAnchor
+	}
+
+	switch cadence {
+	case BillingCadenceMonthly:
+		return buildAnchoredPeriods(startDate, endDate, 1, anchorDay), nil
+	case BillingCadenceQuarterly:
+		return buildAnchoredPeriods(startDate, endDate, 3, anchorDay), nil
+	case BillingCadenceSemiannual:
+		return buildAnchoredPeriods(startDate, endDate, 6, anchorDay), nil
+	case BillingCadenceAnnual:
+		return buildAnchoredPeriods(startDate, endDate, 12, anchorDay), nil
+	default:
+		return nil, ErrInvalidRentBillingCadence
 	}
 }
 
 // NextPaymentDateAfter returns the first lease payment date strictly after the
 // operation date using the original lease start-day anchor.
 func NextPaymentDateAfter(leaseStart time.Time, operationDate time.Time) time.Time {
-	anchorDay := leaseStart.Day()
-	normalizedOperationDate := normalizeDate(operationDate)
-	candidate := clampedMonthDate(
-		normalizedOperationDate.Year(),
-		normalizedOperationDate.Month(),
-		anchorDay,
-		normalizedOperationDate.Location(),
-	)
-	if candidate.After(normalizedOperationDate) {
-		return candidate
+	return NextRentPaymentDateAfter(leaseStart, operationDate, BillingCadenceMonthly)
+}
+
+// NextRentPaymentDateAfter returns the first rent payment date strictly after
+// the operation date using the original lease start-day anchor and rent cadence.
+func NextRentPaymentDateAfter(leaseStart time.Time, operationDate time.Time, cadence string) time.Time {
+	months := rentCadenceMonths(cadence)
+	if months == 0 {
+		months = 1
 	}
 
-	return clampedMonthDate(
-		normalizedOperationDate.Year(),
-		normalizedOperationDate.Month()+1,
-		anchorDay,
-		normalizedOperationDate.Location(),
-	)
+	anchorDay := leaseStart.Day()
+	leaseStart = normalizeDate(leaseStart)
+	normalizedOperationDate := normalizeDate(operationDate)
+	candidate := leaseStart
+	for !candidate.After(normalizedOperationDate) {
+		candidate = clampedMonthDate(candidate.Year(), candidate.Month()+time.Month(months), anchorDay, candidate.Location())
+	}
+
+	return candidate
+}
+
+func rentCadenceMonths(cadence string) int {
+	switch cadence {
+	case BillingCadenceMonthly:
+		return 1
+	case BillingCadenceQuarterly:
+		return 3
+	case BillingCadenceSemiannual:
+		return 6
+	case BillingCadenceAnnual:
+		return 12
+	default:
+		return 0
+	}
+}
+
+func buildAnchoredPeriods(startDate time.Time, endDate time.Time, monthStep int, anchorDay int) []BillingPeriod {
+	currentStart := normalizeDate(startDate)
+	finalEnd := normalizeDate(endDate)
+	periods := make([]BillingPeriod, 0)
+
+	for !currentStart.After(finalEnd) {
+		nextStart := clampedMonthDate(currentStart.Year(), currentStart.Month()+time.Month(monthStep), anchorDay, currentStart.Location())
+		periodEnd := nextStart.AddDate(0, 0, -1)
+		if periodEnd.After(finalEnd) {
+			periodEnd = finalEnd
+		}
+
+		periods = append(periods, BillingPeriod{
+			PeriodStart: currentStart,
+			PeriodEnd:   periodEnd,
+			DueDate:     currentStart,
+		})
+
+		currentStart = nextStart
+	}
+
+	return periods
 }
 
 // BuildMonthlyBillingPeriodsFromAnchor expands periods from an already chosen

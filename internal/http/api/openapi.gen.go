@@ -73,6 +73,14 @@ const (
 	CreateLeaseRequestElectricityBillingCadenceMonthly   CreateLeaseRequestElectricityBillingCadence = "monthly"
 )
 
+// Defines values for CreateLeaseRequestRentBillingCadence.
+const (
+	CreateLeaseRequestRentBillingCadenceAnnual     CreateLeaseRequestRentBillingCadence = "annual"
+	CreateLeaseRequestRentBillingCadenceMonthly    CreateLeaseRequestRentBillingCadence = "monthly"
+	CreateLeaseRequestRentBillingCadenceQuarterly  CreateLeaseRequestRentBillingCadence = "quarterly"
+	CreateLeaseRequestRentBillingCadenceSemiannual CreateLeaseRequestRentBillingCadence = "semiannual"
+)
+
 // Defines values for CreatePropertyRequestDefaultElectricityBillingCadence.
 const (
 	CreatePropertyRequestDefaultElectricityBillingCadenceBimonthly CreatePropertyRequestDefaultElectricityBillingCadence = "bimonthly"
@@ -138,6 +146,14 @@ const (
 	LeaseReplaceRequestNewLeaseElectricityBillingCadenceMonthly   LeaseReplaceRequestNewLeaseElectricityBillingCadence = "monthly"
 )
 
+// Defines values for LeaseReplaceRequestNewLeaseRentBillingCadence.
+const (
+	LeaseReplaceRequestNewLeaseRentBillingCadenceAnnual     LeaseReplaceRequestNewLeaseRentBillingCadence = "annual"
+	LeaseReplaceRequestNewLeaseRentBillingCadenceMonthly    LeaseReplaceRequestNewLeaseRentBillingCadence = "monthly"
+	LeaseReplaceRequestNewLeaseRentBillingCadenceQuarterly  LeaseReplaceRequestNewLeaseRentBillingCadence = "quarterly"
+	LeaseReplaceRequestNewLeaseRentBillingCadenceSemiannual LeaseReplaceRequestNewLeaseRentBillingCadence = "semiannual"
+)
+
 // Defines values for LeaseReplaceRequestReason.
 const (
 	CadenceChange   LeaseReplaceRequestReason = "cadence_change"
@@ -162,6 +178,14 @@ const (
 const (
 	LeaseResponseElectricityBillingCadenceBimonthly LeaseResponseElectricityBillingCadence = "bimonthly"
 	LeaseResponseElectricityBillingCadenceMonthly   LeaseResponseElectricityBillingCadence = "monthly"
+)
+
+// Defines values for LeaseResponseRentBillingCadence.
+const (
+	LeaseResponseRentBillingCadenceAnnual     LeaseResponseRentBillingCadence = "annual"
+	LeaseResponseRentBillingCadenceMonthly    LeaseResponseRentBillingCadence = "monthly"
+	LeaseResponseRentBillingCadenceQuarterly  LeaseResponseRentBillingCadence = "quarterly"
+	LeaseResponseRentBillingCadenceSemiannual LeaseResponseRentBillingCadence = "semiannual"
 )
 
 // Defines values for LeaseResponseStatus.
@@ -218,6 +242,14 @@ const (
 const (
 	TenantResponseStatusActive   TenantResponseStatus = "active"
 	TenantResponseStatusInactive TenantResponseStatus = "inactive"
+)
+
+// Defines values for UpdateLeaseRequestRentBillingCadence.
+const (
+	UpdateLeaseRequestRentBillingCadenceAnnual     UpdateLeaseRequestRentBillingCadence = "annual"
+	UpdateLeaseRequestRentBillingCadenceMonthly    UpdateLeaseRequestRentBillingCadence = "monthly"
+	UpdateLeaseRequestRentBillingCadenceQuarterly  UpdateLeaseRequestRentBillingCadence = "quarterly"
+	UpdateLeaseRequestRentBillingCadenceSemiannual UpdateLeaseRequestRentBillingCadence = "semiannual"
 )
 
 // Defines values for UpdatePropertyRequestDefaultElectricityBillingCadence.
@@ -410,13 +442,19 @@ type CreateLeaseRequest struct {
 	ElectricityBillingCadence *CreateLeaseRequestElectricityBillingCadence `json:"electricity_billing_cadence,omitempty"`
 	EndDate                   openapi_types.Date                           `json:"end_date"`
 	RentAmount                int                                          `json:"rent_amount"`
-	RoomId                    openapi_types.UUID                           `json:"room_id"`
-	StartDate                 openapi_types.Date                           `json:"start_date"`
-	TenantId                  openapi_types.UUID                           `json:"tenant_id"`
+
+	// RentBillingCadence 可省略；預設 monthly。rent_amount 為每個租金計費週期的金額。
+	RentBillingCadence *CreateLeaseRequestRentBillingCadence `json:"rent_billing_cadence,omitempty"`
+	RoomId             openapi_types.UUID                    `json:"room_id"`
+	StartDate          openapi_types.Date                    `json:"start_date"`
+	TenantId           openapi_types.UUID                    `json:"tenant_id"`
 }
 
 // CreateLeaseRequestElectricityBillingCadence 可省略；若未提供則套用 Property 的 default_electricity_billing_cadence
 type CreateLeaseRequestElectricityBillingCadence string
+
+// CreateLeaseRequestRentBillingCadence 可省略；預設 monthly。rent_amount 為每個租金計費週期的金額。
+type CreateLeaseRequestRentBillingCadence string
 
 // CreatePropertyRequest defines model for CreatePropertyRequest.
 type CreatePropertyRequest struct {
@@ -611,6 +649,7 @@ type LeaseReplaceRequest struct {
 		EndDate                   openapi_types.Date                                   `json:"end_date"`
 		Notes                     *string                                              `json:"notes"`
 		RentAmount                int                                                  `json:"rent_amount"`
+		RentBillingCadence        LeaseReplaceRequestNewLeaseRentBillingCadence        `json:"rent_billing_cadence"`
 	} `json:"new_lease"`
 	Reason LeaseReplaceRequestReason `json:"reason"`
 }
@@ -620,6 +659,9 @@ type LeaseReplaceRequestDepositHandling string
 
 // LeaseReplaceRequestNewLeaseElectricityBillingCadence defines model for LeaseReplaceRequest.NewLease.ElectricityBillingCadence.
 type LeaseReplaceRequestNewLeaseElectricityBillingCadence string
+
+// LeaseReplaceRequestNewLeaseRentBillingCadence defines model for LeaseReplaceRequest.NewLease.RentBillingCadence.
+type LeaseReplaceRequestNewLeaseRentBillingCadence string
 
 // LeaseReplaceRequestReason defines model for LeaseReplaceRequest.Reason.
 type LeaseReplaceRequestReason string
@@ -653,6 +695,7 @@ type LeaseResponse struct {
 	Notes                     *string                                 `json:"notes"`
 	PropertyId                *openapi_types.UUID                     `json:"property_id,omitempty"`
 	RentAmount                *int                                    `json:"rent_amount,omitempty"`
+	RentBillingCadence        *LeaseResponseRentBillingCadence        `json:"rent_billing_cadence,omitempty"`
 	RoomId                    *openapi_types.UUID                     `json:"room_id,omitempty"`
 	SettlementDetail          *map[string]interface{}                 `json:"settlement_detail"`
 	StartDate                 *openapi_types.Date                     `json:"start_date,omitempty"`
@@ -668,6 +711,9 @@ type LeaseResponseDepositStatus string
 
 // LeaseResponseElectricityBillingCadence defines model for LeaseResponse.ElectricityBillingCadence.
 type LeaseResponseElectricityBillingCadence string
+
+// LeaseResponseRentBillingCadence defines model for LeaseResponse.RentBillingCadence.
+type LeaseResponseRentBillingCadence string
 
 // LeaseResponseStatus defines model for LeaseResponse.Status.
 type LeaseResponseStatus string
@@ -890,7 +936,13 @@ type UpdateJournalLogRequest struct {
 type UpdateLeaseRequest struct {
 	EndDate    *openapi_types.Date `json:"end_date,omitempty"`
 	RentAmount *int                `json:"rent_amount,omitempty"`
+
+	// RentBillingCadence 不支援透過 PATCH 修改；若需更動 rent cadence，請使用 Lease replacement。
+	RentBillingCadence *UpdateLeaseRequestRentBillingCadence `json:"rent_billing_cadence,omitempty"`
 }
+
+// UpdateLeaseRequestRentBillingCadence 不支援透過 PATCH 修改；若需更動 rent cadence，請使用 Lease replacement。
+type UpdateLeaseRequestRentBillingCadence string
 
 // UpdatePropertyRequest defines model for UpdatePropertyRequest.
 type UpdatePropertyRequest struct {

@@ -15,8 +15,11 @@ const (
 	DepositStatusSettled    = "settled"
 	DepositStatusWrittenOff = "written_off"
 
-	BillingCadenceMonthly   = "monthly"
-	BillingCadenceBimonthly = "bimonthly"
+	BillingCadenceMonthly    = "monthly"
+	BillingCadenceBimonthly  = "bimonthly"
+	BillingCadenceQuarterly  = "quarterly"
+	BillingCadenceSemiannual = "semiannual"
+	BillingCadenceAnnual     = "annual"
 
 	ForceTerminationDepositWriteOff = "write_off"
 	ForceTerminationDepositKeepHeld = "keep_held"
@@ -31,6 +34,7 @@ type State struct {
 	RentAmount                int
 	StartDate                 time.Time
 	EndDate                   time.Time
+	RentBillingCadence        string
 	ElectricityBillingCadence string
 	Status                    string
 	DepositAmount             int
@@ -151,7 +155,11 @@ func normalizeState(state State, creating bool) (State, error) {
 	state.TenantID = strings.TrimSpace(state.TenantID)
 	state.RoomID = strings.TrimSpace(state.RoomID)
 	state.PropertyID = strings.TrimSpace(state.PropertyID)
+	state.RentBillingCadence = strings.TrimSpace(state.RentBillingCadence)
 	state.ElectricityBillingCadence = strings.TrimSpace(state.ElectricityBillingCadence)
+	if state.RentBillingCadence == "" {
+		state.RentBillingCadence = BillingCadenceMonthly
+	}
 
 	if state.StartDate.After(state.EndDate) {
 		return State{}, ErrInvalidDateRange
@@ -162,8 +170,11 @@ func normalizeState(state State, creating bool) (State, error) {
 	if state.DepositAmount < 0 {
 		return State{}, ErrDepositNegative
 	}
-	if !isValidCadence(state.ElectricityBillingCadence) {
-		return State{}, ErrInvalidCadence
+	if !isValidRentCadence(state.RentBillingCadence) {
+		return State{}, ErrInvalidRentBillingCadence
+	}
+	if !isValidElectricityCadence(state.ElectricityBillingCadence) {
+		return State{}, ErrInvalidElectricityBillingCadence
 	}
 
 	if creating {
@@ -182,9 +193,18 @@ func isTerminableStatus(status string) bool {
 	return status == StatusActive || status == StatusExpired
 }
 
-func isValidCadence(cadence string) bool {
+func isValidElectricityCadence(cadence string) bool {
 	switch cadence {
 	case BillingCadenceMonthly, BillingCadenceBimonthly:
+		return true
+	default:
+		return false
+	}
+}
+
+func isValidRentCadence(cadence string) bool {
+	switch cadence {
+	case BillingCadenceMonthly, BillingCadenceQuarterly, BillingCadenceSemiannual, BillingCadenceAnnual:
 		return true
 	default:
 		return false

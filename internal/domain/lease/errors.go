@@ -6,7 +6,9 @@ var (
 	ErrInvalidDateRange                       = errors.New("lease date range is invalid")
 	ErrRentAmountNonPositive                  = errors.New("lease rent amount must be greater than zero")
 	ErrDepositNegative                        = errors.New("lease deposit amount must not be negative")
-	ErrInvalidCadence                         = errors.New("lease billing cadence is invalid")
+	ErrInvalidElectricityBillingCadence       = errors.New("lease electricity billing cadence is invalid")
+	ErrInvalidCadence                         = ErrInvalidElectricityBillingCadence
+	ErrInvalidRentBillingCadence              = errors.New("lease rent billing cadence is invalid")
 	ErrInvalidBillingAnchor                   = errors.New("lease billing anchor day is invalid")
 	ErrDepositReasonRequired                  = errors.New("lease deposit deduction reason is required")
 	ErrDepositSettlementSum                   = errors.New("lease deposit settlement must match deposit amount")

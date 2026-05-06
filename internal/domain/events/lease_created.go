@@ -10,6 +10,7 @@ type LeaseCreated struct {
 	TenantID                  string
 	StartDate                 time.Time
 	EndDate                   time.Time
+	RentBillingCadence        string
 	ElectricityBillingCadence string
 	OccurredAt                time.Time
 }

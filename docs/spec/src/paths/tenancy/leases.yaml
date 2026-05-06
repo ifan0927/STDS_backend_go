@@ -58,6 +58,7 @@ get:
                     tenant_id: 30000000-0000-0000-0000-000000000001
                     room_id: 20000000-0000-0000-0000-000000000002
                     rent_amount: 18000
+                    rent_billing_cadence: monthly
                     start_date: '2026-01-01'
                     end_date: '2026-12-31'
                     status: active
@@ -82,6 +83,7 @@ post:
     BR-02：租金必須大於零
     BR-03：押金不得為負
     BR-12：目標房間必須為 vacant（取悲觀鎖後檢查）
+    rent_billing_cadence 可於建約時指定；未提供時預設 monthly。rent_amount 為每個租金計費週期的金額。
     electricity_billing_cadence 可於建約時覆寫，未提供時套用 Property 預設值
   tags:
     - Leasing
@@ -102,6 +104,7 @@ post:
               tenant_id: 30000000-0000-0000-0000-000000000001
               room_id: 20000000-0000-0000-0000-000000000002
               rent_amount: 18000
+              rent_billing_cadence: monthly
               start_date: '2026-05-01'
               end_date: '2027-04-30'
               deposit_amount: 36000
@@ -120,6 +123,7 @@ post:
                 tenant_id: 30000000-0000-0000-0000-000000000001
                 room_id: 20000000-0000-0000-0000-000000000002
                 rent_amount: 18000
+                rent_billing_cadence: monthly
                 start_date: '2026-05-01'
                 end_date: '2027-04-30'
                 electricity_billing_cadence: monthly

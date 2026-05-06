@@ -84,6 +84,86 @@ func TestUpdateLeaseServiceUpdatesRentAndRegeneratesFutureRentBills(t *testing.T
 	}
 }
 
+func TestUpdateLeaseServiceRegeneratesRentFromNextQuarterlyPeriod(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+
+	publisher := &recordingPublisher{}
+	repo := &leaseRepositoryStub{
+		lease: &Lease{
+			ID:                        updateLeaseTestLeaseID,
+			TenantID:                  "tenant-1",
+			PropertyID:                "property-1",
+			RoomID:                    "room-1",
+			RentAmount:                54000,
+			StartDate:                 time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC),
+			EndDate:                   time.Date(2026, 12, 20, 0, 0, 0, 0, time.UTC),
+			RentBillingCadence:        "quarterly",
+			ElectricityBillingCadence: "monthly",
+			Status:                    "active",
+			DepositAmount:             36000,
+			DepositStatus:             "held",
+		},
+	}
+	service := NewUpdateLeaseService(repo, dbtxrunner.New(db, publisher))
+
+	rentAmount := 60000
+	lease, err := service.Execute(context.Background(), UpdateLeaseInput{
+		ActorRole:           "organizer",
+		AssignedPropertyIDs: []string{"property-1"},
+		LeaseID:             updateLeaseTestLeaseID,
+		RentAmount:          &rentAmount,
+		OperationDate:       time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if lease.RentAmount != 60000 {
+		t.Fatalf("RentAmount = %d, want 60000", lease.RentAmount)
+	}
+	if repo.voidRentDueDate == nil || !repo.voidRentDueDate.Equal(time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("voidRentDueDate = %v, want 2026-08-15", repo.voidRentDueDate)
+	}
+	if len(repo.createdBills) != 2 {
+		t.Fatalf("created bills = %d, want 2", len(repo.createdBills))
+	}
+	wantPeriods := []struct {
+		start time.Time
+		end   time.Time
+	}{
+		{time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC), time.Date(2026, 11, 14, 0, 0, 0, 0, time.UTC)},
+		{time.Date(2026, 11, 15, 0, 0, 0, 0, time.UTC), time.Date(2026, 12, 20, 0, 0, 0, 0, time.UTC)},
+	}
+	for i, bill := range repo.createdBills {
+		if bill.Type != billTypeRent || bill.Amount == nil || *bill.Amount != 60000 {
+			t.Fatalf("unexpected bill %d: %+v", i, bill)
+		}
+		if !bill.PeriodStart.Equal(wantPeriods[i].start) || !bill.PeriodEnd.Equal(wantPeriods[i].end) || !bill.DueDate.Equal(wantPeriods[i].start) {
+			t.Fatalf("bill %d period = %s..%s due %s, want %s..%s due %s", i, bill.PeriodStart, bill.PeriodEnd, bill.DueDate, wantPeriods[i].start, wantPeriods[i].end, wantPeriods[i].start)
+		}
+	}
+	if len(publisher.events) != 1 {
+		t.Fatalf("events = %d, want 1", len(publisher.events))
+	}
+	event, ok := publisher.events[0].(domainevents.LeaseConditionChanged)
+	if !ok {
+		t.Fatalf("event = %T, want LeaseConditionChanged", publisher.events[0])
+	}
+	if !event.EffectiveDate.Equal(time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("effective date = %s, want 2026-08-15", event.EffectiveDate)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
 func TestUpdateLeaseServiceRejectsEndDateUpdate(t *testing.T) {
 	service := NewUpdateLeaseService(nil, nil)
 	rentAmount := 20000
@@ -94,6 +174,21 @@ func TestUpdateLeaseServiceRejectsEndDateUpdate(t *testing.T) {
 		LeaseID:    updateLeaseTestLeaseID,
 		RentAmount: &rentAmount,
 		EndDate:    &endDate,
+	})
+	var appErr *apperr.Error
+	if !errors.As(err, &appErr) || appErr.Code != codeLeaseUnsupportedUpdate {
+		t.Fatalf("expected %s, got %v", codeLeaseUnsupportedUpdate, err)
+	}
+}
+
+func TestUpdateLeaseServiceRejectsRentCadenceUpdate(t *testing.T) {
+	service := NewUpdateLeaseService(nil, nil)
+	rentCadence := "quarterly"
+
+	_, err := service.Execute(context.Background(), UpdateLeaseInput{
+		ActorRole:          "admin",
+		LeaseID:            updateLeaseTestLeaseID,
+		RentBillingCadence: &rentCadence,
 	})
 	var appErr *apperr.Error
 	if !errors.As(err, &appErr) || appErr.Code != codeLeaseUnsupportedUpdate {

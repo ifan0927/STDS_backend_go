@@ -180,7 +180,11 @@ func mapDomainError(err error) error {
 		return apperr.ErrBadRequest.
 			WithCause(err).
 			WithDetails(map[string]interface{}{"field": "deposit_handling"})
-	case errors.Is(err, domainlease.ErrInvalidCadence):
+	case errors.Is(err, domainlease.ErrInvalidRentBillingCadence):
+		return apperr.ErrBadRequest.WithDetails(map[string]interface{}{
+			"field": "rent_billing_cadence",
+		})
+	case errors.Is(err, domainlease.ErrInvalidElectricityBillingCadence):
 		return apperr.ErrBadRequest.WithDetails(map[string]interface{}{
 			"field": "electricity_billing_cadence",
 		})
