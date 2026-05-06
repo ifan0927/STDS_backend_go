@@ -5072,7 +5072,7 @@ func defaultAPIServerDeps(userRepo *fakeUserRepo, authenticator fakeAuthenticato
 			List:   appjournal.NewListService(nil),
 			Get:    appjournal.NewGetService(nil),
 			Create: appjournal.NewCreateService(nil, nil, nil),
-			Update: appjournal.NewUpdateService(nil, nil),
+			Update: appjournal.NewUpdateService(nil, nil, nil),
 			Delete: appjournal.NewDeleteService(nil, nil),
 		},
 		Repair: handler.RepairServices{

@@ -104,19 +104,20 @@ func (s *CreateService) Execute(ctx context.Context, input CreateInput) (*Journa
 		}
 
 		if journalLog.ExpenseAmount != nil {
-			occurredAt := journalLog.CreatedAt.UTC()
+			year, month := journalAccountingPeriod(journalLog.CreatedAt)
 			if err := s.accountingRepo.CreateExpenseAccountingEntry(ctx, tx, ExpenseAccountingEntryParams{
 				PropertyID:  journalLog.PropertyID,
 				Category:    accountingCategoryJournalExpense,
 				Amount:      *journalLog.ExpenseAmount,
 				Description: journalLog.ExpenseDescription,
 				SourceRef:   map[string]interface{}{"type": "JournalExpenseRecorded", "journal_log_id": journalLog.ID},
-				Year:        occurredAt.Year(),
-				Month:       int(occurredAt.Month()),
+				Year:        year,
+				Month:       month,
 			}); err != nil {
 				return mapAccountingRepositoryError(err)
 			}
 
+			occurredAt := journalLog.CreatedAt.UTC()
 			recorder.Record(domainevents.JournalExpenseRecorded{
 				JournalLogID: journalLog.ID,
 				PropertyID:   journalLog.PropertyID,

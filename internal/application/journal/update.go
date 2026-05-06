@@ -19,13 +19,14 @@ type UpdateInput struct {
 
 // UpdateService updates journal logs.
 type UpdateService struct {
-	repo     Repository
-	txRunner TransactionRunner
+	repo           Repository
+	accountingRepo ExpenseAccountingRepository
+	txRunner       TransactionRunner
 }
 
 // NewUpdateService returns an UpdateService.
-func NewUpdateService(repo Repository, txRunner TransactionRunner) *UpdateService {
-	return &UpdateService{repo: repo, txRunner: txRunner}
+func NewUpdateService(repo Repository, accountingRepo ExpenseAccountingRepository, txRunner TransactionRunner) *UpdateService {
+	return &UpdateService{repo: repo, accountingRepo: accountingRepo, txRunner: txRunner}
 }
 
 // Execute updates mutable journal log fields.
@@ -68,6 +69,28 @@ func (s *UpdateService) Execute(ctx context.Context, input UpdateInput) (*Journa
 		})
 		if err != nil {
 			return mapRepositoryError(err)
+		}
+
+		if current.ExpenseAmount != nil || journalLog.ExpenseAmount != nil {
+			if s.accountingRepo == nil {
+				return apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "journal_accounting"})
+			}
+			var entry *ExpenseAccountingEntryParams
+			if journalLog.ExpenseAmount != nil {
+				year, month := journalAccountingPeriod(journalLog.CreatedAt)
+				entry = &ExpenseAccountingEntryParams{
+					PropertyID:  journalLog.PropertyID,
+					Category:    accountingCategoryJournalExpense,
+					Amount:      *journalLog.ExpenseAmount,
+					Description: journalLog.ExpenseDescription,
+					SourceRef:   map[string]interface{}{"type": "JournalExpenseRecorded", "journal_log_id": journalLog.ID},
+					Year:        year,
+					Month:       month,
+				}
+			}
+			if err := s.accountingRepo.SyncExpenseAccountingEntry(ctx, tx, journalLog.ID, entry); err != nil {
+				return mapAccountingRepositoryError(err)
+			}
 		}
 
 		updated = journalLog

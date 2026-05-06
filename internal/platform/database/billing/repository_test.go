@@ -435,6 +435,41 @@ func TestInsertAccountingEntryWritesCategoryAmountSourceRefYearAndMonth(t *testi
 	}
 }
 
+func TestReplaceJournalExpenseAccountingEntryDeletesExistingAndInsertsReplacement(t *testing.T) {
+	db, mock, repo := newBillingRepoTest(t)
+	defer closeBillingDB(t, db)
+
+	tx := beginBillingTx(t, db, mock)
+	description := "updated repair expense"
+	mock.ExpectExec(`(?s)DELETE FROM accounting_entries\s+WHERE category = 'journal_expense'\s+AND source_ref->>'journal_log_id' = \$1`).
+		WithArgs("journal-1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`(?s)INSERT INTO accounting_entries \(\s+property_account_id,\s+category,\s+amount,\s+description,\s+source_ref,\s+year,\s+month\s+\) VALUES \(\$1, \$2, \$3, \$4, \$5::jsonb, \$6, \$7\)`).
+		WithArgs("account-1", "journal_expense", 4200, description, `{"journal_log_id":"journal-1","type":"JournalExpenseRecorded"}`, 2026, 5).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	err := repo.ReplaceJournalExpenseAccountingEntry(context.Background(), tx, "journal-1", CreateAccountingEntryParams{
+		PropertyAccountID: "account-1",
+		Category:          "journal_expense",
+		Amount:            4200,
+		Description:       &description,
+		SourceRef:         map[string]any{"type": "JournalExpenseRecorded", "journal_log_id": "journal-1"},
+		Year:              2026,
+		Month:             5,
+	})
+	if err != nil {
+		t.Fatalf("ReplaceJournalExpenseAccountingEntry: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
 func TestCreatePropertyAccountInsertsPropertyAccount(t *testing.T) {
 	db, mock, repo := newBillingRepoTest(t)
 	defer closeBillingDB(t, db)
