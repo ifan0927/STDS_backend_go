@@ -1,6 +1,6 @@
 Domain Model
 
-> 版本：v3.4
+> 版本：v3.5
 > 更新說明：
 > - v2.0：經四輪多角色設計評審產出
 > - v2.1-v2.8：歷次 Validation 修正
@@ -9,6 +9,7 @@ Domain Model
 > - v3.2：新增共用附件機制（GCS Signed URL + nonce 綁定 + 各資源獨立附件表），補 BR-18、附件相關 Read Models、排程任務、ADR
 > - v3.3：電費單價改為可接受浮點數；電費帳單 amount 維持台幣整數，計算後採四捨五入
 > - v3.4：補事件邊界分類矩陣，對齊目前 in-process post-commit event bus 與 direct orchestration 邊界
+> - v3.5：補租金帳單 cadence domain rules，明確分離 rent billing cadence 與 electricity billing cadence
 
 ---
 
@@ -49,11 +50,13 @@ Domain Model
 
 租約建立時，系統於整個租約期間預產所有帳單（租金帳單 + 電費帳單）。租金帳單初始狀態為 `pending_payment`，電費帳單初始狀態為 `pending_meter`，等待該帳單所屬 billing period 抄表後更新金額。
 
-**付款日語意**：付款日固定為租約起始日當天，每月同一天。該月無此日期（如 1/31 → 2 月）則順延至該月最後一天。付款日不可單獨修改，屬於租約起始條件的一部分。
+**租金帳單 cadence 與金額語意**：Lease 於建立時決定 `rentBillingCadence`（`monthly | quarterly | semiannual | annual`）。`rentAmount` 是每個租金計費週期的金額，不是月租 baseline。租金 bill period 以 Lease start date 為 anchor，依 `rentBillingCadence` 每次前進 1 / 3 / 6 / 12 個月，且 `dueDate = periodStart`。最後一個不足完整 cadence 的短租金 period 仍收完整 `rentAmount`；first launch 不做租金 proration。例外差額若需要處理，應透過 journal/accounting-style flow 另行記錄，不塞入租金帳單 proration。
 
-Lease 於建立時決定 `electricityBillingCadence`（`monthly | bimonthly`）。若 request 未帶值，套用 Property 的 `defaultElectricityBillingCadence`。Lease 建立後 cadence 不可修改；若需更動 cadence、續約重簽、或其他少數條件重建，走 `LeaseReplaced` 流程，以「終止舊 Lease + 建立新 Lease」處理。
+**租金付款日語意**：租金付款日由租金 bill period 決定，固定為該 rent period 的 `periodStart`。付款日不可單獨修改，屬於租約起始條件與 `rentBillingCadence` 的一部分。
 
-租金調整（`LeaseConditionChanged`）時，void 所有 `due_date >= nextPaymentDate` 且狀態為 `pending_payment` 或 `pending_meter` 的帳單（狀態改為 `voided`），從 `nextPaymentDate` 起重產新金額帳單。`nextPaymentDate` 為 operationDate 之後的第一個付款日，計算規則同 BR-15。當月帳單不受影響，即使尚未到期。`LeaseConditionChanged` 僅涵蓋租金金額調整，不含付款日修改與 cadence 修改。
+Lease 於建立時也決定 `electricityBillingCadence`（`monthly | bimonthly`）。若 request 未帶值，套用 Property 的 `defaultElectricityBillingCadence`。`rentBillingCadence` 與 `electricityBillingCadence` 是兩個獨立租約條件，不可共用驗證或 period generation 規則。Lease 建立後 cadence 不可用一般編輯修改；若需更動 rent 或 electricity cadence、續約重簽、或其他少數條件重建，走 `LeaseReplaced` 流程，以「終止舊 Lease + 建立新 Lease」處理。
+
+租金調整（`LeaseConditionChanged`）時，void 所有 `due_date >= nextRentPeriodStart` 且狀態為 `pending_payment` 的租金帳單（狀態改為 `voided`），從 `nextRentPeriodStart` 起依原 `rentBillingCadence` 重產新金額租金帳單。`nextRentPeriodStart` 為 operationDate 之後的第一個 rent billing period start。當期租金帳單不受影響，即使尚未到期。`LeaseConditionChanged` 僅涵蓋租金金額調整，不含付款日修改與 cadence 修改。
 
 ### Billing
 
@@ -114,6 +117,7 @@ Lease 於建立時決定 `electricityBillingCadence`（`monthly | bimonthly`）�
   - `force_terminated`：強制終止
 - **包含**：
   - 租約條件（租金、起訖日）
+  - `rentBillingCadence: monthly | quarterly | semiannual | annual`
   - `electricityBillingCadence: monthly | bimonthly`
   - `deposit: Deposit`（Value Object）
     - `amount`（原始押金金額）
@@ -292,15 +296,16 @@ Lease 於建立時決定 `electricityBillingCadence`（`monthly | bimonthly`）�
 | BR-12 | 建立租約時目標房間必須為 vacant，且需取得 Room 的悲觀鎖後才執行檢查 | 建立租約時 | 拒絕建立 | 無 |
 | BR-13 | 系統管理員不得降低自己的角色 | 修改自身角色時 | 拒絕操作 | 無 |
 | BR-14 | 強制終止租約需主辦以上角色執行並填寫原因 | 執行強制終止時 | 員工角色拒絕執行 | 無 |
-| BR-15 | 付款日固定為租約起始日，特殊月份（無該日）順延至月底 | 帳單預產時 | 自動計算，無需拒絕 | 無 |
+| BR-15 | 租金付款日固定為 rent billing period 的 `periodStart`；rent period 以租約起始日為 anchor，依 `rentBillingCadence` 前進 1 / 3 / 6 / 12 個月 | 租金帳單預產或租金調整重產時 | 自動計算，無需拒絕 | 最後短 rent period 仍收完整 period rent，不做 proration |
 | BR-16 | 電費帳單金額由系統計算：usage = currentReading - previousReading，rawAmount = usage × MeterReading.unitPrice，amount = round(rawAmount)；不由員工輸入金額 | 抄表送出時 | 系統自動計算並四捨五入為整數，拒絕員工直接輸入金額 | 無 |
 | BR-17 | 修改物業電價（electricityUnitPrice）需主辦以上角色，且電價僅接受大於 0 的數值，可接受小數 | 修改電價時 | 員工角色拒絕；零與負數拒絕 | 無 |
 | BR-18 | 附件允許的 MIME type：`image/jpeg`、`image/png`、`image/heic`、`application/pdf`；單檔上限 20MB | 產生 upload URL 時先驗證；Step 3 登記時再以 GCS metadata 防呆確認 | 拒絕產生 upload URL 或拒絕登記，回傳 422 | 無 |
-| BR-19 | Property 預設電費 cadence 僅影響新建 Lease；既有 Lease 不可直接修改 cadence | 修改物業預設 cadence 或編輯 Lease 時 | 拒絕以編輯 Lease 方式修改 cadence | 若需更動 cadence，走 LeaseReplaced |
-| BR-20 | Lease replacement 僅允許在完整 electricity billing period boundary 執行 | 執行 LeaseReplaced 時 | 拒絕 replacement | 無 |
+| BR-19 | Property 預設電費 cadence 僅影響新建 Lease；既有 Lease 不可用一般編輯修改 rent 或 electricity cadence | 修改物業預設 cadence 或編輯 Lease 時 | 拒絕以編輯 Lease 方式修改 cadence | 若需更動 rent 或 electricity cadence，走 LeaseReplaced |
+| BR-20 | Lease replacement 僅允許在完整 rent billing period boundary 與完整 electricity billing period boundary 執行 | 執行 LeaseReplaced 時 | 拒絕 replacement | 無 |
 | BR-21 | Lease replacement 前，舊 Lease 在 boundary 前的帳單必須全部結清，且不得存在 `pending_meter`、`pending_payment`、`overdue` | 執行 LeaseReplaced 時 | 拒絕 replacement，回傳未結清帳單清單 | 無 |
 | BR-22 | Lease replacement 僅支援同 tenant、同 room、同 property 的條件重建，不得用於搬房或換租客 | 執行 LeaseReplaced 時 | 拒絕 replacement | 無 |
 | BR-23 | Lease replacement 第一版僅支援 `depositHandling = carry_over`，不得在 replacement 當下結清或改寫押金狀態 | 執行 LeaseReplaced 時 | 拒絕 replacement | 需要押金狀態改變時，走其他流程 |
+| BR-24 | `rentBillingCadence` 與 `electricityBillingCadence` 是獨立租約條件，各自有獨立 allowed values、validation 與 period generation 規則 | 建立 Lease、Lease replacement、帳單預產、租金調整重產時 | 拒絕不合法 cadence 或混用 cadence 規則 | 無 |
 
 ---
 
@@ -522,11 +527,11 @@ PropertyOwnerView
 發起 Lease replacement
   → 檢查 replacement reason 與 effective date
   → 檢查新 Lease 與舊 Lease 是否為同 tenant、同 room、同 property
-  → 檢查 effective date 是否為完整 electricity billing period boundary
+  → 檢查 effective date 是否為完整 rent billing period boundary 與完整 electricity billing period boundary
   → 檢查 boundary 前帳單是否已全部結清
   → 檢查 depositHandling = carry_over
   → 正常終止舊 Lease（replacement 專用語意，不在此步結清押金）
-  → 建立新 Lease（帶入新條件與 electricityBillingCadence）
+  → 建立新 Lease（帶入新條件、rentBillingCadence 與 electricityBillingCadence）
   → LeaseTerminated event（forced: false, isRenewal: false, isReplacement: true）
   → LeaseCreated event
   → LeaseReplaced event
@@ -635,10 +640,11 @@ attachment_upload_tokens(
 |------|------|------|
 | 押金建模 | Lease 內的 Value Object | 押金生命週期完全跟著租約，不需獨立 Aggregate |
 | 續約處理 | Lease replacement API | 續約只是 replacement 的其中一種 reason，不單獨定義 LeaseRenewed |
+| 租金帳單 cadence | Lease 建立時決定 `rentBillingCadence`，支援 monthly / quarterly / semiannual / annual | `rentAmount` 是每個 rent billing period 的金額；rent period 以 Lease start date 為 anchor，due date 為 period start；最後短 period 收完整 period rent，first launch 不做 proration |
 | 電費帳單 cadence | Property 定義預設值，Lease 建立時決定有效值 | 支援 monthly / bimonthly；既有 Lease 不受 Property 預設值更新影響 |
-| 電費帳單建立 | 租約建立時依 Lease cadence 一併預產，初始 pending_meter | 與租金帳單同批預產，Bill 補 periodStart/periodEnd，MeterRecorded 時找對應 period 更新金額 |
-| 租金調整後帳單 | void `due_date >= nextPaymentDate` 的帳單，從 nextPaymentDate 重產 | 當月帳單不動，業務語意清楚（這個月金額已說好）；nextPaymentDate 計算複用 BR-15 邏輯 |
-| 付款日 | 固定為租約起始日，不可單獨修改，特殊月份順延月底 | 消除帳單產生邏輯的邊界案例，paymentDay 欄位移除 |
+| 電費帳單建立 | 租約建立時依 Lease `electricityBillingCadence` 一併預產，初始 pending_meter | 與租金帳單同批預產，Bill 補 periodStart/periodEnd，MeterRecorded 時找對應 period 更新金額 |
+| 租金調整後帳單 | void `due_date >= nextRentPeriodStart` 的租金帳單，從 nextRentPeriodStart 依原 `rentBillingCadence` 重產 | 當期租金帳單不動，業務語意清楚；rent amount 變更只從下一個 rent billing period 生效 |
+| 租金付款日 | 固定為 rent billing period 的 `periodStart`，不可單獨修改 | 消除帳單產生邏輯的邊界案例，paymentDay 欄位移除 |
 | JournalEntry 拆分 | JournalLog + RepairRequest | 兩者行為差異過大，合併導致 schema nullable 欄位過多 |
 | PropertyAccount 架構 | 月結快照：Aggregate 只持有當月，歷史走 MonthlySnapshot | 解決 Aggregate 無限增長問題，寫入效能穩定 |
 | 租客角色 | 無系統帳號，Email 通知 | 降低系統複雜度，租客透過 Email 收帳單 |
