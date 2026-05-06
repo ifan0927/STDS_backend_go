@@ -24,7 +24,7 @@ const (
 func TestCreateServiceCreatesAccountingEntryAndPublishesEventWhenExpensePresent(t *testing.T) {
 	amount := 3500
 	description := "Pipe repair"
-	createdAt := time.Date(2026, 4, 15, 11, 0, 0, 0, time.UTC)
+	createdAt := time.Date(2026, 4, 30, 16, 30, 0, 0, time.UTC)
 	repo := &journalRepositoryStub{
 		propertyExists: true,
 		room:           &Room{ID: testRoomID, PropertyID: testPropertyID},
@@ -70,8 +70,8 @@ func TestCreateServiceCreatesAccountingEntryAndPublishesEventWhenExpensePresent(
 	if accountingRepo.entry.Description == nil || *accountingRepo.entry.Description != description {
 		t.Fatalf("accounting description = %v, want %s", accountingRepo.entry.Description, description)
 	}
-	if accountingRepo.entry.Year != 2026 || accountingRepo.entry.Month != 4 {
-		t.Fatalf("accounting Year/Month = %d/%d, want 2026/4", accountingRepo.entry.Year, accountingRepo.entry.Month)
+	if accountingRepo.entry.Year != 2026 || accountingRepo.entry.Month != 5 {
+		t.Fatalf("accounting Year/Month = %d/%d, want 2026/5", accountingRepo.entry.Year, accountingRepo.entry.Month)
 	}
 	if accountingRepo.entry.SourceRef["type"] != "JournalExpenseRecorded" || accountingRepo.entry.SourceRef["journal_log_id"] != testJournalID {
 		t.Fatalf("accounting SourceRef = %#v", accountingRepo.entry.SourceRef)
@@ -292,13 +292,14 @@ func TestUpdateServiceUpdatesMutableFields(t *testing.T) {
 			AuthorID:           testActorID,
 			Content:            "Original",
 			ExpenseDescription: stringPtr("Old"),
-			CreatedAt:          time.Now(),
+			CreatedAt:          time.Date(2026, 4, 30, 16, 30, 0, 0, time.UTC),
 			UpdatedAt:          time.Now(),
 		},
 	}
 	runner, _, cleanup := newJournalTxRunner(t)
 	defer cleanup()
-	service := NewUpdateService(repo, runner)
+	accountingRepo := &expenseAccountingRepositoryStub{}
+	service := NewUpdateService(repo, accountingRepo, runner)
 	content := " Updated journal "
 
 	updated, err := service.Execute(context.Background(), UpdateInput{
@@ -319,6 +320,18 @@ func TestUpdateServiceUpdatesMutableFields(t *testing.T) {
 	if updated.ExpenseDescription == nil || *updated.ExpenseDescription != description {
 		t.Fatalf("ExpenseDescription = %v, want %s", updated.ExpenseDescription, description)
 	}
+	if accountingRepo.syncCalls != 1 {
+		t.Fatalf("SyncExpenseAccountingEntry calls = %d, want 1", accountingRepo.syncCalls)
+	}
+	if accountingRepo.syncedJournalLogID != testJournalID {
+		t.Fatalf("syncedJournalLogID = %s, want %s", accountingRepo.syncedJournalLogID, testJournalID)
+	}
+	if accountingRepo.syncedEntry == nil || accountingRepo.syncedEntry.Amount != amount {
+		t.Fatalf("syncedEntry = %+v, want amount %d", accountingRepo.syncedEntry, amount)
+	}
+	if accountingRepo.syncedEntry.Year != 2026 || accountingRepo.syncedEntry.Month != 5 {
+		t.Fatalf("syncedEntry Year/Month = %d/%d, want 2026/5", accountingRepo.syncedEntry.Year, accountingRepo.syncedEntry.Month)
+	}
 }
 
 func TestUpdateServiceRejectsEmptyContent(t *testing.T) {
@@ -334,7 +347,7 @@ func TestUpdateServiceRejectsEmptyContent(t *testing.T) {
 	}
 	runner, _, cleanup := newJournalTxRunnerExpectRollback(t)
 	defer cleanup()
-	service := NewUpdateService(repo, runner)
+	service := NewUpdateService(repo, &expenseAccountingRepositoryStub{}, runner)
 	content := " "
 
 	_, err := service.Execute(context.Background(), UpdateInput{
@@ -370,14 +383,24 @@ func (s *journalPublisherStub) Publish(_ context.Context, event any) error {
 }
 
 type expenseAccountingRepositoryStub struct {
-	entry       ExpenseAccountingEntryParams
-	err         error
-	createCalls int
+	entry              ExpenseAccountingEntryParams
+	syncedEntry        *ExpenseAccountingEntryParams
+	syncedJournalLogID string
+	err                error
+	createCalls        int
+	syncCalls          int
 }
 
 func (s *expenseAccountingRepositoryStub) CreateExpenseAccountingEntry(_ context.Context, _ *sql.Tx, params ExpenseAccountingEntryParams) error {
 	s.createCalls++
 	s.entry = params
+	return s.err
+}
+
+func (s *expenseAccountingRepositoryStub) SyncExpenseAccountingEntry(_ context.Context, _ *sql.Tx, journalLogID string, params *ExpenseAccountingEntryParams) error {
+	s.syncCalls++
+	s.syncedJournalLogID = journalLogID
+	s.syncedEntry = params
 	return s.err
 }
 

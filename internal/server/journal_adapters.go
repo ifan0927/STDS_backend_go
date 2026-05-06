@@ -33,3 +33,28 @@ func (a journalExpenseAccountingAdapter) CreateExpenseAccountingEntry(ctx contex
 		Month:             params.Month,
 	})
 }
+
+func (a journalExpenseAccountingAdapter) SyncExpenseAccountingEntry(ctx context.Context, tx *sql.Tx, journalLogID string, params *appjournal.ExpenseAccountingEntryParams) error {
+	if params == nil {
+		return a.repo.DeleteJournalExpenseAccountingEntry(ctx, tx, journalLogID)
+	}
+
+	account, err := a.repo.FindPropertyAccountByPropertyID(ctx, tx, params.PropertyID)
+	if err != nil {
+		if errors.Is(err, dbbilling.ErrNotFound) {
+			return appjournal.ErrPropertyAccountNotFound
+		}
+
+		return err
+	}
+
+	return a.repo.ReplaceJournalExpenseAccountingEntry(ctx, tx, journalLogID, dbbilling.CreateAccountingEntryParams{
+		PropertyAccountID: account.ID,
+		Category:          params.Category,
+		Amount:            params.Amount,
+		Description:       params.Description,
+		SourceRef:         params.SourceRef,
+		Year:              params.Year,
+		Month:             params.Month,
+	})
+}

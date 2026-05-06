@@ -35,6 +35,10 @@ func (c apiClient) postJSON(ctx context.Context, path string, body any) (*http.R
 	return c.doJSON(ctx, http.MethodPost, path, body)
 }
 
+func (c apiClient) patchJSON(ctx context.Context, path string, body any) (*http.Response, []byte, error) {
+	return c.doJSON(ctx, http.MethodPatch, path, body)
+}
+
 func (c apiClient) doJSON(ctx context.Context, method string, path string, body any) (*http.Response, []byte, error) {
 	var reader io.Reader
 	if body != nil {

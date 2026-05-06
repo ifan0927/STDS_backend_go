@@ -2,11 +2,14 @@ package journal
 
 import (
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
 	"stds_backend/internal/shared/apperr"
 )
+
+var journalAccountingLocation = time.FixedZone("Asia/Taipei", 8*60*60)
 
 func normalizeWriteRole(role string) (string, error) {
 	normalized := strings.ToLower(strings.TrimSpace(role))
@@ -69,4 +72,9 @@ func requirePropertyAccess(role string, assignedPropertyIDs []string, propertyID
 	default:
 		return apperr.ErrForbidden
 	}
+}
+
+func journalAccountingPeriod(value time.Time) (int, int) {
+	occurredAt := value.In(journalAccountingLocation)
+	return occurredAt.Year(), int(occurredAt.Month())
 }

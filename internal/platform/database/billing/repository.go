@@ -980,6 +980,29 @@ INSERT INTO accounting_entries (
 	return nil
 }
 
+// DeleteJournalExpenseAccountingEntry removes the accounting entry tied to one journal log.
+func (r *SQLRepository) DeleteJournalExpenseAccountingEntry(ctx context.Context, tx *sql.Tx, journalLogID string) error {
+	const query = `
+DELETE FROM accounting_entries
+WHERE category = 'journal_expense'
+  AND source_ref->>'journal_log_id' = $1
+`
+	if _, err := tx.ExecContext(ctx, query, journalLogID); err != nil {
+		return fmt.Errorf("delete journal expense accounting entry: %w", err)
+	}
+
+	return nil
+}
+
+// ReplaceJournalExpenseAccountingEntry replaces the accounting entry tied to one journal log.
+func (r *SQLRepository) ReplaceJournalExpenseAccountingEntry(ctx context.Context, tx *sql.Tx, journalLogID string, params CreateAccountingEntryParams) error {
+	if err := r.DeleteJournalExpenseAccountingEntry(ctx, tx, journalLogID); err != nil {
+		return err
+	}
+
+	return r.InsertAccountingEntry(ctx, tx, params)
+}
+
 // ListFinancialReportSummaries returns finalized summaries and the requested current live summary.
 func (r *SQLRepository) ListFinancialReportSummaries(ctx context.Context, scope Scope, propertyID string, year *int, currentYear int, currentMonth int) ([]FinancialReportSummary, error) {
 	finalized, err := r.listFinalizedFinancialReportSummaries(ctx, scope, propertyID, year)

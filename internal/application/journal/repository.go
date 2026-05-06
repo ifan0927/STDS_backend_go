@@ -96,4 +96,5 @@ type Repository interface {
 // ExpenseAccountingRepository defines persistence required for journal expense accounting.
 type ExpenseAccountingRepository interface {
 	CreateExpenseAccountingEntry(ctx context.Context, tx *sql.Tx, params ExpenseAccountingEntryParams) error
+	SyncExpenseAccountingEntry(ctx context.Context, tx *sql.Tx, journalLogID string, params *ExpenseAccountingEntryParams) error
 }

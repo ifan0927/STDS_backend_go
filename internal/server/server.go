@@ -147,7 +147,7 @@ func New(cfg *config.Config) (*Server, error) {
 		List:   appjournal.NewListService(journalRepo),
 		Get:    appjournal.NewGetService(journalRepo),
 		Create: appjournal.NewCreateService(journalRepo, journalAccounting, txRunner),
-		Update: appjournal.NewUpdateService(journalRepo, txRunner),
+		Update: appjournal.NewUpdateService(journalRepo, journalAccounting, txRunner),
 		Delete: appjournal.NewDeleteService(journalRepo, txRunner),
 	}
 	jobTriggerService := appjobs.NewTriggerService(jobRunStoreAdapter{repo: jobRunsRepo}, newJobRunners(db, txRunner, notificationService), cfg.App.SchedulerJobTimeout, cfg.App.SchedulerMaxRetries)
