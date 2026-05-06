@@ -5,6 +5,7 @@ package e2e
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -12,7 +13,12 @@ import (
 	"stds_backend/internal/platform/database/migrate"
 )
 
-const seededUserID = "00000000-0000-0000-0000-0000000000e2"
+const seededUserID = seededAdminUserID
+
+const (
+	seededAdminUserID  = "00000000-0000-0000-0000-0000000000e2"
+	seededScopedUserID = "00000000-0000-0000-0000-000000000091"
+)
 
 func resetAndMigrateDatabase(ctx context.Context, databaseURL string) (*sql.DB, error) {
 	db, err := database.Open(ctx, databaseURL)
@@ -38,7 +44,32 @@ GRANT ALL ON SCHEMA public TO public;
 }
 
 func seedAuthenticatedUser(ctx context.Context, db *sql.DB, firebaseUID string, email string) error {
-	_, err := db.ExecContext(ctx, `
+	return seedBackendUser(ctx, db, seedBackendUserParams{
+		ID:                  seededAdminUserID,
+		FirebaseUID:         firebaseUID,
+		Email:               email,
+		Name:                "E2E Admin",
+		Role:                "admin",
+		AssignedPropertyIDs: []string{},
+	})
+}
+
+type seedBackendUserParams struct {
+	ID                  string
+	FirebaseUID         string
+	Email               string
+	Name                string
+	Role                string
+	AssignedPropertyIDs []string
+}
+
+func seedBackendUser(ctx context.Context, db *sql.DB, params seedBackendUserParams) error {
+	assignedPropertyIDs, err := json.Marshal(params.AssignedPropertyIDs)
+	if err != nil {
+		return fmt.Errorf("marshal E2E user assigned properties: %w", err)
+	}
+
+	_, err = db.ExecContext(ctx, `
 INSERT INTO users (
 	id,
 	firebase_uid,
@@ -53,14 +84,14 @@ INSERT INTO users (
 	$1,
 	$2,
 	$3,
-	'E2E Admin',
-	'admin',
-	'[]'::jsonb,
-	'[]'::jsonb,
 	$4,
-	$4
+	$5,
+	'[]'::jsonb,
+	$6::jsonb,
+	$7,
+	$7
 )
-`, seededUserID, firebaseUID, email, time.Now().UTC())
+`, params.ID, params.FirebaseUID, params.Email, params.Name, params.Role, string(assignedPropertyIDs), time.Now().UTC())
 	if err != nil {
 		return fmt.Errorf("seed E2E authenticated user: %w", err)
 	}
