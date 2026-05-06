@@ -26,6 +26,26 @@ const (
 	depositStatusSettled          = "settled"
 )
 
+var legacyLeaseActiveLikeRoomIDs = map[string]string{
+	"38":  "1",
+	"135": "1",
+	"45":  "6",
+	"51":  "6",
+	"53":  "6",
+	"55":  "6",
+	"56":  "6",
+	"57":  "6",
+	"59":  "6",
+	"62":  "6",
+	"63":  "6",
+	"64":  "6",
+	"67":  "6",
+	"68":  "6",
+	"137": "6",
+	"147": "6",
+	"254": "6",
+}
+
 // MigrateLeasesOptions controls Task 9 execution.
 type MigrateLeasesOptions struct {
 	SourceDir string
@@ -34,30 +54,48 @@ type MigrateLeasesOptions struct {
 
 // LeaseMigrationReport captures Task 9 execution details.
 type LeaseMigrationReport struct {
-	GeneratedAt                     time.Time         `json:"generated_at"`
-	SourcePath                      string            `json:"source_path"`
-	SourceLinkPath                  string            `json:"source_link_path"`
-	ReportPath                      string            `json:"report_path"`
-	TotalSourceRows                 int               `json:"total_source_rows"`
-	EligibleRows                    int               `json:"eligible_rows"`
-	ImportedRows                    int               `json:"imported_rows"`
-	AlreadyMappedRows               int               `json:"already_mapped_rows"`
-	MappingsCreated                 int               `json:"mappings_created"`
-	SkippedRows                     int               `json:"skipped_rows"`
-	InvalidRows                     int               `json:"invalid_rows"`
-	MissingRoomMappings             int               `json:"missing_room_mappings"`
-	MissingTenantMappings           int               `json:"missing_tenant_mappings"`
-	MissingRentAmountRows           int               `json:"missing_rent_amount_rows"`
-	MultiTenantLeaseRows            int               `json:"multi_tenant_lease_rows"`
-	NotesPopulated                  int               `json:"notes_populated"`
-	TerminationReasonsPopulated     int               `json:"termination_reasons_populated"`
-	SettlementDetailsPopulated      int               `json:"settlement_details_populated"`
-	DepositRefundAmountPopulated    int               `json:"deposit_refund_amount_populated"`
-	DepositDeductionAmountPopulated int               `json:"deposit_deduction_amount_populated"`
-	StatusDistribution              map[string]int    `json:"status_distribution"`
-	DepositStatusDistribution       map[string]int    `json:"deposit_status_distribution"`
-	Skipped                         []LeaseSkipRecord `json:"skipped"`
-	Assumptions                     []string          `json:"assumptions"`
+	GeneratedAt                     time.Time                  `json:"generated_at"`
+	SourcePath                      string                     `json:"source_path"`
+	SourceLinkPath                  string                     `json:"source_link_path"`
+	RoomSourcePath                  string                     `json:"room_source_path"`
+	ReportPath                      string                     `json:"report_path"`
+	TotalSourceRows                 int                        `json:"total_source_rows"`
+	EligibleRows                    int                        `json:"eligible_rows"`
+	ImportedRows                    int                        `json:"imported_rows"`
+	AlreadyMappedRows               int                        `json:"already_mapped_rows"`
+	MappingsCreated                 int                        `json:"mappings_created"`
+	SkippedRows                     int                        `json:"skipped_rows"`
+	InvalidRows                     int                        `json:"invalid_rows"`
+	MissingRoomMappings             int                        `json:"missing_room_mappings"`
+	MissingTenantMappings           int                        `json:"missing_tenant_mappings"`
+	MissingRentAmountRows           int                        `json:"missing_rent_amount_rows"`
+	MissingRentCadenceRows          int                        `json:"missing_rent_cadence_rows"`
+	MissingMatchingRentPriceRows    int                        `json:"missing_matching_rent_price_rows"`
+	InvalidRentPriceRows            int                        `json:"invalid_rent_price_rows"`
+	MultiTenantLeaseRows            int                        `json:"multi_tenant_lease_rows"`
+	NotesPopulated                  int                        `json:"notes_populated"`
+	TerminationReasonsPopulated     int                        `json:"termination_reasons_populated"`
+	SettlementDetailsPopulated      int                        `json:"settlement_details_populated"`
+	DepositRefundAmountPopulated    int                        `json:"deposit_refund_amount_populated"`
+	DepositDeductionAmountPopulated int                        `json:"deposit_deduction_amount_populated"`
+	StatusDistribution              map[string]int             `json:"status_distribution"`
+	DepositStatusDistribution       map[string]int             `json:"deposit_status_distribution"`
+	RentBillingCadenceDistribution  map[string]int             `json:"rent_billing_cadence_distribution"`
+	ActiveLikeRoomChecks            []LeaseActiveLikeRoomCheck `json:"active_like_room_checks"`
+	Skipped                         []LeaseSkipRecord          `json:"skipped"`
+	Assumptions                     []string                   `json:"assumptions"`
+}
+
+// LeaseActiveLikeRoomCheck records the explicit active-like room checks required by #107.
+type LeaseActiveLikeRoomCheck struct {
+	LegacyEstateID     string `json:"legacy_estate_id"`
+	LegacyRoomID       string `json:"legacy_room_id"`
+	LegacyRentID       string `json:"legacy_rent_id,omitempty"`
+	PaymentCycle       string `json:"estate_rent_money,omitempty"`
+	RentBillingCadence string `json:"rent_billing_cadence,omitempty"`
+	RentAmount         int    `json:"rent_amount,omitempty"`
+	Migrated           bool   `json:"migrated"`
+	SkipReason         string `json:"skip_reason,omitempty"`
 }
 
 // LeaseSkipRecord captures a skipped lease row and the reason.
@@ -117,9 +155,13 @@ type legacyLeaseTenantResolution struct {
 }
 
 type legacyLeaseRoomResolution struct {
-	RoomID            string
-	PropertyID        string
-	DefaultRentAmount *int
+	RoomID     string
+	PropertyID string
+}
+
+type legacyLeaseRoomPrice struct {
+	LegacyEstateID string
+	Prices         legacyRoomPricePayload
 }
 
 type normalizedLeaseRecord struct {
@@ -130,6 +172,7 @@ type normalizedLeaseRecord struct {
 	PropertyID             string
 	TenantID               string
 	RentAmount             int
+	RentBillingCadence     string
 	StartDate              time.Time
 	EndDate                time.Time
 	Status                 string
@@ -153,6 +196,7 @@ func MigrateLeases(ctx context.Context, db *sql.DB, options MigrateLeasesOptions
 
 	sourcePath := filepath.Join(options.SourceDir, legacyLeaseSourceFileName)
 	linkPath := filepath.Join(options.SourceDir, legacyLeaseUserSourceFileName)
+	roomSourcePath := filepath.Join(options.SourceDir, legacyRoomSourceFileName)
 
 	records, err := loadLegacyLeases(sourcePath)
 	if err != nil {
@@ -162,21 +206,28 @@ func MigrateLeases(ctx context.Context, db *sql.DB, options MigrateLeasesOptions
 	if err != nil {
 		return nil, err
 	}
+	roomPrices, err := loadLegacyLeaseRoomPrices(roomSourcePath)
+	if err != nil {
+		return nil, err
+	}
 
 	tenantResolutions := buildLegacyLeaseTenantResolutions(links)
 
 	report := &LeaseMigrationReport{
-		GeneratedAt:               time.Now().UTC(),
-		SourcePath:                sourcePath,
-		SourceLinkPath:            linkPath,
-		TotalSourceRows:           len(records),
-		StatusDistribution:        make(map[string]int),
-		DepositStatusDistribution: make(map[string]int),
-		Skipped:                   make([]LeaseSkipRecord, 0),
+		GeneratedAt:                    time.Now().UTC(),
+		SourcePath:                     sourcePath,
+		SourceLinkPath:                 linkPath,
+		RoomSourcePath:                 roomSourcePath,
+		TotalSourceRows:                len(records),
+		StatusDistribution:             make(map[string]int),
+		DepositStatusDistribution:      make(map[string]int),
+		RentBillingCadenceDistribution: make(map[string]int),
+		ActiveLikeRoomChecks:           buildInitialLeaseActiveLikeRoomChecks(),
+		Skipped:                        make([]LeaseSkipRecord, 0),
 		Assumptions: []string{
 			"Task 7 room mapping remains authoritative: room_id and property_id are resolved through legacy_room_mappings joined to rooms, never re-derived from lease source text.",
 			"Task 8 tenant mapping remains authoritative: the primary tenant is selected by the minimum legacy tenant id rule from xx_estate_rent_user, then resolved through legacy_tenant_mappings.",
-			"Task 9 rent_amount uses the mapped room's default_rent_amount as the monthly lease amount; legacy payment-cycle labels are preserved only in migration assumptions and settlement detail, not modeled as new lease columns.",
+			"Task 9 rent_billing_cadence is mapped from xx_estate_rent.estate_rent_money and rent_amount is resolved from the matching xx_estate_room.estate_room_price entry.",
 			"Task 1 deposit fallback policy remains authoritative: leases with legacy stop payloads are imported with deposit_status=settled, while written_off is never inferred during this stage.",
 			"Task 9 deposit settlement keeps the detailed legacy stop payload in settlement_detail; lease deposit refund and deduction amounts only partition deposit_amount using positive stop-side charges.",
 		},
@@ -229,10 +280,11 @@ func MigrateLeases(ctx context.Context, db *sql.DB, options MigrateLeasesOptions
 			}
 		}
 
-		normalized, skipReason, err := normalizeLegacyLeaseRecord(record, roomResolution, roomFound, tenantResolution, tenantMappingFound, tenantID)
+		normalized, skipReason, err := normalizeLegacyLeaseRecord(record, roomResolution, roomFound, roomPrices, tenantResolution, tenantMappingFound, tenantID)
 		if err != nil {
 			return nil, err
 		}
+		updateLeaseActiveLikeRoomChecks(report.ActiveLikeRoomChecks, record, normalized, skipReason)
 		if skipReason != "" {
 			report.SkippedRows++
 			report.InvalidRows++
@@ -242,8 +294,15 @@ func MigrateLeases(ctx context.Context, db *sql.DB, options MigrateLeasesOptions
 			if !tenantMappingFound {
 				report.MissingTenantMappings++
 			}
-			if roomFound && roomResolution.DefaultRentAmount == nil {
+			switch {
+			case skipReason == "missing or unsupported estate_rent_money":
+				report.MissingRentCadenceRows++
+			case skipReason == "missing matching estate_room_price for rent cadence":
 				report.MissingRentAmountRows++
+				report.MissingMatchingRentPriceRows++
+			case strings.HasPrefix(skipReason, "invalid matching estate_room_price:"):
+				report.MissingRentAmountRows++
+				report.InvalidRentPriceRows++
 			}
 			report.Skipped = append(report.Skipped, LeaseSkipRecord{
 				LegacyRentID:   legacyRentID,
@@ -268,6 +327,7 @@ func MigrateLeases(ctx context.Context, db *sql.DB, options MigrateLeasesOptions
 		report.MappingsCreated++
 		report.StatusDistribution[normalized.Status]++
 		report.DepositStatusDistribution[normalized.DepositStatus]++
+		report.RentBillingCadenceDistribution[normalized.RentBillingCadence]++
 		if normalized.Notes != "" {
 			report.NotesPopulated++
 		}
@@ -287,6 +347,7 @@ func MigrateLeases(ctx context.Context, db *sql.DB, options MigrateLeasesOptions
 
 	report.StatusDistribution = sortedDistribution(report.StatusDistribution)
 	report.DepositStatusDistribution = sortedDistribution(report.DepositStatusDistribution)
+	report.RentBillingCadenceDistribution = sortedDistribution(report.RentBillingCadenceDistribution)
 
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit lease migration: %w", err)
@@ -356,6 +417,34 @@ func loadLegacyLeaseTenantLinks(path string) ([]legacyLeaseTenantLink, error) {
 	return source.Links, nil
 }
 
+func loadLegacyLeaseRoomPrices(path string) (map[string]legacyLeaseRoomPrice, error) {
+	rooms, err := loadLegacyRooms(path)
+	if err != nil {
+		return nil, err
+	}
+
+	pricesByRoomID := make(map[string]legacyLeaseRoomPrice, len(rooms))
+	for _, room := range rooms {
+		roomID := strings.TrimSpace(room.RoomID)
+		if roomID == "" {
+			continue
+		}
+
+		price := legacyLeaseRoomPrice{
+			LegacyEstateID: strings.TrimSpace(room.EstateID),
+			Prices:         legacyRoomPricePayload{},
+		}
+		if strings.TrimSpace(room.PriceRaw) != "" {
+			if err := json.Unmarshal([]byte(strings.TrimSpace(room.PriceRaw)), &price.Prices); err != nil {
+				return nil, fmt.Errorf("decode estate_room_price for room %s: %w", roomID, err)
+			}
+		}
+		pricesByRoomID[roomID] = price
+	}
+
+	return pricesByRoomID, nil
+}
+
 func buildLegacyLeaseTenantResolutions(links []legacyLeaseTenantLink) map[string]legacyLeaseTenantResolution {
 	grouped := make(map[string][]string)
 	for _, link := range links {
@@ -387,10 +476,57 @@ func buildLegacyLeaseTenantResolutions(links []legacyLeaseTenantLink) map[string
 	return resolutions
 }
 
+func buildInitialLeaseActiveLikeRoomChecks() []LeaseActiveLikeRoomCheck {
+	roomIDs := make([]string, 0, len(legacyLeaseActiveLikeRoomIDs))
+	for roomID := range legacyLeaseActiveLikeRoomIDs {
+		roomIDs = append(roomIDs, roomID)
+	}
+	sort.Slice(roomIDs, func(i, j int) bool {
+		left, leftErr := strconv.Atoi(roomIDs[i])
+		right, rightErr := strconv.Atoi(roomIDs[j])
+		if leftErr == nil && rightErr == nil {
+			return left < right
+		}
+		return roomIDs[i] < roomIDs[j]
+	})
+
+	checks := make([]LeaseActiveLikeRoomCheck, 0, len(roomIDs))
+	for _, roomID := range roomIDs {
+		checks = append(checks, LeaseActiveLikeRoomCheck{
+			LegacyEstateID: legacyLeaseActiveLikeRoomIDs[roomID],
+			LegacyRoomID:   roomID,
+		})
+	}
+
+	return checks
+}
+
+func updateLeaseActiveLikeRoomChecks(checks []LeaseActiveLikeRoomCheck, record legacyLeaseRecord, normalized normalizedLeaseRecord, skipReason string) {
+	roomID := strings.TrimSpace(record.RoomID)
+	if _, ok := legacyLeaseActiveLikeRoomIDs[roomID]; !ok || strings.TrimSpace(record.Enabled) != "1" {
+		return
+	}
+
+	for index := range checks {
+		if checks[index].LegacyRoomID != roomID {
+			continue
+		}
+
+		checks[index].LegacyRentID = strings.TrimSpace(record.RentID)
+		checks[index].PaymentCycle = strings.TrimSpace(record.PaymentCycle)
+		checks[index].RentBillingCadence = normalized.RentBillingCadence
+		checks[index].RentAmount = normalized.RentAmount
+		checks[index].Migrated = skipReason == ""
+		checks[index].SkipReason = skipReason
+		return
+	}
+}
+
 func normalizeLegacyLeaseRecord(
 	record legacyLeaseRecord,
 	roomResolution legacyLeaseRoomResolution,
 	roomMappingFound bool,
+	roomPrices map[string]legacyLeaseRoomPrice,
 	tenantResolution legacyLeaseTenantResolution,
 	tenantMappingFound bool,
 	tenantID string,
@@ -412,12 +548,22 @@ func normalizeLegacyLeaseRecord(
 		return normalizedLeaseRecord{}, "missing estate_room_id", nil
 	case !roomMappingFound:
 		return normalizedLeaseRecord{}, "missing room mapping for estate_room_id", nil
-	case roomResolution.DefaultRentAmount == nil:
-		return normalizedLeaseRecord{}, "missing default_rent_amount on mapped room", nil
 	case tenantResolution.LegacyTenantID == "":
 		return normalizedLeaseRecord{}, "missing linked tenant in estate_rent_user", nil
 	case !tenantMappingFound:
 		return normalizedLeaseRecord{}, "missing tenant mapping for linked tenant", nil
+	}
+
+	rentCadence, ok := mapLegacyRentBillingCadence(record.PaymentCycle)
+	if !ok {
+		return normalizedLeaseRecord{}, "missing or unsupported estate_rent_money", nil
+	}
+	rentAmount, ok, err := resolveLegacyLeaseRentAmount(normalized.LegacyRoomID, rentCadence, roomPrices)
+	if err != nil {
+		return normalizedLeaseRecord{}, fmt.Sprintf("invalid matching estate_room_price: %v", err), nil
+	}
+	if !ok {
+		return normalizedLeaseRecord{}, "missing matching estate_room_price for rent cadence", nil
 	}
 
 	startDate, err := parseLegacyDate(record.StartDate)
@@ -440,7 +586,8 @@ func normalizeLegacyLeaseRecord(
 	normalized.StartDate = startDate
 	normalized.EndDate = endDate
 	normalized.DepositAmount = depositAmount
-	normalized.RentAmount = *roomResolution.DefaultRentAmount
+	normalized.RentAmount = rentAmount
+	normalized.RentBillingCadence = rentCadence
 	normalized.Status = deriveLegacyLeaseStatus(record)
 	normalized.DepositStatus = deriveLegacyLeaseDepositStatus(record)
 
@@ -465,6 +612,71 @@ func normalizeLegacyLeaseRecord(
 	}
 
 	return normalized, "", nil
+}
+
+func mapLegacyRentBillingCadence(value string) (string, bool) {
+	switch strings.TrimSpace(value) {
+	case "月繳":
+		return "monthly", true
+	case "季繳":
+		return "quarterly", true
+	case "半年", "半年繳":
+		return "semiannual", true
+	case "年繳":
+		return "annual", true
+	default:
+		return "", false
+	}
+}
+
+func resolveLegacyLeaseRentAmount(legacyRoomID string, rentCadence string, roomPrices map[string]legacyLeaseRoomPrice) (int, bool, error) {
+	roomPrice, ok := roomPrices[legacyRoomID]
+	if !ok {
+		return 0, false, nil
+	}
+
+	label, ok := legacyRentPriceLabel(rentCadence)
+	if !ok {
+		return 0, false, nil
+	}
+
+	price, ok := roomPrice.Prices[label]
+	if !ok {
+		return 0, false, nil
+	}
+
+	money := strings.TrimSpace(price.Money)
+	if money == "" {
+		return 0, false, nil
+	}
+
+	parsed, err := strconv.Atoi(money)
+	if err != nil {
+		return 0, false, err
+	}
+	if parsed == 0 {
+		return 0, false, nil
+	}
+	if parsed < 0 {
+		return 0, false, errors.New("must be >= 0")
+	}
+
+	return parsed, true, nil
+}
+
+func legacyRentPriceLabel(rentCadence string) (string, bool) {
+	switch rentCadence {
+	case "monthly":
+		return "月繳", true
+	case "quarterly":
+		return "季繳", true
+	case "semiannual":
+		return "半年", true
+	case "annual":
+		return "年繳", true
+	default:
+		return "", false
+	}
 }
 
 func parseLegacyDate(value string) (time.Time, error) {
@@ -655,7 +867,7 @@ LIMIT 1
 
 func findLeaseRoomResolution(ctx context.Context, tx *sql.Tx, legacyRoomID string) (legacyLeaseRoomResolution, bool, error) {
 	const query = `
-SELECT lrm.room_id, r.property_id, r.default_rent_amount
+SELECT lrm.room_id, r.property_id
 FROM legacy_room_mappings lrm
 JOIN rooms r
   ON r.id = lrm.room_id
@@ -665,17 +877,11 @@ LIMIT 1
 `
 
 	var resolution legacyLeaseRoomResolution
-	var defaultRentAmount sql.NullInt64
-	if err := tx.QueryRowContext(ctx, query, legacyRoomID).Scan(&resolution.RoomID, &resolution.PropertyID, &defaultRentAmount); err != nil {
+	if err := tx.QueryRowContext(ctx, query, legacyRoomID).Scan(&resolution.RoomID, &resolution.PropertyID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return legacyLeaseRoomResolution{}, false, nil
 		}
 		return legacyLeaseRoomResolution{}, false, fmt.Errorf("query room resolution by legacy_room_id: %w", err)
-	}
-
-	if defaultRentAmount.Valid {
-		value := int(defaultRentAmount.Int64)
-		resolution.DefaultRentAmount = &value
 	}
 
 	return resolution, true, nil
@@ -709,6 +915,7 @@ INSERT INTO leases (
 	rent_amount,
 	start_date,
 	end_date,
+	rent_billing_cadence,
 	electricity_billing_cadence,
 	status,
 	deposit_amount,
@@ -718,7 +925,7 @@ INSERT INTO leases (
 	notes,
 	termination_reason,
 	settlement_detail
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb)
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::jsonb)
 RETURNING id
 `
 
@@ -732,6 +939,7 @@ RETURNING id
 		lease.RentAmount,
 		lease.StartDate,
 		lease.EndDate,
+		lease.RentBillingCadence,
 		"monthly",
 		lease.Status,
 		lease.DepositAmount,
