@@ -47,7 +47,7 @@ type Server struct {
 	httpServer *http.Server
 	db         *sql.DB
 	logger     *slog.Logger
-	storage    *platformstorage.GCSStorage
+	storage    platformstorage.AttachmentStorage
 }
 
 // New wires configuration, infrastructure clients, and the HTTP router into a
@@ -81,7 +81,7 @@ func New(cfg *config.Config) (*Server, error) {
 	jobRunsRepo := dbjobruns.NewRepository(db)
 	attachmentRepo := dbattachments.NewRepository(db)
 
-	storageClient, err := platformstorage.NewGCSStorage(context.Background(), cfg.Storage)
+	storageClient, err := platformstorage.NewAttachmentStorage(context.Background(), cfg.App.Env, cfg.Storage)
 	if err != nil {
 		_ = db.Close()
 		return nil, err

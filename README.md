@@ -133,6 +133,17 @@ Optional local emulator setting:
 STORAGE_EMULATOR_HOST=http://127.0.0.1:4443
 ```
 
+E2E attachment acceptance uses metadata-only storage by default:
+
+```bash
+ATTACHMENT_STORAGE_MODE=fake-metadata
+```
+
+This mode is only allowed when `APP_ENV` is `e2e` or `test`. It returns a fake
+upload URL and valid object metadata so E2E tests can cover upload-token,
+registration, read, and authorization behavior without production GCS or a
+storage emulator.
+
 Production or staging environments must provide Google Application Default Credentials, for example through `GOOGLE_APPLICATION_CREDENTIALS` or the runtime service account. The service account needs permission to create signed upload URLs and read object metadata for registration checks.
 
 ## OpenAPI workflow

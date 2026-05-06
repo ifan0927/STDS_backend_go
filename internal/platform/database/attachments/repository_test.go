@@ -396,6 +396,57 @@ ORDER BY sort_order ASC, created_at ASC
 	}
 }
 
+func TestListByResourceUsesNullRepairFieldsForSharedAttachmentTables(t *testing.T) {
+	_, mock, repo := newAttachmentRepoTest(t)
+	now := time.Date(2026, 4, 28, 10, 0, 0, 0, time.UTC)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`
+SELECT
+	id,
+	property_id,
+	object_path,
+	file_name,
+	uploaded_by,
+	NULL AS sort_order,
+	NULL AS photo_stage,
+	created_at,
+	deleted_at
+FROM property_attachments
+WHERE property_id = $1
+  AND deleted_at IS NULL
+ORDER BY created_at DESC
+`)).
+		WithArgs("10000000-0000-0000-0000-000000000001").
+		WillReturnRows(attachmentRows("property_id").AddRow(
+			"80000000-0000-0000-0000-000000000001",
+			"10000000-0000-0000-0000-000000000001",
+			"attachments/property/object.pdf",
+			"object.pdf",
+			nil,
+			nil,
+			nil,
+			now,
+			nil,
+		))
+
+	attachments, err := repo.ListByResource(context.Background(), ResourceTypeProperty, "10000000-0000-0000-0000-000000000001")
+	if err != nil {
+		t.Fatalf("ListByResource returned error: %v", err)
+	}
+	if len(attachments) != 1 {
+		t.Fatalf("expected 1 attachment, got %d", len(attachments))
+	}
+	if attachments[0].SortOrder != nil {
+		t.Fatalf("expected nil sort order for property attachment, got %#v", attachments[0].SortOrder)
+	}
+	if attachments[0].PhotoStage != nil {
+		t.Fatalf("expected nil photo stage for property attachment, got %#v", attachments[0].PhotoStage)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sqlmock expectations: %v", err)
+	}
+}
+
 func TestListByResourceRejectsUnsupportedResourceType(t *testing.T) {
 	_, mock, repo := newAttachmentRepoTest(t)
 
