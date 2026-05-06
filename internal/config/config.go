@@ -57,9 +57,10 @@ type NotificationConfig struct {
 
 // StorageConfig contains object storage settings for attachment upload flows.
 type StorageConfig struct {
-	GCSBucketName   string
-	GCSSignedURLTTL time.Duration
-	GCSEmulatorHost string
+	GCSBucketName         string
+	GCSSignedURLTTL       time.Duration
+	GCSEmulatorHost       string
+	AttachmentStorageMode string
 }
 
 // UsesAuthEmulator reports whether Firebase auth calls should target the local
@@ -102,9 +103,10 @@ func Load() (*Config, error) {
 			ResendBaseURL:   getEnv("RESEND_BASE_URL", "https://api.resend.com"),
 		},
 		Storage: StorageConfig{
-			GCSBucketName:   os.Getenv("GCS_BUCKET_NAME"),
-			GCSSignedURLTTL: getDurationEnv("GCS_SIGNED_URL_TTL", 15*time.Minute),
-			GCSEmulatorHost: os.Getenv("STORAGE_EMULATOR_HOST"),
+			GCSBucketName:         os.Getenv("GCS_BUCKET_NAME"),
+			GCSSignedURLTTL:       getDurationEnv("GCS_SIGNED_URL_TTL", 15*time.Minute),
+			GCSEmulatorHost:       os.Getenv("STORAGE_EMULATOR_HOST"),
+			AttachmentStorageMode: os.Getenv("ATTACHMENT_STORAGE_MODE"),
 		},
 	}
 

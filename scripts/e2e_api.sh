@@ -13,7 +13,7 @@ export DATABASE_URL="${DATABASE_URL:-postgres://stds:stds@localhost:5432/stds_ba
 export FIREBASE_PROJECT_ID="${FIREBASE_PROJECT_ID:-demo-stds-backend}"
 export FIREBASE_AUTH_EMULATOR_HOST="${FIREBASE_AUTH_EMULATOR_HOST:-127.0.0.1:9099}"
 export GCS_BUCKET_NAME="${GCS_BUCKET_NAME:-stds-e2e}"
-export STORAGE_EMULATOR_HOST="${STORAGE_EMULATOR_HOST:-http://127.0.0.1:4443}"
+export ATTACHMENT_STORAGE_MODE="${ATTACHMENT_STORAGE_MODE:-fake-metadata}"
 export RESEND_API_KEY="${RESEND_API_KEY:-e2e-resend-key}"
 export RESEND_FROM_EMAIL="${RESEND_FROM_EMAIL:-e2e@example.com}"
 

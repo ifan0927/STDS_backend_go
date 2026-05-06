@@ -158,6 +158,25 @@ Cover contract-bearing behavior for:
 If an adapter cannot be tested without a design seam, keep the seam minimal and
 tied directly to observable behavior.
 
+### E2E Changes
+
+E2E tests are opt-in and run through the repository scripts documented in
+`README.md`.
+
+Before reporting E2E environment blockers, agents must inspect the README E2E
+section and the local scripts:
+
+- `scripts/e2e_api.sh` for starting the API with E2E defaults.
+- `scripts/e2e_test.sh` for running the Go E2E suite with required env vars.
+
+Prefer the scripts over hand-written environment setup because they encode the
+current expected defaults for the E2E database, Firebase Auth Emulator,
+scheduler key, and E2E-only external adapter seams.
+
+If the full E2E runtime cannot be started in the current environment, still run
+the narrowest useful checks, such as package compile checks with the `e2e` build
+tag, and state clearly which runtime dependency was unavailable.
+
 ### Bug Fixes
 
 A bug fix should include a reproducing test first whenever practical.

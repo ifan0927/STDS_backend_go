@@ -270,6 +270,13 @@ func (r *SQLRepository) ListByResource(ctx context.Context, resourceType Resourc
 		return nil, err
 	}
 
+	selectSortOrder := "NULL AS sort_order"
+	selectPhotoStage := "NULL AS photo_stage"
+	if resourceType == ResourceTypeRepairRequest {
+		selectSortOrder = "sort_order"
+		selectPhotoStage = "photo_stage"
+	}
+
 	query := fmt.Sprintf(`
 SELECT
 	id,
@@ -277,15 +284,15 @@ SELECT
 	object_path,
 	file_name,
 	uploaded_by,
-	sort_order,
-	photo_stage,
+	%s,
+	%s,
 	created_at,
 	deleted_at
 FROM %s
 WHERE %s = $1
   AND deleted_at IS NULL
 ORDER BY %s
-`, spec.idColumn, spec.tableName, spec.idColumn, spec.orderBySQL)
+`, spec.idColumn, selectSortOrder, selectPhotoStage, spec.tableName, spec.idColumn, spec.orderBySQL)
 
 	rows, err := r.db.QueryContext(ctx, query, resourceID)
 	if err != nil {
