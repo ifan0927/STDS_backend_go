@@ -62,11 +62,59 @@ func TestNewRejectsInvalidCadence(t *testing.T) {
 		RentAmount:                18000,
 		StartDate:                 date(2026, 5, 1),
 		EndDate:                   date(2026, 5, 31),
+		RentBillingCadence:        BillingCadenceMonthly,
 		ElectricityBillingCadence: "weekly",
 		DepositAmount:             36000,
 	})
 	if !errors.Is(err, ErrInvalidCadence) {
 		t.Fatalf("expected ErrInvalidCadence, got %v", err)
+	}
+}
+
+func TestNewValidatesRentCadenceSeparatelyFromElectricityCadence(t *testing.T) {
+	_, err := New(State{
+		TenantID:                  "tenant-1",
+		RoomID:                    "room-1",
+		PropertyID:                "property-1",
+		RentAmount:                18000,
+		StartDate:                 date(2026, 5, 1),
+		EndDate:                   date(2026, 12, 31),
+		RentBillingCadence:        BillingCadenceQuarterly,
+		ElectricityBillingCadence: BillingCadenceBimonthly,
+		DepositAmount:             36000,
+	})
+	if err != nil {
+		t.Fatalf("New with quarterly rent and bimonthly electricity cadence: %v", err)
+	}
+
+	_, err = New(State{
+		TenantID:                  "tenant-1",
+		RoomID:                    "room-1",
+		PropertyID:                "property-1",
+		RentAmount:                18000,
+		StartDate:                 date(2026, 5, 1),
+		EndDate:                   date(2026, 12, 31),
+		RentBillingCadence:        BillingCadenceBimonthly,
+		ElectricityBillingCadence: BillingCadenceMonthly,
+		DepositAmount:             36000,
+	})
+	if !errors.Is(err, ErrInvalidRentBillingCadence) {
+		t.Fatalf("expected ErrInvalidRentBillingCadence, got %v", err)
+	}
+
+	_, err = New(State{
+		TenantID:                  "tenant-1",
+		RoomID:                    "room-1",
+		PropertyID:                "property-1",
+		RentAmount:                18000,
+		StartDate:                 date(2026, 5, 1),
+		EndDate:                   date(2026, 12, 31),
+		RentBillingCadence:        BillingCadenceMonthly,
+		ElectricityBillingCadence: BillingCadenceQuarterly,
+		DepositAmount:             36000,
+	})
+	if !errors.Is(err, ErrInvalidElectricityBillingCadence) {
+		t.Fatalf("expected ErrInvalidElectricityBillingCadence, got %v", err)
 	}
 }
 
@@ -455,6 +503,76 @@ func TestBuildBillingPeriodsNaturalBimonthlyDetailedCases(t *testing.T) {
 			{PeriodStart: date(2026, 11, 1), PeriodEnd: date(2026, 12, 5), DueDate: date(2026, 11, 30)},
 		})
 	})
+}
+
+func TestBuildRentBillingPeriodsCadences(t *testing.T) {
+	tests := []struct {
+		name    string
+		cadence string
+		want    []BillingPeriod
+	}{
+		{
+			name:    "monthly advances one month",
+			cadence: BillingCadenceMonthly,
+			want: []BillingPeriod{
+				{PeriodStart: date(2026, 5, 15), PeriodEnd: date(2026, 6, 14), DueDate: date(2026, 5, 15)},
+				{PeriodStart: date(2026, 6, 15), PeriodEnd: date(2026, 7, 14), DueDate: date(2026, 6, 15)},
+				{PeriodStart: date(2026, 7, 15), PeriodEnd: date(2026, 8, 14), DueDate: date(2026, 7, 15)},
+				{PeriodStart: date(2026, 8, 15), PeriodEnd: date(2026, 9, 14), DueDate: date(2026, 8, 15)},
+				{PeriodStart: date(2026, 9, 15), PeriodEnd: date(2026, 9, 20), DueDate: date(2026, 9, 15)},
+			},
+		},
+		{
+			name:    "quarterly advances three months",
+			cadence: BillingCadenceQuarterly,
+			want: []BillingPeriod{
+				{PeriodStart: date(2026, 5, 15), PeriodEnd: date(2026, 8, 14), DueDate: date(2026, 5, 15)},
+				{PeriodStart: date(2026, 8, 15), PeriodEnd: date(2026, 9, 20), DueDate: date(2026, 8, 15)},
+			},
+		},
+		{
+			name:    "semiannual advances six months",
+			cadence: BillingCadenceSemiannual,
+			want: []BillingPeriod{
+				{PeriodStart: date(2026, 5, 15), PeriodEnd: date(2026, 11, 14), DueDate: date(2026, 5, 15)},
+				{PeriodStart: date(2026, 11, 15), PeriodEnd: date(2027, 2, 20), DueDate: date(2026, 11, 15)},
+			},
+		},
+		{
+			name:    "annual advances twelve months",
+			cadence: BillingCadenceAnnual,
+			want: []BillingPeriod{
+				{PeriodStart: date(2026, 5, 15), PeriodEnd: date(2027, 5, 14), DueDate: date(2026, 5, 15)},
+				{PeriodStart: date(2027, 5, 15), PeriodEnd: date(2027, 8, 20), DueDate: date(2027, 5, 15)},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			endDate := date(2026, 9, 20)
+			if tt.cadence == BillingCadenceSemiannual {
+				endDate = date(2027, 2, 20)
+			}
+			if tt.cadence == BillingCadenceAnnual {
+				endDate = date(2027, 8, 20)
+			}
+
+			periods, err := BuildRentBillingPeriods(date(2026, 5, 15), endDate, tt.cadence)
+			if err != nil {
+				t.Fatalf("BuildRentBillingPeriods: %v", err)
+			}
+
+			assertPeriods(t, periods, tt.want)
+		})
+	}
+}
+
+func TestBuildRentBillingPeriodsRejectsElectricityOnlyCadence(t *testing.T) {
+	_, err := BuildRentBillingPeriods(date(2026, 5, 1), date(2026, 12, 31), BillingCadenceBimonthly)
+	if !errors.Is(err, ErrInvalidRentBillingCadence) {
+		t.Fatalf("expected ErrInvalidRentBillingCadence, got %v", err)
+	}
 }
 
 func date(year int, month time.Month, day int) time.Time {

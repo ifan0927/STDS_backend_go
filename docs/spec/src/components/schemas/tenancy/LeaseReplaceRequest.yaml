@@ -25,6 +25,7 @@ properties:
     required:
       - end_date
       - rent_amount
+      - rent_billing_cadence
       - electricity_billing_cadence
     properties:
       end_date:
@@ -32,6 +33,13 @@ properties:
         format: date
       rent_amount:
         type: integer
+      rent_billing_cadence:
+        type: string
+        enum:
+          - monthly
+          - quarterly
+          - semiannual
+          - annual
       electricity_billing_cadence:
         type: string
         enum:

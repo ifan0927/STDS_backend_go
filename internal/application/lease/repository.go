@@ -24,6 +24,7 @@ type Lease struct {
 	RentAmount                int
 	StartDate                 time.Time
 	EndDate                   time.Time
+	RentBillingCadence        string
 	ElectricityBillingCadence string
 	Status                    string
 	DepositAmount             int
@@ -61,6 +62,7 @@ type CreateLeaseParams struct {
 	RentAmount                int
 	StartDate                 time.Time
 	EndDate                   time.Time
+	RentBillingCadence        string
 	ElectricityBillingCadence string
 	DepositAmount             int
 	Notes                     *string

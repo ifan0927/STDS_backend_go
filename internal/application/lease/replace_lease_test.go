@@ -31,15 +31,16 @@ func TestReplaceLeaseServiceCreatesSuccessorAndPublishesEvents(t *testing.T) {
 	service := NewReplaceLeaseService(repo, dbtxrunner.New(db, publisher))
 
 	result, err := service.Execute(context.Background(), ReplaceLeaseInput{
-		ActorRole:           "staff",
-		AssignedPropertyIDs: []string{"property-1"},
-		LeaseID:             replaceLeaseTestLeaseID,
-		Reason:              "cadence_change",
-		EffectiveStartDate:  time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
-		DepositHandling:     "carry_over",
-		NewEndDate:          time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
-		NewRentAmount:       20000,
-		NewCadence:          "bimonthly",
+		ActorRole:             "staff",
+		AssignedPropertyIDs:   []string{"property-1"},
+		LeaseID:               replaceLeaseTestLeaseID,
+		Reason:                "cadence_change",
+		EffectiveStartDate:    time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		DepositHandling:       "carry_over",
+		NewEndDate:            time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+		NewRentAmount:         20000,
+		NewRentBillingCadence: "monthly",
+		NewCadence:            "bimonthly",
 	})
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
@@ -103,15 +104,16 @@ func TestReplaceLeaseServiceSubscribersKeepReplacementRoomAndTenantActive(t *tes
 	service := NewReplaceLeaseService(repo, txRunner)
 
 	_, err = service.Execute(context.Background(), ReplaceLeaseInput{
-		ActorRole:           "staff",
-		AssignedPropertyIDs: []string{"property-1"},
-		LeaseID:             replaceLeaseTestLeaseID,
-		Reason:              "cadence_change",
-		EffectiveStartDate:  time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
-		DepositHandling:     "carry_over",
-		NewEndDate:          time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
-		NewRentAmount:       20000,
-		NewCadence:          "bimonthly",
+		ActorRole:             "staff",
+		AssignedPropertyIDs:   []string{"property-1"},
+		LeaseID:               replaceLeaseTestLeaseID,
+		Reason:                "cadence_change",
+		EffectiveStartDate:    time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		DepositHandling:       "carry_over",
+		NewEndDate:            time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+		NewRentAmount:         20000,
+		NewRentBillingCadence: "monthly",
+		NewCadence:            "bimonthly",
 	})
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
@@ -132,17 +134,90 @@ func TestReplaceLeaseServiceRejectsNonBoundaryDate(t *testing.T) {
 	service := NewReplaceLeaseService(replacementRepoStub(), txRunnerForRollback(t))
 
 	_, err := service.Execute(context.Background(), ReplaceLeaseInput{
+		ActorRole:             "admin",
+		LeaseID:               replaceLeaseTestLeaseID,
+		Reason:                "cadence_change",
+		EffectiveStartDate:    time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC),
+		DepositHandling:       "carry_over",
+		NewEndDate:            time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+		NewRentAmount:         20000,
+		NewRentBillingCadence: "monthly",
+		NewCadence:            "bimonthly",
+	})
+	if !errors.Is(err, errReplacementNotAtBillingBoundary) {
+		t.Fatalf("expected errReplacementNotAtBillingBoundary, got %v", err)
+	}
+}
+
+func TestReplaceLeaseServiceRejectsMissingRentBillingCadence(t *testing.T) {
+	service := NewReplaceLeaseService(nil, nil)
+
+	_, err := service.Execute(context.Background(), ReplaceLeaseInput{
 		ActorRole:          "admin",
 		LeaseID:            replaceLeaseTestLeaseID,
 		Reason:             "cadence_change",
-		EffectiveStartDate: time.Date(2026, 6, 2, 0, 0, 0, 0, time.UTC),
+		EffectiveStartDate: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
 		DepositHandling:    "carry_over",
 		NewEndDate:         time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
 		NewRentAmount:      20000,
 		NewCadence:         "bimonthly",
 	})
-	if !errors.Is(err, errReplacementNotAtBillingBoundary) {
-		t.Fatalf("expected errReplacementNotAtBillingBoundary, got %v", err)
+	var appErr *apperr.Error
+	if !errors.As(err, &appErr) {
+		t.Fatalf("expected application error, got %v", err)
+	}
+	details, ok := appErr.Details.(map[string]interface{})
+	if !ok || details["field"] != "rent_billing_cadence" {
+		t.Fatalf("expected rent_billing_cadence field detail, got %+v", appErr.Details)
+	}
+}
+
+func TestReplaceLeaseServiceSupportsRentCadenceChangeAndReportsChangedField(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+
+	repo := replacementRepoStub()
+	repo.lease.RentBillingCadence = "monthly"
+	repo.createdLease.RentBillingCadence = "quarterly"
+	service := NewReplaceLeaseService(repo, dbtxrunner.New(db, nil))
+
+	result, err := service.Execute(context.Background(), ReplaceLeaseInput{
+		ActorRole:             "admin",
+		LeaseID:               replaceLeaseTestLeaseID,
+		Reason:                "cadence_change",
+		EffectiveStartDate:    time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		DepositHandling:       "carry_over",
+		NewEndDate:            time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+		NewRentAmount:         20000,
+		NewRentBillingCadence: "quarterly",
+		NewCadence:            "monthly",
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	if repo.createLeaseParams == nil || repo.createLeaseParams.RentBillingCadence != "quarterly" || repo.createLeaseParams.ElectricityBillingCadence != "monthly" {
+		t.Fatalf("unexpected create lease params: %+v", repo.createLeaseParams)
+	}
+	if !hasString(result.ChangedFields, "rent_billing_cadence") {
+		t.Fatalf("changed fields = %#v, want rent_billing_cadence", result.ChangedFields)
+	}
+	if len(repo.createdBills) != 10 {
+		t.Fatalf("created bills = %d, want 10 for 3 quarterly rent periods and 7 monthly electricity periods", len(repo.createdBills))
+	}
+	firstRent := repo.createdBills[0]
+	if firstRent.Type != billTypeRent || !firstRent.PeriodStart.Equal(time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)) || !firstRent.PeriodEnd.Equal(time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("unexpected first rent bill: %+v", firstRent)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
 	}
 }
 
@@ -158,14 +233,15 @@ func TestReplaceLeaseServiceRejectsUnsettledBoundaryBeforeBills(t *testing.T) {
 	service := NewReplaceLeaseService(repo, txRunnerForRollback(t))
 
 	_, err := service.Execute(context.Background(), ReplaceLeaseInput{
-		ActorRole:          "admin",
-		LeaseID:            replaceLeaseTestLeaseID,
-		Reason:             "cadence_change",
-		EffectiveStartDate: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
-		DepositHandling:    "carry_over",
-		NewEndDate:         time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
-		NewRentAmount:      20000,
-		NewCadence:         "bimonthly",
+		ActorRole:             "admin",
+		LeaseID:               replaceLeaseTestLeaseID,
+		Reason:                "cadence_change",
+		EffectiveStartDate:    time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		DepositHandling:       "carry_over",
+		NewEndDate:            time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+		NewRentAmount:         20000,
+		NewRentBillingCadence: "monthly",
+		NewCadence:            "bimonthly",
 	})
 	var appErr *apperr.Error
 	if !errors.As(err, &appErr) || appErr.Code != codeReplacementUnsettledBills {
@@ -177,12 +253,13 @@ func TestReplaceLeaseServiceRejectsUnsupportedDepositHandling(t *testing.T) {
 	service := NewReplaceLeaseService(nil, nil)
 
 	_, err := service.Execute(context.Background(), ReplaceLeaseInput{
-		LeaseID:            replaceLeaseTestLeaseID,
-		EffectiveStartDate: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
-		DepositHandling:    "refund",
-		NewEndDate:         time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
-		NewRentAmount:      20000,
-		NewCadence:         "bimonthly",
+		LeaseID:               replaceLeaseTestLeaseID,
+		EffectiveStartDate:    time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		DepositHandling:       "refund",
+		NewEndDate:            time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+		NewRentAmount:         20000,
+		NewRentBillingCadence: "monthly",
+		NewCadence:            "bimonthly",
 	})
 	if !errors.Is(err, errReplacementDepositHandlingUnsupported) {
 		t.Fatalf("expected errReplacementDepositHandlingUnsupported, got %v", err)
@@ -195,30 +272,22 @@ func TestReplaceLeaseServiceRejectsScopeMismatch(t *testing.T) {
 	service := NewReplaceLeaseService(repo, txRunnerForRollback(t))
 
 	_, err := service.Execute(context.Background(), ReplaceLeaseInput{
-		ActorRole:          "admin",
-		LeaseID:            replaceLeaseTestLeaseID,
-		Reason:             "cadence_change",
-		EffectiveStartDate: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
-		DepositHandling:    "carry_over",
-		NewEndDate:         time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
-		NewRentAmount:      20000,
-		NewCadence:         "bimonthly",
+		ActorRole:             "admin",
+		LeaseID:               replaceLeaseTestLeaseID,
+		Reason:                "cadence_change",
+		EffectiveStartDate:    time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		DepositHandling:       "carry_over",
+		NewEndDate:            time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+		NewRentAmount:         20000,
+		NewRentBillingCadence: "monthly",
+		NewCadence:            "bimonthly",
 	})
 	if !errors.Is(err, errReplacementScopeMismatch) {
 		t.Fatalf("expected errReplacementScopeMismatch, got %v", err)
 	}
 }
 
-func TestReplaceLeaseServiceVoidsBillsOverlappingBoundary(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("sqlmock.New: %v", err)
-	}
-	defer db.Close()
-
-	mock.ExpectBegin()
-	mock.ExpectCommit()
-
+func TestReplaceLeaseServiceRejectsBoundaryThatCutsRentPeriod(t *testing.T) {
 	repo := replacementRepoStub()
 	repo.replacementBills = append(repo.replacementBills, Bill{
 		ID:          "bill-electricity-paid-second",
@@ -233,23 +302,119 @@ func TestReplaceLeaseServiceVoidsBillsOverlappingBoundary(t *testing.T) {
 		PeriodStart: time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC),
 		PeriodEnd:   time.Date(2026, 7, 14, 0, 0, 0, 0, time.UTC),
 	})
-	service := NewReplaceLeaseService(repo, dbtxrunner.New(db, nil))
+	service := NewReplaceLeaseService(repo, txRunnerForRollback(t))
 
-	_, err = service.Execute(context.Background(), ReplaceLeaseInput{
-		ActorRole:          "admin",
-		LeaseID:            replaceLeaseTestLeaseID,
-		Reason:             "cadence_change",
-		EffectiveStartDate: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
-		DepositHandling:    "carry_over",
-		NewEndDate:         time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
-		NewRentAmount:      20000,
-		NewCadence:         "bimonthly",
+	_, err := service.Execute(context.Background(), ReplaceLeaseInput{
+		ActorRole:             "admin",
+		LeaseID:               replaceLeaseTestLeaseID,
+		Reason:                "cadence_change",
+		EffectiveStartDate:    time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		DepositHandling:       "carry_over",
+		NewEndDate:            time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+		NewRentAmount:         20000,
+		NewRentBillingCadence: "monthly",
+		NewCadence:            "bimonthly",
 	})
-	if err != nil {
-		t.Fatalf("Execute: %v", err)
+	if !errors.Is(err, errReplacementNotAtBillingBoundary) {
+		t.Fatalf("expected errReplacementNotAtBillingBoundary, got %v", err)
 	}
-	if repo.voidBillsBoundary == nil || !repo.voidBillsBoundary.Equal(time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)) {
-		t.Fatalf("voidBillsBoundary = %v, want 2026-07-01", repo.voidBillsBoundary)
+	if repo.voidBillsBoundary != nil {
+		t.Fatalf("voidBillsBoundary = %v, want nil", repo.voidBillsBoundary)
+	}
+}
+
+func TestReplaceLeaseServiceRejectsLeaseEndShortPeriodAsBoundary(t *testing.T) {
+	repo := replacementRepoStub()
+	repo.lease.StartDate = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	repo.lease.EndDate = time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)
+	repo.lease.RentBillingCadence = "quarterly"
+	repo.replacementBills = []Bill{
+		{
+			ID:          "bill-rent-paid-full",
+			Type:        "rent",
+			Status:      "paid",
+			PeriodStart: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+			PeriodEnd:   time.Date(2026, 3, 31, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			ID:          "bill-electricity-paid-full",
+			Type:        "electricity",
+			Status:      "paid",
+			PeriodStart: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+			PeriodEnd:   time.Date(2026, 4, 30, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			ID:          "bill-rent-final-short",
+			Type:        "rent",
+			Status:      "paid",
+			PeriodStart: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+			PeriodEnd:   time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			ID:          "bill-electricity-final-short",
+			Type:        "electricity",
+			Status:      "paid",
+			PeriodStart: time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+			PeriodEnd:   time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC),
+		},
+	}
+	service := NewReplaceLeaseService(repo, txRunnerForRollback(t))
+
+	_, err := service.Execute(context.Background(), ReplaceLeaseInput{
+		ActorRole:             "admin",
+		LeaseID:               replaceLeaseTestLeaseID,
+		Reason:                "cadence_change",
+		EffectiveStartDate:    time.Date(2026, 5, 16, 0, 0, 0, 0, time.UTC),
+		DepositHandling:       "carry_over",
+		NewEndDate:            time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+		NewRentAmount:         20000,
+		NewRentBillingCadence: "quarterly",
+		NewCadence:            "monthly",
+	})
+	if !errors.Is(err, errReplacementNotAtBillingBoundary) {
+		t.Fatalf("expected errReplacementNotAtBillingBoundary, got %v", err)
+	}
+	if repo.voidBillsBoundary != nil {
+		t.Fatalf("voidBillsBoundary = %v, want nil", repo.voidBillsBoundary)
+	}
+}
+
+func TestReplaceLeaseServiceRejectsBoundaryThatCutsElectricityPeriod(t *testing.T) {
+	repo := replacementRepoStub()
+	repo.replacementBills = []Bill{
+		{
+			ID:          "bill-rent-paid-second",
+			Type:        "rent",
+			Status:      "paid",
+			PeriodStart: time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+			PeriodEnd:   time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			ID:          "bill-electricity-overlap",
+			Type:        "electricity",
+			Status:      "pending_meter",
+			PeriodStart: time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC),
+			PeriodEnd:   time.Date(2026, 6, 14, 0, 0, 0, 0, time.UTC),
+		},
+	}
+	service := NewReplaceLeaseService(repo, txRunnerForRollback(t))
+
+	_, err := service.Execute(context.Background(), ReplaceLeaseInput{
+		ActorRole:             "admin",
+		LeaseID:               replaceLeaseTestLeaseID,
+		Reason:                "cadence_change",
+		EffectiveStartDate:    time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		DepositHandling:       "carry_over",
+		NewEndDate:            time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+		NewRentAmount:         20000,
+		NewRentBillingCadence: "monthly",
+		NewCadence:            "bimonthly",
+	})
+	if !errors.Is(err, errReplacementNotAtBillingBoundary) {
+		t.Fatalf("expected errReplacementNotAtBillingBoundary, got %v", err)
+	}
+	if repo.voidBillsBoundary != nil {
+		t.Fatalf("voidBillsBoundary = %v, want nil", repo.voidBillsBoundary)
 	}
 }
 
@@ -270,6 +435,7 @@ func replacementRepoStub() *leaseRepositoryStub {
 			RentAmount:                18000,
 			StartDate:                 time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
 			EndDate:                   time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+			RentBillingCadence:        "monthly",
 			ElectricityBillingCadence: "monthly",
 			Status:                    "active",
 			DepositAmount:             36000,
@@ -283,6 +449,7 @@ func replacementRepoStub() *leaseRepositoryStub {
 			RentAmount:                20000,
 			StartDate:                 time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
 			EndDate:                   time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+			RentBillingCadence:        "monthly",
 			ElectricityBillingCadence: "bimonthly",
 			Status:                    "active",
 			DepositAmount:             36000,
@@ -305,6 +472,15 @@ func replacementRepoStub() *leaseRepositoryStub {
 			},
 		},
 	}
+}
+
+func hasString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func txRunnerForRollback(t *testing.T) *dbtxrunner.Runner {

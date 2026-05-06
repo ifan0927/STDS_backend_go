@@ -83,15 +83,81 @@ func TestE2ELeaseCreationLifecycleAcceptance(t *testing.T) {
 	})
 }
 
+func TestE2EQuarterlyRentBillingCadenceAcceptance(t *testing.T) {
+	cfg, err := loadE2EConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+
+	db, err := resetAndMigrateDatabase(ctx, cfg.DatabaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	adminToken, err := issueFirebaseEmulatorToken(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := seedAuthenticatedUser(ctx, db, adminToken.UID, cfg.TestEmail); err != nil {
+		t.Fatal(err)
+	}
+
+	adminClient := newAPIClient(cfg.BaseURL, adminToken.IDToken)
+
+	property := createProperty(t, ctx, adminClient, "E2E Quarterly Rent Billing Property")
+	room := createRoom(t, ctx, adminClient, property.ID, "E2E Quarterly Rent Billing Room")
+	tenant := createTenant(t, ctx, adminClient)
+
+	lease := leaseLifecycleE2ECreateLease(t, ctx, adminClient, leaseLifecycleE2ECreateLeaseParams{
+		PropertyID:                property.ID,
+		RoomID:                    room.ID,
+		TenantID:                  tenant.ID,
+		StartDate:                 "2026-01-01",
+		EndDate:                   "2026-07-15",
+		RentAmount:                30000,
+		Deposit:                   60000,
+		RentCadence:               "quarterly",
+		ElectricityBillingCadence: "monthly",
+	})
+
+	readLease := leaseLifecycleE2EGetLease(t, ctx, adminClient, lease.ID)
+	leaseLifecycleE2ERequireLease(t, readLease, leaseLifecycleE2ECreateLeaseParams{
+		PropertyID:                property.ID,
+		RoomID:                    room.ID,
+		TenantID:                  tenant.ID,
+		StartDate:                 "2026-01-01",
+		EndDate:                   "2026-07-15",
+		RentAmount:                30000,
+		Deposit:                   60000,
+		RentCadence:               "quarterly",
+		ElectricityBillingCadence: "monthly",
+	})
+
+	listedLease := leaseLifecycleE2EFindListedLease(t, leaseLifecycleE2EListLeases(t, ctx, adminClient, property.ID), lease.ID)
+	if listedLease.RentBillingCadence != "quarterly" {
+		t.Fatalf("expected listed lease rent_billing_cadence %q, got %q", "quarterly", listedLease.RentBillingCadence)
+	}
+
+	bills := leaseLifecycleE2EListBills(t, ctx, adminClient, lease.ID)
+	leaseLifecycleE2ERequireQuarterlyRentBills(t, bills, 30000)
+	leaseLifecycleE2ERequireMonthlyElectricityBills(t, bills)
+}
+
 type leaseLifecycleE2ECreateLeaseParams struct {
-	PropertyID string
-	RoomID     string
-	TenantID   string
-	StartDate  string
-	EndDate    string
-	RentAmount int
-	Deposit    int
-	Cadence    string
+	PropertyID                string
+	RoomID                    string
+	TenantID                  string
+	StartDate                 string
+	EndDate                   string
+	RentAmount                int
+	Deposit                   int
+	Cadence                   string
+	RentCadence               string
+	ElectricityBillingCadence string
 }
 
 type leaseLifecycleE2ELeaseResponse struct {
@@ -100,6 +166,7 @@ type leaseLifecycleE2ELeaseResponse struct {
 	RoomID                    string  `json:"room_id"`
 	PropertyID                string  `json:"property_id"`
 	RentAmount                int     `json:"rent_amount"`
+	RentBillingCadence        string  `json:"rent_billing_cadence"`
 	StartDate                 string  `json:"start_date"`
 	EndDate                   string  `json:"end_date"`
 	ElectricityBillingCadence string  `json:"electricity_billing_cadence"`
@@ -116,6 +183,10 @@ type leaseLifecycleE2ELeaseResponse struct {
 
 type leaseLifecycleE2EBillListResponse struct {
 	Data []leaseLifecycleE2EBillResponse `json:"data"`
+}
+
+type leaseLifecycleE2ELeaseListResponse struct {
+	Data []leaseLifecycleE2ELeaseResponse `json:"data"`
 }
 
 type leaseLifecycleE2EBillResponse struct {
@@ -146,15 +217,20 @@ type leaseLifecycleE2EGeneratedBillExpectation struct {
 func leaseLifecycleE2ECreateLease(t *testing.T, ctx context.Context, client apiClient, params leaseLifecycleE2ECreateLeaseParams) leaseLifecycleE2ELeaseResponse {
 	t.Helper()
 
-	resp, body, err := client.postJSON(ctx, "/api/v1/leases", map[string]any{
+	request := map[string]any{
 		"tenant_id":                   params.TenantID,
 		"room_id":                     params.RoomID,
 		"rent_amount":                 params.RentAmount,
 		"start_date":                  params.StartDate,
 		"end_date":                    params.EndDate,
 		"deposit_amount":              params.Deposit,
-		"electricity_billing_cadence": params.Cadence,
-	})
+		"electricity_billing_cadence": leaseLifecycleE2EElectricityCadence(params),
+	}
+	if params.RentCadence != "" {
+		request["rent_billing_cadence"] = params.RentCadence
+	}
+
+	resp, body, err := client.postJSON(ctx, "/api/v1/leases", request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,6 +241,13 @@ func leaseLifecycleE2ECreateLease(t *testing.T, ctx context.Context, client apiC
 	leaseLifecycleE2ERequireLease(t, lease, params)
 
 	return lease
+}
+
+func leaseLifecycleE2EElectricityCadence(params leaseLifecycleE2ECreateLeaseParams) string {
+	if params.ElectricityBillingCadence != "" {
+		return params.ElectricityBillingCadence
+	}
+	return params.Cadence
 }
 
 func leaseLifecycleE2EGetLease(t *testing.T, ctx context.Context, client apiClient, leaseID string) leaseLifecycleE2ELeaseResponse {
@@ -179,6 +262,32 @@ func leaseLifecycleE2EGetLease(t *testing.T, ctx context.Context, client apiClie
 	var lease leaseLifecycleE2ELeaseResponse
 	decodeJSON(t, body, &lease)
 	return lease
+}
+
+func leaseLifecycleE2EListLeases(t *testing.T, ctx context.Context, client apiClient, propertyID string) []leaseLifecycleE2ELeaseResponse {
+	t.Helper()
+
+	resp, body, err := client.getJSON(ctx, fmt.Sprintf("/api/v1/leases?property_id=%s&limit=100", url.QueryEscape(propertyID)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireStatus(t, resp, body, http.StatusOK)
+
+	var list leaseLifecycleE2ELeaseListResponse
+	decodeJSON(t, body, &list)
+	return list.Data
+}
+
+func leaseLifecycleE2EFindListedLease(t *testing.T, leases []leaseLifecycleE2ELeaseResponse, leaseID string) leaseLifecycleE2ELeaseResponse {
+	t.Helper()
+
+	for _, lease := range leases {
+		if lease.ID == leaseID {
+			return lease
+		}
+	}
+	t.Fatalf("expected lease %q in listed leases: %+v", leaseID, leases)
+	return leaseLifecycleE2ELeaseResponse{}
 }
 
 func leaseLifecycleE2EListBills(t *testing.T, ctx context.Context, client apiClient, leaseID string) []leaseLifecycleE2EBillResponse {
@@ -216,8 +325,11 @@ func leaseLifecycleE2ERequireLease(t *testing.T, lease leaseLifecycleE2ELeaseRes
 	if lease.DepositStatus != "held" {
 		t.Fatalf("expected deposit_status %q, got %q", "held", lease.DepositStatus)
 	}
-	if lease.ElectricityBillingCadence != expected.Cadence {
-		t.Fatalf("expected electricity_billing_cadence %q, got %q", expected.Cadence, lease.ElectricityBillingCadence)
+	if expected.RentCadence != "" && lease.RentBillingCadence != expected.RentCadence {
+		t.Fatalf("expected rent_billing_cadence %q, got %q", expected.RentCadence, lease.RentBillingCadence)
+	}
+	if lease.ElectricityBillingCadence != leaseLifecycleE2EElectricityCadence(expected) {
+		t.Fatalf("expected electricity_billing_cadence %q, got %q", leaseLifecycleE2EElectricityCadence(expected), lease.ElectricityBillingCadence)
 	}
 	if lease.RentAmount != expected.RentAmount {
 		t.Fatalf("expected rent_amount %d, got %d", expected.RentAmount, lease.RentAmount)
@@ -275,6 +387,87 @@ func leaseLifecycleE2ERequireGeneratedBills(t *testing.T, bills []leaseLifecycle
 	}
 	if electricityBillCount == 0 {
 		t.Fatal("expected at least one generated electricity bill")
+	}
+}
+
+func leaseLifecycleE2ERequireQuarterlyRentBills(t *testing.T, bills []leaseLifecycleE2EBillResponse, expectedAmount int) {
+	t.Helper()
+
+	expectedPeriods := map[string]string{
+		"2026-01-01": "2026-03-31",
+		"2026-04-01": "2026-06-30",
+		"2026-07-01": "2026-07-15",
+	}
+	seen := make(map[string]bool, len(expectedPeriods))
+
+	for _, bill := range bills {
+		if bill.Type != "rent" {
+			continue
+		}
+		expectedEnd, ok := expectedPeriods[bill.PeriodStart]
+		if !ok {
+			t.Fatalf("unexpected quarterly rent bill period_start %q for bill %q", bill.PeriodStart, bill.ID)
+		}
+		if bill.PeriodEnd != expectedEnd {
+			t.Fatalf("expected rent bill period %s..%s, got %s..%s for bill %q", bill.PeriodStart, expectedEnd, bill.PeriodStart, bill.PeriodEnd, bill.ID)
+		}
+		if bill.Amount == nil || *bill.Amount != expectedAmount {
+			t.Fatalf("expected rent bill amount %d, got %+v for bill %q", expectedAmount, bill.Amount, bill.ID)
+		}
+		seen[bill.PeriodStart] = true
+	}
+
+	for start := range expectedPeriods {
+		if !seen[start] {
+			t.Fatalf("expected quarterly rent bill starting %s in %+v", start, bills)
+		}
+	}
+	if len(seen) != len(expectedPeriods) {
+		t.Fatalf("expected %d quarterly rent bills, got %d", len(expectedPeriods), len(seen))
+	}
+}
+
+func leaseLifecycleE2ERequireMonthlyElectricityBills(t *testing.T, bills []leaseLifecycleE2EBillResponse) {
+	t.Helper()
+
+	expectedPeriods := map[string]string{
+		"2026-01-01": "2026-01-31",
+		"2026-02-01": "2026-02-28",
+		"2026-03-01": "2026-03-31",
+		"2026-04-01": "2026-04-30",
+		"2026-05-01": "2026-05-31",
+		"2026-06-01": "2026-06-30",
+		"2026-07-01": "2026-07-15",
+	}
+	seen := make(map[string]bool, len(expectedPeriods))
+
+	for _, bill := range bills {
+		if bill.Type != "electricity" {
+			continue
+		}
+		expectedEnd, ok := expectedPeriods[bill.PeriodStart]
+		if !ok {
+			t.Fatalf("unexpected monthly electricity bill period_start %q for bill %q", bill.PeriodStart, bill.ID)
+		}
+		if bill.PeriodEnd != expectedEnd {
+			t.Fatalf("expected electricity bill period %s..%s, got %s..%s for bill %q", bill.PeriodStart, expectedEnd, bill.PeriodStart, bill.PeriodEnd, bill.ID)
+		}
+		if bill.Status != "pending_meter" {
+			t.Fatalf("expected electricity bill status %q, got %q for bill %q", "pending_meter", bill.Status, bill.ID)
+		}
+		if bill.Amount != nil {
+			t.Fatalf("expected nil electricity bill amount, got %d for bill %q", *bill.Amount, bill.ID)
+		}
+		seen[bill.PeriodStart] = true
+	}
+
+	for start := range expectedPeriods {
+		if !seen[start] {
+			t.Fatalf("expected monthly electricity bill starting %s in %+v", start, bills)
+		}
+	}
+	if len(seen) != len(expectedPeriods) {
+		t.Fatalf("expected %d monthly electricity bills, got %d", len(expectedPeriods), len(seen))
 	}
 }
 

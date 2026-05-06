@@ -14,6 +14,13 @@ properties:
     format: uuid
   rent_amount:
     type: integer
+  rent_billing_cadence:
+    type: string
+    enum:
+      - monthly
+      - quarterly
+      - semiannual
+      - annual
   start_date:
     type: string
     format: date

@@ -53,6 +53,7 @@ type Lease struct {
 	RentAmount                int
 	StartDate                 time.Time
 	EndDate                   time.Time
+	RentBillingCadence        string
 	ElectricityBillingCadence string
 	Status                    string
 	DepositAmount             int
@@ -90,6 +91,7 @@ type CreateLeaseParams struct {
 	RentAmount                int
 	StartDate                 time.Time
 	EndDate                   time.Time
+	RentBillingCadence        string
 	ElectricityBillingCadence string
 	DepositAmount             int
 	Notes                     *string
@@ -435,6 +437,7 @@ SELECT
 	rent_amount,
 	start_date,
 	end_date,
+	rent_billing_cadence,
 	electricity_billing_cadence,
 	status,
 	deposit_amount,
@@ -474,11 +477,12 @@ INSERT INTO leases (
 	rent_amount,
 	start_date,
 	end_date,
+	rent_billing_cadence,
 	electricity_billing_cadence,
 	deposit_amount,
 	deposit_status,
 	notes
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'held', $9)
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'held', $10)
 RETURNING
 	id,
 	tenant_id,
@@ -487,6 +491,7 @@ RETURNING
 	rent_amount,
 	start_date,
 	end_date,
+	rent_billing_cadence,
 	electricity_billing_cadence,
 	status,
 	deposit_amount,
@@ -509,6 +514,7 @@ RETURNING
 		params.RentAmount,
 		params.StartDate,
 		params.EndDate,
+		params.RentBillingCadence,
 		params.ElectricityBillingCadence,
 		params.DepositAmount,
 		params.Notes,
@@ -538,6 +544,7 @@ RETURNING
 	rent_amount,
 	start_date,
 	end_date,
+	rent_billing_cadence,
 	electricity_billing_cadence,
 	status,
 	deposit_amount,
@@ -582,6 +589,7 @@ RETURNING
 	rent_amount,
 	start_date,
 	end_date,
+	rent_billing_cadence,
 	electricity_billing_cadence,
 	status,
 	deposit_amount,
@@ -828,6 +836,7 @@ RETURNING
 	rent_amount,
 	start_date,
 	end_date,
+	rent_billing_cadence,
 	electricity_billing_cadence,
 	status,
 	deposit_amount,
@@ -873,6 +882,7 @@ RETURNING
 	rent_amount,
 	start_date,
 	end_date,
+	rent_billing_cadence,
 	electricity_billing_cadence,
 	status,
 	deposit_amount,
@@ -1113,6 +1123,7 @@ func scanLease(row rowScanner) (*Lease, error) {
 		&lease.RentAmount,
 		&lease.StartDate,
 		&lease.EndDate,
+		&lease.RentBillingCadence,
 		&lease.ElectricityBillingCadence,
 		&lease.Status,
 		&lease.DepositAmount,

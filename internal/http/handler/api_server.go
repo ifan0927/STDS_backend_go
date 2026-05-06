@@ -956,6 +956,10 @@ func (s *APIServer) CreateLease(c *gin.Context) {
 		value := string(*request.ElectricityBillingCadence)
 		cadence = &value
 	}
+	var rentCadence string
+	if request.RentBillingCadence != nil {
+		rentCadence = string(*request.RentBillingCadence)
+	}
 
 	lease, err := s.createLeaseSvc.Execute(c.Request.Context(), applease.CreateLeaseInput{
 		ActorRole:                 principal.Role,
@@ -966,6 +970,7 @@ func (s *APIServer) CreateLease(c *gin.Context) {
 		StartDate:                 request.StartDate.Time,
 		EndDate:                   request.EndDate.Time,
 		DepositAmount:             request.DepositAmount,
+		RentBillingCadence:        rentCadence,
 		ElectricityBillingCadence: cadence,
 	})
 	if err != nil {
@@ -1027,6 +1032,11 @@ func (s *APIServer) UpdateLease(c *gin.Context, id string) {
 		value := request.EndDate.Time
 		endDate = &value
 	}
+	var rentCadence *string
+	if request.RentBillingCadence != nil {
+		value := string(*request.RentBillingCadence)
+		rentCadence = &value
+	}
 
 	lease, err := s.updateLeaseSvc.Execute(c.Request.Context(), applease.UpdateLeaseInput{
 		ActorRole:           principal.Role,
@@ -1034,6 +1044,7 @@ func (s *APIServer) UpdateLease(c *gin.Context, id string) {
 		LeaseID:             id,
 		RentAmount:          request.RentAmount,
 		EndDate:             endDate,
+		RentBillingCadence:  rentCadence,
 	})
 	if err != nil {
 		c.Error(err)
@@ -1096,16 +1107,17 @@ func (s *APIServer) ReplaceLease(c *gin.Context, id string) {
 	}
 
 	result, err := s.replaceLeaseSvc.Execute(c.Request.Context(), applease.ReplaceLeaseInput{
-		ActorRole:           principal.Role,
-		AssignedPropertyIDs: principal.AssignedPropertyIDs,
-		LeaseID:             id,
-		Reason:              string(request.Reason),
-		EffectiveStartDate:  request.EffectiveStartDate.Time,
-		DepositHandling:     string(request.DepositHandling),
-		NewEndDate:          request.NewLease.EndDate.Time,
-		NewRentAmount:       request.NewLease.RentAmount,
-		NewCadence:          string(request.NewLease.ElectricityBillingCadence),
-		NewNotes:            notes,
+		ActorRole:             principal.Role,
+		AssignedPropertyIDs:   principal.AssignedPropertyIDs,
+		LeaseID:               id,
+		Reason:                string(request.Reason),
+		EffectiveStartDate:    request.EffectiveStartDate.Time,
+		DepositHandling:       string(request.DepositHandling),
+		NewEndDate:            request.NewLease.EndDate.Time,
+		NewRentAmount:         request.NewLease.RentAmount,
+		NewRentBillingCadence: string(request.NewLease.RentBillingCadence),
+		NewCadence:            string(request.NewLease.ElectricityBillingCadence),
+		NewNotes:              notes,
 	})
 	if err != nil {
 		c.Error(err)
@@ -2820,6 +2832,7 @@ func toTenantLeaseResponse(lease *dbtenantquery.Lease) api.LeaseResponse {
 	endDate := openapi_types.Date{Time: lease.EndDate}
 	status := api.LeaseResponseStatus(lease.Status)
 	depositStatus := api.LeaseResponseDepositStatus(lease.DepositStatus)
+	rentCadence := api.LeaseResponseRentBillingCadence(lease.RentBillingCadence)
 	cadence := api.LeaseResponseElectricityBillingCadence(lease.ElectricityBillingCadence)
 	rentAmount := lease.RentAmount
 	depositAmount := lease.DepositAmount
@@ -2836,6 +2849,7 @@ func toTenantLeaseResponse(lease *dbtenantquery.Lease) api.LeaseResponse {
 		DepositStatus:             &depositStatus,
 		ElectricityBillingCadence: &cadence,
 		EndDate:                   &endDate,
+		RentBillingCadence:        &rentCadence,
 		RentAmount:                &rentAmount,
 		StartDate:                 &startDate,
 		Status:                    &status,
@@ -2870,6 +2884,7 @@ func toLeaseResponse(lease *dbleasequery.Lease) api.LeaseResponse {
 		RentAmount:                lease.RentAmount,
 		StartDate:                 lease.StartDate,
 		EndDate:                   lease.EndDate,
+		RentBillingCadence:        lease.RentBillingCadence,
 		ElectricityBillingCadence: lease.ElectricityBillingCadence,
 		Status:                    lease.Status,
 		DepositAmount:             lease.DepositAmount,
@@ -2897,6 +2912,7 @@ func toCreatedLeaseResponse(lease *applease.Lease) api.LeaseResponse {
 		RentAmount:                lease.RentAmount,
 		StartDate:                 lease.StartDate,
 		EndDate:                   lease.EndDate,
+		RentBillingCadence:        lease.RentBillingCadence,
 		ElectricityBillingCadence: lease.ElectricityBillingCadence,
 		Status:                    lease.Status,
 		DepositAmount:             lease.DepositAmount,

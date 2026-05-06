@@ -166,6 +166,7 @@ CREATE TABLE leases (
     rent_amount             INTEGER      NOT NULL CHECK (rent_amount > 0),  -- BR-02
     start_date              DATE         NOT NULL,
     end_date                DATE         NOT NULL,
+    rent_billing_cadence     VARCHAR(20)  NOT NULL DEFAULT 'monthly' CHECK (rent_billing_cadence IN ('monthly', 'quarterly', 'semiannual', 'annual')),
     electricity_billing_cadence VARCHAR(20) NOT NULL DEFAULT 'monthly' CHECK (electricity_billing_cadence IN ('monthly', 'bimonthly')),
     -- status：active | expired | terminated | force_terminated
     status                  VARCHAR(30)  NOT NULL CHECK (status IN ('active', 'expired', 'terminated', 'force_terminated'))

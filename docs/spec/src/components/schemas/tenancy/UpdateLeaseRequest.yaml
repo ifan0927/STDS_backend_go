@@ -2,6 +2,14 @@ type: object
 properties:
   rent_amount:
     type: integer
+  rent_billing_cadence:
+    type: string
+    enum:
+      - monthly
+      - quarterly
+      - semiannual
+      - annual
+    description: 不支援透過 PATCH 修改；若需更動 rent cadence，請使用 Lease replacement。
   end_date:
     type: string
     format: date

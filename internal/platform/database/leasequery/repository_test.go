@@ -27,6 +27,7 @@ func TestListAccessibleAdminDoesNotApplyPropertyScope(t *testing.T) {
 	l.rent_amount,
 	l.start_date,
 	l.end_date,
+	l.rent_billing_cadence,
 	l.electricity_billing_cadence,
 	l.status,
 	l.deposit_amount,
@@ -47,7 +48,7 @@ ORDER BY l.created_at DESC LIMIT $1 OFFSET $2`)).
 		WithArgs(10, 20).
 		WillReturnRows(leaseQueryRows().AddRow(
 			"lease-1", "tenant-1", "property-1", "room-1", 12000, startDate, endDate,
-			"monthly", "active", 24000, nil, nil, "held", nil, nil, nil, nil, now, now, 1,
+			"monthly", "monthly", "active", 24000, nil, nil, "held", nil, nil, nil, nil, now, now, 1,
 		))
 
 	leases, err := repo.ListAccessible(context.Background(), "admin", []string{"property-ignored"}, ListParams{Limit: 10, Offset: 20})
@@ -168,12 +169,12 @@ func TestListAccessibleScansNullableFieldsAndSettlementDetail(t *testing.T) {
 		WillReturnRows(leaseQueryRows().
 			AddRow(
 				"lease-1", "tenant-1", "property-1", "room-1", 12000, startDate, endDate,
-				"monthly", "terminated", 24000, 18000, 6000, "refunded", "cleaning",
+				"monthly", "monthly", "terminated", 24000, 18000, 6000, "refunded", "cleaning",
 				"tenant note", "early termination", `{"refund_method":"bank","deduction":6000}`, now, now, 2,
 			).
 			AddRow(
 				"lease-2", "tenant-2", "property-2", "room-2", 15000, startDate, endDate,
-				"bi_monthly", "active", 30000, nil, nil, "held", nil, nil, nil, nil, now, now, 1,
+				"monthly", "bi_monthly", "active", 30000, nil, nil, "held", nil, nil, nil, nil, now, now, 1,
 			))
 
 	leases, err := repo.ListAccessible(context.Background(), "admin", nil, ListParams{Limit: 10})
@@ -243,6 +244,7 @@ func TestFindByIDAccessibleAdminSuccess(t *testing.T) {
 	l.rent_amount,
 	l.start_date,
 	l.end_date,
+	l.rent_billing_cadence,
 	l.electricity_billing_cadence,
 	l.status,
 	l.deposit_amount,
@@ -264,7 +266,7 @@ LIMIT 1`)).
 		WithArgs("lease-1").
 		WillReturnRows(leaseQueryRows().AddRow(
 			"lease-1", "tenant-1", "property-1", "room-1", 12000, startDate, endDate,
-			"monthly", "active", 24000, nil, nil, "held", nil, nil, nil, nil, now, now, 1,
+			"monthly", "monthly", "active", 24000, nil, nil, "held", nil, nil, nil, nil, now, now, 1,
 		))
 
 	lease, err := repo.FindByIDAccessible(context.Background(), "lease-1", "admin", []string{"property-ignored"})
@@ -300,7 +302,7 @@ func TestFindByIDAccessibleOrganizerAndStaffApplyAssignedPropertyScope(t *testin
 				WithArgs("lease-1", "property-1", "property-2").
 				WillReturnRows(leaseQueryRows().AddRow(
 					"lease-1", "tenant-1", "property-1", "room-1", 12000, startDate, endDate,
-					"monthly", "active", 24000, nil, nil, "held", nil, nil, nil, nil, now, now, 1,
+					"monthly", "monthly", "active", 24000, nil, nil, "held", nil, nil, nil, nil, now, now, 1,
 				))
 
 			lease, err := repo.FindByIDAccessible(context.Background(), "lease-1", tc.role, []string{"property-1", "property-2"})
@@ -380,7 +382,7 @@ func TestFindByIDAccessibleInvalidSettlementDetailReturnsError(t *testing.T) {
 		WithArgs("lease-1").
 		WillReturnRows(leaseQueryRows().AddRow(
 			"lease-1", "tenant-1", "property-1", "room-1", 12000, startDate, endDate,
-			"monthly", "terminated", 24000, nil, nil, "held", nil, nil, nil, `{"broken"`, now, now, 1,
+			"monthly", "monthly", "terminated", 24000, nil, nil, "held", nil, nil, nil, `{"broken"`, now, now, 1,
 		))
 
 	lease, err := repo.FindByIDAccessible(context.Background(), "lease-1", "admin", nil)
@@ -392,6 +394,63 @@ func TestFindByIDAccessibleInvalidSettlementDetailReturnsError(t *testing.T) {
 	}
 	if errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected decode error, got ErrNotFound")
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestFindByIDAccessibleScansRentBillingCadence(t *testing.T) {
+	db, mock, repo := newLeaseQueryRepoTest(t)
+	defer closeLeaseQueryDB(t, db)
+
+	now := time.Date(2026, 4, 20, 10, 0, 0, 0, time.UTC)
+	startDate := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	endDate := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT
+	l.id,
+	l.tenant_id,
+	l.property_id,
+	l.room_id,
+	l.rent_amount,
+	l.start_date,
+	l.end_date,
+	l.rent_billing_cadence,
+	l.electricity_billing_cadence,
+	l.status,
+	l.deposit_amount,
+	l.deposit_refund_amount,
+	l.deposit_deduction_amount,
+	l.deposit_status,
+	l.deposit_deduction_reason,
+	l.notes,
+	l.termination_reason,
+	l.settlement_detail::text,
+	l.created_at,
+	l.updated_at,
+	l.version
+FROM leases l
+WHERE l.id = $1
+  AND l.deleted_at IS NULL
+
+LIMIT 1`)).
+		WithArgs("lease-1").
+		WillReturnRows(leaseQueryRowsWithRentCadence().AddRow(
+			"lease-1", "tenant-1", "property-1", "room-1", 54000, startDate, endDate,
+			"quarterly", "monthly", "active", 24000, nil, nil, "held", nil, nil, nil, nil, now, now, 1,
+		))
+
+	lease, err := repo.FindByIDAccessible(context.Background(), "lease-1", "admin", nil)
+	if err != nil {
+		t.Fatalf("FindByIDAccessible: %v", err)
+	}
+	if lease.RentBillingCadence != "quarterly" {
+		t.Fatalf("RentBillingCadence = %q, want quarterly", lease.RentBillingCadence)
+	}
+	if lease.ElectricityBillingCadence != "monthly" {
+		t.Fatalf("ElectricityBillingCadence = %q, want monthly", lease.ElectricityBillingCadence)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -425,6 +484,33 @@ func leaseQueryRows() *sqlmock.Rows {
 		"rent_amount",
 		"start_date",
 		"end_date",
+		"rent_billing_cadence",
+		"electricity_billing_cadence",
+		"status",
+		"deposit_amount",
+		"deposit_refund_amount",
+		"deposit_deduction_amount",
+		"deposit_status",
+		"deposit_deduction_reason",
+		"notes",
+		"termination_reason",
+		"settlement_detail",
+		"created_at",
+		"updated_at",
+		"version",
+	})
+}
+
+func leaseQueryRowsWithRentCadence() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{
+		"id",
+		"tenant_id",
+		"property_id",
+		"room_id",
+		"rent_amount",
+		"start_date",
+		"end_date",
+		"rent_billing_cadence",
 		"electricity_billing_cadence",
 		"status",
 		"deposit_amount",

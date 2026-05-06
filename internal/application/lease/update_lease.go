@@ -22,6 +22,7 @@ type UpdateLeaseInput struct {
 	LeaseID             string
 	RentAmount          *int
 	EndDate             *time.Time
+	RentBillingCadence  *string
 	OperationDate       time.Time
 }
 
@@ -47,6 +48,9 @@ func (s *UpdateLeaseService) Execute(ctx context.Context, input UpdateLeaseInput
 	}
 	if input.EndDate != nil {
 		return nil, errLeaseUnsupportedUpdate.WithDetails(map[string]interface{}{"field": "end_date"})
+	}
+	if input.RentBillingCadence != nil {
+		return nil, errLeaseUnsupportedUpdate.WithDetails(map[string]interface{}{"field": "rent_billing_cadence"})
 	}
 	if input.RentAmount == nil {
 		return nil, errLeaseUnsupportedUpdate.WithDetails(map[string]interface{}{"field": "rent_amount"})
@@ -87,6 +91,7 @@ func (s *UpdateLeaseService) Execute(ctx context.Context, input UpdateLeaseInput
 			RentAmount:                current.RentAmount,
 			StartDate:                 current.StartDate,
 			EndDate:                   current.EndDate,
+			RentBillingCadence:        current.RentBillingCadence,
 			ElectricityBillingCadence: current.ElectricityBillingCadence,
 			Status:                    current.Status,
 			DepositAmount:             current.DepositAmount,
@@ -104,7 +109,8 @@ func (s *UpdateLeaseService) Execute(ctx context.Context, input UpdateLeaseInput
 			return nil
 		}
 
-		nextPaymentDate := domainlease.NextPaymentDateAfter(current.StartDate, operationDate)
+		state := aggregate.State()
+		nextPaymentDate := domainlease.NextRentPaymentDateAfter(current.StartDate, operationDate, state.RentBillingCadence)
 		if !nextPaymentDate.After(current.EndDate) {
 			hasLockedBills, err := s.repo.HasLockedRentBillsFromDueDate(ctx, tx, leaseID, nextPaymentDate)
 			if err != nil {
@@ -127,7 +133,7 @@ func (s *UpdateLeaseService) Execute(ctx context.Context, input UpdateLeaseInput
 			if err := s.repo.VoidRentBillsFromDueDate(ctx, tx, leaseID, nextPaymentDate); err != nil {
 				return apperr.ErrInternalServerError.WithCause(err)
 			}
-			rentPeriods, err := domainlease.BuildMonthlyBillingPeriodsFromAnchor(nextPaymentDate, current.EndDate, current.StartDate.Day())
+			rentPeriods, err := domainlease.BuildRentBillingPeriodsFromAnchor(nextPaymentDate, current.EndDate, state.RentBillingCadence, current.StartDate.Day())
 			if err != nil {
 				return mapDomainError(err)
 			}

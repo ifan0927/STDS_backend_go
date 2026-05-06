@@ -172,6 +172,93 @@ func TestCreateLeaseServiceUsesExplicitCadenceOverride(t *testing.T) {
 	}
 }
 
+func TestCreateLeaseServiceUsesRentCadenceForRentBillsAndKeepsElectricityCadenceIndependent(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+
+	electricityCadence := "monthly"
+	repo := &leaseRepositoryStub{
+		tenant: &Tenant{ID: "tenant-1", Status: "active"},
+		room: &Room{
+			ID:                               "room-1",
+			PropertyID:                       "property-1",
+			Status:                           "vacant",
+			DefaultElectricityBillingCadence: "bimonthly",
+		},
+		createdLease: &Lease{
+			ID:                        "lease-1",
+			TenantID:                  "tenant-1",
+			PropertyID:                "property-1",
+			RoomID:                    "room-1",
+			RentAmount:                54000,
+			StartDate:                 time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC),
+			EndDate:                   time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC),
+			RentBillingCadence:        "quarterly",
+			ElectricityBillingCadence: "monthly",
+			Status:                    "active",
+			DepositAmount:             36000,
+			DepositStatus:             "held",
+		},
+	}
+
+	service := NewCreateLeaseService(repo, dbtxrunner.New(db, nil))
+	_, err = service.Execute(context.Background(), CreateLeaseInput{
+		TenantID:                  "tenant-1",
+		RoomID:                    "room-1",
+		RentAmount:                54000,
+		StartDate:                 time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC),
+		EndDate:                   time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC),
+		DepositAmount:             36000,
+		RentBillingCadence:        "quarterly",
+		ElectricityBillingCadence: &electricityCadence,
+		ActorRole:                 "admin",
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	if repo.createLeaseParams == nil || repo.createLeaseParams.RentBillingCadence != "quarterly" || repo.createLeaseParams.ElectricityBillingCadence != "monthly" {
+		t.Fatalf("unexpected create lease params: %+v", repo.createLeaseParams)
+	}
+	if len(repo.createdBills) != 8 {
+		t.Fatalf("expected 8 bills for 2 quarterly rent periods and 6 monthly electricity periods, got %d", len(repo.createdBills))
+	}
+
+	firstRent := repo.createdBills[0]
+	if firstRent.Type != billTypeRent || firstRent.Amount == nil || *firstRent.Amount != 54000 {
+		t.Fatalf("unexpected first rent bill: %+v", firstRent)
+	}
+	if !firstRent.PeriodStart.Equal(time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)) || !firstRent.PeriodEnd.Equal(time.Date(2026, 8, 14, 0, 0, 0, 0, time.UTC)) || !firstRent.DueDate.Equal(time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("unexpected first rent bill period: %+v", firstRent)
+	}
+
+	finalRent := repo.createdBills[1]
+	if finalRent.Type != billTypeRent || finalRent.Amount == nil || *finalRent.Amount != 54000 {
+		t.Fatalf("unexpected final rent bill amount: %+v", finalRent)
+	}
+	if !finalRent.PeriodStart.Equal(time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC)) || !finalRent.PeriodEnd.Equal(time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC)) || !finalRent.DueDate.Equal(time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("unexpected final rent bill period: %+v", finalRent)
+	}
+
+	firstElectricity := repo.createdBills[2]
+	if firstElectricity.Type != billTypeElectricity || firstElectricity.Amount != nil {
+		t.Fatalf("unexpected first electricity bill: %+v", firstElectricity)
+	}
+	if !firstElectricity.PeriodStart.Equal(time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC)) || !firstElectricity.PeriodEnd.Equal(time.Date(2026, 6, 14, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("electricity cadence should stay monthly, got %+v", firstElectricity)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
 func TestCreateLeaseServiceRejectsBusinessRuleViolationsAndMissingReferences(t *testing.T) {
 	t.Run("missing tenant id", func(t *testing.T) {
 		service := NewCreateLeaseService(nil, nil)

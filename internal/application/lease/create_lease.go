@@ -35,6 +35,7 @@ type CreateLeaseInput struct {
 	StartDate                 time.Time
 	EndDate                   time.Time
 	DepositAmount             int
+	RentBillingCadence        string
 	ElectricityBillingCadence *string
 }
 
@@ -101,9 +102,13 @@ func (s *CreateLeaseService) Execute(ctx context.Context, input CreateLeaseInput
 			return apperr.ErrForbidden
 		}
 
-		cadence := room.DefaultElectricityBillingCadence
+		rentCadence := domainlease.BillingCadenceMonthly
+		if strings.TrimSpace(input.RentBillingCadence) != "" {
+			rentCadence = strings.TrimSpace(input.RentBillingCadence)
+		}
+		electricityCadence := room.DefaultElectricityBillingCadence
 		if input.ElectricityBillingCadence != nil {
-			cadence = strings.TrimSpace(*input.ElectricityBillingCadence)
+			electricityCadence = strings.TrimSpace(*input.ElectricityBillingCadence)
 		}
 
 		aggregate, err := domainlease.New(domainlease.State{
@@ -113,7 +118,8 @@ func (s *CreateLeaseService) Execute(ctx context.Context, input CreateLeaseInput
 			RentAmount:                input.RentAmount,
 			StartDate:                 input.StartDate,
 			EndDate:                   input.EndDate,
-			ElectricityBillingCadence: cadence,
+			RentBillingCadence:        rentCadence,
+			ElectricityBillingCadence: electricityCadence,
 			DepositAmount:             input.DepositAmount,
 		})
 		if err != nil {
@@ -128,6 +134,7 @@ func (s *CreateLeaseService) Execute(ctx context.Context, input CreateLeaseInput
 			RentAmount:                state.RentAmount,
 			StartDate:                 state.StartDate,
 			EndDate:                   state.EndDate,
+			RentBillingCadence:        state.RentBillingCadence,
 			ElectricityBillingCadence: state.ElectricityBillingCadence,
 			DepositAmount:             state.DepositAmount,
 		})
@@ -135,7 +142,7 @@ func (s *CreateLeaseService) Execute(ctx context.Context, input CreateLeaseInput
 			return apperr.ErrInternalServerError.WithCause(err)
 		}
 
-		rentPeriods, err := domainlease.BuildBillingPeriods(state.StartDate, state.EndDate, domainlease.BillingCadenceMonthly)
+		rentPeriods, err := domainlease.BuildRentBillingPeriods(state.StartDate, state.EndDate, state.RentBillingCadence)
 		if err != nil {
 			return mapDomainError(err)
 		}
@@ -156,6 +163,7 @@ func (s *CreateLeaseService) Execute(ctx context.Context, input CreateLeaseInput
 			TenantID:                  createdLease.TenantID,
 			StartDate:                 createdLease.StartDate,
 			EndDate:                   createdLease.EndDate,
+			RentBillingCadence:        createdLease.RentBillingCadence,
 			ElectricityBillingCadence: createdLease.ElectricityBillingCadence,
 			OccurredAt:                time.Now().UTC(),
 		})
