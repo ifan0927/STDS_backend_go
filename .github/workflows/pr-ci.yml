@@ -151,6 +151,9 @@ jobs:
           cat /tmp/firebase-auth-emulator.log
           exit 1
 
+      - name: Build API for E2E
+        run: go build -o /tmp/stds-api ./cmd/api
+
       - name: Start API
         env:
           APP_ENV: e2e
@@ -165,7 +168,7 @@ jobs:
           RESEND_API_KEY: e2e-resend-key
           RESEND_FROM_EMAIL: e2e@example.com
         run: |
-          go run ./cmd/api > /tmp/stds-api.log 2>&1 &
+          /tmp/stds-api > /tmp/stds-api.log 2>&1 &
           for i in {1..30}; do
             if curl -fsS http://127.0.0.1:8080/healthz > /dev/null; then
               exit 0
