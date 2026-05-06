@@ -203,6 +203,7 @@ WHERE l.deleted_at IS NULL
     OR l.room_id IS NULL
     OR l.property_id IS NULL
     OR l.rent_amount IS NULL
+    OR l.rent_billing_cadence IS NULL
     OR l.start_date IS NULL
     OR l.end_date IS NULL
     OR l.status IS NULL
@@ -441,6 +442,7 @@ SELECT m.legacy_rent_id,
        l.status,
        l.deposit_status,
        l.rent_amount::text,
+       l.rent_billing_cadence,
        l.room_id,
        l.tenant_id
 FROM legacy_lease_mappings m
@@ -449,8 +451,8 @@ WHERE l.deleted_at IS NULL
 ORDER BY m.legacy_rent_id
 LIMIT 3
 `)).
-		WillReturnRows(sqlmock.NewRows([]string{"legacy_rent_id", "id", "status", "deposit_status", "rent_amount", "room_id", "tenant_id"}).
-			AddRow("40", "lease-1", "active", "held", "12000", "room-1", "tenant-1"))
+		WillReturnRows(sqlmock.NewRows([]string{"legacy_rent_id", "id", "status", "deposit_status", "rent_amount", "rent_billing_cadence", "room_id", "tenant_id"}).
+			AddRow("40", "lease-1", "active", "held", "12000", "annual", "room-1", "tenant-1"))
 }
 
 func expectCountQuery(mock sqlmock.Sqlmock, query string, count int) {
@@ -487,11 +489,12 @@ func writeTask13StageReports(t *testing.T, reportDir string) {
 		InvalidEmailCount: 1,
 	})
 	writeJSONFixture(t, filepath.Join(reportDir, "task9_leases_report.json"), LeaseMigrationReport{
-		ImportedRows:          2,
-		AlreadyMappedRows:     0,
-		SkippedRows:           0,
-		MultiTenantLeaseRows:  1,
-		MissingRentAmountRows: 0,
+		ImportedRows:                   2,
+		AlreadyMappedRows:              0,
+		SkippedRows:                    0,
+		MultiTenantLeaseRows:           1,
+		MissingRentAmountRows:          0,
+		RentBillingCadenceDistribution: map[string]int{"annual": 1, "monthly": 1},
 	})
 	writeJSONFixture(t, filepath.Join(reportDir, "task10_room_status_report.json"), RoomStatusReconciliationReport{
 		ActiveLeaseRooms:     1,

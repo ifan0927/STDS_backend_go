@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -267,6 +268,10 @@ func loadLeaseStageReportSummary(reportDir string) StageReportSummary {
 		Notes: []string{
 			fmt.Sprintf("multi-tenant source rows=%d", persisted.MultiTenantLeaseRows),
 			fmt.Sprintf("missing rent amount rows=%d", persisted.MissingRentAmountRows),
+			fmt.Sprintf("missing rent cadence rows=%d", persisted.MissingRentCadenceRows),
+			fmt.Sprintf("missing matching rent price rows=%d", persisted.MissingMatchingRentPriceRows),
+			fmt.Sprintf("invalid rent price rows=%d", persisted.InvalidRentPriceRows),
+			fmt.Sprintf("rent cadence distribution=%s", formatDistribution(persisted.RentBillingCadenceDistribution)),
 		},
 	}
 }
@@ -559,6 +564,7 @@ WHERE l.deleted_at IS NULL
     OR l.room_id IS NULL
     OR l.property_id IS NULL
     OR l.rent_amount IS NULL
+    OR l.rent_billing_cadence IS NULL
     OR l.start_date IS NULL
     OR l.end_date IS NULL
     OR l.status IS NULL
@@ -925,6 +931,7 @@ SELECT m.legacy_rent_id,
        l.status,
        l.deposit_status,
        l.rent_amount::text,
+       l.rent_billing_cadence,
        l.room_id,
        l.tenant_id
 FROM legacy_lease_mappings m
@@ -938,7 +945,7 @@ LIMIT 3
 	}
 	sections = append(sections, buildSpotCheckSection("leases", leaseEntries,
 		func(columns []string) string {
-			return fmt.Sprintf("status=%s deposit_status=%s rent_amount=%s room_id=%s tenant_id=%s", columns[2], columns[3], columns[4], columns[5], columns[6])
+			return fmt.Sprintf("status=%s deposit_status=%s rent_amount=%s rent_billing_cadence=%s room_id=%s tenant_id=%s", columns[2], columns[3], columns[4], columns[5], columns[6], columns[7])
 		}))
 
 	return sections, nil
@@ -1008,6 +1015,25 @@ func queryCount(ctx context.Context, db *sql.DB, query string, args ...any) (int
 	}
 
 	return count, nil
+}
+
+func formatDistribution(distribution map[string]int) string {
+	if len(distribution) == 0 {
+		return "none"
+	}
+
+	keys := make([]string, 0, len(distribution))
+	for key := range distribution {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, fmt.Sprintf("%s=%d", key, distribution[key]))
+	}
+
+	return strings.Join(parts, ",")
 }
 
 func verifyFinalValidationReport(report *FinalValidationReport) error {
