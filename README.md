@@ -72,6 +72,35 @@ curl -i \
 
 If the `users` table contains the same `firebase_uid`, the request will pass auth and resolve the DB user.
 
+## E2E tests
+
+The E2E suite is opt-in and uses Go `testing` with the `e2e` build tag. It calls an already-running API through HTTP, resets a dedicated PostgreSQL test database schema, runs migrations, seeds the backend user row, and obtains a real bearer token from the Firebase Auth Emulator.
+
+Use a separate database name for E2E, for example `stds_backend_e2e`. This can live in the same local PostgreSQL container as the normal development database; `docker-compose.yml` does not need a second PostgreSQL service.
+
+Start dependencies:
+
+```bash
+docker compose up -d postgres
+docker exec stds-postgres psql -U stds -d postgres -c "CREATE DATABASE stds_backend_e2e"
+firebase emulators:start --only auth
+```
+
+Start the API against the E2E database:
+
+```bash
+./scripts/e2e_api.sh
+```
+
+Run the E2E suite:
+
+```bash
+./scripts/e2e_test.sh
+```
+
+The harness refuses to reset a database unless the database name contains `e2e` or `test`.
+The local scripts provide defaults for E2E environment variables and still allow overrides, for example `APP_PORT=8081 E2E_BASE_URL=http://127.0.0.1:8081 ./scripts/e2e_test.sh`.
+
 ## Email notifications
 
 `POST /api/v1/users` now creates the Firebase Auth user, generates a Firebase password reset URL, and sends the onboarding email through Resend.
@@ -144,6 +173,7 @@ docker exec stds-postgres psql -U stds -d postgres -c "DROP DATABASE IF EXISTS c
 docker exec stds-postgres psql -U stds -d postgres -c "CREATE DATABASE ci_migration_smoke"
 DATABASE_URL=postgres://stds:stds@localhost:5432/ci_migration_smoke?sslmode=disable go run ./cmd/migrate up
 docker exec stds-postgres psql -U stds -d postgres -c "DROP DATABASE IF EXISTS ci_migration_smoke"
+go test -tags=e2e ./test/e2e
 ```
 
 ## Database migrations
