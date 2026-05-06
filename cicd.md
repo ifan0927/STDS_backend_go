@@ -28,6 +28,7 @@ Recommended checks:
 - Run a build check.
 - Verify OpenAPI generated code is in sync with the spec.
 - Run a migration smoke test against a temporary PostgreSQL database.
+- Run the opt-in E2E harness against a dedicated PostgreSQL database and Firebase Auth Emulator.
 - Run formatting or lint checks if the project enables them.
 
 This layer should be fast, stable, and suitable for every PR.
@@ -92,6 +93,14 @@ It does not replace real environment migrations. Dev, staging, and production Cl
 ## Core E2E Scope
 
 Core E2E tests are required before the first launch because they act as end-to-end acceptance for the current backend. They do not need to cover every extreme edge case, but they should cover the main business flows and the most important rejection paths.
+
+The E2E harness runs only through an explicit command:
+
+```bash
+go test -tags=e2e ./test/e2e
+```
+
+It requires an already-running API, a dedicated non-production PostgreSQL database, the Firebase Auth Emulator, and test account credentials. The harness resets the dedicated database schema, runs migrations, seeds controlled backend user data, obtains a real Firebase emulator ID token, and then calls the API over HTTP. The database name must contain `e2e` or `test` before reset is allowed.
 
 Recommended first-launch E2E coverage:
 

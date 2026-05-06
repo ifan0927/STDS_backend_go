@@ -8,6 +8,9 @@ on:
     branches:
       - dev
 
+permissions:
+  contents: read
+
 jobs:
   go:
     name: Go test and build
@@ -99,3 +102,89 @@ jobs:
         env:
           DATABASE_URL: postgres://stds:stds@localhost:5432/stds_backend?sslmode=disable
         run: go run ./cmd/migrate up
+
+  e2e:
+    name: E2E harness smoke
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: stds_backend_e2e
+          POSTGRES_USER: stds
+          POSTGRES_PASSWORD: stds
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U stds -d stds_backend_e2e"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Start Firebase Auth Emulator
+        run: |
+          npm install -g firebase-tools@15.14.0
+          firebase emulators:start --only auth --project demo-stds-backend > /tmp/firebase-auth-emulator.log 2>&1 &
+          for i in {1..30}; do
+            if curl -sS -o /dev/null http://127.0.0.1:9099/emulator/v1/projects/demo-stds-backend/accounts; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/firebase-auth-emulator.log
+          exit 1
+
+      - name: Build API for E2E
+        run: go build -o /tmp/stds-api ./cmd/api
+
+      - name: Start API
+        env:
+          APP_ENV: e2e
+          APP_HOST: 127.0.0.1
+          APP_PORT: 8080
+          APP_SCHEDULER_KEY: e2e-scheduler-key
+          DATABASE_URL: postgres://stds:stds@localhost:5432/stds_backend_e2e?sslmode=disable
+          FIREBASE_PROJECT_ID: demo-stds-backend
+          FIREBASE_AUTH_EMULATOR_HOST: 127.0.0.1:9099
+          GCS_BUCKET_NAME: stds-e2e
+          STORAGE_EMULATOR_HOST: http://127.0.0.1:4443
+          RESEND_API_KEY: e2e-resend-key
+          RESEND_FROM_EMAIL: e2e@example.com
+        run: |
+          /tmp/stds-api > /tmp/stds-api.log 2>&1 &
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:8080/healthz > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/stds-api.log
+          exit 1
+
+      - name: Run E2E harness smoke
+        env:
+          E2E_BASE_URL: http://127.0.0.1:8080
+          E2E_DATABASE_URL: postgres://stds:stds@localhost:5432/stds_backend_e2e?sslmode=disable
+          E2E_FIREBASE_PROJECT_ID: demo-stds-backend
+          E2E_FIREBASE_AUTH_EMULATOR_HOST: 127.0.0.1:9099
+          E2E_TEST_EMAIL: e2e-admin@example.com
+          E2E_TEST_PASSWORD: Test123!
+          E2E_SCHEDULER_KEY: e2e-scheduler-key
+        run: go test -tags=e2e ./test/e2e
