@@ -164,7 +164,7 @@ jobs:
           FIREBASE_PROJECT_ID: demo-stds-backend
           FIREBASE_AUTH_EMULATOR_HOST: 127.0.0.1:9099
           GCS_BUCKET_NAME: stds-e2e
-          STORAGE_EMULATOR_HOST: http://127.0.0.1:4443
+          ATTACHMENT_STORAGE_MODE: fake-metadata
           RESEND_API_KEY: e2e-resend-key
           RESEND_FROM_EMAIL: e2e@example.com
         run: |
