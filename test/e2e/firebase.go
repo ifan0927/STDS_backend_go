@@ -21,7 +21,11 @@ type emulatorToken struct {
 }
 
 func issueFirebaseEmulatorToken(ctx context.Context, cfg e2eConfig) (emulatorToken, error) {
-	token, err := signUpFirebaseEmulatorUser(ctx, cfg)
+	return issueFirebaseEmulatorTokenForCredentials(ctx, cfg, cfg.TestEmail, cfg.TestPassword)
+}
+
+func issueFirebaseEmulatorTokenForCredentials(ctx context.Context, cfg e2eConfig, email string, password string) (emulatorToken, error) {
+	token, err := signUpFirebaseEmulatorUser(ctx, cfg, email, password)
 	if err == nil {
 		return token, nil
 	}
@@ -29,23 +33,23 @@ func issueFirebaseEmulatorToken(ctx context.Context, cfg e2eConfig) (emulatorTok
 		return emulatorToken{}, err
 	}
 
-	return signInFirebaseEmulatorUser(ctx, cfg)
+	return signInFirebaseEmulatorUser(ctx, cfg, email, password)
 }
 
-func signUpFirebaseEmulatorUser(ctx context.Context, cfg e2eConfig) (emulatorToken, error) {
+func signUpFirebaseEmulatorUser(ctx context.Context, cfg e2eConfig, email string, password string) (emulatorToken, error) {
 	payload := map[string]any{
-		"email":             cfg.TestEmail,
-		"password":          cfg.TestPassword,
+		"email":             email,
+		"password":          password,
 		"returnSecureToken": true,
 	}
 
 	return callFirebaseEmulatorAuth(ctx, cfg.FirebaseEmulatorHost, "accounts:signUp", payload)
 }
 
-func signInFirebaseEmulatorUser(ctx context.Context, cfg e2eConfig) (emulatorToken, error) {
+func signInFirebaseEmulatorUser(ctx context.Context, cfg e2eConfig, email string, password string) (emulatorToken, error) {
 	payload := map[string]any{
-		"email":             cfg.TestEmail,
-		"password":          cfg.TestPassword,
+		"email":             email,
+		"password":          password,
 		"returnSecureToken": true,
 	}
 

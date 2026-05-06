@@ -31,6 +31,10 @@ func (c apiClient) getJSON(ctx context.Context, path string) (*http.Response, []
 	return c.doJSON(ctx, http.MethodGet, path, nil)
 }
 
+func (c apiClient) postJSON(ctx context.Context, path string, body any) (*http.Response, []byte, error) {
+	return c.doJSON(ctx, http.MethodPost, path, body)
+}
+
 func (c apiClient) doJSON(ctx context.Context, method string, path string, body any) (*http.Response, []byte, error) {
 	var reader io.Reader
 	if body != nil {
@@ -80,5 +84,21 @@ func decodeJSON(t *testing.T, body []byte, target any) {
 
 	if err := json.Unmarshal(body, target); err != nil {
 		t.Fatalf("decode JSON response: %v\nbody: %s", err, string(body))
+	}
+}
+
+func requireAPIError(t *testing.T, body []byte, expectedCode string, expectedMessage string) {
+	t.Helper()
+
+	var payload struct {
+		ErrorCode string `json:"error_code"`
+		Message   string `json:"message"`
+	}
+	decodeJSON(t, body, &payload)
+	if payload.ErrorCode != expectedCode {
+		t.Fatalf("expected error_code %q, got %q: %s", expectedCode, payload.ErrorCode, string(body))
+	}
+	if payload.Message != expectedMessage {
+		t.Fatalf("expected message %q, got %q: %s", expectedMessage, payload.Message, string(body))
 	}
 }
