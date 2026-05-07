@@ -148,6 +148,23 @@ type TenantRosterRow struct {
 	RentAmount         *int
 }
 
+// BillReceipt is one bill-scoped receipt export read model.
+type BillReceipt struct {
+	BillID               string
+	BillType             string
+	BillStatus           string
+	Amount               *int
+	PaidAmount           *int
+	PeriodStart          time.Time
+	PeriodEnd            time.Time
+	MeterPreviousReading *int
+	MeterCurrentReading  *int
+	MeterUnitPrice       *float64
+	PropertyName         string
+	RoomName             string
+	TenantName           string
+}
+
 // JobBillCandidate is the minimal bill state needed by scheduler jobs.
 type JobBillCandidate struct {
 	ID      string
@@ -1244,6 +1261,47 @@ ORDER BY NULLIF(regexp_replace(rooms.name, '\D', '', 'g'), '')::int NULLS LAST, 
 	return rows, nil
 }
 
+// FindBillReceipt returns the display data needed for one bill receipt.
+func (r *SQLRepository) FindBillReceipt(ctx context.Context, scope Scope, billID string) (*BillReceipt, error) {
+	query := `
+SELECT
+	b.id,
+	b.type,
+	b.status,
+	b.amount,
+	b.paid_amount,
+	b.period_start,
+	b.period_end,
+	b.meter_previous_reading,
+	b.meter_current_reading,
+	b.meter_unit_price,
+	p.name,
+	rooms.name,
+	t.name
+FROM bills b
+JOIN properties p ON p.id = b.property_id AND p.deleted_at IS NULL
+JOIN rooms ON rooms.id = b.room_id AND rooms.deleted_at IS NULL
+LEFT JOIN tenants t ON t.id = b.tenant_id AND t.deleted_at IS NULL
+WHERE b.id = $1
+  AND b.deleted_at IS NULL
+`
+	args := []any{billID}
+	var ok bool
+	query, args, ok = appendPropertyScope(query, args, scope, "p")
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	receipt, err := scanBillReceipt(r.db.QueryRowContext(ctx, query, args...))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("find bill receipt: %w", err)
+	}
+	return receipt, nil
+}
+
 func (r *SQLRepository) getFinalizedFinancialReport(ctx context.Context, scope Scope, propertyID string, year int, month int) (report *FinancialReport, err error) {
 	query := `
 SELECT
@@ -1563,6 +1621,59 @@ func scanBill(row rowScanner) (*Bill, error) {
 	}
 
 	return &bill, nil
+}
+
+func scanBillReceipt(row rowScanner) (*BillReceipt, error) {
+	var receipt BillReceipt
+	var amount sql.NullInt64
+	var paidAmount sql.NullInt64
+	var meterPreviousReading sql.NullInt64
+	var meterCurrentReading sql.NullInt64
+	var meterUnitPrice sql.NullFloat64
+	var tenantName sql.NullString
+
+	if err := row.Scan(
+		&receipt.BillID,
+		&receipt.BillType,
+		&receipt.BillStatus,
+		&amount,
+		&paidAmount,
+		&receipt.PeriodStart,
+		&receipt.PeriodEnd,
+		&meterPreviousReading,
+		&meterCurrentReading,
+		&meterUnitPrice,
+		&receipt.PropertyName,
+		&receipt.RoomName,
+		&tenantName,
+	); err != nil {
+		return nil, err
+	}
+
+	if amount.Valid {
+		value := int(amount.Int64)
+		receipt.Amount = &value
+	}
+	if paidAmount.Valid {
+		value := int(paidAmount.Int64)
+		receipt.PaidAmount = &value
+	}
+	if meterPreviousReading.Valid {
+		value := int(meterPreviousReading.Int64)
+		receipt.MeterPreviousReading = &value
+	}
+	if meterCurrentReading.Valid {
+		value := int(meterCurrentReading.Int64)
+		receipt.MeterCurrentReading = &value
+	}
+	if meterUnitPrice.Valid {
+		receipt.MeterUnitPrice = &meterUnitPrice.Float64
+	}
+	if tenantName.Valid {
+		receipt.TenantName = tenantName.String
+	}
+
+	return &receipt, nil
 }
 
 func scanFinalizedFinancialReportRow(row rowScanner) (FinancialReportEntry, bool, *FinancialReport, error) {

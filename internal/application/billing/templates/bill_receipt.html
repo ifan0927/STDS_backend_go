@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <title>{{.Title}}</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      color: #111827;
+      font-family: Arial, "Noto Sans TC", sans-serif;
+      font-size: 13px;
+      line-height: 1.35;
+      margin: 24px;
+    }
+
+    .page {
+      margin: 0 auto;
+      max-width: 920px;
+    }
+
+    .receipt-page {
+      display: grid;
+      gap: 14px;
+      min-height: 260mm;
+      page-break-after: auto;
+    }
+
+    .receipt-copy {
+      border: 1px solid #9ca3af;
+      padding: 16px 20px;
+      page-break-inside: avoid;
+    }
+
+    .receipt-header {
+      align-items: flex-start;
+      display: flex;
+      gap: 16px;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+
+    h1 {
+      font-size: 22px;
+      letter-spacing: 0;
+      margin: 0 0 4px;
+      text-align: center;
+    }
+
+    .copy-label {
+      border: 1px solid #6b7280;
+      font-size: 13px;
+      min-width: 72px;
+      padding: 4px 8px;
+      text-align: center;
+    }
+
+    .meta {
+      display: grid;
+      gap: 8px 18px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      margin-bottom: 12px;
+    }
+
+    .field {
+      border-bottom: 1px solid #d1d5db;
+      min-height: 26px;
+      padding-bottom: 4px;
+    }
+
+    .field-label {
+      color: #4b5563;
+      display: inline-block;
+      min-width: 72px;
+    }
+
+    table {
+      border-collapse: collapse;
+      margin-top: 8px;
+      width: 100%;
+    }
+
+    th,
+    td {
+      border: 1px solid #9ca3af;
+      padding: 7px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #f3f4f6;
+      font-weight: 700;
+    }
+
+    .amount {
+      font-size: 17px;
+      font-weight: 700;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .signature-row {
+      display: grid;
+      gap: 18px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      margin-top: 14px;
+    }
+
+    .signature {
+      border-bottom: 1px solid #9ca3af;
+      min-height: 30px;
+      padding-top: 8px;
+    }
+
+    @media print {
+      body {
+        margin: 12mm;
+      }
+
+      thead {
+        display: table-header-group;
+      }
+
+      .receipt-page {
+        break-after: auto;
+        min-height: auto;
+        page-break-after: auto;
+      }
+
+      .receipt-copy {
+        break-inside: avoid;
+      }
+
+      th {
+        background: #f3f4f6;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="receipt-page">
+      {{range .Copies}}
+      <article class="receipt-copy">
+        <div class="receipt-header">
+          <div></div>
+          <div>
+            <h1>{{$.Title}}</h1>
+            <div>{{$.EnglishTitle}}</div>
+          </div>
+          <div class="copy-label">{{.CopyLabel}}</div>
+        </div>
+
+        <div class="meta">
+          <div class="field"><span class="field-label">物業</span>{{.PropertyName}}</div>
+          <div class="field"><span class="field-label">房號</span>{{.RoomName}}</div>
+          <div class="field"><span class="field-label">租客</span>{{.TenantName}}</div>
+          <div class="field"><span class="field-label">收據日期</span>{{.ReceiptDate}}</div>
+          <div class="field"><span class="field-label">帳期</span>{{.PeriodLabel}}</div>
+          <div class="field"><span class="field-label">收款人</span>{{.Collector}}</div>
+        </div>
+
+        {{if $.IsElectricity}}
+        <table>
+          <thead>
+            <tr>
+              <th>項目</th>
+              <th>前次度數</th>
+              <th>本次度數</th>
+              <th>用電度數</th>
+              <th>單價</th>
+              <th>金額</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>{{.ItemLabel}}</td>
+              <td>{{.PreviousReadingLabel}}</td>
+              <td>{{.CurrentReadingLabel}}</td>
+              <td>{{.UsageLabel}}</td>
+              <td>{{.UnitPriceLabel}}</td>
+              <td class="amount">{{.AmountLabel}}</td>
+            </tr>
+          </tbody>
+        </table>
+        {{else}}
+        <table>
+          <thead>
+            <tr>
+              <th>項目</th>
+              <th>說明</th>
+              <th>金額</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>{{.ItemLabel}}</td>
+              <td>{{.Description}}</td>
+              <td class="amount">{{.AmountLabel}}</td>
+            </tr>
+          </tbody>
+        </table>
+        {{end}}
+
+        <div class="signature-row">
+          <div class="signature"><span class="field-label">收款簽章</span></div>
+          <div class="signature"><span class="field-label">承租人簽章</span></div>
+        </div>
+      </article>
+      {{end}}
+    </section>
+  </main>
+</body>
+</html>

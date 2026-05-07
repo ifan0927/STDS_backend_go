@@ -2,6 +2,7 @@ package billing
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -451,6 +452,173 @@ func TestExportTenantRosterRejectsUnsupportedFormat(t *testing.T) {
 	}
 }
 
+func TestExportBillReceiptRendersRentHTMLDocument(t *testing.T) {
+	amount := 18000
+	repo := &reportRepositoryStub{
+		billReceipt: &BillReceipt{
+			BillID:       testBillID,
+			BillType:     "rent",
+			BillStatus:   "paid",
+			Amount:       &amount,
+			PeriodStart:  time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+			PeriodEnd:    time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC),
+			PropertyName: "Demo Property",
+			RoomName:     "101",
+			TenantName:   "Alice",
+		},
+	}
+	renderer := &recordingReportRenderer{html: []byte("<html>rent receipt</html>")}
+	service := NewExportBillReceiptService(repo, renderer)
+
+	document, err := service.Execute(context.Background(), ExportBillReceiptInput{
+		ActorRole:           "staff",
+		ActorUserID:         "user-1",
+		AssignedPropertyIDs: []string{testPropertyID},
+		BillID:              testBillID,
+		Format:              "html",
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if repo.billReceiptQuery == nil || repo.billReceiptQuery.BillID != testBillID {
+		t.Fatalf("unexpected receipt query: %+v", repo.billReceiptQuery)
+	}
+	if renderer.name != "bill_receipt.html" {
+		t.Fatalf("renderer template = %q", renderer.name)
+	}
+	view, ok := renderer.data.(billReceiptView)
+	if !ok {
+		t.Fatalf("renderer data = %T, want billReceiptView", renderer.data)
+	}
+	if !view.IsRent || view.IsElectricity || view.Title != "租金收據" {
+		t.Fatalf("unexpected receipt view metadata: %+v", view)
+	}
+	if len(view.Copies) != 2 || view.Copies[0].CopyLabel != "客戶聯" || view.Copies[1].CopyLabel != "存根聯" {
+		t.Fatalf("unexpected copies: %+v", view.Copies)
+	}
+	if view.Copies[0].PeriodLabel != "2026-05-01 至 2026-05-31" || view.Copies[0].AmountLabel != "NT$ 18,000" {
+		t.Fatalf("unexpected copy data: %+v", view.Copies[0])
+	}
+	if view.Copies[0].PropertyName != "Demo Property" || view.Copies[0].RoomName != "101" || view.Copies[0].TenantName != "Alice" {
+		t.Fatalf("unexpected render-time display labels: %+v", view.Copies[0])
+	}
+	if view.Copies[0].ReceiptDate != "" || view.Copies[0].Collector != "" {
+		t.Fatalf("receipt date and collector should stay blank: %+v", view.Copies[0])
+	}
+	if document.Filename != "bill-receipt-rent-101-2026-05-01.html" {
+		t.Fatalf("filename = %q", document.Filename)
+	}
+}
+
+func TestExportBillReceiptRendersElectricityMeterFields(t *testing.T) {
+	amount := 860
+	previous := 1280
+	current := 1452
+	unitPrice := 5.0
+	repo := &reportRepositoryStub{
+		billReceipt: &BillReceipt{
+			BillID:               testBillID,
+			BillType:             "electricity",
+			BillStatus:           "paid",
+			Amount:               &amount,
+			PeriodStart:          time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+			PeriodEnd:            time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC),
+			MeterPreviousReading: &previous,
+			MeterCurrentReading:  &current,
+			MeterUnitPrice:       &unitPrice,
+			PropertyName:         "Demo Property",
+			RoomName:             "101",
+			TenantName:           "Alice",
+		},
+	}
+	renderer := &recordingReportRenderer{html: []byte("<html>electricity receipt</html>")}
+	service := NewExportBillReceiptService(repo, renderer)
+
+	_, err := service.Execute(context.Background(), ExportBillReceiptInput{
+		ActorRole: "owner",
+		BillID:    testBillID,
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	view := renderer.data.(billReceiptView)
+	if !view.IsElectricity || view.Title != "電費收據" {
+		t.Fatalf("unexpected receipt view metadata: %+v", view)
+	}
+	copy := view.Copies[0]
+	if copy.PreviousReadingLabel != "1,280" || copy.CurrentReadingLabel != "1,452" || copy.UsageLabel != "172" {
+		t.Fatalf("unexpected meter labels: %+v", copy)
+	}
+	if copy.UnitPriceLabel != "NT$ 5" || copy.AmountLabel != "NT$ 860" {
+		t.Fatalf("unexpected amount labels: %+v", copy)
+	}
+}
+
+func TestExportBillReceiptRejectsIneligibleStatusAndUnsupportedFormat(t *testing.T) {
+	for _, status := range []string{"pending_meter", "pending_payment", "overdue", "voided", "written_off"} {
+		t.Run(status, func(t *testing.T) {
+			amount := 18000
+			repo := &reportRepositoryStub{billReceipt: &BillReceipt{BillID: testBillID, BillType: "rent", BillStatus: status, Amount: &amount}}
+			service := NewExportBillReceiptService(repo, &recordingReportRenderer{html: []byte("<html></html>")})
+
+			_, err := service.Execute(context.Background(), ExportBillReceiptInput{
+				ActorRole: "staff",
+				BillID:    testBillID,
+			})
+			assertAppErrorCode(t, err, CodeBillReceiptNotExportable)
+		})
+	}
+
+	repo := &reportRepositoryStub{}
+	service := NewExportBillReceiptService(repo, &recordingReportRenderer{html: []byte("<html></html>")})
+	_, err := service.Execute(context.Background(), ExportBillReceiptInput{
+		ActorRole: "staff",
+		BillID:    testBillID,
+		Format:    "pdf",
+	})
+	assertAppErrorCode(t, err, apperr.CodeBadRequest)
+	if repo.billReceiptQuery != nil {
+		t.Fatalf("unexpected receipt query: %+v", repo.billReceiptQuery)
+	}
+}
+
+func TestExportBillReceiptTreatsPaidElectricityMissingAmountAsInternalError(t *testing.T) {
+	previous := 1280
+	current := 1452
+	unitPrice := 5.0
+	repo := &reportRepositoryStub{
+		billReceipt: &BillReceipt{
+			BillID:               testBillID,
+			BillType:             "electricity",
+			BillStatus:           "paid",
+			MeterPreviousReading: &previous,
+			MeterCurrentReading:  &current,
+			MeterUnitPrice:       &unitPrice,
+		},
+	}
+	service := NewExportBillReceiptService(repo, &recordingReportRenderer{html: []byte("<html></html>")})
+
+	_, err := service.Execute(context.Background(), ExportBillReceiptInput{
+		ActorRole: "staff",
+		BillID:    testBillID,
+	})
+	assertAppErrorCode(t, err, apperr.CodeInternalServerError)
+}
+
+func TestExportBillReceiptRendererFailureMapsInternalError(t *testing.T) {
+	amount := 18000
+	repo := &reportRepositoryStub{
+		billReceipt: &BillReceipt{BillID: testBillID, BillType: "rent", BillStatus: "paid", Amount: &amount},
+	}
+	service := NewExportBillReceiptService(repo, &recordingReportRenderer{err: errors.New("render failed")})
+
+	_, err := service.Execute(context.Background(), ExportBillReceiptInput{
+		ActorRole: "staff",
+		BillID:    testBillID,
+	})
+	assertAppErrorCode(t, err, apperr.CodeInternalServerError)
+}
+
 type reportRepositoryStub struct {
 	pendingMeterBills         []Bill
 	pendingMeterQuery         *PendingMeterQuery
@@ -468,6 +636,8 @@ type reportRepositoryStub struct {
 	snapshotReportErr         error
 	tenantRosterRows          []TenantRosterRow
 	tenantRosterQuery         *TenantRosterQuery
+	billReceipt               *BillReceipt
+	billReceiptQuery          *BillReceiptQuery
 	err                       error
 }
 
@@ -531,6 +701,14 @@ func (s *reportRepositoryStub) ListTenantRosterRows(_ context.Context, query Ten
 		return nil, s.err
 	}
 	return s.tenantRosterRows, nil
+}
+
+func (s *reportRepositoryStub) FindBillReceipt(_ context.Context, query BillReceiptQuery) (*BillReceipt, error) {
+	s.billReceiptQuery = &query
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.billReceipt, nil
 }
 
 type recordingReportRenderer struct {
