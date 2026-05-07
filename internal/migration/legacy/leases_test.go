@@ -3,9 +3,11 @@ package legacy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -385,6 +387,9 @@ LIMIT 1
 	if err := json.Unmarshal(content, &persisted); err != nil {
 		t.Fatalf("json.Unmarshal(report) error = %v", err)
 	}
+	if persisted.ImportedRows != report.ImportedRows || persisted.SkippedRows != report.SkippedRows || persisted.MissingRoomMappings != report.MissingRoomMappings {
+		t.Fatalf("persisted report counts = %+v, want returned counts %+v", persisted, report)
+	}
 	if got := len(persisted.Skipped); got != 1 {
 		t.Fatalf("len(persisted.Skipped) = %d, want 1", got)
 	}
@@ -392,6 +397,337 @@ LIMIT 1
 		if assumption == "Task 9 rent_amount uses the mapped room's default_rent_amount as the monthly lease amount; legacy payment-cycle labels are preserved only in migration assumptions and settlement detail, not modeled as new lease columns." {
 			t.Fatal("persisted report still contains the old rent payment-cycle assumption")
 		}
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet() error = %v", err)
+	}
+}
+
+func TestMigrateLeasesReportsMissingTenantMapping(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New() error = %v", err)
+	}
+	defer db.Close()
+
+	sourceDir := t.TempDir()
+	reportDir := t.TempDir()
+
+	writeLegacyLeaseFixture(t, sourceDir, []legacyLeaseRecord{
+		{
+			RentID:        "1",
+			RoomID:        "10",
+			StartDate:     "2020-01-01",
+			EndDate:       "2020-12-31",
+			DepositAmount: "4000",
+			PaymentCycle:  "月繳",
+			Enabled:       "1",
+		},
+	})
+	writeLegacyLeaseUserFixture(t, sourceDir, []legacyLeaseTenantLink{
+		{RentID: "1", TenantID: "7"},
+	})
+	writeLegacyLeaseRoomFixture(t, sourceDir, []legacyRoomRecord{
+		{
+			RoomID:   "10",
+			EstateID: "1",
+			PriceRaw: `{"月繳":{"money":"5000"}}`,
+		},
+	})
+
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(`
+CREATE TABLE IF NOT EXISTS legacy_lease_mappings (
+	legacy_rent_id VARCHAR(50) PRIMARY KEY,
+	lease_id UUID NOT NULL UNIQUE REFERENCES leases(id),
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+)
+`)).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(regexp.QuoteMeta(`
+SELECT 1
+FROM legacy_lease_mappings
+WHERE legacy_rent_id = $1
+LIMIT 1
+`)).
+		WithArgs("1").
+		WillReturnRows(sqlmock.NewRows([]string{"?column?"}))
+	mock.ExpectQuery(regexp.QuoteMeta(`
+SELECT lrm.room_id, r.property_id
+FROM legacy_room_mappings lrm
+JOIN rooms r
+  ON r.id = lrm.room_id
+WHERE lrm.legacy_room_id = $1
+  AND r.deleted_at IS NULL
+LIMIT 1
+`)).
+		WithArgs("10").
+		WillReturnRows(sqlmock.NewRows([]string{"room_id", "property_id"}).AddRow("room-uuid-10", "property-uuid-10"))
+	mock.ExpectQuery(regexp.QuoteMeta(`
+SELECT tenant_id
+FROM legacy_tenant_mappings
+WHERE legacy_tenant_id = $1
+LIMIT 1
+`)).
+		WithArgs("7").
+		WillReturnRows(sqlmock.NewRows([]string{"tenant_id"}))
+	mock.ExpectCommit()
+
+	report, err := MigrateLeases(context.Background(), db, MigrateLeasesOptions{
+		SourceDir: sourceDir,
+		ReportDir: reportDir,
+	})
+	if err != nil {
+		t.Fatalf("MigrateLeases() error = %v", err)
+	}
+
+	if report.ImportedRows != 0 {
+		t.Fatalf("ImportedRows = %d, want 0", report.ImportedRows)
+	}
+	if report.SkippedRows != 1 {
+		t.Fatalf("SkippedRows = %d, want 1", report.SkippedRows)
+	}
+	if report.MissingTenantMappings != 1 {
+		t.Fatalf("MissingTenantMappings = %d, want 1", report.MissingTenantMappings)
+	}
+	if got := len(report.Skipped); got != 1 {
+		t.Fatalf("len(report.Skipped) = %d, want 1", got)
+	}
+	if report.Skipped[0].Reason != "missing tenant mapping for linked tenant" {
+		t.Fatalf("Skipped[0].Reason = %q, want missing tenant mapping", report.Skipped[0].Reason)
+	}
+
+	content, err := os.ReadFile(report.ReportPath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(report.ReportPath) error = %v", err)
+	}
+
+	var persisted LeaseMigrationReport
+	if err := json.Unmarshal(content, &persisted); err != nil {
+		t.Fatalf("json.Unmarshal(report) error = %v", err)
+	}
+	if persisted.SkippedRows != report.SkippedRows || persisted.MissingTenantMappings != report.MissingTenantMappings {
+		t.Fatalf("persisted report counts = %+v, want returned counts %+v", persisted, report)
+	}
+	if len(persisted.Skipped) != len(report.Skipped) || persisted.Skipped[0].Reason != report.Skipped[0].Reason {
+		t.Fatalf("persisted skipped = %+v, want %+v", persisted.Skipped, report.Skipped)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet() error = %v", err)
+	}
+}
+
+func TestMigrateLeasesSkipsAlreadyMappedRows(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New() error = %v", err)
+	}
+	defer db.Close()
+
+	sourceDir := t.TempDir()
+	reportDir := t.TempDir()
+
+	writeLegacyLeaseFixture(t, sourceDir, []legacyLeaseRecord{
+		{
+			RentID:        "1",
+			RoomID:        "10",
+			StartDate:     "2020-01-01",
+			EndDate:       "2020-12-31",
+			DepositAmount: "4000",
+			PaymentCycle:  "月繳",
+			Enabled:       "1",
+		},
+	})
+	writeLegacyLeaseUserFixture(t, sourceDir, []legacyLeaseTenantLink{
+		{RentID: "1", TenantID: "7"},
+	})
+	writeLegacyLeaseRoomFixture(t, sourceDir, []legacyRoomRecord{
+		{
+			RoomID:   "10",
+			EstateID: "1",
+			PriceRaw: `{"月繳":{"money":"5000"}}`,
+		},
+	})
+
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(`
+CREATE TABLE IF NOT EXISTS legacy_lease_mappings (
+	legacy_rent_id VARCHAR(50) PRIMARY KEY,
+	lease_id UUID NOT NULL UNIQUE REFERENCES leases(id),
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+)
+`)).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(regexp.QuoteMeta(`
+SELECT 1
+FROM legacy_lease_mappings
+WHERE legacy_rent_id = $1
+LIMIT 1
+`)).
+		WithArgs("1").
+		WillReturnRows(sqlmock.NewRows([]string{"?column?"}).AddRow(1))
+	mock.ExpectCommit()
+
+	report, err := MigrateLeases(context.Background(), db, MigrateLeasesOptions{
+		SourceDir: sourceDir,
+		ReportDir: reportDir,
+	})
+	if err != nil {
+		t.Fatalf("MigrateLeases() error = %v", err)
+	}
+
+	if report.AlreadyMappedRows != 1 {
+		t.Fatalf("AlreadyMappedRows = %d, want 1", report.AlreadyMappedRows)
+	}
+	if report.ImportedRows != 0 {
+		t.Fatalf("ImportedRows = %d, want 0", report.ImportedRows)
+	}
+	if report.MappingsCreated != 0 {
+		t.Fatalf("MappingsCreated = %d, want 0", report.MappingsCreated)
+	}
+	if report.SkippedRows != 0 {
+		t.Fatalf("SkippedRows = %d, want 0", report.SkippedRows)
+	}
+
+	content, err := os.ReadFile(report.ReportPath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(report.ReportPath) error = %v", err)
+	}
+
+	var persisted LeaseMigrationReport
+	if err := json.Unmarshal(content, &persisted); err != nil {
+		t.Fatalf("json.Unmarshal(report) error = %v", err)
+	}
+	if persisted.AlreadyMappedRows != report.AlreadyMappedRows ||
+		persisted.ImportedRows != report.ImportedRows ||
+		persisted.MappingsCreated != report.MappingsCreated ||
+		persisted.SkippedRows != report.SkippedRows {
+		t.Fatalf("persisted report counts = %+v, want returned counts %+v", persisted, report)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet() error = %v", err)
+	}
+}
+
+func TestMigrateLeasesRollsBackWhenTargetInsertFails(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New() error = %v", err)
+	}
+	defer db.Close()
+
+	sourceDir := t.TempDir()
+	reportDir := t.TempDir()
+
+	writeLegacyLeaseFixture(t, sourceDir, []legacyLeaseRecord{
+		{
+			RentID:        "1",
+			RoomID:        "10",
+			StartDate:     "2020-01-01",
+			EndDate:       "2020-12-31",
+			DepositAmount: "4000",
+			PaymentCycle:  "月繳",
+			Enabled:       "1",
+		},
+	})
+	writeLegacyLeaseUserFixture(t, sourceDir, []legacyLeaseTenantLink{
+		{RentID: "1", TenantID: "7"},
+	})
+	writeLegacyLeaseRoomFixture(t, sourceDir, []legacyRoomRecord{
+		{
+			RoomID:   "10",
+			EstateID: "1",
+			PriceRaw: `{"月繳":{"money":"5000"}}`,
+		},
+	})
+
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(`
+CREATE TABLE IF NOT EXISTS legacy_lease_mappings (
+	legacy_rent_id VARCHAR(50) PRIMARY KEY,
+	lease_id UUID NOT NULL UNIQUE REFERENCES leases(id),
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+)
+`)).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(regexp.QuoteMeta(`
+SELECT 1
+FROM legacy_lease_mappings
+WHERE legacy_rent_id = $1
+LIMIT 1
+`)).
+		WithArgs("1").
+		WillReturnRows(sqlmock.NewRows([]string{"?column?"}))
+	mock.ExpectQuery(regexp.QuoteMeta(`
+SELECT lrm.room_id, r.property_id
+FROM legacy_room_mappings lrm
+JOIN rooms r
+  ON r.id = lrm.room_id
+WHERE lrm.legacy_room_id = $1
+  AND r.deleted_at IS NULL
+LIMIT 1
+`)).
+		WithArgs("10").
+		WillReturnRows(sqlmock.NewRows([]string{"room_id", "property_id"}).AddRow("room-uuid-10", "property-uuid-10"))
+	mock.ExpectQuery(regexp.QuoteMeta(`
+SELECT tenant_id
+FROM legacy_tenant_mappings
+WHERE legacy_tenant_id = $1
+LIMIT 1
+`)).
+		WithArgs("7").
+		WillReturnRows(sqlmock.NewRows([]string{"tenant_id"}).AddRow("tenant-uuid-7"))
+	mock.ExpectQuery(regexp.QuoteMeta(`
+INSERT INTO leases (
+	tenant_id,
+	room_id,
+	property_id,
+	rent_amount,
+	start_date,
+	end_date,
+	rent_billing_cadence,
+	electricity_billing_cadence,
+	status,
+	deposit_amount,
+	deposit_refund_amount,
+	deposit_deduction_amount,
+	deposit_status,
+	notes,
+	termination_reason,
+	settlement_detail
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::jsonb)
+RETURNING id
+`)).
+		WithArgs(
+			"tenant-uuid-7",
+			"room-uuid-10",
+			"property-uuid-10",
+			5000,
+			time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
+			time.Date(2020, 12, 31, 0, 0, 0, 0, time.UTC),
+			"monthly",
+			"monthly",
+			leaseStatusActive,
+			4000,
+			nil,
+			nil,
+			depositStatusHeld,
+			nil,
+			nil,
+			nil,
+		).
+		WillReturnError(errors.New("lease insert failed"))
+	mock.ExpectRollback()
+
+	_, err = MigrateLeases(context.Background(), db, MigrateLeasesOptions{
+		SourceDir: sourceDir,
+		ReportDir: reportDir,
+	})
+	if err == nil {
+		t.Fatal("MigrateLeases() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "insert lease for legacy rent 1") {
+		t.Fatalf("MigrateLeases() error = %v, want lease insert context", err)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {

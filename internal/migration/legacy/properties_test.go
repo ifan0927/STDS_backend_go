@@ -4,9 +4,11 @@ import (
 	"context"
 	"database/sql/driver"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -190,6 +192,194 @@ INSERT INTO legacy_property_mappings (
 	}
 	if got := len(persisted.Skipped); got != 1 {
 		t.Fatalf("len(persisted.Skipped) = %d, want 1", got)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet() error = %v", err)
+	}
+}
+
+func TestMigratePropertiesSkipsAlreadyMappedRows(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New() error = %v", err)
+	}
+	defer db.Close()
+
+	sourceDir := t.TempDir()
+	reportDir := t.TempDir()
+
+	writeLegacyPropertyFixture(t, sourceDir, []legacyPropertyRecord{
+		{
+			EstateID:      "1",
+			Title:         "第一雅築",
+			OwnerLegacyID: "2287",
+			Address:       "台南市永康區中華路619巷22弄29號",
+		},
+	})
+
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(`
+CREATE TABLE IF NOT EXISTS legacy_property_mappings (
+	legacy_estate_id VARCHAR(50) PRIMARY KEY,
+	property_id UUID NOT NULL UNIQUE REFERENCES properties(id),
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+)
+`)).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(regexp.QuoteMeta(`
+SELECT 1
+FROM legacy_property_mappings
+WHERE legacy_estate_id = $1
+LIMIT 1
+`)).
+		WithArgs("1").
+		WillReturnRows(sqlmock.NewRows([]string{"?column?"}).AddRow(1))
+	mock.ExpectCommit()
+
+	report, err := MigrateProperties(context.Background(), db, MigratePropertiesOptions{
+		SourceDir: sourceDir,
+		ReportDir: reportDir,
+	})
+	if err != nil {
+		t.Fatalf("MigrateProperties() error = %v", err)
+	}
+
+	if report.EligibleRows != 1 {
+		t.Fatalf("EligibleRows = %d, want 1", report.EligibleRows)
+	}
+	if report.AlreadyMappedRows != 1 {
+		t.Fatalf("AlreadyMappedRows = %d, want 1", report.AlreadyMappedRows)
+	}
+	if report.ImportedRows != 0 {
+		t.Fatalf("ImportedRows = %d, want 0", report.ImportedRows)
+	}
+	if report.MappingsCreated != 0 {
+		t.Fatalf("MappingsCreated = %d, want 0", report.MappingsCreated)
+	}
+
+	content, err := os.ReadFile(report.ReportPath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(report.ReportPath) error = %v", err)
+	}
+
+	var persisted PropertyMigrationReport
+	if err := json.Unmarshal(content, &persisted); err != nil {
+		t.Fatalf("json.Unmarshal(report) error = %v", err)
+	}
+	if persisted.EligibleRows != report.EligibleRows ||
+		persisted.AlreadyMappedRows != report.AlreadyMappedRows ||
+		persisted.ImportedRows != report.ImportedRows ||
+		persisted.MappingsCreated != report.MappingsCreated {
+		t.Fatalf("persisted report counts = %+v, want returned counts %+v", persisted, report)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet() error = %v", err)
+	}
+}
+
+func TestMigratePropertiesRollsBackWhenMappingInsertFails(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New() error = %v", err)
+	}
+	defer db.Close()
+
+	sourceDir := t.TempDir()
+	reportDir := t.TempDir()
+
+	writeLegacyPropertyFixture(t, sourceDir, []legacyPropertyRecord{
+		{
+			EstateID:      "1",
+			Title:         "第一雅築",
+			OwnerLegacyID: "2287",
+			Address:       "台南市永康區中華路619巷22弄29號",
+		},
+	})
+
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(`
+CREATE TABLE IF NOT EXISTS legacy_property_mappings (
+	legacy_estate_id VARCHAR(50) PRIMARY KEY,
+	property_id UUID NOT NULL UNIQUE REFERENCES properties(id),
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+)
+`)).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(regexp.QuoteMeta(`
+SELECT 1
+FROM legacy_property_mappings
+WHERE legacy_estate_id = $1
+LIMIT 1
+`)).
+		WithArgs("1").
+		WillReturnRows(sqlmock.NewRows([]string{"?column?"}))
+	mock.ExpectQuery(regexp.QuoteMeta(`
+SELECT id
+FROM users
+WHERE firebase_uid = $1
+  AND deleted_at IS NULL
+LIMIT 1
+`)).
+		WithArgs("legacy-owner:2287").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	mock.ExpectQuery(regexp.QuoteMeta(`
+INSERT INTO users (
+	firebase_uid,
+	email,
+	name,
+	role
+) VALUES ($1, $2, $3, 'owner')
+RETURNING id
+`)).
+		WithArgs("legacy-owner:2287", "legacy-owner-2287@migration.local", "Legacy Owner 2287").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("owner-uuid-1"))
+	mock.ExpectQuery(regexp.QuoteMeta(`
+INSERT INTO properties (
+	name,
+	subtitle,
+	address,
+	contact_phone,
+	contact_email,
+	notes,
+	facilities,
+	electricity_unit_price,
+	default_electricity_billing_cadence,
+	owner_id
+) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)
+RETURNING id
+`)).
+		WithArgs(
+			"第一雅築",
+			nil,
+			"台南市永康區中華路619巷22弄29號",
+			nil,
+			nil,
+			nil,
+			nil,
+			nil,
+			"monthly",
+			"owner-uuid-1",
+		).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("property-uuid-1"))
+	mock.ExpectExec(regexp.QuoteMeta(`
+INSERT INTO legacy_property_mappings (
+	legacy_estate_id,
+	property_id
+) VALUES ($1, $2)
+`)).
+		WithArgs("1", "property-uuid-1").
+		WillReturnError(errors.New("mapping insert failed"))
+	mock.ExpectRollback()
+
+	_, err = MigrateProperties(context.Background(), db, MigratePropertiesOptions{
+		SourceDir: sourceDir,
+		ReportDir: reportDir,
+	})
+	if err == nil {
+		t.Fatal("MigrateProperties() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "insert legacy property mapping") {
+		t.Fatalf("MigrateProperties() error = %v, want mapping insert context", err)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
