@@ -916,6 +916,70 @@ func TestGetProfitLossPeriodFinalizedUsesSnapshotTitleCopies(t *testing.T) {
 	}
 }
 
+func TestGetOperationReportLiveMapsFinancialOccupancyAndLogs(t *testing.T) {
+	db, mock, repo := newBillingRepoTest(t)
+	defer closeBillingDB(t, db)
+
+	mock.ExpectQuery(`(?s)FROM monthly_snapshots ms\s+JOIN properties p ON p.id = ms.property_id AND p.deleted_at IS NULL\s+WHERE ms.property_id = \$1`).
+		WithArgs("property-1", 2026, 5).
+		WillReturnRows(sqlmock.NewRows([]string{"coalesce"}).AddRow(1000))
+
+	mock.ExpectQuery(`(?s)FROM property_accounts pa\s+JOIN properties p ON p.id = pa.property_id AND p.deleted_at IS NULL\s+LEFT JOIN accounting_entries ae ON ae.property_account_id = pa.id.*GROUP BY pa.property_id, p.name`).
+		WithArgs("property-1", 2026, 5).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"property_id",
+			"name",
+			"year",
+			"month",
+			"total_income",
+			"total_expense",
+		}).AddRow("property-1", "Demo Property", 2026, 5, 12000, 500))
+
+	mock.ExpectQuery(`(?s)COUNT\(\*\) FILTER.*FROM properties p\s+LEFT JOIN leases l ON l.property_id = p.id AND l.deleted_at IS NULL\s+WHERE p.id = \$1`).
+		WithArgs(
+			"property-1",
+			time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+			time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+			time.Date(2026, 4, 30, 16, 0, 0, 0, time.UTC),
+			time.Date(2026, 5, 31, 16, 0, 0, 0, time.UTC),
+		).
+		WillReturnRows(sqlmock.NewRows([]string{"previous_rented", "new_rentals", "terminations", "ending_rented"}).
+			AddRow(8, 2, 1, 9))
+
+	logDate := time.Date(2026, 5, 3, 10, 0, 0, 0, time.UTC)
+	mock.ExpectQuery(`(?s)FROM repair_requests rr.*UNION ALL.*新租.*UNION ALL.*退租.*ORDER BY row_date ASC, row_id ASC`).
+		WithArgs(
+			"property-1",
+			time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+			time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+			time.Date(2026, 4, 30, 16, 0, 0, 0, time.UTC),
+			time.Date(2026, 5, 31, 16, 0, 0, 0, time.UTC),
+		).
+		WillReturnRows(sqlmock.NewRows([]string{"row_date", "room_name", "summary"}).
+			AddRow(logDate, "101", "Repair sink"))
+
+	report, err := repo.GetOperationReport(context.Background(), Scope{Role: "admin"}, "property-1", 2026, 5, true)
+	if err != nil {
+		t.Fatalf("GetOperationReport: %v", err)
+	}
+	if report.IsFinalized || report.PropertyName != "Demo Property" {
+		t.Fatalf("unexpected report metadata: %+v", report)
+	}
+	if report.PreviousBalance != 1000 || report.MonthlyIncome != 12000 || report.MonthlyExpense != 500 || report.EndingBalance != 12500 {
+		t.Fatalf("unexpected financial summary: %+v", report)
+	}
+	if report.PreviousRented != 8 || report.NewRentals != 2 || report.Terminations != 1 || report.EndingRented != 9 {
+		t.Fatalf("unexpected occupancy summary: %+v", report)
+	}
+	if len(report.ManagementLogRows) != 1 || report.ManagementLogRows[0].RoomName == nil || *report.ManagementLogRows[0].RoomName != "101" || report.ManagementLogRows[0].Summary != "Repair sink" {
+		t.Fatalf("unexpected log rows: %+v", report.ManagementLogRows)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
 func TestGetProfitLossPeriodMapsOldCategoryFallbackAndUnsupportedRows(t *testing.T) {
 	db, mock, repo := newBillingRepoTest(t)
 	defer closeBillingDB(t, db)

@@ -178,6 +178,7 @@ type BillingFinancialReportService interface {
 	ExportBillReceipt(ctx context.Context, input BillingReceiptInput) (*reporthtml.Document, error)
 	ExportMonthlyCashflow(ctx context.Context, input BillingMonthlyCashflowInput) (*reporthtml.Document, error)
 	ExportProfitLoss(ctx context.Context, input BillingProfitLossInput) (*reporthtml.Document, error)
+	ExportOperationReport(ctx context.Context, input BillingOperationReportInput) (*reporthtml.Document, error)
 }
 
 type BillingListInput struct {
@@ -278,6 +279,16 @@ type BillingMonthlyCashflowInput struct {
 }
 
 type BillingProfitLossInput struct {
+	ActorRole           string
+	ActorUserID         string
+	AssignedPropertyIDs []string
+	PropertyID          string
+	Year                int
+	Month               int
+	Format              string
+}
+
+type BillingOperationReportInput struct {
 	ActorRole           string
 	ActorUserID         string
 	AssignedPropertyIDs []string
@@ -1520,6 +1531,44 @@ func (s *APIServer) ExportPropertyFinancialReportProfitLoss(c *gin.Context, id s
 	}
 
 	document, err := s.billing.FinancialReports.ExportProfitLoss(c.Request.Context(), BillingProfitLossInput{
+		ActorRole:           principal.Role,
+		ActorUserID:         principal.UserID,
+		AssignedPropertyIDs: principal.AssignedPropertyIDs,
+		PropertyID:          id,
+		Year:                year,
+		Month:               month,
+		Format:              format,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	writeHTMLDocument(c, document)
+}
+
+// ExportPropertyOperationReport handles monthly operation report HTML export.
+func (s *APIServer) ExportPropertyOperationReport(c *gin.Context, id string, year int, month int, params api.ExportPropertyOperationReportParams) {
+	if !isValidMonth(month) {
+		c.Error(apperr.ErrBadRequest.WithDetails(map[string]interface{}{
+			"field":  "month",
+			"reason": "must be between 1 and 12",
+		}))
+		return
+	}
+
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	format := ""
+	if params.Format != nil {
+		format = string(*params.Format)
+	}
+
+	document, err := s.billing.FinancialReports.ExportOperationReport(c.Request.Context(), BillingOperationReportInput{
 		ActorRole:           principal.Role,
 		ActorUserID:         principal.UserID,
 		AssignedPropertyIDs: principal.AssignedPropertyIDs,

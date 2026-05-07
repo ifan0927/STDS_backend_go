@@ -115,6 +115,16 @@ type ProfitLossQuery struct {
 	Month               int
 }
 
+// OperationReportQuery defines role scoping for one operation report period.
+type OperationReportQuery struct {
+	ActorRole           string
+	ActorUserID         string
+	AssignedPropertyIDs []string
+	PropertyID          string
+	Year                int
+	Month               int
+}
+
 // FinancialReportSummary is the application read model for report summary rows.
 type FinancialReportSummary struct {
 	Year         int
@@ -217,6 +227,32 @@ type ProfitLossSourceRow struct {
 	Note        *string
 }
 
+// OperationReport is the read model for a legacy-style monthly operation report.
+type OperationReport struct {
+	PropertyID        string
+	PropertyName      string
+	Year              int
+	Month             int
+	IsFinalized       bool
+	PreviousBalance   int
+	MonthlyIncome     int
+	MonthlyExpense    int
+	OwnerDistribution int
+	EndingBalance     int
+	PreviousRented    int
+	NewRentals        int
+	Terminations      int
+	EndingRented      int
+	ManagementLogRows []OperationReportLogRow
+}
+
+// OperationReportLogRow is one management log line for an operation report.
+type OperationReportLogRow struct {
+	Date     time.Time
+	RoomName *string
+	Summary  string
+}
+
 // ProfitLossReport is the application view model for P&L export.
 type ProfitLossReport struct {
 	PropertyID    string
@@ -257,6 +293,8 @@ type ReportRepository interface {
 	CalculateMonthlyCashflowOpeningBalance(ctx context.Context, query MonthlyCashflowQuery) (int, error)
 	FindLiveProfitLossPeriod(ctx context.Context, query ProfitLossQuery) (*ProfitLossPeriod, error)
 	FindSnapshotProfitLossPeriod(ctx context.Context, query ProfitLossQuery) (*ProfitLossPeriod, error)
+	FindLiveOperationReport(ctx context.Context, query OperationReportQuery) (*OperationReport, error)
+	FindSnapshotOperationReport(ctx context.Context, query OperationReportQuery) (*OperationReport, error)
 }
 
 // ListPendingMeterInput is the use-case input for property pending meter reads.
@@ -744,6 +782,17 @@ type ExportProfitLossInput struct {
 	Format              string
 }
 
+// ExportOperationReportInput is the use-case input for operation report HTML export.
+type ExportOperationReportInput struct {
+	ActorRole           string
+	ActorUserID         string
+	AssignedPropertyIDs []string
+	PropertyID          string
+	Year                int
+	Month               int
+	Format              string
+}
+
 // ExportBillReceiptService renders one paid rent or electricity bill receipt as HTML.
 type ExportBillReceiptService struct {
 	repo     ReportRepository
@@ -1009,6 +1058,97 @@ func (s *ExportProfitLossService) findProfitLossPeriod(ctx context.Context, quer
 	return period, nil
 }
 
+// ExportOperationReportService renders one property's operation report as HTML.
+type ExportOperationReportService struct {
+	repo     ReportRepository
+	renderer reporthtml.Renderer
+	clock    Clock
+}
+
+// NewExportOperationReportService returns an ExportOperationReportService.
+func NewExportOperationReportService(repo ReportRepository, renderer reporthtml.Renderer, clock Clock) *ExportOperationReportService {
+	if clock == nil {
+		clock = systemClock{}
+	}
+	return &ExportOperationReportService{repo: repo, renderer: renderer, clock: clock}
+}
+
+// Execute validates the request, selects live or finalized financial data, and renders HTML.
+func (s *ExportOperationReportService) Execute(ctx context.Context, input ExportOperationReportInput) (*reporthtml.Document, error) {
+	query, err := normalizeOperationReportQuery(input)
+	if err != nil {
+		return nil, err
+	}
+	if s.renderer == nil {
+		return nil, apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "operation_report_renderer"})
+	}
+
+	report, err := s.findOperationReport(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	view := newOperationReportView(*report)
+	html, err := s.renderer.Render("operation_report.html", view)
+	if err != nil {
+		return nil, apperr.ErrInternalServerError.WithCause(err).WithDetails(map[string]interface{}{"dependency": "operation_report_renderer"})
+	}
+
+	return &reporthtml.Document{
+		HTML:     html,
+		Filename: reporthtml.HTMLFilename("operation-report", view.PropertyName, view.PeriodLabel),
+	}, nil
+}
+
+func normalizeOperationReportQuery(input ExportOperationReportInput) (OperationReportQuery, error) {
+	actorRole, err := normalizeFinancialReportReadRole(input.ActorRole)
+	if err != nil {
+		return OperationReportQuery{}, err
+	}
+	propertyID, err := normalizeRequiredUUID(input.PropertyID, "property_id", apperr.ErrPropertyNotFound)
+	if err != nil {
+		return OperationReportQuery{}, err
+	}
+	if err := validateYear(input.Year); err != nil {
+		return OperationReportQuery{}, err
+	}
+	if err := validateMonth(input.Month); err != nil {
+		return OperationReportQuery{}, err
+	}
+	format := strings.ToLower(strings.TrimSpace(input.Format))
+	if format == "" {
+		format = "html"
+	}
+	if format != "html" {
+		return OperationReportQuery{}, apperr.ErrBadRequest.WithDetails(map[string]interface{}{"field": "format"})
+	}
+	return OperationReportQuery{
+		ActorRole:           actorRole,
+		ActorUserID:         strings.TrimSpace(input.ActorUserID),
+		AssignedPropertyIDs: cloneStrings(input.AssignedPropertyIDs),
+		PropertyID:          propertyID,
+		Year:                input.Year,
+		Month:               input.Month,
+	}, nil
+}
+
+func (s *ExportOperationReportService) findOperationReport(ctx context.Context, query OperationReportQuery) (*OperationReport, error) {
+	currentYear, currentMonth := currentReportPeriod(s.clock)
+	var report *OperationReport
+	var err error
+	if query.Year == currentYear && query.Month == currentMonth {
+		report, err = s.repo.FindLiveOperationReport(ctx, query)
+	} else {
+		report, err = s.repo.FindSnapshotOperationReport(ctx, query)
+	}
+	if err != nil {
+		return nil, mapReportRepositoryError(err)
+	}
+	if report == nil {
+		return nil, ErrFinancialReportNotFound
+	}
+	return report, nil
+}
+
 func previousReportPeriod(year int, month int) (int, int) {
 	if month == 1 {
 		return year - 1, 12
@@ -1236,6 +1376,55 @@ type profitLossViewRow struct {
 	DeltaAmountLabel    string
 	Note                string
 	Unsupported         bool
+}
+
+type operationReportView struct {
+	Title                  string
+	PropertyName           string
+	PeriodLabel            string
+	PreviousBalanceLabel   string
+	MonthlyIncomeLabel     string
+	MonthlyExpenseLabel    string
+	OwnerDistributionLabel string
+	EndingBalanceLabel     string
+	PreviousRentedLabel    string
+	NewRentalsLabel        string
+	TerminationsLabel      string
+	EndingRentedLabel      string
+	ManagementLogRows      []operationReportLogViewRow
+}
+
+type operationReportLogViewRow struct {
+	DateLabel string
+	RoomName  string
+	Summary   string
+}
+
+func newOperationReportView(report OperationReport) operationReportView {
+	periodLabel := strconv.Itoa(report.Year) + "-" + twoDigit(report.Month)
+	view := operationReportView{
+		Title:                  report.PropertyName + " 營運報告 (" + strconv.Itoa(report.Year) + "/" + twoDigit(report.Month) + ")",
+		PropertyName:           report.PropertyName,
+		PeriodLabel:            periodLabel,
+		PreviousBalanceLabel:   moneyLabel(report.PreviousBalance),
+		MonthlyIncomeLabel:     moneyLabel(report.MonthlyIncome),
+		MonthlyExpenseLabel:    moneyLabel(report.MonthlyExpense),
+		OwnerDistributionLabel: moneyLabel(report.OwnerDistribution),
+		EndingBalanceLabel:     moneyLabel(report.EndingBalance),
+		PreviousRentedLabel:    strconv.Itoa(report.PreviousRented),
+		NewRentalsLabel:        strconv.Itoa(report.NewRentals),
+		TerminationsLabel:      strconv.Itoa(report.Terminations),
+		EndingRentedLabel:      strconv.Itoa(report.EndingRented),
+		ManagementLogRows:      make([]operationReportLogViewRow, 0, len(report.ManagementLogRows)),
+	}
+	for _, row := range report.ManagementLogRows {
+		view.ManagementLogRows = append(view.ManagementLogRows, operationReportLogViewRow{
+			DateLabel: row.Date.In(taiwanReportLocation).Format("01-02"),
+			RoomName:  stringValue(row.RoomName),
+			Summary:   row.Summary,
+		})
+	}
+	return view
 }
 
 func newMonthlyCashflowView(cashflow MonthlyCashflow, openingBalance int) monthlyCashflowView {

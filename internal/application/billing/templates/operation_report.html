@@ -1,0 +1,163 @@
+{{define "operation_report.html"}}<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <title>{{.Title}}</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: "Noto Sans TC", "Microsoft JhengHei", Arial, sans-serif;
+      color: #111827;
+      background: #ffffff;
+    }
+    body {
+      margin: 0;
+      padding: 32px;
+      background: #f3f4f6;
+    }
+    .page {
+      width: 210mm;
+      min-height: 297mm;
+      margin: 0 auto;
+      padding: 18mm 16mm;
+      background: #ffffff;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+      box-sizing: border-box;
+    }
+    h1 {
+      margin: 0 0 22px;
+      text-align: center;
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+    h2 {
+      margin: 22px 0 10px;
+      font-size: 17px;
+      letter-spacing: 0;
+    }
+    p {
+      margin: 6px 0;
+      line-height: 1.7;
+      font-size: 14px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 14px;
+    }
+    th, td {
+      border: 1px solid #111827;
+      padding: 7px 9px;
+      vertical-align: top;
+      line-height: 1.45;
+      word-break: break-word;
+    }
+    th {
+      background: #e5e7eb;
+      text-align: center;
+      font-weight: 700;
+    }
+    .label {
+      width: 35%;
+      text-align: center;
+      background: #f9fafb;
+      font-weight: 700;
+    }
+    .value {
+      width: 65%;
+      text-align: center;
+    }
+    .log-date {
+      width: 16%;
+      text-align: center;
+      white-space: nowrap;
+    }
+    .log-room {
+      width: 22%;
+    }
+    .muted {
+      color: #6b7280;
+    }
+    @media print {
+      body {
+        padding: 0;
+        background: #ffffff;
+      }
+      .page {
+        width: auto;
+        min-height: auto;
+        margin: 0;
+        padding: 0;
+        box-shadow: none;
+      }
+      thead {
+        display: table-header-group;
+      }
+      @page {
+        size: A4 portrait;
+        margin: 14mm 12mm;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <h1>{{.Title}}</h1>
+
+    <h2>【收支概況】</h2>
+    <p>上月結餘：{{.PreviousBalanceLabel}}</p>
+    <p>本月收入：{{.MonthlyIncomeLabel}}</p>
+    <p>本月支出：{{.MonthlyExpenseLabel}}</p>
+    <p>業主收益：{{.OwnerDistributionLabel}} <span class="muted">（目前尚未支援業主分潤流程）</span></p>
+    <p>本月結餘：{{.EndingBalanceLabel}}</p>
+
+    <h2>【出租現況】</h2>
+    <table aria-label="出租現況">
+      <tbody>
+        <tr>
+          <td class="label">上月出租</td>
+          <td class="value">{{.PreviousRentedLabel}}</td>
+        </tr>
+        <tr>
+          <td class="label">新租</td>
+          <td class="value">{{.NewRentalsLabel}}</td>
+        </tr>
+        <tr>
+          <td class="label">退租</td>
+          <td class="value">{{.TerminationsLabel}}</td>
+        </tr>
+        <tr>
+          <td class="label">統計</td>
+          <td class="value">{{.EndingRentedLabel}}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>【管理日誌】</h2>
+    <table aria-label="管理日誌">
+      <thead>
+        <tr>
+          <th class="log-date">日期</th>
+          <th class="log-room">房間</th>
+          <th>內容</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .ManagementLogRows}}
+        <tr>
+          <td class="log-date">{{.DateLabel}}</td>
+          <td>{{.RoomName}}</td>
+          <td>{{.Summary}}</td>
+        </tr>
+        {{else}}
+        <tr>
+          <td colspan="3" class="muted">本月無維修或租務異動紀錄</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </main>
+</body>
+</html>{{end}}

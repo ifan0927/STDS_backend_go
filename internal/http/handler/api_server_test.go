@@ -777,7 +777,7 @@ func TestExportPropertyTenantRosterReturnsHTMLDocument(t *testing.T) {
 	})
 	asOf := openapi_types.Date{Time: time.Date(2026, 5, 7, 0, 0, 0, 0, time.UTC)}
 	includeVacant := true
-	format := api.ExportPropertyTenantRosterParamsFormatHtml
+	format := api.Html
 
 	server.ExportPropertyTenantRoster(c, "10000000-0000-0000-0000-000000000001", api.ExportPropertyTenantRosterParams{
 		AsOf:          &asOf,
@@ -952,6 +952,54 @@ func TestExportPropertyFinancialReportProfitLossReturnsHTMLDocument(t *testing.T
 	}
 }
 
+func TestExportPropertyOperationReportReturnsHTMLDocument(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	reports := &recordingFinancialReports{
+		document: &reporthtml.Document{
+			HTML:     []byte("<html>operation report</html>"),
+			Filename: "operation-report-demo-2026-05.html",
+		},
+	}
+	server := &APIServer{billing: BillingServices{FinancialReports: reports}}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/properties/10000000-0000-0000-0000-000000000001/operation-report/2026/5?format=html", nil)
+	requestctx.SetPrincipal(c, requestctx.Principal{
+		UserID:              "user-1",
+		Role:                "staff",
+		AssignedPropertyIDs: []string{"10000000-0000-0000-0000-000000000001"},
+	})
+	format := api.ExportPropertyOperationReportParamsFormat("html")
+
+	server.ExportPropertyOperationReport(c, "10000000-0000-0000-0000-000000000001", 2026, 5, api.ExportPropertyOperationReportParams{Format: &format})
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if got := recorder.Header().Get("Content-Type"); got != reporthtml.ContentType {
+		t.Fatalf("Content-Type = %q", got)
+	}
+	if got := recorder.Header().Get("Content-Disposition"); got != `inline; filename="operation-report-demo-2026-05.html"` {
+		t.Fatalf("Content-Disposition = %q", got)
+	}
+	if reports.operationInput.PropertyID != "10000000-0000-0000-0000-000000000001" || reports.operationInput.ActorRole != "staff" {
+		t.Fatalf("unexpected operation report input: %+v", reports.operationInput)
+	}
+	if reports.operationInput.Year != 2026 || reports.operationInput.Month != 5 || reports.operationInput.Format != "html" {
+		t.Fatalf("unexpected operation report period/options: %+v", reports.operationInput)
+	}
+	if reports.operationInput.ActorUserID != "user-1" {
+		t.Fatalf("ActorUserID = %q, want user-1", reports.operationInput.ActorUserID)
+	}
+	if len(reports.operationInput.AssignedPropertyIDs) != 1 || reports.operationInput.AssignedPropertyIDs[0] != "10000000-0000-0000-0000-000000000001" {
+		t.Fatalf("AssignedPropertyIDs = %+v, want property scope", reports.operationInput.AssignedPropertyIDs)
+	}
+	if recorder.Body.String() != "<html>operation report</html>" {
+		t.Fatalf("body = %q", recorder.Body.String())
+	}
+}
+
 type recordingBillingQuery struct {
 	input    BillingListInput
 	getInput BillingGetInput
@@ -1026,6 +1074,7 @@ type recordingFinancialReports struct {
 	receiptInput      BillingReceiptInput
 	cashflowInput     BillingMonthlyCashflowInput
 	profitLossInput   BillingProfitLossInput
+	operationInput    BillingOperationReportInput
 	summaries         []BillingFinancialReportSummary
 	report            BillingFinancialReport
 	sentReport        BillingFinancialReport
@@ -1083,6 +1132,14 @@ func (r *recordingFinancialReports) ExportMonthlyCashflow(_ context.Context, inp
 
 func (r *recordingFinancialReports) ExportProfitLoss(_ context.Context, input BillingProfitLossInput) (*reporthtml.Document, error) {
 	r.profitLossInput = input
+	if r.err != nil {
+		return nil, r.err
+	}
+	return r.document, nil
+}
+
+func (r *recordingFinancialReports) ExportOperationReport(_ context.Context, input BillingOperationReportInput) (*reporthtml.Document, error) {
+	r.operationInput = input
 	if r.err != nil {
 		return nil, r.err
 	}

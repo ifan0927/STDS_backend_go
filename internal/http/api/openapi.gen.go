@@ -307,6 +307,11 @@ const (
 	ExportPropertyFinancialReportProfitLossParamsFormatHtml ExportPropertyFinancialReportProfitLossParamsFormat = "html"
 )
 
+// Defines values for ExportPropertyOperationReportParamsFormat.
+const (
+	ExportPropertyOperationReportParamsFormatHtml ExportPropertyOperationReportParamsFormat = "html"
+)
+
 // Defines values for ListPropertyRoomsParamsStatus.
 const (
 	Maintenance ListPropertyRoomsParamsStatus = "maintenance"
@@ -316,7 +321,7 @@ const (
 
 // Defines values for ExportPropertyTenantRosterParamsFormat.
 const (
-	ExportPropertyTenantRosterParamsFormatHtml ExportPropertyTenantRosterParamsFormat = "html"
+	Html ExportPropertyTenantRosterParamsFormat = "html"
 )
 
 // Defines values for ListRepairRequestsParamsStatus.
@@ -1135,6 +1140,15 @@ type ListPropertyMeterHistoryParams struct {
 	Year *int `form:"year,omitempty" json:"year,omitempty"`
 }
 
+// ExportPropertyOperationReportParams defines parameters for ExportPropertyOperationReport.
+type ExportPropertyOperationReportParams struct {
+	// Format Export format. The first version supports html only.
+	Format *ExportPropertyOperationReportParamsFormat `form:"format,omitempty" json:"format,omitempty"`
+}
+
+// ExportPropertyOperationReportParamsFormat defines parameters for ExportPropertyOperationReport.
+type ExportPropertyOperationReportParamsFormat string
+
 // ListPropertyRoomsParams defines parameters for ListPropertyRooms.
 type ListPropertyRoomsParams struct {
 	Status *ListPropertyRoomsParamsStatus `form:"status,omitempty" json:"status,omitempty"`
@@ -1456,6 +1470,9 @@ type ServerInterface interface {
 	// 某物業全房間電表歷史（按月呈現）
 	// (GET /properties/{id}/meter-history)
 	ListPropertyMeterHistory(c *gin.Context, id string, params ListPropertyMeterHistoryParams)
+	// Export monthly operation report as HTML
+	// (GET /properties/{id}/operation-report/{year}/{month})
+	ExportPropertyOperationReport(c *gin.Context, id string, year int, month int, params ExportPropertyOperationReportParams)
 	// 某物業待抄表清單（pending_meter 帳單）
 	// (GET /properties/{id}/pending-meter)
 	ListPropertyPendingMeters(c *gin.Context, id string)
@@ -3075,6 +3092,61 @@ func (siw *ServerInterfaceWrapper) ListPropertyMeterHistory(c *gin.Context) {
 	siw.Handler.ListPropertyMeterHistory(c, id, params)
 }
 
+// ExportPropertyOperationReport operation middleware
+func (siw *ServerInterfaceWrapper) ExportPropertyOperationReport(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Param("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Path parameter "year" -------------
+	var year int
+
+	err = runtime.BindStyledParameterWithOptions("simple", "year", c.Param("year"), &year, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter year: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Path parameter "month" -------------
+	var month int
+
+	err = runtime.BindStyledParameterWithOptions("simple", "month", c.Param("month"), &month, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter month: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(BearerAuthScopes, []string{})
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ExportPropertyOperationReportParams
+
+	// ------------- Optional query parameter "format" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "format", c.Request.URL.Query(), &params.Format)
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter format: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ExportPropertyOperationReport(c, id, year, month, params)
+}
+
 // ListPropertyPendingMeters operation middleware
 func (siw *ServerInterfaceWrapper) ListPropertyPendingMeters(c *gin.Context) {
 
@@ -4227,6 +4299,7 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.GET(options.BaseURL+"/properties/:id/financial-report/:year/:month/profit-loss-export", wrapper.ExportPropertyFinancialReportProfitLoss)
 	router.POST(options.BaseURL+"/properties/:id/financial-report/:year/:month/send", wrapper.SendPropertyFinancialReport)
 	router.GET(options.BaseURL+"/properties/:id/meter-history", wrapper.ListPropertyMeterHistory)
+	router.GET(options.BaseURL+"/properties/:id/operation-report/:year/:month", wrapper.ExportPropertyOperationReport)
 	router.GET(options.BaseURL+"/properties/:id/pending-meter", wrapper.ListPropertyPendingMeters)
 	router.GET(options.BaseURL+"/properties/:id/rooms", wrapper.ListPropertyRooms)
 	router.POST(options.BaseURL+"/properties/:id/rooms", wrapper.CreatePropertyRoom)
