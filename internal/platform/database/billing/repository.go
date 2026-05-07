@@ -92,13 +92,14 @@ type PropertyAccount struct {
 
 // CreateAccountingEntryParams contains one accounting entry insert.
 type CreateAccountingEntryParams struct {
-	PropertyAccountID string
-	Category          string
-	Amount            int
-	Description       *string
-	SourceRef         map[string]any
-	Year              int
-	Month             int
+	PropertyAccountID   string
+	Category            string
+	AccountingTitleCode string
+	Amount              int
+	Description         *string
+	SourceRef           map[string]any
+	Year                int
+	Month               int
 }
 
 // FinancialReportSummary is one monthly financial report summary row.
@@ -145,12 +146,34 @@ type MonthlyCashflow struct {
 
 // MonthlyCashflowEntry is one transaction row in the cashflow export.
 type MonthlyCashflowEntry struct {
-	ID          string
-	Category    string
-	Description *string
+	ID                  string
+	Category            string
+	AccountingTitleID   *string
+	AccountingTitleCode *string
+	AccountingTitleName *string
+	Description         *string
+	Amount              int
+	SourceRef           json.RawMessage
+	CreatedAt           time.Time
+}
+
+// ProfitLossPeriod is one live or finalized P&L source period.
+type ProfitLossPeriod struct {
+	PropertyID   string
+	PropertyName string
+	Year         int
+	Month        int
+	IsFinalized  bool
+	Rows         []ProfitLossRow
+}
+
+// ProfitLossRow is one subject-level P&L amount for a source period.
+type ProfitLossRow struct {
+	SubjectCode string
+	SubjectName string
 	Amount      int
-	SourceRef   json.RawMessage
-	CreatedAt   time.Time
+	Supported   bool
+	Note        *string
 }
 
 // TenantRosterRow is one room row for the tenant roster export read model.
@@ -483,6 +506,9 @@ RETURNING id
 INSERT INTO monthly_snapshot_entries (
 	snapshot_id,
 	category,
+	accounting_title_id,
+	accounting_title_code,
+	accounting_title_name,
 	description,
 	amount,
 	source_ref,
@@ -491,6 +517,9 @@ INSERT INTO monthly_snapshot_entries (
 SELECT
 	$1,
 	ae.category,
+	ae.accounting_title_id,
+	ae.accounting_title_code,
+	ae.accounting_title_name,
 	ae.description,
 	ae.amount,
 	ae.source_ref,
@@ -1009,15 +1038,32 @@ func (r *SQLRepository) InsertAccountingEntry(ctx context.Context, tx *sql.Tx, p
 INSERT INTO accounting_entries (
 	property_account_id,
 	category,
+	accounting_title_id,
+	accounting_title_code,
+	accounting_title_name,
 	amount,
 	description,
 	source_ref,
 	year,
 	month
-) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
+)
+SELECT
+	$1,
+	$2,
+	at.id,
+	at.code,
+	at.name,
+	$3,
+	$4,
+	$5::jsonb,
+	$6,
+	$7
+FROM accounting_titles at
+WHERE at.code = $8
+  AND at.is_active = true
 `
 
-	if _, err := tx.ExecContext(ctx, query,
+	result, err := tx.ExecContext(ctx, query,
 		params.PropertyAccountID,
 		params.Category,
 		params.Amount,
@@ -1025,8 +1071,17 @@ INSERT INTO accounting_entries (
 		string(sourceRef),
 		params.Year,
 		params.Month,
-	); err != nil {
+		params.AccountingTitleCode,
+	)
+	if err != nil {
 		return fmt.Errorf("insert accounting entry: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read accounting entry insert result: %w", err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("insert accounting entry: accounting title code %q not found", params.AccountingTitleCode)
 	}
 
 	return nil
@@ -1205,6 +1260,14 @@ func (r *SQLRepository) GetMonthlyCashflow(ctx context.Context, scope Scope, pro
 	return r.getFinalizedMonthlyCashflow(ctx, scope, propertyID, year, month)
 }
 
+// GetProfitLossPeriod returns one live or finalized period aggregated by accounting subject.
+func (r *SQLRepository) GetProfitLossPeriod(ctx context.Context, scope Scope, propertyID string, year int, month int, live bool) (*ProfitLossPeriod, error) {
+	if live {
+		return r.getLiveProfitLossPeriod(ctx, scope, propertyID, year, month)
+	}
+	return r.getFinalizedProfitLossPeriod(ctx, scope, propertyID, year, month)
+}
+
 // CalculateMonthlyCashflowOpeningBalance returns prior finalized snapshot net.
 func (r *SQLRepository) CalculateMonthlyCashflowOpeningBalance(ctx context.Context, scope Scope, propertyID string, year int, month int) (int, error) {
 	query := `
@@ -1364,6 +1427,9 @@ SELECT
 	ms.net,
 	mse.id,
 	mse.category,
+	mse.accounting_title_id,
+	mse.accounting_title_code,
+	mse.accounting_title_name,
 	mse.description,
 	mse.amount,
 	mse.source_ref,
@@ -1423,6 +1489,9 @@ SELECT
 	$3::int AS month,
 	ae.id,
 	ae.category,
+	ae.accounting_title_id,
+	ae.accounting_title_code,
+	ae.accounting_title_name,
 	ae.description,
 	ae.amount,
 	ae.source_ref,
@@ -1488,6 +1557,9 @@ SELECT
 	ms.month,
 	mse.id,
 	mse.category,
+	mse.accounting_title_id,
+	mse.accounting_title_code,
+	mse.accounting_title_name,
 	mse.description,
 	mse.amount,
 	mse.source_ref,
@@ -1549,6 +1621,9 @@ SELECT
 	$3::int AS month,
 	ae.id,
 	ae.category,
+	ae.accounting_title_id,
+	ae.accounting_title_code,
+	ae.accounting_title_name,
 	ae.description,
 	ae.amount,
 	ae.source_ref,
@@ -1599,6 +1674,218 @@ WHERE pa.property_id = $1
 	}
 
 	return cashflow, nil
+}
+
+func (r *SQLRepository) getFinalizedProfitLossPeriod(ctx context.Context, scope Scope, propertyID string, year int, month int) (period *ProfitLossPeriod, err error) {
+	query := `
+SELECT
+	ms.property_id,
+	p.name,
+	ms.year,
+	ms.month,
+	COALESCE(mse.accounting_title_code, ` + profitLossCategoryCodeSQL("mse.category") + `, 'unsupported') AS subject_code,
+	COALESCE(mse.accounting_title_name, ` + profitLossCategoryNameSQL("mse.category") + `, '未支援科目') AS subject_name,
+	SUM(` + profitLossSignedAmountSQL("mse.category", "mse.amount") + `)::int AS amount,
+	(mse.accounting_title_code IS NOT NULL OR ` + profitLossCategoryCodeSQL("mse.category") + ` IS NOT NULL) AS supported,
+	CASE
+		WHEN mse.accounting_title_code IS NULL AND ` + profitLossCategoryCodeSQL("mse.category") + ` IS NULL THEN '未支援會計分類：' || mse.category
+		ELSE NULL
+	END AS note
+FROM monthly_snapshots ms
+JOIN properties p ON p.id = ms.property_id AND p.deleted_at IS NULL
+JOIN monthly_snapshot_entries mse ON mse.snapshot_id = ms.id
+WHERE ms.property_id = $1
+  AND ms.year = $2
+  AND ms.month = $3
+`
+	args := []any{propertyID, year, month}
+	var ok bool
+	query, args, ok = appendPropertyScope(query, args, scope, "p")
+	if !ok {
+		return nil, ErrNotFound
+	}
+	query += `
+GROUP BY ms.property_id, p.name, ms.year, ms.month, subject_code, subject_name, supported, note
+ORDER BY supported DESC, subject_code ASC NULLS LAST, subject_name ASC
+`
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("get finalized profit loss period: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close finalized profit loss rows: %w", cerr)
+		}
+	}()
+
+	for rows.Next() {
+		row, rowPeriod, err := scanProfitLossRow(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan finalized profit loss row: %w", err)
+		}
+		if period == nil {
+			period = rowPeriod
+			period.IsFinalized = true
+		}
+		period.Rows = append(period.Rows, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate finalized profit loss rows: %w", err)
+	}
+	if period == nil {
+		header, err := r.findFinalizedProfitLossHeader(ctx, scope, propertyID, year, month)
+		if err != nil {
+			return nil, err
+		}
+		header.IsFinalized = true
+		return header, nil
+	}
+	return period, nil
+}
+
+func (r *SQLRepository) getLiveProfitLossPeriod(ctx context.Context, scope Scope, propertyID string, year int, month int) (period *ProfitLossPeriod, err error) {
+	query := `
+SELECT
+	pa.property_id,
+	p.name,
+	$2::int AS year,
+	$3::int AS month,
+	COALESCE(ae.accounting_title_code, ` + profitLossCategoryCodeSQL("ae.category") + `, 'unsupported') AS subject_code,
+	COALESCE(ae.accounting_title_name, ` + profitLossCategoryNameSQL("ae.category") + `, '未支援科目') AS subject_name,
+	SUM(` + profitLossSignedAmountSQL("ae.category", "ae.amount") + `)::int AS amount,
+	(ae.accounting_title_code IS NOT NULL OR ` + profitLossCategoryCodeSQL("ae.category") + ` IS NOT NULL) AS supported,
+	CASE
+		WHEN ae.accounting_title_code IS NULL AND ` + profitLossCategoryCodeSQL("ae.category") + ` IS NULL THEN '未支援會計分類：' || ae.category
+		ELSE NULL
+	END AS note
+FROM property_accounts pa
+JOIN properties p ON p.id = pa.property_id AND p.deleted_at IS NULL
+JOIN accounting_entries ae ON ae.property_account_id = pa.id
+  AND ae.year = $2
+  AND ae.month = $3
+WHERE pa.property_id = $1
+  AND pa.deleted_at IS NULL
+`
+	args := []any{propertyID, year, month}
+	var ok bool
+	query, args, ok = appendPropertyScope(query, args, scope, "p")
+	if !ok {
+		return nil, ErrNotFound
+	}
+	query += `
+GROUP BY pa.property_id, p.name, subject_code, subject_name, supported, note
+ORDER BY supported DESC, subject_code ASC NULLS LAST, subject_name ASC
+`
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("get live profit loss period: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close live profit loss rows: %w", cerr)
+		}
+	}()
+
+	for rows.Next() {
+		row, rowPeriod, err := scanProfitLossRow(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan live profit loss row: %w", err)
+		}
+		if period == nil {
+			period = rowPeriod
+		}
+		period.Rows = append(period.Rows, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate live profit loss rows: %w", err)
+	}
+	if period == nil {
+		header, err := r.findLiveProfitLossHeader(ctx, scope, propertyID, year, month)
+		if err != nil {
+			return nil, err
+		}
+		return header, nil
+	}
+	return period, nil
+}
+
+func (r *SQLRepository) findFinalizedProfitLossHeader(ctx context.Context, scope Scope, propertyID string, year int, month int) (*ProfitLossPeriod, error) {
+	query := `
+SELECT ms.property_id, p.name, ms.year, ms.month
+FROM monthly_snapshots ms
+JOIN properties p ON p.id = ms.property_id AND p.deleted_at IS NULL
+WHERE ms.property_id = $1
+  AND ms.year = $2
+  AND ms.month = $3
+`
+	args := []any{propertyID, year, month}
+	var ok bool
+	query, args, ok = appendPropertyScope(query, args, scope, "p")
+	if !ok {
+		return nil, ErrNotFound
+	}
+	period := ProfitLossPeriod{Rows: make([]ProfitLossRow, 0)}
+	if err := r.db.QueryRowContext(ctx, query, args...).Scan(&period.PropertyID, &period.PropertyName, &period.Year, &period.Month); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("find finalized profit loss header: %w", err)
+	}
+	return &period, nil
+}
+
+func (r *SQLRepository) findLiveProfitLossHeader(ctx context.Context, scope Scope, propertyID string, year int, month int) (*ProfitLossPeriod, error) {
+	query := `
+SELECT pa.property_id, p.name, $2::int AS year, $3::int AS month
+FROM property_accounts pa
+JOIN properties p ON p.id = pa.property_id AND p.deleted_at IS NULL
+WHERE pa.property_id = $1
+  AND pa.deleted_at IS NULL
+`
+	args := []any{propertyID, year, month}
+	var ok bool
+	query, args, ok = appendPropertyScope(query, args, scope, "p")
+	if !ok {
+		return nil, ErrNotFound
+	}
+	period := ProfitLossPeriod{Rows: make([]ProfitLossRow, 0)}
+	if err := r.db.QueryRowContext(ctx, query, args...).Scan(&period.PropertyID, &period.PropertyName, &period.Year, &period.Month); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("find live profit loss header: %w", err)
+	}
+	return &period, nil
+}
+
+func profitLossCategoryCodeSQL(categoryExpr string) string {
+	return `CASE ` + categoryExpr + `
+		WHEN 'rent_payment' THEN '4603'
+		WHEN 'electricity_payment' THEN '4605'
+		WHEN 'deposit_refund' THEN '4602'
+		WHEN 'deposit_deduction' THEN '4601'
+		WHEN 'journal_expense' THEN '6681'
+		ELSE NULL
+	END`
+}
+
+func profitLossCategoryNameSQL(categoryExpr string) string {
+	return `CASE ` + categoryExpr + `
+		WHEN 'rent_payment' THEN '租金收入'
+		WHEN 'electricity_payment' THEN '房客電費收入'
+		WHEN 'deposit_refund' THEN '押金退回(減項)'
+		WHEN 'deposit_deduction' THEN '押金收入(暫收款)'
+		WHEN 'journal_expense' THEN '其他支出'
+		ELSE NULL
+	END`
+}
+
+func profitLossSignedAmountSQL(categoryExpr string, amountExpr string) string {
+	return `CASE
+		WHEN ` + categoryExpr + ` IN ('rent_payment', 'electricity_payment', 'deposit_deduction') THEN ABS(` + amountExpr + `)
+		WHEN ` + categoryExpr + ` IN ('deposit_refund', 'journal_expense') THEN -ABS(` + amountExpr + `)
+		ELSE ` + amountExpr + `
+	END`
 }
 
 func buildAccessibleBillQuery(scope Scope, filter BillFilter, single bool, billID *string) (string, []any, bool) {
@@ -1854,6 +2141,9 @@ func scanFinalizedFinancialReportRow(row rowScanner) (FinancialReportEntry, bool
 	var entry FinancialReportEntry
 	var entryID sql.NullString
 	var category sql.NullString
+	var accountingTitleID sql.NullString
+	var accountingTitleCode sql.NullString
+	var accountingTitleName sql.NullString
 	var description sql.NullString
 	var amount sql.NullInt64
 	var sourceRef sql.NullString
@@ -1868,6 +2158,9 @@ func scanFinalizedFinancialReportRow(row rowScanner) (FinancialReportEntry, bool
 		&report.Net,
 		&entryID,
 		&category,
+		&accountingTitleID,
+		&accountingTitleCode,
+		&accountingTitleName,
 		&description,
 		&amount,
 		&sourceRef,
@@ -1904,6 +2197,9 @@ func scanLiveFinancialReportRow(row rowScanner, report *FinancialReport) (Financ
 	var entry FinancialReportEntry
 	var entryID sql.NullString
 	var category sql.NullString
+	var accountingTitleID sql.NullString
+	var accountingTitleCode sql.NullString
+	var accountingTitleName sql.NullString
 	var description sql.NullString
 	var amount sql.NullInt64
 	var sourceRef sql.NullString
@@ -1915,6 +2211,9 @@ func scanLiveFinancialReportRow(row rowScanner, report *FinancialReport) (Financ
 		&report.Month,
 		&entryID,
 		&category,
+		&accountingTitleID,
+		&accountingTitleCode,
+		&accountingTitleName,
 		&description,
 		&amount,
 		&sourceRef,
@@ -1950,6 +2249,9 @@ func scanMonthlyCashflowRow(row rowScanner) (MonthlyCashflowEntry, bool, *Monthl
 	var entry MonthlyCashflowEntry
 	var entryID sql.NullString
 	var category sql.NullString
+	var accountingTitleID sql.NullString
+	var accountingTitleCode sql.NullString
+	var accountingTitleName sql.NullString
 	var description sql.NullString
 	var amount sql.NullInt64
 	var sourceRef sql.NullString
@@ -1962,6 +2264,9 @@ func scanMonthlyCashflowRow(row rowScanner) (MonthlyCashflowEntry, bool, *Monthl
 		&cashflow.Month,
 		&entryID,
 		&category,
+		&accountingTitleID,
+		&accountingTitleCode,
+		&accountingTitleName,
 		&description,
 		&amount,
 		&sourceRef,
@@ -1975,6 +2280,15 @@ func scanMonthlyCashflowRow(row rowScanner) (MonthlyCashflowEntry, bool, *Monthl
 	}
 	if category.Valid {
 		entry.Category = category.String
+	}
+	if accountingTitleID.Valid {
+		entry.AccountingTitleID = &accountingTitleID.String
+	}
+	if accountingTitleCode.Valid {
+		entry.AccountingTitleCode = &accountingTitleCode.String
+	}
+	if accountingTitleName.Valid {
+		entry.AccountingTitleName = &accountingTitleName.String
 	}
 	if description.Valid {
 		entry.Description = &description.String
@@ -1991,6 +2305,39 @@ func scanMonthlyCashflowRow(row rowScanner) (MonthlyCashflowEntry, bool, *Monthl
 	cashflow.Rows = make([]MonthlyCashflowEntry, 0)
 
 	return entry, hasEntry, &cashflow, nil
+}
+
+func scanProfitLossRow(row rowScanner) (ProfitLossRow, *ProfitLossPeriod, error) {
+	var period ProfitLossPeriod
+	var profitLossRow ProfitLossRow
+	var subjectCode sql.NullString
+	var subjectName sql.NullString
+	var note sql.NullString
+
+	if err := row.Scan(
+		&period.PropertyID,
+		&period.PropertyName,
+		&period.Year,
+		&period.Month,
+		&subjectCode,
+		&subjectName,
+		&profitLossRow.Amount,
+		&profitLossRow.Supported,
+		&note,
+	); err != nil {
+		return ProfitLossRow{}, nil, err
+	}
+	if subjectCode.Valid {
+		profitLossRow.SubjectCode = subjectCode.String
+	}
+	if subjectName.Valid {
+		profitLossRow.SubjectName = subjectName.String
+	}
+	if note.Valid {
+		profitLossRow.Note = &note.String
+	}
+	period.Rows = make([]ProfitLossRow, 0)
+	return profitLossRow, &period, nil
 }
 
 func scanTenantRosterRow(row rowScanner) (TenantRosterRow, error) {

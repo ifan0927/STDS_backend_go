@@ -177,6 +177,7 @@ type BillingFinancialReportService interface {
 	ExportTenantRoster(ctx context.Context, input BillingTenantRosterInput) (*reporthtml.Document, error)
 	ExportBillReceipt(ctx context.Context, input BillingReceiptInput) (*reporthtml.Document, error)
 	ExportMonthlyCashflow(ctx context.Context, input BillingMonthlyCashflowInput) (*reporthtml.Document, error)
+	ExportProfitLoss(ctx context.Context, input BillingProfitLossInput) (*reporthtml.Document, error)
 }
 
 type BillingListInput struct {
@@ -267,6 +268,16 @@ type BillingTenantRosterInput struct {
 }
 
 type BillingMonthlyCashflowInput struct {
+	ActorRole           string
+	ActorUserID         string
+	AssignedPropertyIDs []string
+	PropertyID          string
+	Year                int
+	Month               int
+	Format              string
+}
+
+type BillingProfitLossInput struct {
 	ActorRole           string
 	ActorUserID         string
 	AssignedPropertyIDs []string
@@ -1471,6 +1482,44 @@ func (s *APIServer) ExportPropertyFinancialReportCashflow(c *gin.Context, id str
 	}
 
 	document, err := s.billing.FinancialReports.ExportMonthlyCashflow(c.Request.Context(), BillingMonthlyCashflowInput{
+		ActorRole:           principal.Role,
+		ActorUserID:         principal.UserID,
+		AssignedPropertyIDs: principal.AssignedPropertyIDs,
+		PropertyID:          id,
+		Year:                year,
+		Month:               month,
+		Format:              format,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	writeHTMLDocument(c, document)
+}
+
+// ExportPropertyFinancialReportProfitLoss handles profit and loss HTML export.
+func (s *APIServer) ExportPropertyFinancialReportProfitLoss(c *gin.Context, id string, year int, month int, params api.ExportPropertyFinancialReportProfitLossParams) {
+	if !isValidMonth(month) {
+		c.Error(apperr.ErrBadRequest.WithDetails(map[string]interface{}{
+			"field":  "month",
+			"reason": "must be between 1 and 12",
+		}))
+		return
+	}
+
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	format := ""
+	if params.Format != nil {
+		format = string(*params.Format)
+	}
+
+	document, err := s.billing.FinancialReports.ExportProfitLoss(c.Request.Context(), BillingProfitLossInput{
 		ActorRole:           principal.Role,
 		ActorUserID:         principal.UserID,
 		AssignedPropertyIDs: principal.AssignedPropertyIDs,

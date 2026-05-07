@@ -103,13 +103,14 @@ type Repository interface {
 
 // AccountingEntryParams contains accounting entry data derived from BillPaid.
 type AccountingEntryParams struct {
-	PropertyID  string
-	Category    string
-	Amount      int
-	Description *string
-	SourceRef   map[string]interface{}
-	Year        int
-	Month       int
+	PropertyID          string
+	Category            string
+	AccountingTitleCode string
+	Amount              int
+	Description         *string
+	SourceRef           map[string]interface{}
+	Year                int
+	Month               int
 }
 
 // AccountingRepository defines persistence required to complete bill payment.

@@ -36,6 +36,7 @@ func newBillingServices(db *sql.DB, txRunner *dbtxrunner.Runner, publisher domai
 			tenantRoster: appbilling.NewExportTenantRosterService(reportRepo, appbilling.MustNewTenantRosterRenderer(), nil),
 			billReceipt:  appbilling.NewExportBillReceiptService(reportRepo, appbilling.MustNewBillReceiptRenderer()),
 			cashflow:     appbilling.NewExportMonthlyCashflowService(reportRepo, appbilling.MustNewMonthlyCashflowRenderer(), nil),
+			profitLoss:   appbilling.NewExportProfitLossService(reportRepo, appbilling.MustNewProfitLossRenderer(), nil),
 		},
 	}
 }
@@ -181,6 +182,7 @@ type billingFinancialReportServiceAdapter struct {
 	tenantRoster *appbilling.ExportTenantRosterService
 	billReceipt  *appbilling.ExportBillReceiptService
 	cashflow     *appbilling.ExportMonthlyCashflowService
+	profitLoss   *appbilling.ExportProfitLossService
 }
 
 func (a billingFinancialReportServiceAdapter) ListFinancialReportSummaries(ctx context.Context, input handler.BillingFinancialReportSummaryInput) ([]handler.BillingFinancialReportSummary, error) {
@@ -254,6 +256,18 @@ func (a billingFinancialReportServiceAdapter) ExportBillReceipt(ctx context.Cont
 
 func (a billingFinancialReportServiceAdapter) ExportMonthlyCashflow(ctx context.Context, input handler.BillingMonthlyCashflowInput) (*reporthtml.Document, error) {
 	return a.cashflow.Execute(ctx, appbilling.ExportMonthlyCashflowInput{
+		ActorRole:           input.ActorRole,
+		ActorUserID:         input.ActorUserID,
+		AssignedPropertyIDs: input.AssignedPropertyIDs,
+		PropertyID:          input.PropertyID,
+		Year:                input.Year,
+		Month:               input.Month,
+		Format:              input.Format,
+	})
+}
+
+func (a billingFinancialReportServiceAdapter) ExportProfitLoss(ctx context.Context, input handler.BillingProfitLossInput) (*reporthtml.Document, error) {
+	return a.profitLoss.Execute(ctx, appbilling.ExportProfitLossInput{
 		ActorRole:           input.ActorRole,
 		ActorUserID:         input.ActorUserID,
 		AssignedPropertyIDs: input.AssignedPropertyIDs,
@@ -519,6 +533,30 @@ func (a billingReportRepositoryAdapter) CalculateMonthlyCashflowOpeningBalance(c
 	return openingBalance, nil
 }
 
+func (a billingReportRepositoryAdapter) FindLiveProfitLossPeriod(ctx context.Context, query appbilling.ProfitLossQuery) (*appbilling.ProfitLossPeriod, error) {
+	period, err := a.repo.GetProfitLossPeriod(ctx, dbbilling.Scope{
+		Role:                query.ActorRole,
+		UserID:              query.ActorUserID,
+		AssignedPropertyIDs: query.AssignedPropertyIDs,
+	}, query.PropertyID, query.Year, query.Month, true)
+	if err != nil {
+		return nil, mapBillingReportRepositoryError(err)
+	}
+	return toAppProfitLossPeriod(period), nil
+}
+
+func (a billingReportRepositoryAdapter) FindSnapshotProfitLossPeriod(ctx context.Context, query appbilling.ProfitLossQuery) (*appbilling.ProfitLossPeriod, error) {
+	period, err := a.repo.GetProfitLossPeriod(ctx, dbbilling.Scope{
+		Role:                query.ActorRole,
+		UserID:              query.ActorUserID,
+		AssignedPropertyIDs: query.AssignedPropertyIDs,
+	}, query.PropertyID, query.Year, query.Month, false)
+	if err != nil {
+		return nil, mapBillingReportRepositoryError(err)
+	}
+	return toAppProfitLossPeriod(period), nil
+}
+
 type billingAccountingRepositoryAdapter struct {
 	repo *dbbilling.SQLRepository
 }
@@ -534,13 +572,14 @@ func (a billingAccountingRepositoryAdapter) CreateAccountingEntry(ctx context.Co
 	}
 
 	return a.repo.InsertAccountingEntry(ctx, tx, dbbilling.CreateAccountingEntryParams{
-		PropertyAccountID: account.ID,
-		Category:          params.Category,
-		Amount:            params.Amount,
-		Description:       params.Description,
-		SourceRef:         params.SourceRef,
-		Year:              params.Year,
-		Month:             params.Month,
+		PropertyAccountID:   account.ID,
+		Category:            params.Category,
+		AccountingTitleCode: params.AccountingTitleCode,
+		Amount:              params.Amount,
+		Description:         params.Description,
+		SourceRef:           params.SourceRef,
+		Year:                params.Year,
+		Month:               params.Month,
 	})
 }
 
@@ -764,11 +803,14 @@ func toAppMonthlyCashflow(cashflow *dbbilling.MonthlyCashflow) *appbilling.Month
 	rows := make([]appbilling.MonthlyCashflowEntry, 0, len(cashflow.Rows))
 	for i := range cashflow.Rows {
 		rows = append(rows, appbilling.MonthlyCashflowEntry{
-			Category:    cashflow.Rows[i].Category,
-			Description: cashflow.Rows[i].Description,
-			Amount:      cashflow.Rows[i].Amount,
-			SourceRef:   cashflow.Rows[i].SourceRef,
-			CreatedAt:   cashflow.Rows[i].CreatedAt,
+			Category:            cashflow.Rows[i].Category,
+			AccountingTitleID:   cashflow.Rows[i].AccountingTitleID,
+			AccountingTitleCode: cashflow.Rows[i].AccountingTitleCode,
+			AccountingTitleName: cashflow.Rows[i].AccountingTitleName,
+			Description:         cashflow.Rows[i].Description,
+			Amount:              cashflow.Rows[i].Amount,
+			SourceRef:           cashflow.Rows[i].SourceRef,
+			CreatedAt:           cashflow.Rows[i].CreatedAt,
 		})
 	}
 	return &appbilling.MonthlyCashflow{
@@ -777,6 +819,30 @@ func toAppMonthlyCashflow(cashflow *dbbilling.MonthlyCashflow) *appbilling.Month
 		Year:         cashflow.Year,
 		Month:        cashflow.Month,
 		IsFinalized:  cashflow.IsFinalized,
+		Rows:         rows,
+	}
+}
+
+func toAppProfitLossPeriod(period *dbbilling.ProfitLossPeriod) *appbilling.ProfitLossPeriod {
+	if period == nil {
+		return nil
+	}
+	rows := make([]appbilling.ProfitLossSourceRow, 0, len(period.Rows))
+	for i := range period.Rows {
+		rows = append(rows, appbilling.ProfitLossSourceRow{
+			SubjectCode: period.Rows[i].SubjectCode,
+			SubjectName: period.Rows[i].SubjectName,
+			Amount:      period.Rows[i].Amount,
+			Supported:   period.Rows[i].Supported,
+			Note:        period.Rows[i].Note,
+		})
+	}
+	return &appbilling.ProfitLossPeriod{
+		PropertyID:   period.PropertyID,
+		PropertyName: period.PropertyName,
+		Year:         period.Year,
+		Month:        period.Month,
+		IsFinalized:  period.IsFinalized,
 		Rows:         rows,
 	}
 }

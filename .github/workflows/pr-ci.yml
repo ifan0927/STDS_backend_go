@@ -103,6 +103,11 @@ jobs:
           DATABASE_URL: postgres://stds:stds@localhost:5432/stds_backend?sslmode=disable
         run: go run ./cmd/migrate up
 
+      - name: Run migration PostgreSQL contract tests
+        env:
+          TEST_DATABASE_URL: postgres://stds:stds@localhost:5432/stds_backend?sslmode=disable
+        run: go test ./internal/platform/database/migrate -run TestAccountingTitleMigrationPostgresContract -count=1
+
   e2e:
     name: E2E harness smoke
     runs-on: ubuntu-latest

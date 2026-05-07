@@ -64,7 +64,7 @@ func TestCreateServiceCreatesAccountingEntryAndPublishesEventWhenExpensePresent(
 	if accountingRepo.createCalls != 1 {
 		t.Fatalf("CreateExpenseAccountingEntry calls = %d, want 1", accountingRepo.createCalls)
 	}
-	if accountingRepo.entry.PropertyID != testPropertyID || accountingRepo.entry.Category != accountingCategoryJournalExpense || accountingRepo.entry.Amount != amount {
+	if accountingRepo.entry.PropertyID != testPropertyID || accountingRepo.entry.Category != accountingCategoryJournalExpense || accountingRepo.entry.AccountingTitleCode != accountingTitleCodeJournalExpense || accountingRepo.entry.Amount != amount {
 		t.Fatalf("accounting entry = %+v", accountingRepo.entry)
 	}
 	if accountingRepo.entry.Description == nil || *accountingRepo.entry.Description != description {
@@ -328,6 +328,9 @@ func TestUpdateServiceUpdatesMutableFields(t *testing.T) {
 	}
 	if accountingRepo.syncedEntry == nil || accountingRepo.syncedEntry.Amount != amount {
 		t.Fatalf("syncedEntry = %+v, want amount %d", accountingRepo.syncedEntry, amount)
+	}
+	if accountingRepo.syncedEntry.AccountingTitleCode != accountingTitleCodeJournalExpense {
+		t.Fatalf("syncedEntry.AccountingTitleCode = %q, want %q", accountingRepo.syncedEntry.AccountingTitleCode, accountingTitleCodeJournalExpense)
 	}
 	if accountingRepo.syncedEntry.Year != 2026 || accountingRepo.syncedEntry.Month != 5 {
 		t.Fatalf("syncedEntry Year/Month = %d/%d, want 2026/5", accountingRepo.syncedEntry.Year, accountingRepo.syncedEntry.Month)

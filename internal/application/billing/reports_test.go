@@ -629,17 +629,21 @@ func TestExportMonthlyCashflowUsesCurrentMonthLiveRowsAndRunningBalance(t *testi
 			Month:        5,
 			Rows: []MonthlyCashflowEntry{
 				{
-					Category:    "rent_payment",
-					Description: &description,
-					Amount:      18000,
-					SourceRef:   []byte(`{"bill_id":"bill-1"}`),
-					CreatedAt:   time.Date(2026, 5, 3, 10, 0, 0, 0, time.UTC),
+					Category:            "rent_payment",
+					AccountingTitleCode: stringPtr("4603"),
+					AccountingTitleName: stringPtr("租金收入"),
+					Description:         &description,
+					Amount:              18000,
+					SourceRef:           []byte(`{"bill_id":"bill-1"}`),
+					CreatedAt:           time.Date(2026, 5, 3, 10, 0, 0, 0, time.UTC),
 				},
 				{
-					Category:  "journal_expense",
-					Amount:    -2500,
-					SourceRef: []byte(`{"journal_log_id":"journal-1"}`),
-					CreatedAt: time.Date(2026, 5, 5, 10, 0, 0, 0, time.UTC),
+					Category:            "journal_expense",
+					AccountingTitleCode: stringPtr("6681"),
+					AccountingTitleName: stringPtr("其他支出"),
+					Amount:              -2500,
+					SourceRef:           []byte(`{"journal_log_id":"journal-1"}`),
+					CreatedAt:           time.Date(2026, 5, 5, 10, 0, 0, 0, time.UTC),
 				},
 			},
 		},
@@ -685,11 +689,51 @@ func TestExportMonthlyCashflowUsesCurrentMonthLiveRowsAndRunningBalance(t *testi
 	if view.Rows[0].SubjectLabel != "租金收入" || view.Rows[0].Note != "101 2026-05 rent" {
 		t.Fatalf("unexpected first row: %+v", view.Rows[0])
 	}
+	if view.Rows[1].SubjectLabel != "其他支出" {
+		t.Fatalf("second row subject = %q, want title label", view.Rows[1].SubjectLabel)
+	}
 	if view.Rows[1].Note != "" {
 		t.Fatalf("second row note = %q, want empty note without raw source_ref JSON", view.Rows[1].Note)
 	}
 	if document.Filename != "monthly-cashflow-demo-property-2026-05.html" {
 		t.Fatalf("filename = %q", document.Filename)
+	}
+}
+
+func TestExportMonthlyCashflowFallsBackToCategorySubjectForOldRows(t *testing.T) {
+	repo := &reportRepositoryStub{
+		liveCashflow: &MonthlyCashflow{
+			PropertyID:   testPropertyID,
+			PropertyName: "Demo Property",
+			Year:         2026,
+			Month:        5,
+			Rows: []MonthlyCashflowEntry{
+				{
+					Category:  "deposit_refund",
+					Amount:    -6000,
+					CreatedAt: time.Date(2026, 5, 6, 10, 0, 0, 0, time.UTC),
+				},
+			},
+		},
+	}
+	renderer := &recordingReportRenderer{html: []byte("<html>cashflow</html>")}
+	service := NewExportMonthlyCashflowService(repo, renderer, fixedClock{now: time.Date(2026, 5, 8, 16, 0, 0, 0, time.UTC)})
+
+	_, err := service.Execute(context.Background(), ExportMonthlyCashflowInput{
+		ActorRole:  "staff",
+		PropertyID: testPropertyID,
+		Year:       2026,
+		Month:      5,
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	view, ok := renderer.data.(monthlyCashflowView)
+	if !ok {
+		t.Fatalf("renderer data = %T, want monthlyCashflowView", renderer.data)
+	}
+	if len(view.Rows) != 1 || view.Rows[0].SubjectLabel != "押金退還" {
+		t.Fatalf("unexpected fallback row: %+v", view.Rows)
 	}
 }
 
@@ -766,6 +810,224 @@ func TestExportMonthlyCashflowRejectsUnsupportedFormatAndMapsErrors(t *testing.T
 	})
 }
 
+func TestExportProfitLossCombinesCurrentPreviousAndDelta(t *testing.T) {
+	repo := &reportRepositoryStub{
+		liveProfitLoss: &ProfitLossPeriod{
+			PropertyID:   testPropertyID,
+			PropertyName: "Demo Property",
+			Year:         2026,
+			Month:        5,
+			Rows: []ProfitLossSourceRow{
+				{SubjectCode: "4603", SubjectName: "租金收入", Amount: 10000, Supported: true},
+				{SubjectCode: "6681", SubjectName: "其他支出", Amount: -1200, Supported: true},
+			},
+		},
+		snapshotProfitLoss: &ProfitLossPeriod{
+			PropertyID:   testPropertyID,
+			PropertyName: "Demo Property",
+			Year:         2026,
+			Month:        4,
+			IsFinalized:  true,
+			Rows: []ProfitLossSourceRow{
+				{SubjectCode: "4603", SubjectName: "租金收入", Amount: 9000, Supported: true},
+				{SubjectCode: "6681", SubjectName: "其他支出", Amount: -1500, Supported: true},
+			},
+		},
+	}
+	renderer := &recordingReportRenderer{html: []byte("<html>profit loss</html>")}
+	service := NewExportProfitLossService(repo, renderer, fixedClock{now: time.Date(2026, 5, 8, 16, 0, 0, 0, time.UTC)})
+
+	document, err := service.Execute(context.Background(), ExportProfitLossInput{
+		ActorRole:           "staff",
+		ActorUserID:         "user-1",
+		AssignedPropertyIDs: []string{testPropertyID},
+		PropertyID:          testPropertyID,
+		Year:                2026,
+		Month:               5,
+		Format:              "html",
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if repo.liveProfitLossQuery == nil || repo.snapshotProfitLossQuery == nil {
+		t.Fatalf("expected live current and snapshot previous queries")
+	}
+	if repo.snapshotProfitLossQuery.Year != 2026 || repo.snapshotProfitLossQuery.Month != 4 {
+		t.Fatalf("previous query = %+v, want 2026/4", repo.snapshotProfitLossQuery)
+	}
+	if document.Filename != "profit-loss-demo-property-2026-05.html" {
+		t.Fatalf("filename = %q", document.Filename)
+	}
+	view, ok := renderer.data.(profitLossView)
+	if !ok {
+		t.Fatalf("renderer data = %T, want profitLossView", renderer.data)
+	}
+	if view.CurrentTotalLabel != "NT$ 8,800" || view.PreviousTotalLabel != "NT$ 7,500" || view.DeltaTotalLabel != "NT$ 1,300" {
+		t.Fatalf("totals = %s/%s/%s", view.CurrentTotalLabel, view.PreviousTotalLabel, view.DeltaTotalLabel)
+	}
+	if len(view.Rows) < 2 || view.Rows[0].CurrentAmountLabel != "NT$ 10,000" || view.Rows[0].PreviousAmountLabel != "NT$ 9,000" || view.Rows[0].DeltaAmountLabel != "NT$ 1,000" {
+		t.Fatalf("unexpected rows: %+v", view.Rows)
+	}
+}
+
+func TestExportProfitLossJanuaryPreviousMonthRollover(t *testing.T) {
+	repo := &reportRepositoryStub{
+		liveProfitLoss:     profitLossPeriodForTest(2026, 1),
+		snapshotProfitLoss: profitLossPeriodForTest(2025, 12),
+	}
+	service := NewExportProfitLossService(repo, &recordingReportRenderer{html: []byte("<html></html>")}, fixedClock{now: time.Date(2026, 1, 8, 16, 0, 0, 0, time.UTC)})
+
+	_, err := service.Execute(context.Background(), ExportProfitLossInput{
+		ActorRole:  "admin",
+		PropertyID: testPropertyID,
+		Year:       2026,
+		Month:      1,
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if repo.snapshotProfitLossQuery == nil || repo.snapshotProfitLossQuery.Year != 2025 || repo.snapshotProfitLossQuery.Month != 12 {
+		t.Fatalf("previous query = %+v, want 2025/12", repo.snapshotProfitLossQuery)
+	}
+}
+
+func TestExportProfitLossRejectsUnsupportedFormatAndMapsErrors(t *testing.T) {
+	t.Run("format", func(t *testing.T) {
+		repo := &reportRepositoryStub{}
+		service := NewExportProfitLossService(repo, &recordingReportRenderer{html: []byte("<html></html>")}, fixedClock{now: time.Date(2026, 5, 8, 16, 0, 0, 0, time.UTC)})
+
+		_, err := service.Execute(context.Background(), ExportProfitLossInput{
+			ActorRole:  "admin",
+			PropertyID: testPropertyID,
+			Year:       2026,
+			Month:      5,
+			Format:     "pdf",
+		})
+		assertAppErrorCode(t, err, apperr.CodeBadRequest)
+		if repo.liveProfitLossQuery != nil || repo.snapshotProfitLossQuery != nil {
+			t.Fatalf("unexpected query: live=%+v snapshot=%+v", repo.liveProfitLossQuery, repo.snapshotProfitLossQuery)
+		}
+	})
+
+	t.Run("missing historical snapshot", func(t *testing.T) {
+		repo := &reportRepositoryStub{snapshotProfitLossErr: ErrFinancialReportNotFoundRepository}
+		service := NewExportProfitLossService(repo, &recordingReportRenderer{html: []byte("<html></html>")}, fixedClock{now: time.Date(2026, 5, 8, 16, 0, 0, 0, time.UTC)})
+
+		_, err := service.Execute(context.Background(), ExportProfitLossInput{
+			ActorRole:  "admin",
+			PropertyID: testPropertyID,
+			Year:       2026,
+			Month:      4,
+		})
+		assertAppErrorCode(t, err, CodeFinancialReportNotFound)
+		if repo.liveProfitLossQuery != nil {
+			t.Fatalf("unexpected live fallback: %+v", repo.liveProfitLossQuery)
+		}
+	})
+
+	t.Run("renderer", func(t *testing.T) {
+		repo := &reportRepositoryStub{
+			liveProfitLoss:     profitLossPeriodForTest(2026, 5),
+			snapshotProfitLoss: profitLossPeriodForTest(2026, 4),
+		}
+		service := NewExportProfitLossService(repo, &recordingReportRenderer{err: errors.New("render failed")}, fixedClock{now: time.Date(2026, 5, 8, 16, 0, 0, 0, time.UTC)})
+
+		_, err := service.Execute(context.Background(), ExportProfitLossInput{
+			ActorRole:  "admin",
+			PropertyID: testPropertyID,
+			Year:       2026,
+			Month:      5,
+		})
+		assertAppErrorCode(t, err, apperr.CodeInternalServerError)
+	})
+}
+
+func TestExportProfitLossPreservesUnsupportedRows(t *testing.T) {
+	note := "未支援會計分類：legacy_misc"
+	anotherNote := "未支援會計分類：legacy_fee"
+	repo := &reportRepositoryStub{
+		liveProfitLoss: &ProfitLossPeriod{
+			PropertyID:   testPropertyID,
+			PropertyName: "Demo Property",
+			Year:         2026,
+			Month:        5,
+			Rows: []ProfitLossSourceRow{
+				{SubjectCode: "unsupported", SubjectName: "未支援科目", Amount: 300, Supported: false, Note: &note},
+				{SubjectCode: "unsupported", SubjectName: "未支援科目", Amount: 700, Supported: false, Note: &anotherNote},
+			},
+		},
+		snapshotProfitLoss: profitLossPeriodForTest(2026, 4),
+	}
+	renderer := &recordingReportRenderer{html: []byte("<html></html>")}
+	service := NewExportProfitLossService(repo, renderer, fixedClock{now: time.Date(2026, 5, 8, 16, 0, 0, 0, time.UTC)})
+
+	_, err := service.Execute(context.Background(), ExportProfitLossInput{
+		ActorRole:  "admin",
+		PropertyID: testPropertyID,
+		Year:       2026,
+		Month:      5,
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	view := renderer.data.(profitLossView)
+	if view.CurrentTotalLabel != "NT$ 0" || view.PreviousTotalLabel != "NT$ 0" || view.DeltaTotalLabel != "NT$ 0" {
+		t.Fatalf("totals include unsupported rows: %s/%s/%s", view.CurrentTotalLabel, view.PreviousTotalLabel, view.DeltaTotalLabel)
+	}
+	unsupportedRows := map[string]string{}
+	for _, row := range view.Rows {
+		if row.Unsupported && row.Note != "" {
+			unsupportedRows[row.Note] = row.CurrentAmountLabel
+		}
+	}
+	if unsupportedRows[note] != "NT$ 300" || unsupportedRows[anotherNote] != "NT$ 700" {
+		t.Fatalf("unsupported rows collapsed or changed: %+v", unsupportedRows)
+	}
+}
+
+func TestExportProfitLossAddsFixedUnsupportedLegacyZeroRows(t *testing.T) {
+	repo := &reportRepositoryStub{
+		liveProfitLoss:     profitLossPeriodForTest(2026, 5),
+		snapshotProfitLoss: profitLossPeriodForTest(2026, 4),
+	}
+	renderer := &recordingReportRenderer{html: []byte("<html></html>")}
+	service := NewExportProfitLossService(repo, renderer, fixedClock{now: time.Date(2026, 5, 8, 16, 0, 0, 0, time.UTC)})
+
+	_, err := service.Execute(context.Background(), ExportProfitLossInput{
+		ActorRole:  "admin",
+		PropertyID: testPropertyID,
+		Year:       2026,
+		Month:      5,
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	view := renderer.data.(profitLossView)
+	wantRows := map[string]string{
+		"管理費收入": "未支援舊系統損益科目：管理費收入",
+		"薪資支出":  "未支援舊系統損益科目：薪資支出",
+		"用品支出":  "未支援舊系統損益科目：用品支出",
+		"水電瓦斯費": "未支援舊系統損益科目：水電瓦斯費",
+		"清潔費":   "未支援舊系統損益科目：清潔費",
+		"修繕費":   "未支援舊系統損益科目：修繕費",
+		"佣金支出":  "未支援舊系統損益科目：佣金支出",
+		"稅捐":    "未支援舊系統損益科目：稅捐",
+	}
+	for _, row := range view.Rows {
+		note, ok := wantRows[row.SubjectLabel]
+		if !ok {
+			continue
+		}
+		if !row.Unsupported || row.CurrentAmountLabel != "NT$ 0" || row.PreviousAmountLabel != "NT$ 0" || row.DeltaAmountLabel != "NT$ 0" || row.Note != note {
+			t.Fatalf("fixed unsupported row %q = %+v", row.SubjectLabel, row)
+		}
+		delete(wantRows, row.SubjectLabel)
+	}
+	if len(wantRows) != 0 {
+		t.Fatalf("missing fixed unsupported rows: %+v", wantRows)
+	}
+}
+
 type reportRepositoryStub struct {
 	pendingMeterBills         []Bill
 	pendingMeterQuery         *PendingMeterQuery
@@ -793,6 +1055,12 @@ type reportRepositoryStub struct {
 	snapshotCashflowErr       error
 	openingBalance            int
 	openingBalanceQuery       *MonthlyCashflowQuery
+	liveProfitLoss            *ProfitLossPeriod
+	liveProfitLossQuery       *ProfitLossQuery
+	liveProfitLossErr         error
+	snapshotProfitLoss        *ProfitLossPeriod
+	snapshotProfitLossQuery   *ProfitLossQuery
+	snapshotProfitLossErr     error
 	err                       error
 }
 
@@ -896,6 +1164,28 @@ func (s *reportRepositoryStub) CalculateMonthlyCashflowOpeningBalance(_ context.
 	return s.openingBalance, nil
 }
 
+func (s *reportRepositoryStub) FindLiveProfitLossPeriod(_ context.Context, query ProfitLossQuery) (*ProfitLossPeriod, error) {
+	s.liveProfitLossQuery = &query
+	if s.liveProfitLossErr != nil {
+		return nil, s.liveProfitLossErr
+	}
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.liveProfitLoss, nil
+}
+
+func (s *reportRepositoryStub) FindSnapshotProfitLossPeriod(_ context.Context, query ProfitLossQuery) (*ProfitLossPeriod, error) {
+	s.snapshotProfitLossQuery = &query
+	if s.snapshotProfitLossErr != nil {
+		return nil, s.snapshotProfitLossErr
+	}
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.snapshotProfitLoss, nil
+}
+
 type recordingReportRenderer struct {
 	name string
 	data any
@@ -936,6 +1226,16 @@ func reportForTest(year int, month int, finalized bool) *FinancialReport {
 				Amount:      12000,
 			},
 		},
+	}
+}
+
+func profitLossPeriodForTest(year int, month int) *ProfitLossPeriod {
+	return &ProfitLossPeriod{
+		PropertyID:   testPropertyID,
+		PropertyName: "Demo Property",
+		Year:         year,
+		Month:        month,
+		Rows:         []ProfitLossSourceRow{},
 	}
 }
 

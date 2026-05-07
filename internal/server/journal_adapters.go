@@ -24,13 +24,14 @@ func (a journalExpenseAccountingAdapter) CreateExpenseAccountingEntry(ctx contex
 	}
 
 	return a.repo.InsertAccountingEntry(ctx, tx, dbbilling.CreateAccountingEntryParams{
-		PropertyAccountID: account.ID,
-		Category:          params.Category,
-		Amount:            params.Amount,
-		Description:       params.Description,
-		SourceRef:         params.SourceRef,
-		Year:              params.Year,
-		Month:             params.Month,
+		PropertyAccountID:   account.ID,
+		Category:            params.Category,
+		AccountingTitleCode: params.AccountingTitleCode,
+		Amount:              params.Amount,
+		Description:         params.Description,
+		SourceRef:           params.SourceRef,
+		Year:                params.Year,
+		Month:               params.Month,
 	})
 }
 
@@ -49,12 +50,13 @@ func (a journalExpenseAccountingAdapter) SyncExpenseAccountingEntry(ctx context.
 	}
 
 	return a.repo.ReplaceJournalExpenseAccountingEntry(ctx, tx, journalLogID, dbbilling.CreateAccountingEntryParams{
-		PropertyAccountID: account.ID,
-		Category:          params.Category,
-		Amount:            params.Amount,
-		Description:       params.Description,
-		SourceRef:         params.SourceRef,
-		Year:              params.Year,
-		Month:             params.Month,
+		PropertyAccountID:   account.ID,
+		Category:            params.Category,
+		AccountingTitleCode: params.AccountingTitleCode,
+		Amount:              params.Amount,
+		Description:         params.Description,
+		SourceRef:           params.SourceRef,
+		Year:                params.Year,
+		Month:               params.Month,
 	})
 }

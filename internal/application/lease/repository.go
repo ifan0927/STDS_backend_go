@@ -126,13 +126,14 @@ type SettleDepositParams struct {
 
 // DepositAccountingEntryParams contains accounting data derived from deposit settlement.
 type DepositAccountingEntryParams struct {
-	PropertyID  string
-	Category    string
-	Amount      int
-	Description *string
-	SourceRef   map[string]interface{}
-	Year        int
-	Month       int
+	PropertyID          string
+	Category            string
+	AccountingTitleCode string
+	Amount              int
+	Description         *string
+	SourceRef           map[string]interface{}
+	Year                int
+	Month               int
 }
 
 // TerminateLeaseParams contains fields for predecessor termination.

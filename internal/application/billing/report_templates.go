@@ -35,3 +35,12 @@ func MustNewMonthlyCashflowRenderer() reporthtml.Renderer {
 	}
 	return renderer
 }
+
+// MustNewProfitLossRenderer returns the renderer for profit and loss templates.
+func MustNewProfitLossRenderer() reporthtml.Renderer {
+	renderer, err := reporthtml.NewTemplateRenderer(reportTemplateFS, "templates/*.html")
+	if err != nil {
+		panic(err)
+	}
+	return renderer
+}

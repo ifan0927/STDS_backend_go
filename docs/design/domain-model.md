@@ -189,8 +189,9 @@ Lease 於建立時也決定 `electricityBillingCadence`（`monthly | bimonthly`�
 - **包含**：當月未結算的 AccountingEntry entities
   - 來源：Bill payment command 直接寫入；Journal expense command 直接寫入並保留 `JournalExpenseRecorded` 作 trace/reserved event；DepositRefunded / DepositDeducted 由押金處理 command 直接寫入
   - `category: rent_payment | electricity_payment | deposit_refund | deposit_deduction | journal_expense`（財報分類用）
+  - `accounting_title_id` / `accounting_title_code` / `accounting_title_name`：穩定會計科目維度；`accounting_titles` 是 runtime master data，`category` 仍是既有財報 total classification，不以 `accounting_titles.kind` 取代收入/支出計算
 - **寫入邊界**：只載入當月資料，不載入歷史分錄
-- **月結快照**：每月月底排程執行，將當月 AccountingEntry 封存為 `monthly_snapshot_entries`，清空 Aggregate 內當月暫存資料
+- **月結快照**：每月月底排程執行，將當月 AccountingEntry 封存為 `monthly_snapshot_entries`，一併保存 `accounting_title_id` 與 code/name copy，清空 Aggregate 內當月暫存資料
 - **初始化**：物業建立時由 property creation command direct orchestration 自動建立，生命週期與物業綁定
 - **刪除策略**：物業軟刪除時 PropertyAccount 封存，MonthlySnapshot 永久保留
 - **讀取策略**：
@@ -498,8 +499,11 @@ PropertyOwnerView
 | 日誌 Index | `(property_id, created_at)` on journal_logs table |
 | ForceTermination table | 欄位：`id, lease_id, initiated_by, reason, deposit_handling: write_off \| keep_held, status: completed, created_at`（bill_ids[] 移除，改用 force_termination_bills table；`in_progress` 為已棄用的補償流程歷史狀態） |
 | PropertyAccount 架構 | 月結快照拆兩層：summary + entries |
+| accounting_titles table | 欄位：`id, code, name, kind: income \| expense, legacy_kind, is_active, created_at, updated_at`；runtime master data；`kind` 不取代 `category` 的財報 total classification |
+| legacy_accounting_title_mappings table | 欄位：`legacy_accounting_id, legacy_accounting_title_id, accounting_title_id, legacy_accounting_kind, legacy_accounting_title, source_table, created_at`；保存 legacy `xx_accounting_title` 對 canonical title 的 mapping |
 | monthly_snapshots table（summary） | 欄位：`id, property_id, year, month, total_income, total_expense, net`；Index：`(property_id, year, month)` |
-| monthly_snapshot_entries table（明細） | 欄位：`id, snapshot_id, category, description, amount, source_ref`；Index：`(snapshot_id, category)` |
+| accounting_entries table（當月暫存） | 欄位：`id, property_account_id, category, accounting_title_id, accounting_title_code, accounting_title_name, description, amount, source_ref, year, month`；`category` 供財報 totals，accounting title 供報表科目顯示與 P&L 聚合 |
+| monthly_snapshot_entries table（明細） | 欄位：`id, snapshot_id, category, accounting_title_id, accounting_title_code, accounting_title_name, description, amount, source_ref`；Index：`(snapshot_id, category)`；code/name copy 保護 finalized historical report 不受 title rename 影響 |
 | MonthlySnapshot 排程 | 排除軟刪除物業：加 `AND deleted_at IS NULL` filter |
 | force_termination_bills table | 欄位：`id, force_termination_id, bill_id, status: pending \| done`；Index：`(force_termination_id, status)`；同步完成後所有追蹤帳單應為 `done` |
 | voided / written_off 帳單 | 狀態轉換（非軟刪除），查詢加 `AND status NOT IN ('voided', 'written_off')` |

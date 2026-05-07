@@ -30,13 +30,14 @@ func (a leaseDepositAccountingAdapter) CreateDepositAccountingEntry(ctx context.
 	}
 
 	return a.repo.InsertAccountingEntry(ctx, tx, dbbilling.CreateAccountingEntryParams{
-		PropertyAccountID: account.ID,
-		Category:          params.Category,
-		Amount:            params.Amount,
-		Description:       params.Description,
-		SourceRef:         params.SourceRef,
-		Year:              params.Year,
-		Month:             params.Month,
+		PropertyAccountID:   account.ID,
+		Category:            params.Category,
+		AccountingTitleCode: params.AccountingTitleCode,
+		Amount:              params.Amount,
+		Description:         params.Description,
+		SourceRef:           params.SourceRef,
+		Year:                params.Year,
+		Month:               params.Month,
 	})
 }
 

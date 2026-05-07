@@ -302,6 +302,11 @@ const (
 	ExportPropertyFinancialReportCashflowParamsFormatHtml ExportPropertyFinancialReportCashflowParamsFormat = "html"
 )
 
+// Defines values for ExportPropertyFinancialReportProfitLossParamsFormat.
+const (
+	ExportPropertyFinancialReportProfitLossParamsFormatHtml ExportPropertyFinancialReportProfitLossParamsFormat = "html"
+)
+
 // Defines values for ListPropertyRoomsParamsStatus.
 const (
 	Maintenance ListPropertyRoomsParamsStatus = "maintenance"
@@ -311,7 +316,7 @@ const (
 
 // Defines values for ExportPropertyTenantRosterParamsFormat.
 const (
-	Html ExportPropertyTenantRosterParamsFormat = "html"
+	ExportPropertyTenantRosterParamsFormatHtml ExportPropertyTenantRosterParamsFormat = "html"
 )
 
 // Defines values for ListRepairRequestsParamsStatus.
@@ -1116,6 +1121,15 @@ type ExportPropertyFinancialReportCashflowParams struct {
 // ExportPropertyFinancialReportCashflowParamsFormat defines parameters for ExportPropertyFinancialReportCashflow.
 type ExportPropertyFinancialReportCashflowParamsFormat string
 
+// ExportPropertyFinancialReportProfitLossParams defines parameters for ExportPropertyFinancialReportProfitLoss.
+type ExportPropertyFinancialReportProfitLossParams struct {
+	// Format Export format; v1 supports html only.
+	Format *ExportPropertyFinancialReportProfitLossParamsFormat `form:"format,omitempty" json:"format,omitempty"`
+}
+
+// ExportPropertyFinancialReportProfitLossParamsFormat defines parameters for ExportPropertyFinancialReportProfitLoss.
+type ExportPropertyFinancialReportProfitLossParamsFormat string
+
 // ListPropertyMeterHistoryParams defines parameters for ListPropertyMeterHistory.
 type ListPropertyMeterHistoryParams struct {
 	Year *int `form:"year,omitempty" json:"year,omitempty"`
@@ -1433,6 +1447,9 @@ type ServerInterface interface {
 	// Export monthly cashflow detail as HTML
 	// (GET /properties/{id}/financial-report/{year}/{month}/cashflow-export)
 	ExportPropertyFinancialReportCashflow(c *gin.Context, id string, year int, month int, params ExportPropertyFinancialReportCashflowParams)
+	// Export profit and loss report as HTML
+	// (GET /properties/{id}/financial-report/{year}/{month}/profit-loss-export)
+	ExportPropertyFinancialReportProfitLoss(c *gin.Context, id string, year int, month int, params ExportPropertyFinancialReportProfitLossParams)
 	// 財報審核後寄送給業主
 	// (POST /properties/{id}/financial-report/{year}/{month}/send)
 	SendPropertyFinancialReport(c *gin.Context, id string, year int, month int)
@@ -2922,6 +2939,61 @@ func (siw *ServerInterfaceWrapper) ExportPropertyFinancialReportCashflow(c *gin.
 	siw.Handler.ExportPropertyFinancialReportCashflow(c, id, year, month, params)
 }
 
+// ExportPropertyFinancialReportProfitLoss operation middleware
+func (siw *ServerInterfaceWrapper) ExportPropertyFinancialReportProfitLoss(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Param("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Path parameter "year" -------------
+	var year int
+
+	err = runtime.BindStyledParameterWithOptions("simple", "year", c.Param("year"), &year, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter year: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Path parameter "month" -------------
+	var month int
+
+	err = runtime.BindStyledParameterWithOptions("simple", "month", c.Param("month"), &month, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter month: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(BearerAuthScopes, []string{})
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ExportPropertyFinancialReportProfitLossParams
+
+	// ------------- Optional query parameter "format" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "format", c.Request.URL.Query(), &params.Format)
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter format: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ExportPropertyFinancialReportProfitLoss(c, id, year, month, params)
+}
+
 // SendPropertyFinancialReport operation middleware
 func (siw *ServerInterfaceWrapper) SendPropertyFinancialReport(c *gin.Context) {
 
@@ -4152,6 +4224,7 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.GET(options.BaseURL+"/properties/:id/financial-report", wrapper.GetPropertyFinancialReportSummary)
 	router.GET(options.BaseURL+"/properties/:id/financial-report/:year/:month", wrapper.GetPropertyFinancialReport)
 	router.GET(options.BaseURL+"/properties/:id/financial-report/:year/:month/cashflow-export", wrapper.ExportPropertyFinancialReportCashflow)
+	router.GET(options.BaseURL+"/properties/:id/financial-report/:year/:month/profit-loss-export", wrapper.ExportPropertyFinancialReportProfitLoss)
 	router.POST(options.BaseURL+"/properties/:id/financial-report/:year/:month/send", wrapper.SendPropertyFinancialReport)
 	router.GET(options.BaseURL+"/properties/:id/meter-history", wrapper.ListPropertyMeterHistory)
 	router.GET(options.BaseURL+"/properties/:id/pending-meter", wrapper.ListPropertyPendingMeters)

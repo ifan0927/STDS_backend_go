@@ -2743,6 +2743,146 @@ func TestFinancialReportCashflowExportReturnsHTMLWithHeaders(t *testing.T) {
 	}
 }
 
+func TestFinancialReportProfitLossExportReturnsHTMLWithHeaders(t *testing.T) {
+	var profitLossInput handler.BillingProfitLossInput
+	profitLossCalls := 0
+	engine := newTestEngineWithBilling(
+		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
+		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{},
+		"",
+		fakeJobRunsRepo{},
+		handler.BillingServices{FinancialReports: fakeBillingFinancialReports{
+			document: &reporthtml.Document{
+				HTML:     []byte("<html>profit loss</html>"),
+				Filename: "profit-loss-demo-2026-05.html",
+			},
+			profitLossInputSink: &profitLossInput,
+			profitLossCalls:     &profitLossCalls,
+		}},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/properties/"+testPropertyID1+"/financial-report/2026/5/profit-loss-export?format=html", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if got := resp.Header().Get("Content-Type"); got != reporthtml.ContentType {
+		t.Fatalf("Content-Type = %q", got)
+	}
+	if got := resp.Header().Get("Content-Disposition"); got != `inline; filename="profit-loss-demo-2026-05.html"` {
+		t.Fatalf("Content-Disposition = %q", got)
+	}
+	if resp.Body.String() != "<html>profit loss</html>" {
+		t.Fatalf("body = %q", resp.Body.String())
+	}
+	if profitLossCalls != 1 {
+		t.Fatalf("ExportProfitLoss calls = %d, want 1", profitLossCalls)
+	}
+	if profitLossInput.PropertyID != testPropertyID1 || profitLossInput.Year != 2026 || profitLossInput.Month != 5 || profitLossInput.Format != "html" {
+		t.Fatalf("unexpected profit loss input: %+v", profitLossInput)
+	}
+	if profitLossInput.ActorRole != "organizer" || profitLossInput.ActorUserID != "user-1" {
+		t.Fatalf("unexpected actor input: %+v", profitLossInput)
+	}
+	if len(profitLossInput.AssignedPropertyIDs) != 1 || profitLossInput.AssignedPropertyIDs[0] != testPropertyID1 {
+		t.Fatalf("AssignedPropertyIDs = %+v, want property scope", profitLossInput.AssignedPropertyIDs)
+	}
+}
+
+func TestFinancialReportProfitLossExportRejectsUnsupportedFormatWithSharedErrorShape(t *testing.T) {
+	var profitLossInput handler.BillingProfitLossInput
+	profitLossCalls := 0
+	engine := newTestEngineWithBilling(
+		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
+		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}},
+		fakePropertyRepo{
+			ownerByPropertyID: map[string]string{
+				testPropertyID1: "owner-1",
+			},
+		},
+		fakeResourceOwnershipRepo{},
+		"",
+		fakeJobRunsRepo{},
+		handler.BillingServices{FinancialReports: fakeBillingFinancialReports{
+			err:                 apperr.ErrBadRequest,
+			profitLossInputSink: &profitLossInput,
+			profitLossCalls:     &profitLossCalls,
+		}},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/properties/"+testPropertyID1+"/financial-report/2026/5/profit-loss-export?format=pdf", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	assertStandardErrorResponse(t, resp, http.StatusBadRequest, apperr.CodeBadRequest)
+	if profitLossCalls != 1 {
+		t.Fatalf("ExportProfitLoss calls = %d, want 1", profitLossCalls)
+	}
+	if profitLossInput.Format != "pdf" {
+		t.Fatalf("Format = %q, want pdf", profitLossInput.Format)
+	}
+}
+
+func TestFinancialReportProfitLossExportRejectsInvalidPropertyIDBeforeService(t *testing.T) {
+	profitLossCalls := 0
+	engine := newTestEngineWithBilling(
+		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
+		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{},
+		"",
+		fakeJobRunsRepo{},
+		handler.BillingServices{FinancialReports: fakeBillingFinancialReports{profitLossCalls: &profitLossCalls}},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/properties/not-a-uuid/financial-report/2026/5/profit-loss-export?format=html", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	assertStandardErrorResponse(t, resp, http.StatusBadRequest, apperr.CodeBadRequest)
+	if profitLossCalls != 0 {
+		t.Fatalf("ExportProfitLoss calls = %d, want 0", profitLossCalls)
+	}
+}
+
+func TestFinancialReportProfitLossExportRejectsUnassignedPropertyBeforeService(t *testing.T) {
+	profitLossCalls := 0
+	engine := newTestEngineWithBilling(
+		fakeUserRepo{role: "staff", assignedPropertyIDs: []string{testPropertyID2}},
+		fakeAuthenticator{role: "staff", assignedPropertyIDs: []string{testPropertyID2}},
+		fakePropertyRepo{
+			ownerByPropertyID: map[string]string{
+				testPropertyID1: "owner-1",
+			},
+		},
+		fakeResourceOwnershipRepo{},
+		"",
+		fakeJobRunsRepo{},
+		handler.BillingServices{FinancialReports: fakeBillingFinancialReports{profitLossCalls: &profitLossCalls}},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/properties/"+testPropertyID1+"/financial-report/2026/5/profit-loss-export?format=html", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	assertStandardErrorResponse(t, resp, http.StatusForbidden, apperr.CodeForbidden)
+	if profitLossCalls != 0 {
+		t.Fatalf("ExportProfitLoss calls = %d, want 0", profitLossCalls)
+	}
+}
+
 func TestTenantRosterExportReturnsHTMLWithHeaders(t *testing.T) {
 	engine := newTestEngineWithBilling(
 		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
@@ -4027,8 +4167,10 @@ func (fakeBillingRoomMeters) ListRoomMeterHistory(_ context.Context, _ handler.B
 }
 
 type fakeBillingFinancialReports struct {
-	document *reporthtml.Document
-	err      error
+	document            *reporthtml.Document
+	err                 error
+	profitLossInputSink *handler.BillingProfitLossInput
+	profitLossCalls     *int
 }
 
 func (f fakeBillingFinancialReports) ListFinancialReportSummaries(_ context.Context, _ handler.BillingFinancialReportSummaryInput) ([]handler.BillingFinancialReportSummary, error) {
@@ -4073,6 +4215,22 @@ func (f fakeBillingFinancialReports) ExportBillReceipt(_ context.Context, _ hand
 }
 
 func (f fakeBillingFinancialReports) ExportMonthlyCashflow(_ context.Context, _ handler.BillingMonthlyCashflowInput) (*reporthtml.Document, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.document != nil {
+		return f.document, nil
+	}
+	return nil, apperr.ErrInternalServerError
+}
+
+func (f fakeBillingFinancialReports) ExportProfitLoss(_ context.Context, input handler.BillingProfitLossInput) (*reporthtml.Document, error) {
+	if f.profitLossCalls != nil {
+		(*f.profitLossCalls)++
+	}
+	if f.profitLossInputSink != nil {
+		*f.profitLossInputSink = input
+	}
 	if f.err != nil {
 		return nil, f.err
 	}

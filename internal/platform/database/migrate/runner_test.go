@@ -4,10 +4,15 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"os"
 	"regexp"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 var expectedMigrationVersions = []string{
@@ -26,6 +31,7 @@ var expectedMigrationVersions = []string{
 	"000013",
 	"000014",
 	"000015",
+	"000016",
 }
 
 func TestRunnerUpAppliesMigrationsAndRecordsVersions(t *testing.T) {
@@ -71,8 +77,8 @@ func TestRunnerDownRollsBackAppliedMigrationsInDescendingOrder(t *testing.T) {
 	defer db.Close()
 
 	migrations := migrationsByVersion(t, "down")
-	appliedVersions := []string{"000012", "000013", "000014", "000015"}
-	expectedRollbackOrder := []string{"000015", "000014", "000013", "000012"}
+	appliedVersions := []string{"000012", "000013", "000014", "000015", "000016"}
+	expectedRollbackOrder := []string{"000016", "000015", "000014", "000013", "000012"}
 
 	expectSchemaMigrationsQuery(mock, appliedVersions)
 	for _, version := range expectedRollbackOrder {
@@ -115,6 +121,160 @@ func TestRunnerUpRollsBackWhenMigrationFails(t *testing.T) {
 	}
 
 	verifyMigrationExpectations(t, mock)
+}
+
+func TestAccountingTitleMigrationSeedsRuntimeTitlesAndBackfillsCategories(t *testing.T) {
+	migrations := migrationsByVersion(t, "up")
+	sql := migrations["000016"].SQL
+
+	requiredSnippets := []string{
+		"CREATE TABLE IF NOT EXISTS accounting_titles",
+		"CREATE TABLE IF NOT EXISTS legacy_accounting_title_mappings",
+		"('29', '營業收益類', '4603', '租金收入')",
+		"('30', '營業收益類', '4605', '房客電費收入')",
+		"('45', '營業收益類', '4602', '押金退回(減項)')",
+		"('28', '營業收益類', '4601', '押金收入(暫收款)')",
+		"('52', '營業費用（成本）類', '6681', '其他支出')",
+		"ADD COLUMN IF NOT EXISTS accounting_title_code VARCHAR(20)",
+		"ADD COLUMN IF NOT EXISTS accounting_title_name VARCHAR(100)",
+		"('deposit_deduction', '4601')",
+		"UPDATE monthly_snapshot_entries mse",
+	}
+	for _, snippet := range requiredSnippets {
+		if !strings.Contains(sql, snippet) {
+			t.Fatalf("000016 migration missing %q", snippet)
+		}
+	}
+}
+
+func TestAccountingTitleMigrationPostgresContract(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		databaseURL = os.Getenv("DATABASE_URL")
+	}
+	if databaseURL == "" {
+		t.Skip("set TEST_DATABASE_URL or DATABASE_URL to run PostgreSQL migration contract test")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	db, err := sql.Open("pgx", databaseURL)
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+
+	if err := db.PingContext(ctx); err != nil {
+		t.Fatalf("PingContext: %v", err)
+	}
+
+	schemaName := fmt.Sprintf("migration_test_%d", time.Now().UnixNano())
+	if _, err := db.ExecContext(ctx, `CREATE SCHEMA `+schemaName); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+	defer func() {
+		if _, err := db.ExecContext(context.Background(), `DROP SCHEMA IF EXISTS `+schemaName+` CASCADE`); err != nil {
+			t.Errorf("drop schema: %v", err)
+		}
+	}()
+	if _, err := db.ExecContext(ctx, `SET search_path TO `+schemaName+`, public`); err != nil {
+		t.Fatalf("set search_path: %v", err)
+	}
+
+	upMigrations, err := loadMigrations("up")
+	if err != nil {
+		t.Fatalf("load up migrations: %v", err)
+	}
+	downMigrations, err := loadMigrations("down")
+	if err != nil {
+		t.Fatalf("load down migrations: %v", err)
+	}
+
+	var beforeAccountingTitles []migration
+	var accountingTitlesUp migration
+	for _, item := range upMigrations {
+		if item.Version < "000016" {
+			beforeAccountingTitles = append(beforeAccountingTitles, item)
+			continue
+		}
+		if item.Version == "000016" {
+			accountingTitlesUp = item
+		}
+	}
+	if accountingTitlesUp.Version == "" {
+		t.Fatal("missing 000016 up migration")
+	}
+
+	runner := NewRunner(db)
+	if err := runner.apply(ctx, beforeAccountingTitles, true); err != nil {
+		t.Fatalf("apply migrations before 000016: %v", err)
+	}
+
+	seedAccountingTitleLegacyRows(t, ctx, db)
+
+	if err := runner.apply(ctx, []migration{accountingTitlesUp}, true); err != nil {
+		t.Fatalf("apply 000016 up: %v", err)
+	}
+
+	assertTableCount(t, ctx, db, "accounting_titles", 120)
+	assertTableCount(t, ctx, db, "legacy_accounting_title_mappings", 120)
+
+	if _, err := db.ExecContext(ctx, accountingTitlesUp.SQL); err != nil {
+		t.Fatalf("re-exec 000016 up for idempotency: %v", err)
+	}
+	assertTableCount(t, ctx, db, "accounting_titles", 120)
+	assertTableCount(t, ctx, db, "legacy_accounting_title_mappings", 120)
+
+	orphanCount := queryInt(t, ctx, db, `
+SELECT COUNT(*)
+FROM legacy_accounting_title_mappings latm
+LEFT JOIN accounting_titles at ON at.id = latm.accounting_title_id
+WHERE at.id IS NULL
+`)
+	if orphanCount != 0 {
+		t.Fatalf("expected no orphan legacy accounting title mappings, got %d", orphanCount)
+	}
+
+	expectedCodes := map[string]string{
+		"rent_payment":        "4603",
+		"electricity_payment": "4605",
+		"deposit_refund":      "4602",
+		"deposit_deduction":   "4601",
+		"journal_expense":     "6681",
+	}
+	assertBackfilledAccountingTitleCodes(t, ctx, db, "accounting_entries", "category", expectedCodes)
+	assertBackfilledAccountingTitleCodes(t, ctx, db, "monthly_snapshot_entries", "category", expectedCodes)
+
+	var accountingTitlesDown migration
+	for _, item := range downMigrations {
+		if item.Version == "000016" {
+			accountingTitlesDown = item
+			break
+		}
+	}
+	if accountingTitlesDown.Version == "" {
+		t.Fatal("missing 000016 down migration")
+	}
+
+	if err := runner.apply(ctx, []migration{accountingTitlesDown}, false); err != nil {
+		t.Fatalf("apply 000016 down: %v", err)
+	}
+
+	if tableExists(t, ctx, db, "accounting_titles") {
+		t.Fatal("accounting_titles still exists after 000016 down")
+	}
+	if tableExists(t, ctx, db, "legacy_accounting_title_mappings") {
+		t.Fatal("legacy_accounting_title_mappings still exists after 000016 down")
+	}
+	assertColumnAbsent(t, ctx, db, "accounting_entries", "accounting_title_id")
+	assertColumnAbsent(t, ctx, db, "accounting_entries", "accounting_title_code")
+	assertColumnAbsent(t, ctx, db, "accounting_entries", "accounting_title_name")
+	assertColumnAbsent(t, ctx, db, "monthly_snapshot_entries", "accounting_title_id")
+	assertColumnAbsent(t, ctx, db, "monthly_snapshot_entries", "accounting_title_code")
+	assertColumnAbsent(t, ctx, db, "monthly_snapshot_entries", "accounting_title_name")
 }
 
 func newRunnerTest(t *testing.T) (*sql.DB, sqlmock.Sqlmock, *Runner) {
@@ -167,4 +327,147 @@ func verifyMigrationExpectations(t *testing.T, mock sqlmock.Sqlmock) {
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("ExpectationsWereMet: %v", err)
 	}
+}
+
+func seedAccountingTitleLegacyRows(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+
+	var userID string
+	if err := db.QueryRowContext(ctx, `
+INSERT INTO users (firebase_uid, email, name, role)
+VALUES ('migration-test-owner', 'migration-owner@example.com', 'Migration Owner', 'owner')
+RETURNING id
+`).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	var propertyID string
+	if err := db.QueryRowContext(ctx, `
+INSERT INTO properties (name, address, electricity_unit_price, owner_id)
+VALUES ('Migration Test Property', 'Migration Test Address', 5, $1)
+RETURNING id
+`, userID).Scan(&propertyID); err != nil {
+		t.Fatalf("insert property: %v", err)
+	}
+
+	var propertyAccountID string
+	if err := db.QueryRowContext(ctx, `
+INSERT INTO property_accounts (property_id)
+VALUES ($1)
+RETURNING id
+`, propertyID).Scan(&propertyAccountID); err != nil {
+		t.Fatalf("insert property account: %v", err)
+	}
+
+	var snapshotID string
+	if err := db.QueryRowContext(ctx, `
+INSERT INTO monthly_snapshots (property_id, year, month)
+VALUES ($1, 2026, 5)
+RETURNING id
+`, propertyID).Scan(&snapshotID); err != nil {
+		t.Fatalf("insert monthly snapshot: %v", err)
+	}
+
+	categories := []string{
+		"rent_payment",
+		"electricity_payment",
+		"deposit_refund",
+		"deposit_deduction",
+		"journal_expense",
+	}
+	for _, category := range categories {
+		if _, err := db.ExecContext(ctx, `
+INSERT INTO accounting_entries (property_account_id, category, amount, description, source_ref, year, month)
+VALUES ($1, $2, 100, 'legacy row', '{}'::jsonb, 2026, 5)
+`, propertyAccountID, category); err != nil {
+			t.Fatalf("insert accounting entry %s: %v", category, err)
+		}
+		if _, err := db.ExecContext(ctx, `
+INSERT INTO monthly_snapshot_entries (snapshot_id, category, description, amount, source_ref)
+VALUES ($1, $2, 'legacy snapshot row', 100, '{}'::jsonb)
+`, snapshotID, category); err != nil {
+			t.Fatalf("insert monthly snapshot entry %s: %v", category, err)
+		}
+	}
+}
+
+func assertTableCount(t *testing.T, ctx context.Context, db *sql.DB, tableName string, expected int) {
+	t.Helper()
+
+	actual := queryInt(t, ctx, db, `SELECT COUNT(*) FROM `+tableName)
+	if actual != expected {
+		t.Fatalf("expected %s count %d, got %d", tableName, expected, actual)
+	}
+}
+
+func assertBackfilledAccountingTitleCodes(t *testing.T, ctx context.Context, db *sql.DB, tableName string, categoryColumn string, expected map[string]string) {
+	t.Helper()
+
+	rows, err := db.QueryContext(ctx, `
+SELECT `+categoryColumn+`, accounting_title_id, accounting_title_code, accounting_title_name
+FROM `+tableName+`
+ORDER BY `+categoryColumn)
+	if err != nil {
+		t.Fatalf("query %s backfill: %v", tableName, err)
+	}
+	defer rows.Close()
+
+	seen := map[string]string{}
+	for rows.Next() {
+		var category, titleID, code, name string
+		if err := rows.Scan(&category, &titleID, &code, &name); err != nil {
+			t.Fatalf("scan %s backfill: %v", tableName, err)
+		}
+		if titleID == "" {
+			t.Fatalf("%s category %s has empty accounting title id", tableName, category)
+		}
+		if name == "" {
+			t.Fatalf("%s category %s has empty accounting title name", tableName, category)
+		}
+		seen[category] = code
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate %s backfill: %v", tableName, err)
+	}
+
+	for category, expectedCode := range expected {
+		if seen[category] != expectedCode {
+			t.Fatalf("%s category %s expected title code %s, got %q", tableName, category, expectedCode, seen[category])
+		}
+	}
+}
+
+func tableExists(t *testing.T, ctx context.Context, db *sql.DB, tableName string) bool {
+	t.Helper()
+
+	var exists bool
+	if err := db.QueryRowContext(ctx, `SELECT to_regclass($1) IS NOT NULL`, tableName).Scan(&exists); err != nil {
+		t.Fatalf("check table %s exists: %v", tableName, err)
+	}
+	return exists
+}
+
+func assertColumnAbsent(t *testing.T, ctx context.Context, db *sql.DB, tableName string, columnName string) {
+	t.Helper()
+
+	count := queryInt(t, ctx, db, `
+SELECT COUNT(*)
+FROM information_schema.columns
+WHERE table_schema = current_schema()
+  AND table_name = $1
+  AND column_name = $2
+`, tableName, columnName)
+	if count != 0 {
+		t.Fatalf("%s.%s still exists after 000016 down", tableName, columnName)
+	}
+}
+
+func queryInt(t *testing.T, ctx context.Context, db *sql.DB, query string, args ...any) int {
+	t.Helper()
+
+	var value int
+	if err := db.QueryRowContext(ctx, query, args...).Scan(&value); err != nil {
+		t.Fatalf("query int: %v", err)
+	}
+	return value
 }
