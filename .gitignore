@@ -13,4 +13,5 @@
 *service-account*.json
 /.claude/agent-memory
 /docs/mirgations
+/docs/reportfile/
 /artifacts

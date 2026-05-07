@@ -1,0 +1,87 @@
+{{define "tenant_roster.html"}}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{{.Title}}</title>
+  <style>
+    body {
+      color: #1f2933;
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+      line-height: 1.4;
+      margin: 24px;
+    }
+    h1 {
+      font-size: 24px;
+      margin: 0 0 8px;
+    }
+    .report-meta {
+      color: #52606d;
+      margin-bottom: 20px;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+    }
+    th,
+    td {
+      border: 1px solid #cbd2d9;
+      padding: 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #f5f7fa;
+      font-weight: 700;
+    }
+    @media print {
+      body {
+        margin: 12mm;
+      }
+      th {
+        background: #f5f7fa;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      tr {
+        break-inside: avoid;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>{{.Title}}</h1>
+  <div class="report-meta">
+    <div>物業：{{.PropertyName}}</div>
+    <div>基準日：{{.AsOfLabel}}</div>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>房號</th>
+        <th>狀態</th>
+        <th>租客</th>
+        <th>電話</th>
+        <th>下次租金到期日</th>
+        <th>租金週期</th>
+        <th>租金金額</th>
+        <th>備註</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{range .Rows}}
+      <tr>
+        <td>{{.RoomName}}</td>
+        <td>{{.StatusLabel}}</td>
+        <td>{{.TenantName}}</td>
+        <td>{{.TenantPhone}}</td>
+        <td>{{.NextRentDueDateLabel}}</td>
+        <td>{{.RentCadenceLabel}}</td>
+        <td>{{.RentAmountLabel}}</td>
+        <td>{{.Notes}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</body>
+</html>{{end}}

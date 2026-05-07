@@ -348,6 +348,7 @@ Lease 於建立時也決定 `electricityBillingCadence`（`monthly | bimonthly`�
 | 電表抄錄 | ✅ | ✅ | ✅ | ❌ |
 | 收款確認 | ✅ | ✅ | ✅ | ❌ |
 | 查看財報 | ✅（全部） | ✅（指派） | ✅（指派） | ✅（自己名下，唯讀） |
+| 匯出租客名冊 HTML | ✅（全部） | ✅（指派） | ✅（指派） | ✅（自己名下，唯讀） |
 | 財報審核與寄送 | ✅ | ✅ | ❌ | ❌ |
 | **Journal** | | | | |
 | 建立／編輯 JournalLog | ✅ | ✅ | ✅ | ❌ |
@@ -409,6 +410,7 @@ Operational lease lifecycle changes use terminate, force-terminate, or replaceme
 | `GET /bills/{id}` | 帳單詳情（電費帳單自動帶入 previousReading 與 period） | — |
 | `GET /properties/{id}/financial-report` | 財報摘要列表（歷史月份） | year |
 | `GET /properties/{id}/financial-report/{year}/{month}` | 特定月份財報 | — |
+| `GET /properties/{id}/tenant-roster` | 租客名冊 HTML 匯出 | as_of, include_vacant, format |
 
 ### Journal BC
 
@@ -462,6 +464,20 @@ PropertyOwnerView
 ### PropertyAccountSummaryQuery（財報讀取）
 
 直接 SQL 彙總 MonthlySnapshot + 當月 AccountingEntry，按月分組產出收支報表。
+
+### Runtime HTML Report Export
+
+首次版本的報表／文件匯出由後端在 request 期間產生 HTML 並直接回傳，不寫入 GCS、不建立 attachment record，也不持久化產生的檔案 bytes。瀏覽器／前端負責 preview、print 與 save-as-PDF。
+
+共用 HTML export foundation 僅負責 view model render、print-friendly template、檔名與 response header 行為；各報表自己的 business read model 與資料定義仍由 focused issue 決定。
+
+租客名冊（tenant roster）是第一個 runtime HTML export consumer：
+
+- 查詢物業下房間，依固定報表排序輸出，避免使用資料庫插入順序。
+- `include_vacant=true` 時包含空房；未提供或為 `false` 時只輸出目前有 active lease 的房間。
+- `next_rent_due_date` 為目前未繳租金帳單中最早的 `due_date`；若租金已繳清則為空值。
+- `notes` 欄位在第一版 template 保留顯示位置，但資料先保持空值，待後續確認來源。
+- replacement 或多租戶邊界先依目前 active lease selection rule 決定，不在 template 層做額外業務判斷。
 
 ---
 

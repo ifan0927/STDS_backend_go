@@ -39,6 +39,108 @@ func TestListAccessibleOwnerScopeReturnsOwnedBills(t *testing.T) {
 	}
 }
 
+func TestListTenantRosterRowsReturnsOccupiedAndVacantRooms(t *testing.T) {
+	db, mock, repo := newBillingRepoTest(t)
+	defer closeBillingDB(t, db)
+
+	asOf := time.Date(2026, 5, 7, 0, 0, 0, 0, time.UTC)
+	dueDate := time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC)
+	mock.ExpectQuery(`(?s)FROM rooms.*LEFT JOIN LATERAL.*l.status = 'active'.*LEFT JOIN bills b.*b.type = 'rent'.*b.status IN \('pending_payment', 'overdue'\).*AND \(\$3 OR active_lease.id IS NOT NULL\).*AND p.id IN \(\$4\).*ORDER BY NULLIF\(regexp_replace\(rooms.name, '\\D', '', 'g'\), ''\)::int NULLS LAST, rooms.name ASC, rooms.id ASC`).
+		WithArgs("property-1", asOf, true, "property-1").
+		WillReturnRows(tenantRosterRows().
+			AddRow("property-1", "Demo Property", "room-101", "101", "occupied", "lease-1", "Alice", "0912", dueDate, "quarterly", 36000).
+			AddRow("property-1", "Demo Property", "room-102", "102", "vacant", nil, nil, nil, nil, nil, nil))
+
+	rows, err := repo.ListTenantRosterRows(context.Background(), Scope{
+		Role:                "staff",
+		AssignedPropertyIDs: []string{"property-1"},
+	}, "property-1", asOf, true)
+	if err != nil {
+		t.Fatalf("ListTenantRosterRows: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("rows = %d, want 2", len(rows))
+	}
+	if rows[0].LeaseID == nil || *rows[0].LeaseID != "lease-1" {
+		t.Fatalf("unexpected occupied row: %+v", rows[0])
+	}
+	if rows[0].NextRentDueDate == nil || !rows[0].NextRentDueDate.Equal(dueDate) {
+		t.Fatalf("NextRentDueDate = %v, want %v", rows[0].NextRentDueDate, dueDate)
+	}
+	if rows[1].LeaseID != nil || rows[1].NextRentDueDate != nil {
+		t.Fatalf("unexpected vacant row: %+v", rows[1])
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestListTenantRosterRowsAllowsPaidClearedActiveLease(t *testing.T) {
+	db, mock, repo := newBillingRepoTest(t)
+	defer closeBillingDB(t, db)
+
+	asOf := time.Date(2026, 5, 7, 0, 0, 0, 0, time.UTC)
+	mock.ExpectQuery(`(?s)FROM rooms.*LEFT JOIN LATERAL.*l.status = 'active'.*LEFT JOIN bills b.*b.type = 'rent'.*b.status IN \('pending_payment', 'overdue'\).*AND \(\$3 OR active_lease.id IS NOT NULL\).*AND p.id IN \(\$4\).*ORDER BY NULLIF\(regexp_replace\(rooms.name, '\\D', '', 'g'\), ''\)::int NULLS LAST, rooms.name ASC, rooms.id ASC`).
+		WithArgs("property-1", asOf, false, "property-1").
+		WillReturnRows(tenantRosterRows().
+			AddRow("property-1", "Demo Property", "room-101", "101", "occupied", "lease-1", "Alice", "0912", nil, "monthly", 18000))
+
+	rows, err := repo.ListTenantRosterRows(context.Background(), Scope{
+		Role:                "staff",
+		AssignedPropertyIDs: []string{"property-1"},
+	}, "property-1", asOf, false)
+	if err != nil {
+		t.Fatalf("ListTenantRosterRows: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d, want 1", len(rows))
+	}
+	if rows[0].LeaseID == nil {
+		t.Fatalf("expected active lease row: %+v", rows[0])
+	}
+	if rows[0].NextRentDueDate != nil {
+		t.Fatalf("NextRentDueDate = %v, want nil for paid-cleared rent", rows[0].NextRentDueDate)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestListTenantRosterRowsKeepsOverdueDueDateForNonMonthlyCadence(t *testing.T) {
+	db, mock, repo := newBillingRepoTest(t)
+	defer closeBillingDB(t, db)
+
+	asOf := time.Date(2026, 5, 7, 0, 0, 0, 0, time.UTC)
+	overdueDate := time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)
+	mock.ExpectQuery(`(?s)FROM rooms.*LEFT JOIN LATERAL.*l.status = 'active'.*LEFT JOIN bills b.*b.type = 'rent'.*b.status IN \('pending_payment', 'overdue'\).*AND \(\$3 OR active_lease.id IS NOT NULL\).*AND p.id IN \(\$4\).*ORDER BY NULLIF\(regexp_replace\(rooms.name, '\\D', '', 'g'\), ''\)::int NULLS LAST, rooms.name ASC, rooms.id ASC`).
+		WithArgs("property-1", asOf, false, "property-1").
+		WillReturnRows(tenantRosterRows().
+			AddRow("property-1", "Demo Property", "room-201", "201", "occupied", "lease-2", "Bob", "0922", overdueDate, "quarterly", 54000))
+
+	rows, err := repo.ListTenantRosterRows(context.Background(), Scope{
+		Role:                "staff",
+		AssignedPropertyIDs: []string{"property-1"},
+	}, "property-1", asOf, false)
+	if err != nil {
+		t.Fatalf("ListTenantRosterRows: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d, want 1", len(rows))
+	}
+	if rows[0].NextRentDueDate == nil || !rows[0].NextRentDueDate.Equal(overdueDate) {
+		t.Fatalf("NextRentDueDate = %v, want overdue date %v", rows[0].NextRentDueDate, overdueDate)
+	}
+	if rows[0].RentBillingCadence == nil || *rows[0].RentBillingCadence != "quarterly" {
+		t.Fatalf("RentBillingCadence = %v, want quarterly", rows[0].RentBillingCadence)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
 func TestListAccessibleOrganizerWithNoAssignedPropertiesReturnsEmpty(t *testing.T) {
 	db, mock, repo := newBillingRepoTest(t)
 	defer closeBillingDB(t, db)
@@ -914,6 +1016,22 @@ func financialReportLiveRows() *sqlmock.Rows {
 		"amount",
 		"source_ref",
 		"created_at",
+	})
+}
+
+func tenantRosterRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{
+		"property_id",
+		"property_name",
+		"room_id",
+		"room_name",
+		"room_status",
+		"lease_id",
+		"tenant_name",
+		"tenant_phone",
+		"next_rent_due_date",
+		"rent_billing_cadence",
+		"rent_amount",
 	})
 }
 

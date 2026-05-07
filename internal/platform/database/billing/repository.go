@@ -133,6 +133,21 @@ type FinancialReportEntry struct {
 	CreatedAt   time.Time
 }
 
+// TenantRosterRow is one room row for the tenant roster export read model.
+type TenantRosterRow struct {
+	PropertyID         string
+	PropertyName       string
+	RoomID             string
+	RoomName           string
+	RoomStatus         string
+	LeaseID            *string
+	TenantName         *string
+	TenantPhone        *string
+	NextRentDueDate    *time.Time
+	RentBillingCadence *string
+	RentAmount         *int
+}
+
 // JobBillCandidate is the minimal bill state needed by scheduler jobs.
 type JobBillCandidate struct {
 	ID      string
@@ -1145,6 +1160,90 @@ func (r *SQLRepository) GetFinancialReport(ctx context.Context, scope Scope, pro
 	return r.getFinalizedFinancialReport(ctx, scope, propertyID, year, month)
 }
 
+// ListTenantRosterRows returns room occupancy rows for a property report.
+func (r *SQLRepository) ListTenantRosterRows(ctx context.Context, scope Scope, propertyID string, asOf time.Time, includeVacant bool) (rows []TenantRosterRow, err error) {
+	query := `
+SELECT
+	p.id,
+	p.name,
+	rooms.id,
+	rooms.name,
+	rooms.status,
+	active_lease.id,
+	t.name,
+	t.phone,
+	MIN(b.due_date),
+	active_lease.rent_billing_cadence,
+	active_lease.rent_amount
+FROM rooms
+JOIN properties p ON p.id = rooms.property_id AND p.deleted_at IS NULL
+LEFT JOIN LATERAL (
+	SELECT l.id, l.tenant_id, l.rent_billing_cadence, l.rent_amount
+	FROM leases l
+	WHERE l.room_id = rooms.id
+	  AND l.property_id = rooms.property_id
+	  AND l.status = 'active'
+	  AND l.start_date <= $2
+	  AND l.end_date >= $2
+	  AND l.deleted_at IS NULL
+	ORDER BY l.start_date DESC, l.created_at DESC, l.id ASC
+	LIMIT 1
+) active_lease ON TRUE
+LEFT JOIN tenants t ON t.id = active_lease.tenant_id AND t.deleted_at IS NULL
+LEFT JOIN bills b ON b.lease_id = active_lease.id
+	AND b.type = 'rent'
+	AND b.status IN ('pending_payment', 'overdue')
+	AND b.deleted_at IS NULL
+WHERE rooms.property_id = $1
+  AND rooms.deleted_at IS NULL
+  AND ($3 OR active_lease.id IS NOT NULL)
+`
+	args := []any{propertyID, asOf, includeVacant}
+	var ok bool
+	query, args, ok = appendPropertyScope(query, args, scope, "p")
+	if !ok {
+		return []TenantRosterRow{}, nil
+	}
+	query += `
+GROUP BY
+	p.id,
+	p.name,
+	rooms.id,
+	rooms.name,
+	rooms.status,
+	active_lease.id,
+	t.name,
+	t.phone,
+	active_lease.rent_billing_cadence,
+	active_lease.rent_amount
+ORDER BY NULLIF(regexp_replace(rooms.name, '\D', '', 'g'), '')::int NULLS LAST, rooms.name ASC, rooms.id ASC
+`
+
+	dbRows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list tenant roster rows: %w", err)
+	}
+	defer func() {
+		if cerr := dbRows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close tenant roster rows: %w", cerr)
+		}
+	}()
+
+	rows = make([]TenantRosterRow, 0)
+	for dbRows.Next() {
+		row, err := scanTenantRosterRow(dbRows)
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, row)
+	}
+	if err := dbRows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate tenant roster rows: %w", err)
+	}
+
+	return rows, nil
+}
+
 func (r *SQLRepository) getFinalizedFinancialReport(ctx context.Context, scope Scope, propertyID string, year int, month int) (report *FinancialReport, err error) {
 	query := `
 SELECT
@@ -1562,6 +1661,46 @@ func scanLiveFinancialReportRow(row rowScanner, report *FinancialReport) (Financ
 	return entry, hasEntry, nil
 }
 
+func scanTenantRosterRow(row rowScanner) (TenantRosterRow, error) {
+	var roster TenantRosterRow
+	var leaseID sql.NullString
+	var tenantName sql.NullString
+	var tenantPhone sql.NullString
+	var nextRentDueDate sql.NullTime
+	var rentBillingCadence sql.NullString
+	var rentAmount sql.NullInt64
+
+	if err := row.Scan(
+		&roster.PropertyID,
+		&roster.PropertyName,
+		&roster.RoomID,
+		&roster.RoomName,
+		&roster.RoomStatus,
+		&leaseID,
+		&tenantName,
+		&tenantPhone,
+		&nextRentDueDate,
+		&rentBillingCadence,
+		&rentAmount,
+	); err != nil {
+		return TenantRosterRow{}, fmt.Errorf("scan tenant roster row: %w", err)
+	}
+
+	roster.LeaseID = nullStringPtr(leaseID)
+	roster.TenantName = nullStringPtr(tenantName)
+	roster.TenantPhone = nullStringPtr(tenantPhone)
+	if nextRentDueDate.Valid {
+		roster.NextRentDueDate = &nextRentDueDate.Time
+	}
+	roster.RentBillingCadence = nullStringPtr(rentBillingCadence)
+	if rentAmount.Valid {
+		value := int(rentAmount.Int64)
+		roster.RentAmount = &value
+	}
+
+	return roster, nil
+}
+
 func addFinancialReportAmount(report *FinancialReport, category string, amount int) {
 	switch category {
 	case "rent_payment", "electricity_payment", "deposit_deduction":
@@ -1576,6 +1715,13 @@ func absInt(value int) int {
 		return -value
 	}
 	return value
+}
+
+func nullStringPtr(value sql.NullString) *string {
+	if !value.Valid {
+		return nil
+	}
+	return &value.String
 }
 
 type rowScanner interface {

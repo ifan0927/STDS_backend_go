@@ -365,6 +365,92 @@ func TestSendFinancialReportRequiresPublisher(t *testing.T) {
 	assertAppErrorCode(t, err, apperr.CodeInternalServerError)
 }
 
+func TestExportTenantRosterRendersHTMLDocument(t *testing.T) {
+	asOf := time.Date(2026, 5, 7, 0, 0, 0, 0, time.UTC)
+	dueDate := time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC)
+	leaseID := "lease-1"
+	tenantName := "Alice"
+	tenantPhone := "0912-345-678"
+	cadence := "quarterly"
+	rentAmount := 36000
+	repo := &reportRepositoryStub{
+		tenantRosterRows: []TenantRosterRow{
+			{
+				PropertyID:         testPropertyID,
+				PropertyName:       "Demo Property",
+				RoomID:             testRoomID,
+				RoomName:           "101",
+				RoomStatus:         "occupied",
+				LeaseID:            &leaseID,
+				TenantName:         &tenantName,
+				TenantPhone:        &tenantPhone,
+				NextRentDueDate:    &dueDate,
+				RentBillingCadence: &cadence,
+				RentAmount:         &rentAmount,
+			},
+		},
+	}
+	renderer := &recordingReportRenderer{html: []byte("<html>tenant roster</html>")}
+	service := NewExportTenantRosterService(repo, renderer, fixedClock{now: time.Date(2026, 5, 8, 16, 0, 0, 0, time.UTC)})
+
+	document, err := service.Execute(context.Background(), ExportTenantRosterInput{
+		ActorRole:           "staff",
+		ActorUserID:         "user-1",
+		AssignedPropertyIDs: []string{testPropertyID},
+		PropertyID:          testPropertyID,
+		AsOf:                &asOf,
+		IncludeVacant:       true,
+		Format:              "html",
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if repo.tenantRosterQuery == nil {
+		t.Fatal("expected tenant roster query")
+	}
+	if repo.tenantRosterQuery.ActorRole != "staff" || repo.tenantRosterQuery.ActorUserID != "user-1" {
+		t.Fatalf("unexpected actor scope: %+v", repo.tenantRosterQuery)
+	}
+	if !repo.tenantRosterQuery.IncludeVacant || !repo.tenantRosterQuery.AsOf.Equal(asOf) {
+		t.Fatalf("unexpected roster query: %+v", repo.tenantRosterQuery)
+	}
+	if renderer.name != "tenant_roster.html" {
+		t.Fatalf("renderer template = %q", renderer.name)
+	}
+	view, ok := renderer.data.(tenantRosterView)
+	if !ok {
+		t.Fatalf("renderer data = %T, want tenantRosterView", renderer.data)
+	}
+	if view.PropertyName != "Demo Property" || view.AsOfLabel != "2026-05-07" {
+		t.Fatalf("unexpected view metadata: %+v", view)
+	}
+	if len(view.Rows) != 1 || view.Rows[0].NextRentDueDateLabel != "2026-05-10" || view.Rows[0].RentCadenceLabel != "季繳" {
+		t.Fatalf("unexpected view rows: %+v", view.Rows)
+	}
+	if document.Filename != "tenant-roster-demo-property-2026-05-07.html" {
+		t.Fatalf("filename = %q", document.Filename)
+	}
+	if string(document.HTML) != "<html>tenant roster</html>" {
+		t.Fatalf("html = %q", document.HTML)
+	}
+}
+
+func TestExportTenantRosterRejectsUnsupportedFormat(t *testing.T) {
+	repo := &reportRepositoryStub{}
+	renderer := &recordingReportRenderer{html: []byte("<html></html>")}
+	service := NewExportTenantRosterService(repo, renderer, fixedClock{now: time.Date(2026, 5, 8, 16, 0, 0, 0, time.UTC)})
+
+	_, err := service.Execute(context.Background(), ExportTenantRosterInput{
+		ActorRole:  "staff",
+		PropertyID: testPropertyID,
+		Format:     "pdf",
+	})
+	assertAppErrorCode(t, err, apperr.CodeBadRequest)
+	if repo.tenantRosterQuery != nil {
+		t.Fatalf("unexpected tenant roster query: %+v", repo.tenantRosterQuery)
+	}
+}
+
 type reportRepositoryStub struct {
 	pendingMeterBills         []Bill
 	pendingMeterQuery         *PendingMeterQuery
@@ -380,6 +466,8 @@ type reportRepositoryStub struct {
 	snapshotReport            *FinancialReport
 	snapshotReportQuery       *FinancialReportQuery
 	snapshotReportErr         error
+	tenantRosterRows          []TenantRosterRow
+	tenantRosterQuery         *TenantRosterQuery
 	err                       error
 }
 
@@ -435,6 +523,30 @@ func (s *reportRepositoryStub) FindSnapshotFinancialReport(_ context.Context, qu
 		return nil, s.err
 	}
 	return s.snapshotReport, nil
+}
+
+func (s *reportRepositoryStub) ListTenantRosterRows(_ context.Context, query TenantRosterQuery) ([]TenantRosterRow, error) {
+	s.tenantRosterQuery = &query
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.tenantRosterRows, nil
+}
+
+type recordingReportRenderer struct {
+	name string
+	data any
+	html []byte
+	err  error
+}
+
+func (r *recordingReportRenderer) Render(name string, data any) ([]byte, error) {
+	r.name = name
+	r.data = data
+	if r.err != nil {
+		return nil, r.err
+	}
+	return r.html, nil
 }
 
 type fixedClock struct {

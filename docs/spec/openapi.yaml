@@ -4234,6 +4234,120 @@ paths:
                   value:
                     error_code: FINANCIAL_REPORT_NOT_FOUND
                     message: 該月份財報不存在
+  /properties/{id}/tenant-roster:
+    get:
+      operationId: exportPropertyTenantRoster
+      summary: 租客名冊 HTML 匯出
+      description: |
+        x-required-role: admin, organizer, staff（指派）; owner（自己名下，唯讀）
+        x-ownership-required: true
+
+        Runtime HTML export. Generated HTML is returned directly and is not stored in GCS or attachments.
+      tags:
+        - Billing
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+        - owner
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: as_of
+          in: query
+          schema:
+            type: string
+            format: date
+          description: 報表基準日，未提供時使用伺服器當日。
+        - name: include_vacant
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: 是否包含沒有目前 active lease 的空房。
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum:
+              - html
+            default: html
+          description: 匯出格式；第一版僅支援 html。
+      responses:
+        '200':
+          description: 租客名冊 HTML 文件
+          headers:
+            Content-Disposition:
+              description: Browser preview filename hint.
+              schema:
+                type: string
+                example: inline; filename="tenant-roster-2026-05-07.html"
+          content:
+            text/html; charset=utf-8:
+              schema:
+                type: string
+              examples:
+                success:
+                  value: <!doctype html><html><body><h1>Tenant Roster</h1></body></html>
+        '400':
+          description: 查詢參數格式錯誤
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                bad_request:
+                  value:
+                    error_code: BAD_REQUEST
+                    message: Bad request.
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: Unauthorized.
+        '403':
+          description: 無存取權限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: Forbidden.
+        '404':
+          description: 物業不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: PROPERTY_NOT_FOUND
+                    message: Property not found.
+        '500':
+          description: HTML render failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                render_failure:
+                  value:
+                    error_code: INTERNAL_SERVER_ERROR
+                    message: Internal server error.
   /journal-logs:
     get:
       operationId: listJournalLogs
