@@ -101,6 +101,51 @@ Run the E2E suite:
 The harness refuses to reset a database unless the database name contains `e2e` or `test`.
 The local scripts provide defaults for E2E environment variables and still allow overrides, for example `APP_PORT=8081 E2E_BASE_URL=http://127.0.0.1:8081 ./scripts/e2e_test.sh`.
 
+## Legacy migrated E2E sign-off
+
+Legacy migrated data checks are separate from the normal seed-based E2E suite.
+They are intended for one-time legacy migration sign-off and are not wired into
+required PR CI.
+
+Use a separate database name for this mode, for example
+`stds_backend_legacy_e2e`. The legacy E2E tests do not reset the database or
+seed business data. They only seed the backend admin user row needed for the
+Firebase Auth Emulator token, then discover representative migrated records
+through legacy mapping tables.
+
+Prepare the legacy E2E database:
+
+```bash
+docker compose up -d postgres
+docker exec stds-postgres psql -U stds -d postgres -c "CREATE DATABASE stds_backend_legacy_e2e"
+DATABASE_URL=postgres://stds:stds@localhost:5432/stds_backend_legacy_e2e?sslmode=disable go run ./cmd/migrate up
+DATABASE_URL=postgres://stds:stds@localhost:5432/stds_backend_legacy_e2e?sslmode=disable go run ./cmd/migrate_legacy properties
+DATABASE_URL=postgres://stds:stds@localhost:5432/stds_backend_legacy_e2e?sslmode=disable go run ./cmd/migrate_legacy rooms
+DATABASE_URL=postgres://stds:stds@localhost:5432/stds_backend_legacy_e2e?sslmode=disable go run ./cmd/migrate_legacy tenants
+DATABASE_URL=postgres://stds:stds@localhost:5432/stds_backend_legacy_e2e?sslmode=disable go run ./cmd/migrate_legacy leases
+DATABASE_URL=postgres://stds:stds@localhost:5432/stds_backend_legacy_e2e?sslmode=disable go run ./cmd/migrate_legacy room-status
+DATABASE_URL=postgres://stds:stds@localhost:5432/stds_backend_legacy_e2e?sslmode=disable go run ./cmd/migrate_legacy bills
+DATABASE_URL=postgres://stds:stds@localhost:5432/stds_backend_legacy_e2e?sslmode=disable go run ./cmd/migrate_legacy journal
+DATABASE_URL=postgres://stds:stds@localhost:5432/stds_backend_legacy_e2e?sslmode=disable go run ./cmd/migrate_legacy validate
+```
+
+Before sign-off, review the generated validation report and source/target
+reconciliation. By default, `scripts/legacy_e2e_test.sh` requires
+`artifacts/legacy_migration/task13_validation_report.json` to exist.
+
+Start dependencies and the API:
+
+```bash
+firebase emulators:start --only auth
+./scripts/legacy_e2e_api.sh
+```
+
+Run the legacy read checks:
+
+```bash
+./scripts/legacy_e2e_test.sh
+```
+
 ## Email notifications
 
 `POST /api/v1/users` now creates the Firebase Auth user, generates a Firebase password reset URL, and sends the onboarding email through Resend.
