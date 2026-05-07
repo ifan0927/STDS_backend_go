@@ -299,6 +299,11 @@ const (
 	Vacant      ListPropertyRoomsParamsStatus = "vacant"
 )
 
+// Defines values for ExportPropertyTenantRosterParamsFormat.
+const (
+	Html ExportPropertyTenantRosterParamsFormat = "html"
+)
+
 // Defines values for ListRepairRequestsParamsStatus.
 const (
 	Assigned   ListRepairRequestsParamsStatus = "assigned"
@@ -1098,6 +1103,21 @@ type ListPropertyRoomsParams struct {
 // ListPropertyRoomsParamsStatus defines parameters for ListPropertyRooms.
 type ListPropertyRoomsParamsStatus string
 
+// ExportPropertyTenantRosterParams defines parameters for ExportPropertyTenantRoster.
+type ExportPropertyTenantRosterParams struct {
+	// AsOf 報表基準日，未提供時使用伺服器當日。
+	AsOf *openapi_types.Date `form:"as_of,omitempty" json:"as_of,omitempty"`
+
+	// IncludeVacant 是否包含沒有目前 active lease 的空房。
+	IncludeVacant *bool `form:"include_vacant,omitempty" json:"include_vacant,omitempty"`
+
+	// Format 匯出格式；第一版僅支援 html。
+	Format *ExportPropertyTenantRosterParamsFormat `form:"format,omitempty" json:"format,omitempty"`
+}
+
+// ExportPropertyTenantRosterParamsFormat defines parameters for ExportPropertyTenantRoster.
+type ExportPropertyTenantRosterParamsFormat string
+
 // ListRepairRequestsParams defines parameters for ListRepairRequests.
 type ListRepairRequestsParams struct {
 	PropertyId *string                         `form:"property_id,omitempty" json:"property_id,omitempty"`
@@ -1394,6 +1414,9 @@ type ServerInterface interface {
 	// 建立房間
 	// (POST /properties/{id}/rooms)
 	CreatePropertyRoom(c *gin.Context, id string)
+	// 租客名冊 HTML 匯出
+	// (GET /properties/{id}/tenant-roster)
+	ExportPropertyTenantRoster(c *gin.Context, id string, params ExportPropertyTenantRosterParams)
 	// 維修列表
 	// (GET /repair-requests)
 	ListRepairRequests(c *gin.Context, params ListRepairRequestsParams)
@@ -2959,6 +2982,59 @@ func (siw *ServerInterfaceWrapper) CreatePropertyRoom(c *gin.Context) {
 	siw.Handler.CreatePropertyRoom(c, id)
 }
 
+// ExportPropertyTenantRoster operation middleware
+func (siw *ServerInterfaceWrapper) ExportPropertyTenantRoster(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Param("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(BearerAuthScopes, []string{})
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ExportPropertyTenantRosterParams
+
+	// ------------- Optional query parameter "as_of" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "as_of", c.Request.URL.Query(), &params.AsOf)
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter as_of: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "include_vacant" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "include_vacant", c.Request.URL.Query(), &params.IncludeVacant)
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter include_vacant: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "format" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "format", c.Request.URL.Query(), &params.Format)
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter format: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ExportPropertyTenantRoster(c, id, params)
+}
+
 // ListRepairRequests operation middleware
 func (siw *ServerInterfaceWrapper) ListRepairRequests(c *gin.Context) {
 
@@ -3953,6 +4029,7 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.GET(options.BaseURL+"/properties/:id/pending-meter", wrapper.ListPropertyPendingMeters)
 	router.GET(options.BaseURL+"/properties/:id/rooms", wrapper.ListPropertyRooms)
 	router.POST(options.BaseURL+"/properties/:id/rooms", wrapper.CreatePropertyRoom)
+	router.GET(options.BaseURL+"/properties/:id/tenant-roster", wrapper.ExportPropertyTenantRoster)
 	router.GET(options.BaseURL+"/repair-requests", wrapper.ListRepairRequests)
 	router.POST(options.BaseURL+"/repair-requests", wrapper.CreateRepairRequest)
 	router.DELETE(options.BaseURL+"/repair-requests/:id", wrapper.DeleteRepairRequest)

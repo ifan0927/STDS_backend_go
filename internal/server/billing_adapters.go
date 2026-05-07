@@ -11,6 +11,7 @@ import (
 	"stds_backend/internal/http/handler"
 	dbbilling "stds_backend/internal/platform/database/billing"
 	dbtxrunner "stds_backend/internal/platform/database/txrunner"
+	"stds_backend/internal/shared/reporthtml"
 )
 
 func newBillingServices(db *sql.DB, txRunner *dbtxrunner.Runner, publisher domainevents.Publisher) handler.BillingServices {
@@ -24,11 +25,16 @@ func newBillingServices(db *sql.DB, txRunner *dbtxrunner.Runner, publisher domai
 			listBills: appbilling.NewListBillsService(billingRepo),
 			getBill:   appbilling.NewGetBillService(billingRepo),
 		},
-		Meter:            billingMeterServiceAdapter{service: appbilling.NewRecordMeterService(billingRepo, txRunner)},
-		Payment:          billingPaymentServiceAdapter{service: appbilling.NewRecordPaymentService(billingRepo, accountingRepo, txRunner)},
-		PropertyMeters:   billingPropertyMeterServiceAdapter{pendingMeters: appbilling.NewListPendingMeterService(reportRepo), meterHistory: appbilling.NewListPropertyMeterHistoryService(reportRepo)},
-		RoomMeters:       billingRoomMeterServiceAdapter{meterHistory: appbilling.NewListRoomMeterHistoryService(reportRepo)},
-		FinancialReports: billingFinancialReportServiceAdapter{summaries: appbilling.NewListFinancialReportSummariesService(reportRepo), get: appbilling.NewGetFinancialReportService(reportRepo, nil), send: appbilling.NewSendFinancialReportService(reportRepo, publisher, nil)},
+		Meter:          billingMeterServiceAdapter{service: appbilling.NewRecordMeterService(billingRepo, txRunner)},
+		Payment:        billingPaymentServiceAdapter{service: appbilling.NewRecordPaymentService(billingRepo, accountingRepo, txRunner)},
+		PropertyMeters: billingPropertyMeterServiceAdapter{pendingMeters: appbilling.NewListPendingMeterService(reportRepo), meterHistory: appbilling.NewListPropertyMeterHistoryService(reportRepo)},
+		RoomMeters:     billingRoomMeterServiceAdapter{meterHistory: appbilling.NewListRoomMeterHistoryService(reportRepo)},
+		FinancialReports: billingFinancialReportServiceAdapter{
+			summaries:    appbilling.NewListFinancialReportSummariesService(reportRepo),
+			get:          appbilling.NewGetFinancialReportService(reportRepo, nil),
+			send:         appbilling.NewSendFinancialReportService(reportRepo, publisher, nil),
+			tenantRoster: appbilling.NewExportTenantRosterService(reportRepo, appbilling.MustNewTenantRosterRenderer(), nil),
+		},
 	}
 }
 
@@ -167,9 +173,10 @@ func (a billingRoomMeterServiceAdapter) ListRoomMeterHistory(ctx context.Context
 }
 
 type billingFinancialReportServiceAdapter struct {
-	summaries *appbilling.ListFinancialReportSummariesService
-	get       *appbilling.GetFinancialReportService
-	send      *appbilling.SendFinancialReportService
+	summaries    *appbilling.ListFinancialReportSummariesService
+	get          *appbilling.GetFinancialReportService
+	send         *appbilling.SendFinancialReportService
+	tenantRoster *appbilling.ExportTenantRosterService
 }
 
 func (a billingFinancialReportServiceAdapter) ListFinancialReportSummaries(ctx context.Context, input handler.BillingFinancialReportSummaryInput) ([]handler.BillingFinancialReportSummary, error) {
@@ -217,6 +224,18 @@ func (a billingFinancialReportServiceAdapter) SendFinancialReport(ctx context.Co
 	}
 
 	return toHandlerFinancialReport(*report), nil
+}
+
+func (a billingFinancialReportServiceAdapter) ExportTenantRoster(ctx context.Context, input handler.BillingTenantRosterInput) (*reporthtml.Document, error) {
+	return a.tenantRoster.Execute(ctx, appbilling.ExportTenantRosterInput{
+		ActorRole:           input.ActorRole,
+		ActorUserID:         input.ActorUserID,
+		AssignedPropertyIDs: input.AssignedPropertyIDs,
+		PropertyID:          input.PropertyID,
+		AsOf:                input.AsOf,
+		IncludeVacant:       input.IncludeVacant,
+		Format:              input.Format,
+	})
 }
 
 type billingRepositoryAdapter struct {
@@ -406,6 +425,19 @@ func (a billingReportRepositoryAdapter) FindSnapshotFinancialReport(ctx context.
 	}
 
 	return toAppFinancialReport(*report), nil
+}
+
+func (a billingReportRepositoryAdapter) ListTenantRosterRows(ctx context.Context, query appbilling.TenantRosterQuery) ([]appbilling.TenantRosterRow, error) {
+	rows, err := a.repo.ListTenantRosterRows(ctx, dbbilling.Scope{
+		Role:                query.ActorRole,
+		UserID:              query.ActorUserID,
+		AssignedPropertyIDs: query.AssignedPropertyIDs,
+	}, query.PropertyID, query.AsOf, query.IncludeVacant)
+	if err != nil {
+		return nil, mapBillingReportRepositoryError(err)
+	}
+
+	return toAppTenantRosterRows(rows), nil
 }
 
 type billingAccountingRepositoryAdapter struct {
@@ -603,4 +635,24 @@ func toHandlerFinancialReport(report appbilling.FinancialReport) *handler.Billin
 		IsFinalized:  report.IsFinalized,
 		Entries:      entries,
 	}
+}
+
+func toAppTenantRosterRows(rows []dbbilling.TenantRosterRow) []appbilling.TenantRosterRow {
+	result := make([]appbilling.TenantRosterRow, 0, len(rows))
+	for i := range rows {
+		result = append(result, appbilling.TenantRosterRow{
+			PropertyID:         rows[i].PropertyID,
+			PropertyName:       rows[i].PropertyName,
+			RoomID:             rows[i].RoomID,
+			RoomName:           rows[i].RoomName,
+			RoomStatus:         rows[i].RoomStatus,
+			LeaseID:            rows[i].LeaseID,
+			TenantName:         rows[i].TenantName,
+			TenantPhone:        rows[i].TenantPhone,
+			NextRentDueDate:    rows[i].NextRentDueDate,
+			RentBillingCadence: rows[i].RentBillingCadence,
+			RentAmount:         rows[i].RentAmount,
+		})
+	}
+	return result
 }

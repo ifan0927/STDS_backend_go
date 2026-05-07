@@ -23,6 +23,7 @@ import (
 	dbpropertyquery "stds_backend/internal/platform/database/propertyquery"
 	"stds_backend/internal/platform/database/txrunner"
 	"stds_backend/internal/shared/apperr"
+	"stds_backend/internal/shared/reporthtml"
 )
 
 func TestToPropertyResponseAllowsNilElectricityUnitPrice(t *testing.T) {
@@ -756,6 +757,57 @@ func TestSendPropertyFinancialReportReturnsReportResponse(t *testing.T) {
 	}
 }
 
+func TestExportPropertyTenantRosterReturnsHTMLDocument(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	reports := &recordingFinancialReports{
+		document: &reporthtml.Document{
+			HTML:     []byte("<html>tenant roster</html>"),
+			Filename: "tenant-roster-demo-2026-05-07.html",
+		},
+	}
+	server := &APIServer{billing: BillingServices{FinancialReports: reports}}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/properties/10000000-0000-0000-0000-000000000001/tenant-roster?as_of=2026-05-07&include_vacant=true&format=html", nil)
+	requestctx.SetPrincipal(c, requestctx.Principal{
+		UserID:              "user-1",
+		Role:                "staff",
+		AssignedPropertyIDs: []string{"10000000-0000-0000-0000-000000000001"},
+	})
+	asOf := openapi_types.Date{Time: time.Date(2026, 5, 7, 0, 0, 0, 0, time.UTC)}
+	includeVacant := true
+	format := api.Html
+
+	server.ExportPropertyTenantRoster(c, "10000000-0000-0000-0000-000000000001", api.ExportPropertyTenantRosterParams{
+		AsOf:          &asOf,
+		IncludeVacant: &includeVacant,
+		Format:        &format,
+	})
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if got := recorder.Header().Get("Content-Type"); got != reporthtml.ContentType {
+		t.Fatalf("Content-Type = %q", got)
+	}
+	if got := recorder.Header().Get("Content-Disposition"); got != `inline; filename="tenant-roster-demo-2026-05-07.html"` {
+		t.Fatalf("Content-Disposition = %q", got)
+	}
+	if reports.tenantRosterInput.PropertyID != "10000000-0000-0000-0000-000000000001" || reports.tenantRosterInput.ActorRole != "staff" {
+		t.Fatalf("unexpected tenant roster input: %+v", reports.tenantRosterInput)
+	}
+	if reports.tenantRosterInput.AsOf == nil || !reports.tenantRosterInput.AsOf.Equal(asOf.Time) {
+		t.Fatalf("AsOf = %v, want %v", reports.tenantRosterInput.AsOf, asOf.Time)
+	}
+	if !reports.tenantRosterInput.IncludeVacant || reports.tenantRosterInput.Format != "html" {
+		t.Fatalf("unexpected export options: %+v", reports.tenantRosterInput)
+	}
+	if recorder.Body.String() != "<html>tenant roster</html>" {
+		t.Fatalf("body = %q", recorder.Body.String())
+	}
+}
+
 type recordingBillingQuery struct {
 	input    BillingListInput
 	getInput BillingGetInput
@@ -823,27 +875,47 @@ func (m *recordingRoomMeters) ListRoomMeterHistory(_ context.Context, input Bill
 }
 
 type recordingFinancialReports struct {
-	summaryInput BillingFinancialReportSummaryInput
-	getInput     BillingFinancialReportInput
-	sendInput    BillingFinancialReportInput
-	summaries    []BillingFinancialReportSummary
-	report       BillingFinancialReport
-	sentReport   BillingFinancialReport
+	summaryInput      BillingFinancialReportSummaryInput
+	getInput          BillingFinancialReportInput
+	sendInput         BillingFinancialReportInput
+	tenantRosterInput BillingTenantRosterInput
+	summaries         []BillingFinancialReportSummary
+	report            BillingFinancialReport
+	sentReport        BillingFinancialReport
+	document          *reporthtml.Document
+	err               error
 }
 
 func (r *recordingFinancialReports) ListFinancialReportSummaries(_ context.Context, input BillingFinancialReportSummaryInput) ([]BillingFinancialReportSummary, error) {
 	r.summaryInput = input
+	if r.err != nil {
+		return nil, r.err
+	}
 	return r.summaries, nil
 }
 
 func (r *recordingFinancialReports) GetFinancialReport(_ context.Context, input BillingFinancialReportInput) (*BillingFinancialReport, error) {
 	r.getInput = input
+	if r.err != nil {
+		return nil, r.err
+	}
 	return &r.report, nil
 }
 
 func (r *recordingFinancialReports) SendFinancialReport(_ context.Context, input BillingFinancialReportInput) (*BillingFinancialReport, error) {
 	r.sendInput = input
+	if r.err != nil {
+		return nil, r.err
+	}
 	return &r.sentReport, nil
+}
+
+func (r *recordingFinancialReports) ExportTenantRoster(_ context.Context, input BillingTenantRosterInput) (*reporthtml.Document, error) {
+	r.tenantRosterInput = input
+	if r.err != nil {
+		return nil, r.err
+	}
+	return r.document, nil
 }
 
 type recordingDashboardRepository struct {

@@ -28,6 +28,7 @@ import (
 	dbtenantquery "stds_backend/internal/platform/database/tenantquery"
 	"stds_backend/internal/platform/database/users"
 	"stds_backend/internal/shared/apperr"
+	"stds_backend/internal/shared/reporthtml"
 )
 
 var _ api.ServerInterface = (*APIServer)(nil)
@@ -173,6 +174,7 @@ type BillingFinancialReportService interface {
 	ListFinancialReportSummaries(ctx context.Context, input BillingFinancialReportSummaryInput) ([]BillingFinancialReportSummary, error)
 	GetFinancialReport(ctx context.Context, input BillingFinancialReportInput) (*BillingFinancialReport, error)
 	SendFinancialReport(ctx context.Context, input BillingFinancialReportInput) (*BillingFinancialReport, error)
+	ExportTenantRoster(ctx context.Context, input BillingTenantRosterInput) (*reporthtml.Document, error)
 }
 
 type BillingListInput struct {
@@ -250,6 +252,16 @@ type BillingFinancialReportInput struct {
 	PropertyID          string
 	Year                int
 	Month               int
+}
+
+type BillingTenantRosterInput struct {
+	ActorRole           string
+	ActorUserID         string
+	AssignedPropertyIDs []string
+	PropertyID          string
+	AsOf                *time.Time
+	IncludeVacant       bool
+	Format              string
 }
 
 type BillingBill struct {
@@ -1417,6 +1429,45 @@ func (s *APIServer) SendPropertyFinancialReport(c *gin.Context, id string, year 
 	c.JSON(http.StatusOK, toFinancialReportResponse(report))
 }
 
+// ExportPropertyTenantRoster handles tenant roster runtime HTML export.
+func (s *APIServer) ExportPropertyTenantRoster(c *gin.Context, id string, params api.ExportPropertyTenantRosterParams) {
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	var asOf *time.Time
+	if params.AsOf != nil {
+		value := params.AsOf.Time
+		asOf = &value
+	}
+	includeVacant := false
+	if params.IncludeVacant != nil {
+		includeVacant = *params.IncludeVacant
+	}
+	format := ""
+	if params.Format != nil {
+		format = string(*params.Format)
+	}
+
+	document, err := s.billing.FinancialReports.ExportTenantRoster(c.Request.Context(), BillingTenantRosterInput{
+		ActorRole:           principal.Role,
+		ActorUserID:         principal.UserID,
+		AssignedPropertyIDs: principal.AssignedPropertyIDs,
+		PropertyID:          id,
+		AsOf:                asOf,
+		IncludeVacant:       includeVacant,
+		Format:              format,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	writeHTMLDocument(c, document)
+}
+
 // ListPropertyMeterHistory handles property meter history retrieval.
 func (s *APIServer) ListPropertyMeterHistory(c *gin.Context, id string, params api.ListPropertyMeterHistoryParams) {
 	principal, ok := requestctx.GetPrincipal(c)
@@ -1438,6 +1489,15 @@ func (s *APIServer) ListPropertyMeterHistory(c *gin.Context, id string, params a
 	}
 
 	c.JSON(http.StatusOK, toBillListResponse(bills))
+}
+
+func writeHTMLDocument(c *gin.Context, document *reporthtml.Document) {
+	if document == nil {
+		c.Error(apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "html_document"}))
+		return
+	}
+	c.Header("Content-Disposition", reporthtml.InlineContentDisposition(document.Filename))
+	c.Data(http.StatusOK, reporthtml.ContentType, document.HTML)
 }
 
 // ListPropertyPendingMeters handles pending meter retrieval for a property.

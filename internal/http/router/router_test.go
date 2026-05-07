@@ -40,6 +40,7 @@ import (
 	platformfirebase "stds_backend/internal/platform/firebase"
 	platformnotification "stds_backend/internal/platform/notification"
 	"stds_backend/internal/shared/apperr"
+	"stds_backend/internal/shared/reporthtml"
 )
 
 const (
@@ -2668,6 +2669,71 @@ func TestFinancialReportReadAllowsOwnerOwningProperty(t *testing.T) {
 	}
 }
 
+func TestTenantRosterExportReturnsHTMLWithHeaders(t *testing.T) {
+	engine := newTestEngineWithBilling(
+		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
+		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{},
+		"",
+		fakeJobRunsRepo{},
+		handler.BillingServices{FinancialReports: fakeBillingFinancialReports{
+			document: &reporthtml.Document{
+				HTML:     []byte("<html>tenant roster</html>"),
+				Filename: "tenant-roster-demo-2026-05-07.html",
+			},
+		}},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/properties/"+testPropertyID1+"/tenant-roster?as_of=2026-05-07&include_vacant=true&format=html", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if got := resp.Header().Get("Content-Type"); got != reporthtml.ContentType {
+		t.Fatalf("Content-Type = %q", got)
+	}
+	if got := resp.Header().Get("Content-Disposition"); got != `inline; filename="tenant-roster-demo-2026-05-07.html"` {
+		t.Fatalf("Content-Disposition = %q", got)
+	}
+	if resp.Body.String() != "<html>tenant roster</html>" {
+		t.Fatalf("body = %q", resp.Body.String())
+	}
+}
+
+func TestTenantRosterExportRendererFailureUsesSharedErrorShape(t *testing.T) {
+	engine := newTestEngineWithBilling(
+		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
+		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{},
+		"",
+		fakeJobRunsRepo{},
+		handler.BillingServices{FinancialReports: fakeBillingFinancialReports{err: apperr.ErrInternalServerError}},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/properties/"+testPropertyID1+"/tenant-roster", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", resp.Code, resp.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if payload["error_code"] != apperr.CodeInternalServerError || payload["message"] != "Internal server error." {
+		t.Fatalf("unexpected error payload: %+v", payload)
+	}
+}
+
 func TestMeterRoutesRejectOwnerRole(t *testing.T) {
 	paths := []struct {
 		name string
@@ -3886,17 +3952,39 @@ func (fakeBillingRoomMeters) ListRoomMeterHistory(_ context.Context, _ handler.B
 	return nil, nil
 }
 
-type fakeBillingFinancialReports struct{}
+type fakeBillingFinancialReports struct {
+	document *reporthtml.Document
+	err      error
+}
 
-func (fakeBillingFinancialReports) ListFinancialReportSummaries(_ context.Context, _ handler.BillingFinancialReportSummaryInput) ([]handler.BillingFinancialReportSummary, error) {
+func (f fakeBillingFinancialReports) ListFinancialReportSummaries(_ context.Context, _ handler.BillingFinancialReportSummaryInput) ([]handler.BillingFinancialReportSummary, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
 	return nil, nil
 }
 
-func (fakeBillingFinancialReports) GetFinancialReport(_ context.Context, _ handler.BillingFinancialReportInput) (*handler.BillingFinancialReport, error) {
+func (f fakeBillingFinancialReports) GetFinancialReport(_ context.Context, _ handler.BillingFinancialReportInput) (*handler.BillingFinancialReport, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
 	return nil, apperr.ErrInternalServerError
 }
 
-func (fakeBillingFinancialReports) SendFinancialReport(_ context.Context, _ handler.BillingFinancialReportInput) (*handler.BillingFinancialReport, error) {
+func (f fakeBillingFinancialReports) SendFinancialReport(_ context.Context, _ handler.BillingFinancialReportInput) (*handler.BillingFinancialReport, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return nil, apperr.ErrInternalServerError
+}
+
+func (f fakeBillingFinancialReports) ExportTenantRoster(_ context.Context, _ handler.BillingTenantRosterInput) (*reporthtml.Document, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.document != nil {
+		return f.document, nil
+	}
 	return nil, apperr.ErrInternalServerError
 }
 
