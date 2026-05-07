@@ -1,0 +1,137 @@
+{{define "profit_loss.html"}}<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <title>{{.Title}}</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: "Noto Sans TC", "Microsoft JhengHei", Arial, sans-serif;
+      color: #111827;
+      background: #ffffff;
+    }
+    body {
+      margin: 0;
+      padding: 32px;
+      background: #f3f4f6;
+    }
+    .page {
+      width: 210mm;
+      min-height: 297mm;
+      margin: 0 auto;
+      padding: 18mm 16mm;
+      background: #ffffff;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+      box-sizing: border-box;
+    }
+    h1 {
+      margin: 0 0 18px;
+      text-align: center;
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+    .meta {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      font-size: 13px;
+      color: #4b5563;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 13px;
+    }
+    th, td {
+      border: 1px solid #111827;
+      padding: 6px 8px;
+      vertical-align: top;
+      line-height: 1.45;
+      word-break: break-word;
+    }
+    th {
+      background: #e5e7eb;
+      text-align: center;
+      font-weight: 700;
+    }
+    .subject {
+      width: 43%;
+    }
+    .money {
+      width: 19%;
+      text-align: right;
+      white-space: nowrap;
+    }
+    .unsupported .subject {
+      color: #92400e;
+    }
+    .note {
+      display: block;
+      margin-top: 2px;
+      color: #92400e;
+      font-size: 11px;
+    }
+    .summary {
+      background: #f9fafb;
+      font-weight: 700;
+    }
+    .summary td {
+      border-top-width: 2px;
+    }
+    @media print {
+      body {
+        padding: 0;
+        background: #ffffff;
+      }
+      .page {
+        width: auto;
+        min-height: auto;
+        margin: 0;
+        padding: 0;
+        box-shadow: none;
+      }
+      @page {
+        size: A4 portrait;
+        margin: 14mm 12mm;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <h1>{{.Title}}</h1>
+    <div class="meta">
+      <span>報表月份：{{.PeriodLabel}}</span>
+      <span>比較月份：{{.PreviousPeriod}}</span>
+    </div>
+    <table aria-label="損益表">
+      <thead>
+        <tr>
+          <th class="subject">科目</th>
+          <th class="money">本月金額</th>
+          <th class="money">上月金額</th>
+          <th class="money">增(減)金額</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Rows}}
+        <tr{{if .Unsupported}} class="unsupported"{{end}}>
+          <td class="subject">{{.SubjectLabel}}{{if .Note}}<span class="note">{{.Note}}</span>{{end}}</td>
+          <td class="money">{{.CurrentAmountLabel}}</td>
+          <td class="money">{{.PreviousAmountLabel}}</td>
+          <td class="money">{{.DeltaAmountLabel}}</td>
+        </tr>
+        {{end}}
+        <tr class="summary">
+          <td class="subject">本期損益</td>
+          <td class="money">{{.CurrentTotalLabel}}</td>
+          <td class="money">{{.PreviousTotalLabel}}</td>
+          <td class="money">{{.DeltaTotalLabel}}</td>
+        </tr>
+      </tbody>
+    </table>
+  </main>
+</body>
+</html>{{end}}

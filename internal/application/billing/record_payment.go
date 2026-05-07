@@ -88,10 +88,15 @@ func (s *RecordPaymentService) Execute(ctx context.Context, input RecordPaymentI
 		if err != nil {
 			return apperr.ErrInternalServerError.WithCause(err)
 		}
+		accountingTitleCode, err := accountingTitleCodeForBillType(updatedBill.Type)
+		if err != nil {
+			return apperr.ErrInternalServerError.WithCause(err)
+		}
 		if err := s.accountingRepo.CreateAccountingEntry(ctx, tx, AccountingEntryParams{
-			PropertyID: updatedBill.PropertyID,
-			Category:   category,
-			Amount:     *state.PaidAmount,
+			PropertyID:          updatedBill.PropertyID,
+			Category:            category,
+			AccountingTitleCode: accountingTitleCode,
+			Amount:              *state.PaidAmount,
 			SourceRef: map[string]interface{}{
 				"type":    "BillPaid",
 				"bill_id": updatedBill.ID,

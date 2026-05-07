@@ -79,13 +79,14 @@ func (s *UpdateService) Execute(ctx context.Context, input UpdateInput) (*Journa
 			if journalLog.ExpenseAmount != nil {
 				year, month := journalAccountingPeriod(journalLog.CreatedAt)
 				entry = &ExpenseAccountingEntryParams{
-					PropertyID:  journalLog.PropertyID,
-					Category:    accountingCategoryJournalExpense,
-					Amount:      *journalLog.ExpenseAmount,
-					Description: journalLog.ExpenseDescription,
-					SourceRef:   map[string]interface{}{"type": "JournalExpenseRecorded", "journal_log_id": journalLog.ID},
-					Year:        year,
-					Month:       month,
+					PropertyID:          journalLog.PropertyID,
+					Category:            accountingCategoryJournalExpense,
+					AccountingTitleCode: accountingTitleCodeJournalExpense,
+					Amount:              *journalLog.ExpenseAmount,
+					Description:         journalLog.ExpenseDescription,
+					SourceRef:           map[string]interface{}{"type": "JournalExpenseRecorded", "journal_log_id": journalLog.ID},
+					Year:                year,
+					Month:               month,
 				}
 			}
 			if err := s.accountingRepo.SyncExpenseAccountingEntry(ctx, tx, journalLog.ID, entry); err != nil {

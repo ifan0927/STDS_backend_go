@@ -16,8 +16,10 @@ import (
 )
 
 const (
-	depositAccountingCategoryRefund    = "deposit_refund"
-	depositAccountingCategoryDeduction = "deposit_deduction"
+	depositAccountingCategoryRefund     = "deposit_refund"
+	depositAccountingCategoryDeduction  = "deposit_deduction"
+	depositAccountingTitleCodeRefund    = "4602"
+	depositAccountingTitleCodeDeduction = "4601"
 )
 
 // UpdateDepositInput is the command payload for deposit settlement.
@@ -170,9 +172,10 @@ func recordDepositAccountingEntries(ctx context.Context, tx *sql.Tx, repo Deposi
 
 	if refundAmount > 0 {
 		if err := repo.CreateDepositAccountingEntry(ctx, tx, DepositAccountingEntryParams{
-			PropertyID: lease.PropertyID,
-			Category:   depositAccountingCategoryRefund,
-			Amount:     -refundAmount,
+			PropertyID:          lease.PropertyID,
+			Category:            depositAccountingCategoryRefund,
+			AccountingTitleCode: depositAccountingTitleCodeRefund,
+			Amount:              -refundAmount,
 			SourceRef: map[string]interface{}{
 				"type":     "DepositRefunded",
 				"lease_id": lease.ID,
@@ -187,10 +190,11 @@ func recordDepositAccountingEntries(ctx context.Context, tx *sql.Tx, repo Deposi
 	if deductionAmount > 0 {
 		description := deductionReason
 		if err := repo.CreateDepositAccountingEntry(ctx, tx, DepositAccountingEntryParams{
-			PropertyID:  lease.PropertyID,
-			Category:    depositAccountingCategoryDeduction,
-			Amount:      deductionAmount,
-			Description: &description,
+			PropertyID:          lease.PropertyID,
+			Category:            depositAccountingCategoryDeduction,
+			AccountingTitleCode: depositAccountingTitleCodeDeduction,
+			Amount:              deductionAmount,
+			Description:         &description,
 			SourceRef: map[string]interface{}{
 				"type":     "DepositDeducted",
 				"lease_id": lease.ID,

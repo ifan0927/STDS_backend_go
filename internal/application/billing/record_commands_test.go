@@ -334,7 +334,7 @@ func TestRecordPaymentServiceRecordsPaymentAndPublishesEventAfterCommit(t *testi
 	if accountingRepo.entry == nil {
 		t.Fatal("expected accounting entry")
 	}
-	if accountingRepo.entry.PropertyID != testPropertyID || accountingRepo.entry.Category != AccountingCategoryRentPayment || accountingRepo.entry.Amount != 12000 {
+	if accountingRepo.entry.PropertyID != testPropertyID || accountingRepo.entry.Category != AccountingCategoryRentPayment || accountingRepo.entry.AccountingTitleCode != AccountingTitleCodeRentPayment || accountingRepo.entry.Amount != 12000 {
 		t.Fatalf("unexpected accounting entry: %+v", accountingRepo.entry)
 	}
 	if accountingRepo.entry.SourceRef["type"] != "BillPaid" || accountingRepo.entry.SourceRef["bill_id"] != testBillID {
@@ -505,7 +505,7 @@ func TestRecordPaymentServiceRollsBackWhenAccountingEntryFails(t *testing.T) {
 	if accountingRepo.entry == nil {
 		t.Fatal("expected attempted accounting entry")
 	}
-	if accountingRepo.entry.Category != AccountingCategoryElectricityPayment || accountingRepo.entry.Amount != 585 {
+	if accountingRepo.entry.Category != AccountingCategoryElectricityPayment || accountingRepo.entry.AccountingTitleCode != AccountingTitleCodeElectricityPayment || accountingRepo.entry.Amount != 585 {
 		t.Fatalf("unexpected accounting entry: %+v", accountingRepo.entry)
 	}
 	if len(publisher.events) != 0 {

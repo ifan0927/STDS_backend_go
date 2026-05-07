@@ -460,7 +460,7 @@ func TestUpdateDepositServiceCreatesRefundAccountingEntry(t *testing.T) {
 		t.Fatalf("accounting entries = %d, want 1", len(accountingRepo.entries))
 	}
 	entry := accountingRepo.entries[0]
-	if entry.Category != depositAccountingCategoryRefund || entry.Amount != -refundAmount {
+	if entry.Category != depositAccountingCategoryRefund || entry.AccountingTitleCode != depositAccountingTitleCodeRefund || entry.Amount != -refundAmount {
 		t.Fatalf("accounting entry = %+v", entry)
 	}
 
@@ -513,7 +513,7 @@ func TestUpdateDepositServiceCreatesDeductionAccountingEntry(t *testing.T) {
 		t.Fatalf("accounting entries = %d, want 1", len(accountingRepo.entries))
 	}
 	entry := accountingRepo.entries[0]
-	if entry.Category != depositAccountingCategoryDeduction || entry.Amount != deductionAmount {
+	if entry.Category != depositAccountingCategoryDeduction || entry.AccountingTitleCode != depositAccountingTitleCodeDeduction || entry.Amount != deductionAmount {
 		t.Fatalf("accounting entry = %+v", entry)
 	}
 	if entry.Description == nil || *entry.Description != reason {

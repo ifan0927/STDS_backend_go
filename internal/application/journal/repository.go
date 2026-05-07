@@ -64,13 +64,14 @@ type CreateParams struct {
 
 // ExpenseAccountingEntryParams contains accounting data derived from journal expense creation.
 type ExpenseAccountingEntryParams struct {
-	PropertyID  string
-	Category    string
-	Amount      int
-	Description *string
-	SourceRef   map[string]interface{}
-	Year        int
-	Month       int
+	PropertyID          string
+	Category            string
+	AccountingTitleCode string
+	Amount              int
+	Description         *string
+	SourceRef           map[string]interface{}
+	Year                int
+	Month               int
 }
 
 // UpdateParams contains mutable journal log fields.

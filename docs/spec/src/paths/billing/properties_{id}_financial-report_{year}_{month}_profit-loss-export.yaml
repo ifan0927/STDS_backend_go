@@ -1,0 +1,111 @@
+get:
+  operationId: exportPropertyFinancialReportProfitLoss
+  summary: Export profit and loss report as HTML
+  description: |
+    x-required-role: admin, organizer, staff（指派）; owner（自己名下，唯讀）
+    x-ownership-required: true
+
+    Runtime HTML export. Requested current Asia/Taipei month uses live accounting entries; historical months use finalized monthly snapshots. The previous comparison month uses the same live-vs-snapshot selection independently.
+  tags:
+    - Billing
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+    - owner
+  x-ownership-required: true
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    - name: year
+      in: path
+      required: true
+      schema:
+        type: integer
+    - name: month
+      in: path
+      required: true
+      schema:
+        type: integer
+    - name: format
+      in: query
+      schema:
+        type: string
+        enum:
+          - html
+        default: html
+      description: Export format; v1 supports html only.
+  responses:
+    '200':
+      description: Profit and loss HTML document.
+      headers:
+        Content-Disposition:
+          description: Browser preview filename hint.
+          schema:
+            type: string
+            example: inline; filename="profit-loss-demo-2026-05.html"
+      content:
+        text/html; charset=utf-8:
+          schema:
+            type: string
+          examples:
+            success:
+              value: "<!doctype html><html><body><h1>Profit and Loss</h1></body></html>"
+    '400':
+      description: Invalid query parameter format.
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            bad_request:
+              value:
+                error_code: BAD_REQUEST
+                message: Bad request.
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: Unauthorized.
+    '403':
+      description: 無存取權限
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: Forbidden.
+    '404':
+      description: 物業或該月財報不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: FINANCIAL_REPORT_NOT_FOUND
+                message: Financial report for the requested month was not found.
+    '500':
+      description: HTML render failure
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            render_failure:
+              value:
+                error_code: INTERNAL_SERVER_ERROR
+                message: Internal server error.

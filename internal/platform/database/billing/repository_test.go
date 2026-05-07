@@ -561,25 +561,26 @@ func TestUpdatePaymentRowsAffectedZeroMapsToConcurrentSentinel(t *testing.T) {
 	}
 }
 
-func TestInsertAccountingEntryWritesCategoryAmountSourceRefYearAndMonth(t *testing.T) {
+func TestInsertAccountingEntryWritesTitleLinkage(t *testing.T) {
 	db, mock, repo := newBillingRepoTest(t)
 	defer closeBillingDB(t, db)
 
 	tx := beginBillingTx(t, db, mock)
 	description := "bill payment"
-	mock.ExpectExec(`(?s)INSERT INTO accounting_entries \(\s+property_account_id,\s+category,\s+amount,\s+description,\s+source_ref,\s+year,\s+month\s+\) VALUES \(\$1, \$2, \$3, \$4, \$5::jsonb, \$6, \$7\)`).
-		WithArgs("account-1", "rent_income", 12000, description, `{"bill_id":"bill-1"}`, 2026, 4).
+	mock.ExpectExec(`(?s)INSERT INTO accounting_entries \(\s+property_account_id,\s+category,\s+accounting_title_id,\s+accounting_title_code,\s+accounting_title_name,\s+amount,\s+description,\s+source_ref,\s+year,\s+month\s+\).*FROM accounting_titles at\s+WHERE at.code = \$8\s+AND at.is_active = true`).
+		WithArgs("account-1", "rent_payment", 12000, description, `{"bill_id":"bill-1"}`, 2026, 4, "4603").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
 	err := repo.InsertAccountingEntry(context.Background(), tx, CreateAccountingEntryParams{
-		PropertyAccountID: "account-1",
-		Category:          "rent_income",
-		Amount:            12000,
-		Description:       &description,
-		SourceRef:         map[string]any{"bill_id": "bill-1"},
-		Year:              2026,
-		Month:             4,
+		PropertyAccountID:   "account-1",
+		Category:            "rent_payment",
+		AccountingTitleCode: "4603",
+		Amount:              12000,
+		Description:         &description,
+		SourceRef:           map[string]any{"bill_id": "bill-1"},
+		Year:                2026,
+		Month:               4,
 	})
 	if err != nil {
 		t.Fatalf("InsertAccountingEntry: %v", err)
@@ -602,19 +603,20 @@ func TestReplaceJournalExpenseAccountingEntryDeletesExistingAndInsertsReplacemen
 	mock.ExpectExec(`(?s)DELETE FROM accounting_entries\s+WHERE category = 'journal_expense'\s+AND source_ref->>'journal_log_id' = \$1`).
 		WithArgs("journal-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(`(?s)INSERT INTO accounting_entries \(\s+property_account_id,\s+category,\s+amount,\s+description,\s+source_ref,\s+year,\s+month\s+\) VALUES \(\$1, \$2, \$3, \$4, \$5::jsonb, \$6, \$7\)`).
-		WithArgs("account-1", "journal_expense", 4200, description, `{"journal_log_id":"journal-1","type":"JournalExpenseRecorded"}`, 2026, 5).
+	mock.ExpectExec(`(?s)INSERT INTO accounting_entries \(\s+property_account_id,\s+category,\s+accounting_title_id,\s+accounting_title_code,\s+accounting_title_name,\s+amount,\s+description,\s+source_ref,\s+year,\s+month\s+\).*FROM accounting_titles at\s+WHERE at.code = \$8\s+AND at.is_active = true`).
+		WithArgs("account-1", "journal_expense", 4200, description, `{"journal_log_id":"journal-1","type":"JournalExpenseRecorded"}`, 2026, 5, "6681").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
 	err := repo.ReplaceJournalExpenseAccountingEntry(context.Background(), tx, "journal-1", CreateAccountingEntryParams{
-		PropertyAccountID: "account-1",
-		Category:          "journal_expense",
-		Amount:            4200,
-		Description:       &description,
-		SourceRef:         map[string]any{"type": "JournalExpenseRecorded", "journal_log_id": "journal-1"},
-		Year:              2026,
-		Month:             5,
+		PropertyAccountID:   "account-1",
+		Category:            "journal_expense",
+		AccountingTitleCode: "6681",
+		Amount:              4200,
+		Description:         &description,
+		SourceRef:           map[string]any{"type": "JournalExpenseRecorded", "journal_log_id": "journal-1"},
+		Year:                2026,
+		Month:               5,
 	})
 	if err != nil {
 		t.Fatalf("ReplaceJournalExpenseAccountingEntry: %v", err)
@@ -658,8 +660,8 @@ func TestGetFinancialReportFinalizedMapsSnapshotEntries(t *testing.T) {
 	mock.ExpectQuery(`(?s)FROM monthly_snapshots ms\s+JOIN properties p ON p.id = ms.property_id AND p.deleted_at IS NULL\s+LEFT JOIN monthly_snapshot_entries mse ON mse.snapshot_id = ms.id\s+WHERE ms.property_id = \$1\s+AND ms.year = \$2\s+AND ms.month = \$3`).
 		WithArgs("property-1", 2026, 4).
 		WillReturnRows(financialReportFinalizedRows().
-			AddRow("property-1", 2026, 4, 13000, 1500, 11500, "entry-1", "rent_payment", "rent", 12000, []byte(`{"bill_id":"bill-1"}`), createdAt).
-			AddRow("property-1", 2026, 4, 13000, 1500, 11500, "entry-2", "journal_expense", nil, 1500, []byte(`{"journal_log_id":"journal-1"}`), createdAt))
+			AddRow("property-1", 2026, 4, 13000, 1500, 11500, "entry-1", "rent_payment", "title-4603", "4603", "租金收入", "rent", 12000, []byte(`{"bill_id":"bill-1"}`), createdAt).
+			AddRow("property-1", 2026, 4, 13000, 1500, 11500, "entry-2", "journal_expense", "title-6681", "6681", "其他支出", nil, 1500, []byte(`{"journal_log_id":"journal-1"}`), createdAt))
 
 	report, err := repo.GetFinancialReport(context.Background(), Scope{Role: "admin"}, "property-1", 2026, 4, false)
 	if err != nil {
@@ -691,10 +693,10 @@ func TestGetFinancialReportLiveMapsAccountingEntriesAndAggregatesTotals(t *testi
 	mock.ExpectQuery(`(?s)FROM property_accounts pa\s+JOIN properties p ON p.id = pa.property_id AND p.deleted_at IS NULL\s+LEFT JOIN accounting_entries ae ON ae.property_account_id = pa.id\s+AND ae.year = \$2\s+AND ae.month = \$3\s+WHERE pa.property_id = \$1\s+AND pa.deleted_at IS NULL`).
 		WithArgs("property-1", 2026, 4).
 		WillReturnRows(financialReportLiveRows().
-			AddRow("property-1", 2026, 4, "entry-1", "rent_payment", "rent", 12000, []byte(`{"bill_id":"bill-1"}`), createdAt).
-			AddRow("property-1", 2026, 4, "entry-2", "electricity_payment", nil, 1000, []byte(`{"bill_id":"bill-2"}`), createdAt).
-			AddRow("property-1", 2026, 4, "entry-3", "deposit_refund", "refund", -3000, []byte(`{"lease_id":"lease-1"}`), createdAt).
-			AddRow("property-1", 2026, 4, "entry-4", "journal_expense", nil, 500, []byte(`{"journal_log_id":"journal-1"}`), createdAt))
+			AddRow("property-1", 2026, 4, "entry-1", "rent_payment", "title-4603", "4603", "租金收入", "rent", 12000, []byte(`{"bill_id":"bill-1"}`), createdAt).
+			AddRow("property-1", 2026, 4, "entry-2", "electricity_payment", "title-4605", "4605", "房客電費收入", nil, 1000, []byte(`{"bill_id":"bill-2"}`), createdAt).
+			AddRow("property-1", 2026, 4, "entry-3", "deposit_refund", "title-4602", "4602", "押金退回(減項)", "refund", -3000, []byte(`{"lease_id":"lease-1"}`), createdAt).
+			AddRow("property-1", 2026, 4, "entry-4", "journal_expense", "title-6681", "6681", "其他支出", nil, 500, []byte(`{"journal_log_id":"journal-1"}`), createdAt))
 
 	report, err := repo.GetFinancialReport(context.Background(), Scope{Role: "admin"}, "property-1", 2026, 4, true)
 	if err != nil {
@@ -725,7 +727,7 @@ func TestGetFinancialReportFinalizedAllowsEmptyEntries(t *testing.T) {
 	mock.ExpectQuery(`(?s)FROM monthly_snapshots ms\s+JOIN properties p ON p.id = ms.property_id AND p.deleted_at IS NULL\s+LEFT JOIN monthly_snapshot_entries mse ON mse.snapshot_id = ms.id\s+WHERE ms.property_id = \$1\s+AND ms.year = \$2\s+AND ms.month = \$3`).
 		WithArgs("property-1", 2026, 4).
 		WillReturnRows(financialReportFinalizedRows().
-			AddRow("property-1", 2026, 4, 0, 0, 0, nil, nil, nil, nil, nil, nil))
+			AddRow("property-1", 2026, 4, 0, 0, 0, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	report, err := repo.GetFinancialReport(context.Background(), Scope{Role: "admin"}, "property-1", 2026, 4, false)
 	if err != nil {
@@ -750,7 +752,7 @@ func TestGetFinancialReportLiveAllowsEmptyEntries(t *testing.T) {
 	mock.ExpectQuery(`(?s)FROM property_accounts pa\s+JOIN properties p ON p.id = pa.property_id AND p.deleted_at IS NULL\s+LEFT JOIN accounting_entries ae ON ae.property_account_id = pa.id\s+AND ae.year = \$2\s+AND ae.month = \$3\s+WHERE pa.property_id = \$1\s+AND pa.deleted_at IS NULL`).
 		WithArgs("property-1", 2026, 4).
 		WillReturnRows(financialReportLiveRows().
-			AddRow("property-1", 2026, 4, nil, nil, nil, nil, nil, nil))
+			AddRow("property-1", 2026, 4, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	report, err := repo.GetFinancialReport(context.Background(), Scope{Role: "admin"}, "property-1", 2026, 4, true)
 	if err != nil {
@@ -794,8 +796,8 @@ func TestGetMonthlyCashflowFinalizedMapsSnapshotRows(t *testing.T) {
 	mock.ExpectQuery(`(?s)FROM monthly_snapshots ms\s+JOIN properties p ON p.id = ms.property_id AND p.deleted_at IS NULL\s+LEFT JOIN monthly_snapshot_entries mse ON mse.snapshot_id = ms.id\s+WHERE ms.property_id = \$1\s+AND ms.year = \$2\s+AND ms.month = \$3`).
 		WithArgs("property-1", 2026, 4).
 		WillReturnRows(monthlyCashflowRows().
-			AddRow("property-1", "Demo Property", 2026, 4, "entry-1", "rent_payment", "rent", 12000, []byte(`{"bill_id":"bill-1"}`), createdAt).
-			AddRow("property-1", "Demo Property", 2026, 4, "entry-2", "journal_expense", nil, -1500, []byte(`{"journal_log_id":"journal-1"}`), createdAt))
+			AddRow("property-1", "Demo Property", 2026, 4, "entry-1", "rent_payment", "title-4603", "4603", "租金收入", "rent", 12000, []byte(`{"bill_id":"bill-1"}`), createdAt).
+			AddRow("property-1", "Demo Property", 2026, 4, "entry-2", "journal_expense", "title-6681", "6681", "其他支出", nil, -1500, []byte(`{"journal_log_id":"journal-1"}`), createdAt))
 
 	cashflow, err := repo.GetMonthlyCashflow(context.Background(), Scope{Role: "admin"}, "property-1", 2026, 4, false)
 	if err != nil {
@@ -809,6 +811,12 @@ func TestGetMonthlyCashflowFinalizedMapsSnapshotRows(t *testing.T) {
 	}
 	if cashflow.Rows[0].Category != "rent_payment" || cashflow.Rows[0].Description == nil || *cashflow.Rows[0].Description != "rent" {
 		t.Fatalf("first row = %+v, want rent payment with description", cashflow.Rows[0])
+	}
+	if cashflow.Rows[0].AccountingTitleCode == nil || *cashflow.Rows[0].AccountingTitleCode != "4603" || cashflow.Rows[0].AccountingTitleName == nil || *cashflow.Rows[0].AccountingTitleName != "租金收入" {
+		t.Fatalf("first row title = %+v/%+v, want 4603 租金收入", cashflow.Rows[0].AccountingTitleCode, cashflow.Rows[0].AccountingTitleName)
+	}
+	if cashflow.Rows[1].AccountingTitleCode == nil || *cashflow.Rows[1].AccountingTitleCode != "6681" || cashflow.Rows[1].AccountingTitleName == nil || *cashflow.Rows[1].AccountingTitleName != "其他支出" {
+		t.Fatalf("second row title = %+v/%+v, want 6681 其他支出", cashflow.Rows[1].AccountingTitleCode, cashflow.Rows[1].AccountingTitleName)
 	}
 	if string(cashflow.Rows[1].SourceRef) != `{"journal_log_id":"journal-1"}` {
 		t.Fatalf("source_ref = %s", cashflow.Rows[1].SourceRef)
@@ -827,7 +835,7 @@ func TestGetMonthlyCashflowLiveMapsAccountingRows(t *testing.T) {
 	mock.ExpectQuery(`(?s)FROM property_accounts pa\s+JOIN properties p ON p.id = pa.property_id AND p.deleted_at IS NULL\s+LEFT JOIN accounting_entries ae ON ae.property_account_id = pa.id\s+AND ae.year = \$2\s+AND ae.month = \$3\s+WHERE pa.property_id = \$1\s+AND pa.deleted_at IS NULL`).
 		WithArgs("property-1", 2026, 5).
 		WillReturnRows(monthlyCashflowRows().
-			AddRow("property-1", "Demo Property", 2026, 5, "entry-1", "electricity_payment", nil, 860, []byte(`{"bill_id":"bill-2"}`), createdAt))
+			AddRow("property-1", "Demo Property", 2026, 5, "entry-1", "electricity_payment", "title-4605", "4605", "房客電費收入", nil, 860, []byte(`{"bill_id":"bill-2"}`), createdAt))
 
 	cashflow, err := repo.GetMonthlyCashflow(context.Background(), Scope{Role: "admin"}, "property-1", 2026, 5, true)
 	if err != nil {
@@ -838,6 +846,130 @@ func TestGetMonthlyCashflowLiveMapsAccountingRows(t *testing.T) {
 	}
 	if len(cashflow.Rows) != 1 || cashflow.Rows[0].Amount != 860 {
 		t.Fatalf("unexpected rows: %+v", cashflow.Rows)
+	}
+	if cashflow.Rows[0].AccountingTitleCode == nil || *cashflow.Rows[0].AccountingTitleCode != "4605" || cashflow.Rows[0].AccountingTitleName == nil || *cashflow.Rows[0].AccountingTitleName != "房客電費收入" {
+		t.Fatalf("row title = %+v/%+v, want 4605 房客電費收入", cashflow.Rows[0].AccountingTitleCode, cashflow.Rows[0].AccountingTitleName)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestGetProfitLossPeriodLiveAggregatesTitleRows(t *testing.T) {
+	db, mock, repo := newBillingRepoTest(t)
+	defer closeBillingDB(t, db)
+
+	mock.ExpectQuery(`(?s)FROM property_accounts pa.*JOIN accounting_entries ae.*GROUP BY pa.property_id, p.name, subject_code, subject_name, supported, note`).
+		WithArgs("property-1", 2026, 5).
+		WillReturnRows(profitLossRows().
+			AddRow("property-1", "Demo Property", 2026, 5, "4603", "租金收入", 10000, true, nil).
+			AddRow("property-1", "Demo Property", 2026, 5, "6681", "其他支出", -1200, true, nil))
+
+	period, err := repo.GetProfitLossPeriod(context.Background(), Scope{Role: "admin"}, "property-1", 2026, 5, true)
+	if err != nil {
+		t.Fatalf("GetProfitLossPeriod live: %v", err)
+	}
+	if period.PropertyName != "Demo Property" || period.IsFinalized {
+		t.Fatalf("period = %+v", period)
+	}
+	if len(period.Rows) != 2 {
+		t.Fatalf("rows = %d, want 2", len(period.Rows))
+	}
+	if period.Rows[0].SubjectCode != "4603" || period.Rows[0].Amount != 10000 || !period.Rows[0].Supported {
+		t.Fatalf("first row = %+v", period.Rows[0])
+	}
+	if period.Rows[1].SubjectCode != "6681" || period.Rows[1].Amount != -1200 || !period.Rows[1].Supported {
+		t.Fatalf("second row = %+v", period.Rows[1])
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestGetProfitLossPeriodFinalizedUsesSnapshotTitleCopies(t *testing.T) {
+	db, mock, repo := newBillingRepoTest(t)
+	defer closeBillingDB(t, db)
+
+	mock.ExpectQuery(`(?s)FROM monthly_snapshots ms.*JOIN monthly_snapshot_entries mse.*GROUP BY ms.property_id, p.name, ms.year, ms.month, subject_code, subject_name, supported, note`).
+		WithArgs("property-1", 2026, 4, "property-1").
+		WillReturnRows(profitLossRows().
+			AddRow("property-1", "Demo Property", 2026, 4, "4605", "房客電費收入", 2500, true, nil))
+
+	period, err := repo.GetProfitLossPeriod(context.Background(), Scope{
+		Role:                "staff",
+		AssignedPropertyIDs: []string{"property-1"},
+	}, "property-1", 2026, 4, false)
+	if err != nil {
+		t.Fatalf("GetProfitLossPeriod finalized: %v", err)
+	}
+	if !period.IsFinalized {
+		t.Fatalf("IsFinalized = false, want true")
+	}
+	if len(period.Rows) != 1 || period.Rows[0].SubjectCode != "4605" || period.Rows[0].SubjectName != "房客電費收入" {
+		t.Fatalf("rows = %+v", period.Rows)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestGetProfitLossPeriodMapsOldCategoryFallbackAndUnsupportedRows(t *testing.T) {
+	db, mock, repo := newBillingRepoTest(t)
+	defer closeBillingDB(t, db)
+
+	note := "未支援會計分類：legacy_misc"
+	mock.ExpectQuery(`(?s)FROM property_accounts pa.*JOIN accounting_entries ae.*GROUP BY pa.property_id, p.name, subject_code, subject_name, supported, note`).
+		WithArgs("property-1", 2026, 5).
+		WillReturnRows(profitLossRows().
+			AddRow("property-1", "Demo Property", 2026, 5, "4601", "押金收入(暫收款)", 3000, true, nil).
+			AddRow("property-1", "Demo Property", 2026, 5, "unsupported", "未支援科目", 500, false, note))
+
+	period, err := repo.GetProfitLossPeriod(context.Background(), Scope{Role: "admin"}, "property-1", 2026, 5, true)
+	if err != nil {
+		t.Fatalf("GetProfitLossPeriod live: %v", err)
+	}
+	if len(period.Rows) != 2 {
+		t.Fatalf("rows = %d, want 2", len(period.Rows))
+	}
+	if period.Rows[0].SubjectCode != "4601" || !period.Rows[0].Supported {
+		t.Fatalf("fallback row = %+v", period.Rows[0])
+	}
+	if period.Rows[1].Supported || period.Rows[1].Note == nil || *period.Rows[1].Note != note {
+		t.Fatalf("unsupported row = %+v", period.Rows[1])
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestGetProfitLossPeriodLiveSQLDefinesFixedMappingSignedAmountAndUnsupportedNote(t *testing.T) {
+	db, mock, repo := newBillingRepoTest(t)
+	defer closeBillingDB(t, db)
+
+	mock.ExpectQuery(queryContainsInOrder(
+		"COALESCE(ae.accounting_title_code, CASE ae.category",
+		"WHEN 'rent_payment' THEN '4603'",
+		"WHEN 'electricity_payment' THEN '4605'",
+		"WHEN 'deposit_refund' THEN '4602'",
+		"WHEN 'deposit_deduction' THEN '4601'",
+		"WHEN 'journal_expense' THEN '6681'",
+		"WHEN ae.category IN ('rent_payment', 'electricity_payment', 'deposit_deduction') THEN ABS(ae.amount)",
+		"WHEN ae.category IN ('deposit_refund', 'journal_expense') THEN -ABS(ae.amount)",
+		"ELSE ae.amount",
+		"WHEN ae.accounting_title_code IS NULL AND CASE ae.category",
+		"THEN '未支援會計分類：' || ae.category",
+	)).
+		WithArgs("property-1", 2026, 5).
+		WillReturnRows(profitLossRows().
+			AddRow("property-1", "Demo Property", 2026, 5, "4603", "租金收入", 10000, true, nil))
+
+	_, err := repo.GetProfitLossPeriod(context.Background(), Scope{Role: "admin"}, "property-1", 2026, 5, true)
+	if err != nil {
+		t.Fatalf("GetProfitLossPeriod live: %v", err)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -1015,7 +1147,7 @@ LIMIT 1`)).
 	}
 }
 
-func TestCreateMonthlySnapshotPreservesEntryCreatedAt(t *testing.T) {
+func TestCreateMonthlySnapshotCopiesTitleLinkageAndEntryCreatedAt(t *testing.T) {
 	db, mock, repo := newBillingRepoTest(t)
 	defer closeBillingDB(t, db)
 	tx := beginBillingTx(t, db, mock)
@@ -1027,6 +1159,9 @@ func TestCreateMonthlySnapshotPreservesEntryCreatedAt(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO monthly_snapshot_entries (
 	snapshot_id,
 	category,
+	accounting_title_id,
+	accounting_title_code,
+	accounting_title_name,
 	description,
 	amount,
 	source_ref,
@@ -1035,6 +1170,9 @@ func TestCreateMonthlySnapshotPreservesEntryCreatedAt(t *testing.T) {
 SELECT
 	$1,
 	ae.category,
+	ae.accounting_title_id,
+	ae.accounting_title_code,
+	ae.accounting_title_name,
 	ae.description,
 	ae.amount,
 	ae.source_ref,
@@ -1075,6 +1213,14 @@ func newBillingRepoTest(t *testing.T) (*sql.DB, sqlmock.Sqlmock, *SQLRepository)
 	}
 
 	return db, mock, NewRepository(db)
+}
+
+func queryContainsInOrder(snippets ...string) string {
+	pattern := "(?s)"
+	for _, snippet := range snippets {
+		pattern += ".*" + regexp.QuoteMeta(snippet)
+	}
+	return pattern
 }
 
 func closeBillingDB(t *testing.T, db *sql.DB) {
@@ -1134,6 +1280,9 @@ func financialReportFinalizedRows() *sqlmock.Rows {
 		"net",
 		"id",
 		"category",
+		"accounting_title_id",
+		"accounting_title_code",
+		"accounting_title_name",
 		"description",
 		"amount",
 		"source_ref",
@@ -1148,6 +1297,9 @@ func financialReportLiveRows() *sqlmock.Rows {
 		"month",
 		"id",
 		"category",
+		"accounting_title_id",
+		"accounting_title_code",
+		"accounting_title_name",
 		"description",
 		"amount",
 		"source_ref",
@@ -1163,10 +1315,27 @@ func monthlyCashflowRows() *sqlmock.Rows {
 		"month",
 		"id",
 		"category",
+		"accounting_title_id",
+		"accounting_title_code",
+		"accounting_title_name",
 		"description",
 		"amount",
 		"source_ref",
 		"created_at",
+	})
+}
+
+func profitLossRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{
+		"property_id",
+		"property_name",
+		"year",
+		"month",
+		"subject_code",
+		"subject_name",
+		"amount",
+		"supported",
+		"note",
 	})
 }
 

@@ -105,6 +105,16 @@ type MonthlyCashflowQuery struct {
 	Month               int
 }
 
+// ProfitLossQuery defines role scoping for one P&L report period.
+type ProfitLossQuery struct {
+	ActorRole           string
+	ActorUserID         string
+	AssignedPropertyIDs []string
+	PropertyID          string
+	Year                int
+	Month               int
+}
+
 // FinancialReportSummary is the application read model for report summary rows.
 type FinancialReportSummary struct {
 	Year         int
@@ -178,11 +188,58 @@ type MonthlyCashflow struct {
 
 // MonthlyCashflowEntry is one accounting row preserved for cashflow display.
 type MonthlyCashflowEntry struct {
-	Category    string
-	Description *string
+	Category            string
+	AccountingTitleID   *string
+	AccountingTitleCode *string
+	AccountingTitleName *string
+	Description         *string
+	Amount              int
+	SourceRef           json.RawMessage
+	CreatedAt           time.Time
+}
+
+// ProfitLossPeriod is one source period for P&L aggregation.
+type ProfitLossPeriod struct {
+	PropertyID   string
+	PropertyName string
+	Year         int
+	Month        int
+	IsFinalized  bool
+	Rows         []ProfitLossSourceRow
+}
+
+// ProfitLossSourceRow is one source-period amount already mapped to a subject.
+type ProfitLossSourceRow struct {
+	SubjectCode string
+	SubjectName string
 	Amount      int
-	SourceRef   json.RawMessage
-	CreatedAt   time.Time
+	Supported   bool
+	Note        *string
+}
+
+// ProfitLossReport is the application view model for P&L export.
+type ProfitLossReport struct {
+	PropertyID    string
+	PropertyName  string
+	Year          int
+	Month         int
+	PreviousYear  int
+	PreviousMonth int
+	Rows          []ProfitLossRow
+	CurrentTotal  int
+	PreviousTotal int
+	DeltaTotal    int
+}
+
+// ProfitLossRow is one subject row with current/previous comparison amounts.
+type ProfitLossRow struct {
+	SubjectCode    string
+	SubjectName    string
+	CurrentAmount  int
+	PreviousAmount int
+	DeltaAmount    int
+	Supported      bool
+	Note           *string
 }
 
 // ReportRepository defines read operations required by billing report use cases.
@@ -198,6 +255,8 @@ type ReportRepository interface {
 	FindLiveMonthlyCashflow(ctx context.Context, query MonthlyCashflowQuery) (*MonthlyCashflow, error)
 	FindSnapshotMonthlyCashflow(ctx context.Context, query MonthlyCashflowQuery) (*MonthlyCashflow, error)
 	CalculateMonthlyCashflowOpeningBalance(ctx context.Context, query MonthlyCashflowQuery) (int, error)
+	FindLiveProfitLossPeriod(ctx context.Context, query ProfitLossQuery) (*ProfitLossPeriod, error)
+	FindSnapshotProfitLossPeriod(ctx context.Context, query ProfitLossQuery) (*ProfitLossPeriod, error)
 }
 
 // ListPendingMeterInput is the use-case input for property pending meter reads.
@@ -674,6 +733,17 @@ type ExportMonthlyCashflowInput struct {
 	Format              string
 }
 
+// ExportProfitLossInput is the use-case input for P&L HTML export.
+type ExportProfitLossInput struct {
+	ActorRole           string
+	ActorUserID         string
+	AssignedPropertyIDs []string
+	PropertyID          string
+	Year                int
+	Month               int
+	Format              string
+}
+
 // ExportBillReceiptService renders one paid rent or electricity bill receipt as HTML.
 type ExportBillReceiptService struct {
 	repo     ReportRepository
@@ -838,6 +908,222 @@ func (s *ExportMonthlyCashflowService) findMonthlyCashflow(ctx context.Context, 
 	return cashflow, nil
 }
 
+// ExportProfitLossService renders one property's profit and loss report as HTML.
+type ExportProfitLossService struct {
+	repo     ReportRepository
+	renderer reporthtml.Renderer
+	clock    Clock
+}
+
+// NewExportProfitLossService returns an ExportProfitLossService.
+func NewExportProfitLossService(repo ReportRepository, renderer reporthtml.Renderer, clock Clock) *ExportProfitLossService {
+	if clock == nil {
+		clock = systemClock{}
+	}
+	return &ExportProfitLossService{repo: repo, renderer: renderer, clock: clock}
+}
+
+// Execute validates the request, compares current and previous periods, and renders HTML.
+func (s *ExportProfitLossService) Execute(ctx context.Context, input ExportProfitLossInput) (*reporthtml.Document, error) {
+	query, err := normalizeProfitLossQuery(input)
+	if err != nil {
+		return nil, err
+	}
+	if s.renderer == nil {
+		return nil, apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "profit_loss_renderer"})
+	}
+
+	current, err := s.findProfitLossPeriod(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	previousYear, previousMonth := previousReportPeriod(query.Year, query.Month)
+	previousQuery := query
+	previousQuery.Year = previousYear
+	previousQuery.Month = previousMonth
+	previous, err := s.findProfitLossPeriod(ctx, previousQuery)
+	if err != nil {
+		return nil, err
+	}
+
+	report := newProfitLossReport(*current, *previous)
+	view := newProfitLossView(report)
+	html, err := s.renderer.Render("profit_loss.html", view)
+	if err != nil {
+		return nil, apperr.ErrInternalServerError.WithCause(err).WithDetails(map[string]interface{}{"dependency": "profit_loss_renderer"})
+	}
+
+	return &reporthtml.Document{
+		HTML:     html,
+		Filename: reporthtml.HTMLFilename("profit-loss", view.PropertyName, view.PeriodLabel),
+	}, nil
+}
+
+func normalizeProfitLossQuery(input ExportProfitLossInput) (ProfitLossQuery, error) {
+	actorRole, err := normalizeFinancialReportReadRole(input.ActorRole)
+	if err != nil {
+		return ProfitLossQuery{}, err
+	}
+	propertyID, err := normalizeRequiredUUID(input.PropertyID, "property_id", apperr.ErrPropertyNotFound)
+	if err != nil {
+		return ProfitLossQuery{}, err
+	}
+	if err := validateYear(input.Year); err != nil {
+		return ProfitLossQuery{}, err
+	}
+	if err := validateMonth(input.Month); err != nil {
+		return ProfitLossQuery{}, err
+	}
+	format := strings.ToLower(strings.TrimSpace(input.Format))
+	if format == "" {
+		format = "html"
+	}
+	if format != "html" {
+		return ProfitLossQuery{}, apperr.ErrBadRequest.WithDetails(map[string]interface{}{"field": "format"})
+	}
+	return ProfitLossQuery{
+		ActorRole:           actorRole,
+		ActorUserID:         strings.TrimSpace(input.ActorUserID),
+		AssignedPropertyIDs: cloneStrings(input.AssignedPropertyIDs),
+		PropertyID:          propertyID,
+		Year:                input.Year,
+		Month:               input.Month,
+	}, nil
+}
+
+func (s *ExportProfitLossService) findProfitLossPeriod(ctx context.Context, query ProfitLossQuery) (*ProfitLossPeriod, error) {
+	currentYear, currentMonth := currentReportPeriod(s.clock)
+	var period *ProfitLossPeriod
+	var err error
+	if query.Year == currentYear && query.Month == currentMonth {
+		period, err = s.repo.FindLiveProfitLossPeriod(ctx, query)
+	} else {
+		period, err = s.repo.FindSnapshotProfitLossPeriod(ctx, query)
+	}
+	if err != nil {
+		return nil, mapReportRepositoryError(err)
+	}
+	if period == nil {
+		return nil, ErrFinancialReportNotFound
+	}
+	return period, nil
+}
+
+func previousReportPeriod(year int, month int) (int, int) {
+	if month == 1 {
+		return year - 1, 12
+	}
+	return year, month - 1
+}
+
+func newProfitLossReport(current ProfitLossPeriod, previous ProfitLossPeriod) ProfitLossReport {
+	previousYear, previousMonth := previousReportPeriod(current.Year, current.Month)
+	rowsByKey := make(map[string]*ProfitLossRow)
+	order := make([]string, 0, len(current.Rows)+len(previous.Rows))
+	merge := func(sourceRows []ProfitLossSourceRow, currentPeriod bool) {
+		for i := range sourceRows {
+			source := sourceRows[i]
+			key := profitLossSubjectKey(source)
+			row := rowsByKey[key]
+			if row == nil {
+				row = &ProfitLossRow{
+					SubjectCode: source.SubjectCode,
+					SubjectName: source.SubjectName,
+					Supported:   source.Supported,
+					Note:        source.Note,
+				}
+				rowsByKey[key] = row
+				order = append(order, key)
+			}
+			if !source.Supported {
+				row.Supported = false
+				if row.Note == nil {
+					row.Note = source.Note
+				}
+			}
+			if currentPeriod {
+				row.CurrentAmount += source.Amount
+			} else {
+				row.PreviousAmount += source.Amount
+			}
+		}
+	}
+	merge(current.Rows, true)
+	merge(previous.Rows, false)
+	for _, row := range fixedUnsupportedLegacyProfitLossRows() {
+		key := profitLossSubjectKey(row)
+		if _, exists := rowsByKey[key]; exists {
+			continue
+		}
+		rowsByKey[key] = &ProfitLossRow{
+			SubjectCode: row.SubjectCode,
+			SubjectName: row.SubjectName,
+			Supported:   row.Supported,
+			Note:        row.Note,
+		}
+		order = append(order, key)
+	}
+
+	rows := make([]ProfitLossRow, 0, len(order))
+	report := ProfitLossReport{
+		PropertyID:    current.PropertyID,
+		PropertyName:  current.PropertyName,
+		Year:          current.Year,
+		Month:         current.Month,
+		PreviousYear:  previousYear,
+		PreviousMonth: previousMonth,
+	}
+	for _, key := range order {
+		row := *rowsByKey[key]
+		row.DeltaAmount = row.CurrentAmount - row.PreviousAmount
+		if row.Supported {
+			report.CurrentTotal += row.CurrentAmount
+			report.PreviousTotal += row.PreviousAmount
+			report.DeltaTotal += row.DeltaAmount
+		}
+		rows = append(rows, row)
+	}
+	report.Rows = rows
+	return report
+}
+
+func profitLossSubjectKey(row ProfitLossSourceRow) string {
+	if !row.Supported {
+		return row.SubjectCode + "|" + row.SubjectName + "|" + stringValue(row.Note)
+	}
+	if row.SubjectCode != "" {
+		return row.SubjectCode
+	}
+	return row.SubjectName
+}
+
+func fixedUnsupportedLegacyProfitLossRows() []ProfitLossSourceRow {
+	subjects := []struct {
+		code string
+		name string
+	}{
+		{code: "legacy_management_income", name: "管理費收入"},
+		{code: "legacy_salary_expense", name: "薪資支出"},
+		{code: "legacy_supplies_expense", name: "用品支出"},
+		{code: "legacy_utilities_expense", name: "水電瓦斯費"},
+		{code: "legacy_cleaning_expense", name: "清潔費"},
+		{code: "legacy_repair_expense", name: "修繕費"},
+		{code: "legacy_commission_expense", name: "佣金支出"},
+		{code: "legacy_tax_expense", name: "稅捐"},
+	}
+	rows := make([]ProfitLossSourceRow, 0, len(subjects))
+	for _, subject := range subjects {
+		note := "未支援舊系統損益科目：" + subject.name
+		rows = append(rows, ProfitLossSourceRow{
+			SubjectCode: subject.code,
+			SubjectName: subject.name,
+			Supported:   false,
+			Note:        &note,
+		})
+	}
+	return rows
+}
+
 func validateBillReceiptExportable(receipt *BillReceipt) error {
 	if receipt.BillStatus != domainbilling.StatusPaid {
 		return ErrBillReceiptNotExportable.WithDetails(map[string]interface{}{"status": receipt.BillStatus})
@@ -932,6 +1218,26 @@ type monthlyCashflowViewRow struct {
 	Note         string
 }
 
+type profitLossView struct {
+	Title              string
+	PropertyName       string
+	PeriodLabel        string
+	PreviousPeriod     string
+	Rows               []profitLossViewRow
+	CurrentTotalLabel  string
+	PreviousTotalLabel string
+	DeltaTotalLabel    string
+}
+
+type profitLossViewRow struct {
+	SubjectLabel        string
+	CurrentAmountLabel  string
+	PreviousAmountLabel string
+	DeltaAmountLabel    string
+	Note                string
+	Unsupported         bool
+}
+
 func newMonthlyCashflowView(cashflow MonthlyCashflow, openingBalance int) monthlyCashflowView {
 	periodLabel := strconv.Itoa(cashflow.Year) + "-" + twoDigit(cashflow.Month)
 	view := monthlyCashflowView{
@@ -951,7 +1257,7 @@ func newMonthlyCashflowView(cashflow MonthlyCashflow, openingBalance int) monthl
 		totalExpense += expense
 		view.Rows = append(view.Rows, monthlyCashflowViewRow{
 			DateLabel:    row.CreatedAt.In(taiwanReportLocation).Format("01/02"),
-			SubjectLabel: cashflowCategoryLabel(row.Category),
+			SubjectLabel: cashflowSubjectLabel(row),
 			IncomeLabel:  optionalMoneyLabel(income),
 			ExpenseLabel: optionalMoneyLabel(expense),
 			BalanceLabel: moneyLabel(runningBalance),
@@ -989,6 +1295,13 @@ func cashflowIncomeExpense(category string, amount int) (int, int) {
 	}
 }
 
+func cashflowSubjectLabel(row MonthlyCashflowEntry) string {
+	if titleName := stringValue(row.AccountingTitleName); titleName != "" {
+		return titleName
+	}
+	return cashflowCategoryLabel(row.Category)
+}
+
 func cashflowCategoryLabel(category string) string {
 	switch category {
 	case "rent_payment":
@@ -1012,6 +1325,42 @@ func cashflowNote(row MonthlyCashflowEntry) string {
 	}
 
 	return cashflowSourceRefNote(row.SourceRef)
+}
+
+func newProfitLossView(report ProfitLossReport) profitLossView {
+	periodLabel := strconv.Itoa(report.Year) + "-" + twoDigit(report.Month)
+	previousPeriod := strconv.Itoa(report.PreviousYear) + "-" + twoDigit(report.PreviousMonth)
+	view := profitLossView{
+		Title:              report.PropertyName + "損益表 (" + strconv.Itoa(report.Year) + "/" + twoDigit(report.Month) + ")",
+		PropertyName:       report.PropertyName,
+		PeriodLabel:        periodLabel,
+		PreviousPeriod:     previousPeriod,
+		Rows:               make([]profitLossViewRow, 0, len(report.Rows)),
+		CurrentTotalLabel:  moneyLabel(report.CurrentTotal),
+		PreviousTotalLabel: moneyLabel(report.PreviousTotal),
+		DeltaTotalLabel:    moneyLabel(report.DeltaTotal),
+	}
+	for _, row := range report.Rows {
+		view.Rows = append(view.Rows, profitLossViewRow{
+			SubjectLabel:        profitLossSubjectLabel(row),
+			CurrentAmountLabel:  moneyLabel(row.CurrentAmount),
+			PreviousAmountLabel: moneyLabel(row.PreviousAmount),
+			DeltaAmountLabel:    moneyLabel(row.DeltaAmount),
+			Note:                stringValue(row.Note),
+			Unsupported:         !row.Supported,
+		})
+	}
+	return view
+}
+
+func profitLossSubjectLabel(row ProfitLossRow) string {
+	if !row.Supported {
+		return row.SubjectName
+	}
+	if row.SubjectCode == "" {
+		return row.SubjectName
+	}
+	return row.SubjectCode + " " + row.SubjectName
 }
 
 func cashflowSourceRefNote(sourceRef json.RawMessage) string {

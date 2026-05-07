@@ -10,7 +10,10 @@ import (
 	"stds_backend/internal/shared/apperr"
 )
 
-const accountingCategoryJournalExpense = "journal_expense"
+const (
+	accountingCategoryJournalExpense  = "journal_expense"
+	accountingTitleCodeJournalExpense = "6681"
+)
 
 // CreateInput is the command payload for journal log creation.
 type CreateInput struct {
@@ -106,13 +109,14 @@ func (s *CreateService) Execute(ctx context.Context, input CreateInput) (*Journa
 		if journalLog.ExpenseAmount != nil {
 			year, month := journalAccountingPeriod(journalLog.CreatedAt)
 			if err := s.accountingRepo.CreateExpenseAccountingEntry(ctx, tx, ExpenseAccountingEntryParams{
-				PropertyID:  journalLog.PropertyID,
-				Category:    accountingCategoryJournalExpense,
-				Amount:      *journalLog.ExpenseAmount,
-				Description: journalLog.ExpenseDescription,
-				SourceRef:   map[string]interface{}{"type": "JournalExpenseRecorded", "journal_log_id": journalLog.ID},
-				Year:        year,
-				Month:       month,
+				PropertyID:          journalLog.PropertyID,
+				Category:            accountingCategoryJournalExpense,
+				AccountingTitleCode: accountingTitleCodeJournalExpense,
+				Amount:              *journalLog.ExpenseAmount,
+				Description:         journalLog.ExpenseDescription,
+				SourceRef:           map[string]interface{}{"type": "JournalExpenseRecorded", "journal_log_id": journalLog.ID},
+				Year:                year,
+				Month:               month,
 			}); err != nil {
 				return mapAccountingRepositoryError(err)
 			}

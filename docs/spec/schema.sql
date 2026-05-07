@@ -290,6 +290,41 @@ CREATE UNIQUE INDEX idx_property_accounts_property_id ON property_accounts (prop
 
 
 -- ============================================================
+-- Table: accounting_titles
+-- 說明: runtime canonical 會計科目主檔，由舊系統 xx_accounting_title 正規化 seed
+-- ============================================================
+
+CREATE TABLE accounting_titles (
+    id          UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    code        VARCHAR(20)  NOT NULL UNIQUE,
+    name        VARCHAR(100) NOT NULL,
+    kind        VARCHAR(20)  NOT NULL CHECK (kind IN ('income', 'expense')),
+    legacy_kind TEXT,
+    is_active   BOOLEAN      NOT NULL DEFAULT true,
+    created_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
+);
+
+
+-- ============================================================
+-- Table: legacy_accounting_title_mappings
+-- 說明: 舊系統 xx_accounting_title row 對 accounting_titles 的 mapping
+-- ============================================================
+
+CREATE TABLE legacy_accounting_title_mappings (
+    legacy_accounting_id       VARCHAR(50) PRIMARY KEY,
+    legacy_accounting_title_id VARCHAR(50) NOT NULL UNIQUE,
+    accounting_title_id        UUID        NOT NULL REFERENCES accounting_titles(id),
+    legacy_accounting_kind     TEXT        NOT NULL,
+    legacy_accounting_title    TEXT        NOT NULL,
+    source_table               VARCHAR(50) NOT NULL DEFAULT 'xx_accounting_title',
+    created_at                 TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_legacy_accounting_title_mappings_title_id ON legacy_accounting_title_mappings (accounting_title_id);
+
+
+-- ============================================================
 -- Table: accounting_entries
 -- Aggregate: PropertyAccount Aggregate（Billing BC）—— AccountingEntry Entity
 -- 說明: 當月暫存的會計分錄；月結後封存至 monthly_snapshot_entries
@@ -303,6 +338,10 @@ CREATE TABLE accounting_entries (
                             'rent_payment', 'electricity_payment',
                             'deposit_refund', 'deposit_deduction', 'journal_expense'
                         )),
+    -- accounting_title_*：穩定會計科目維度；category 仍是財報 total classification
+    accounting_title_id   UUID        REFERENCES accounting_titles(id),
+    accounting_title_code VARCHAR(20),
+    accounting_title_name VARCHAR(100),
     amount              INTEGER      NOT NULL,
     description         TEXT,
     -- source_ref：來源事件與 ID（BillPaid / JournalExpenseRecorded / DepositRefunded / DepositDeducted）
@@ -316,6 +355,7 @@ CREATE TABLE accounting_entries (
 -- Index 說明:
 -- idx_accounting_entries_account_year_month: 讀取當月資料（財報組合查詢）
 CREATE INDEX idx_accounting_entries_account_year_month ON accounting_entries (property_account_id, year, month);
+CREATE INDEX idx_accounting_entries_accounting_title_id ON accounting_entries (accounting_title_id);
 
 
 -- ============================================================
@@ -353,6 +393,10 @@ CREATE TABLE monthly_snapshot_entries (
                         'rent_payment', 'electricity_payment',
                         'deposit_refund', 'deposit_deduction', 'journal_expense'
                     )),
+    -- snapshot copy 保護 finalized historical report 不受 accounting title rename 影響
+    accounting_title_id   UUID        REFERENCES accounting_titles(id),
+    accounting_title_code VARCHAR(20),
+    accounting_title_name VARCHAR(100),
     description     TEXT,
     amount          INTEGER      NOT NULL,
     source_ref      JSONB,
@@ -363,6 +407,7 @@ CREATE TABLE monthly_snapshot_entries (
 -- Index 說明:
 -- idx_monthly_snapshot_entries_snapshot_category: 按分類查詢月結明細（財報詳情）
 CREATE INDEX idx_monthly_snapshot_entries_snapshot_category ON monthly_snapshot_entries (snapshot_id, category);
+CREATE INDEX idx_monthly_snapshot_entries_accounting_title_id ON monthly_snapshot_entries (accounting_title_id);
 
 
 -- ============================================================
