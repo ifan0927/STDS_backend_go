@@ -1,0 +1,160 @@
+{{define "monthly_cashflow.html"}}<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <title>{{.Title}}</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: "Noto Sans TC", "Microsoft JhengHei", Arial, sans-serif;
+      color: #111827;
+      background: #ffffff;
+    }
+    body {
+      margin: 0;
+      padding: 32px;
+      background: #f3f4f6;
+    }
+    .page {
+      width: 210mm;
+      min-height: 297mm;
+      margin: 0 auto;
+      padding: 18mm 16mm;
+      background: #ffffff;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+      box-sizing: border-box;
+    }
+    h1 {
+      margin: 0 0 18px;
+      text-align: center;
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+    .meta {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      font-size: 13px;
+      color: #4b5563;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 13px;
+    }
+    th, td {
+      border: 1px solid #111827;
+      padding: 6px 8px;
+      vertical-align: top;
+      line-height: 1.45;
+      word-break: break-word;
+    }
+    th {
+      background: #e5e7eb;
+      text-align: center;
+      font-weight: 700;
+    }
+    .date {
+      width: 10%;
+      text-align: center;
+      white-space: nowrap;
+    }
+    .subject {
+      width: 19%;
+    }
+    .money {
+      width: 12%;
+      text-align: right;
+      white-space: nowrap;
+    }
+    .balance {
+      width: 13%;
+      text-align: right;
+      white-space: nowrap;
+    }
+    .note {
+      width: 34%;
+    }
+    .carry, .summary {
+      background: #f9fafb;
+      font-weight: 700;
+    }
+    .summary td {
+      border-top-width: 2px;
+    }
+    @media print {
+      body {
+        padding: 0;
+        background: #ffffff;
+      }
+      .page {
+        width: auto;
+        min-height: auto;
+        margin: 0;
+        padding: 0;
+        box-shadow: none;
+      }
+      @page {
+        size: A4 portrait;
+        margin: 14mm 12mm;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <h1>{{.Title}}</h1>
+    <div class="meta">
+      <span>報表月份：{{.PeriodLabel}}</span>
+      <span>格式：月收支明細</span>
+    </div>
+    <table aria-label="月收支明細表">
+      <thead>
+        <tr>
+          <th class="date">日期</th>
+          <th class="subject">科目</th>
+          <th class="money">收入</th>
+          <th class="money">支出</th>
+          <th class="balance">結餘</th>
+          <th class="note">備註</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="carry">
+          <td class="date"></td>
+          <td class="subject">繼上月</td>
+          <td class="money"></td>
+          <td class="money"></td>
+          <td class="balance">{{.OpeningBalanceLabel}}</td>
+          <td class="note"></td>
+        </tr>
+        {{range .Rows}}
+        <tr>
+          <td class="date">{{.DateLabel}}</td>
+          <td class="subject">{{.SubjectLabel}}</td>
+          <td class="money">{{.IncomeLabel}}</td>
+          <td class="money">{{.ExpenseLabel}}</td>
+          <td class="balance">{{.BalanceLabel}}</td>
+          <td class="note">{{.Note}}</td>
+        </tr>
+        {{end}}
+        <tr class="summary">
+          <td class="date"></td>
+          <td class="subject">本月收支</td>
+          <td class="money">{{.MonthlyIncomeTotalLabel}}</td>
+          <td class="money">{{.MonthlyExpenseTotalLabel}}</td>
+          <td class="balance">{{.EndingBalanceLabel}}</td>
+          <td class="note"></td>
+        </tr>
+        <tr class="summary">
+          <td class="subject" colspan="4">本月餘額</td>
+          <td class="balance">{{.EndingBalanceLabel}}</td>
+          <td class="note"></td>
+        </tr>
+      </tbody>
+    </table>
+  </main>
+</body>
+</html>{{end}}

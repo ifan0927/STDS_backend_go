@@ -35,6 +35,7 @@ func newBillingServices(db *sql.DB, txRunner *dbtxrunner.Runner, publisher domai
 			send:         appbilling.NewSendFinancialReportService(reportRepo, publisher, nil),
 			tenantRoster: appbilling.NewExportTenantRosterService(reportRepo, appbilling.MustNewTenantRosterRenderer(), nil),
 			billReceipt:  appbilling.NewExportBillReceiptService(reportRepo, appbilling.MustNewBillReceiptRenderer()),
+			cashflow:     appbilling.NewExportMonthlyCashflowService(reportRepo, appbilling.MustNewMonthlyCashflowRenderer(), nil),
 		},
 	}
 }
@@ -179,6 +180,7 @@ type billingFinancialReportServiceAdapter struct {
 	send         *appbilling.SendFinancialReportService
 	tenantRoster *appbilling.ExportTenantRosterService
 	billReceipt  *appbilling.ExportBillReceiptService
+	cashflow     *appbilling.ExportMonthlyCashflowService
 }
 
 func (a billingFinancialReportServiceAdapter) ListFinancialReportSummaries(ctx context.Context, input handler.BillingFinancialReportSummaryInput) ([]handler.BillingFinancialReportSummary, error) {
@@ -246,6 +248,18 @@ func (a billingFinancialReportServiceAdapter) ExportBillReceipt(ctx context.Cont
 		ActorUserID:         input.ActorUserID,
 		AssignedPropertyIDs: input.AssignedPropertyIDs,
 		BillID:              input.BillID,
+		Format:              input.Format,
+	})
+}
+
+func (a billingFinancialReportServiceAdapter) ExportMonthlyCashflow(ctx context.Context, input handler.BillingMonthlyCashflowInput) (*reporthtml.Document, error) {
+	return a.cashflow.Execute(ctx, appbilling.ExportMonthlyCashflowInput{
+		ActorRole:           input.ActorRole,
+		ActorUserID:         input.ActorUserID,
+		AssignedPropertyIDs: input.AssignedPropertyIDs,
+		PropertyID:          input.PropertyID,
+		Year:                input.Year,
+		Month:               input.Month,
 		Format:              input.Format,
 	})
 }
@@ -464,6 +478,45 @@ func (a billingReportRepositoryAdapter) FindBillReceipt(ctx context.Context, que
 	}
 
 	return toAppBillReceipt(receipt), nil
+}
+
+func (a billingReportRepositoryAdapter) FindLiveMonthlyCashflow(ctx context.Context, query appbilling.MonthlyCashflowQuery) (*appbilling.MonthlyCashflow, error) {
+	cashflow, err := a.repo.GetMonthlyCashflow(ctx, dbbilling.Scope{
+		Role:                query.ActorRole,
+		UserID:              query.ActorUserID,
+		AssignedPropertyIDs: query.AssignedPropertyIDs,
+	}, query.PropertyID, query.Year, query.Month, true)
+	if err != nil {
+		return nil, mapBillingReportRepositoryError(err)
+	}
+
+	return toAppMonthlyCashflow(cashflow), nil
+}
+
+func (a billingReportRepositoryAdapter) FindSnapshotMonthlyCashflow(ctx context.Context, query appbilling.MonthlyCashflowQuery) (*appbilling.MonthlyCashflow, error) {
+	cashflow, err := a.repo.GetMonthlyCashflow(ctx, dbbilling.Scope{
+		Role:                query.ActorRole,
+		UserID:              query.ActorUserID,
+		AssignedPropertyIDs: query.AssignedPropertyIDs,
+	}, query.PropertyID, query.Year, query.Month, false)
+	if err != nil {
+		return nil, mapBillingReportRepositoryError(err)
+	}
+
+	return toAppMonthlyCashflow(cashflow), nil
+}
+
+func (a billingReportRepositoryAdapter) CalculateMonthlyCashflowOpeningBalance(ctx context.Context, query appbilling.MonthlyCashflowQuery) (int, error) {
+	openingBalance, err := a.repo.CalculateMonthlyCashflowOpeningBalance(ctx, dbbilling.Scope{
+		Role:                query.ActorRole,
+		UserID:              query.ActorUserID,
+		AssignedPropertyIDs: query.AssignedPropertyIDs,
+	}, query.PropertyID, query.Year, query.Month)
+	if err != nil {
+		return 0, mapBillingReportRepositoryError(err)
+	}
+
+	return openingBalance, nil
 }
 
 type billingAccountingRepositoryAdapter struct {
@@ -701,5 +754,29 @@ func toAppBillReceipt(receipt *dbbilling.BillReceipt) *appbilling.BillReceipt {
 		PropertyName:         receipt.PropertyName,
 		RoomName:             receipt.RoomName,
 		TenantName:           receipt.TenantName,
+	}
+}
+
+func toAppMonthlyCashflow(cashflow *dbbilling.MonthlyCashflow) *appbilling.MonthlyCashflow {
+	if cashflow == nil {
+		return nil
+	}
+	rows := make([]appbilling.MonthlyCashflowEntry, 0, len(cashflow.Rows))
+	for i := range cashflow.Rows {
+		rows = append(rows, appbilling.MonthlyCashflowEntry{
+			Category:    cashflow.Rows[i].Category,
+			Description: cashflow.Rows[i].Description,
+			Amount:      cashflow.Rows[i].Amount,
+			SourceRef:   cashflow.Rows[i].SourceRef,
+			CreatedAt:   cashflow.Rows[i].CreatedAt,
+		})
+	}
+	return &appbilling.MonthlyCashflow{
+		PropertyID:   cashflow.PropertyID,
+		PropertyName: cashflow.PropertyName,
+		Year:         cashflow.Year,
+		Month:        cashflow.Month,
+		IsFinalized:  cashflow.IsFinalized,
+		Rows:         rows,
 	}
 }

@@ -2707,6 +2707,42 @@ func TestFinancialReportReadAllowsOwnerOwningProperty(t *testing.T) {
 	}
 }
 
+func TestFinancialReportCashflowExportReturnsHTMLWithHeaders(t *testing.T) {
+	engine := newTestEngineWithBilling(
+		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
+		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{},
+		"",
+		fakeJobRunsRepo{},
+		handler.BillingServices{FinancialReports: fakeBillingFinancialReports{
+			document: &reporthtml.Document{
+				HTML:     []byte("<html>cashflow</html>"),
+				Filename: "monthly-cashflow-demo-2026-05.html",
+			},
+		}},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/properties/"+testPropertyID1+"/financial-report/2026/5/cashflow-export?format=html", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if got := resp.Header().Get("Content-Type"); got != reporthtml.ContentType {
+		t.Fatalf("Content-Type = %q", got)
+	}
+	if got := resp.Header().Get("Content-Disposition"); got != `inline; filename="monthly-cashflow-demo-2026-05.html"` {
+		t.Fatalf("Content-Disposition = %q", got)
+	}
+	if resp.Body.String() != "<html>cashflow</html>" {
+		t.Fatalf("body = %q", resp.Body.String())
+	}
+}
+
 func TestTenantRosterExportReturnsHTMLWithHeaders(t *testing.T) {
 	engine := newTestEngineWithBilling(
 		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
@@ -4027,6 +4063,16 @@ func (f fakeBillingFinancialReports) ExportTenantRoster(_ context.Context, _ han
 }
 
 func (f fakeBillingFinancialReports) ExportBillReceipt(_ context.Context, _ handler.BillingReceiptInput) (*reporthtml.Document, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.document != nil {
+		return f.document, nil
+	}
+	return nil, apperr.ErrInternalServerError
+}
+
+func (f fakeBillingFinancialReports) ExportMonthlyCashflow(_ context.Context, _ handler.BillingMonthlyCashflowInput) (*reporthtml.Document, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
