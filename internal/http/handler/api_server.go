@@ -175,6 +175,7 @@ type BillingFinancialReportService interface {
 	GetFinancialReport(ctx context.Context, input BillingFinancialReportInput) (*BillingFinancialReport, error)
 	SendFinancialReport(ctx context.Context, input BillingFinancialReportInput) (*BillingFinancialReport, error)
 	ExportTenantRoster(ctx context.Context, input BillingTenantRosterInput) (*reporthtml.Document, error)
+	ExportBillReceipt(ctx context.Context, input BillingReceiptInput) (*reporthtml.Document, error)
 }
 
 type BillingListInput struct {
@@ -261,6 +262,14 @@ type BillingTenantRosterInput struct {
 	PropertyID          string
 	AsOf                *time.Time
 	IncludeVacant       bool
+	Format              string
+}
+
+type BillingReceiptInput struct {
+	ActorRole           string
+	ActorUserID         string
+	AssignedPropertyIDs []string
+	BillID              string
 	Format              string
 }
 
@@ -1458,6 +1467,34 @@ func (s *APIServer) ExportPropertyTenantRoster(c *gin.Context, id string, params
 		PropertyID:          id,
 		AsOf:                asOf,
 		IncludeVacant:       includeVacant,
+		Format:              format,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	writeHTMLDocument(c, document)
+}
+
+// ExportBillReceipt handles bill receipt runtime HTML export.
+func (s *APIServer) ExportBillReceipt(c *gin.Context, id string, params api.ExportBillReceiptParams) {
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	format := ""
+	if params.Format != nil {
+		format = string(*params.Format)
+	}
+
+	document, err := s.billing.FinancialReports.ExportBillReceipt(c.Request.Context(), BillingReceiptInput{
+		ActorRole:           principal.Role,
+		ActorUserID:         principal.UserID,
+		AssignedPropertyIDs: principal.AssignedPropertyIDs,
+		BillID:              id,
 		Format:              format,
 	})
 	if err != nil {

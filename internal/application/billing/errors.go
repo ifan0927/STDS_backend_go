@@ -15,6 +15,7 @@ const (
 	CodeBillStatusNotRecordable      = "BILL_STATUS_NOT_RECORDABLE"
 	CodeBillStatusNotPayable         = "BILL_STATUS_NOT_PAYABLE"
 	CodeBillPaidAmountMismatch       = "BILL_PAID_AMOUNT_MISMATCH"
+	CodeBillReceiptNotExportable     = "BILL_RECEIPT_NOT_EXPORTABLE"
 	CodeFinancialReportNotFound      = "FINANCIAL_REPORT_NOT_FOUND"
 )
 
@@ -48,6 +49,11 @@ var (
 		CodeBillPaidAmountMismatch,
 		http.StatusUnprocessableEntity,
 		"Paid amount must equal bill amount.",
+	)
+	ErrBillReceiptNotExportable = apperr.New(
+		CodeBillReceiptNotExportable,
+		http.StatusBadRequest,
+		"Bill receipt can only be exported for paid rent or electricity bills.",
 	)
 	ErrFinancialReportNotFound = apperr.New(
 		CodeFinancialReportNotFound,

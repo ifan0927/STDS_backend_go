@@ -284,6 +284,11 @@ const (
 	WrittenOff     ListBillsParamsStatus = "written_off"
 )
 
+// Defines values for ExportBillReceiptParamsFormat.
+const (
+	ExportBillReceiptParamsFormatHtml ExportBillReceiptParamsFormat = "html"
+)
+
 // Defines values for ListLeasesParamsStatus.
 const (
 	ListLeasesParamsStatusActive          ListLeasesParamsStatus = "active"
@@ -301,7 +306,7 @@ const (
 
 // Defines values for ExportPropertyTenantRosterParamsFormat.
 const (
-	Html ExportPropertyTenantRosterParamsFormat = "html"
+	ExportPropertyTenantRosterParamsFormatHtml ExportPropertyTenantRosterParamsFormat = "html"
 )
 
 // Defines values for ListRepairRequestsParamsStatus.
@@ -1030,6 +1035,15 @@ type ListBillsParams struct {
 // ListBillsParamsStatus defines parameters for ListBills.
 type ListBillsParamsStatus string
 
+// ExportBillReceiptParams defines parameters for ExportBillReceipt.
+type ExportBillReceiptParams struct {
+	// Format Export format. The first version supports html only.
+	Format *ExportBillReceiptParamsFormat `form:"format,omitempty" json:"format,omitempty"`
+}
+
+// ExportBillReceiptParamsFormat defines parameters for ExportBillReceipt.
+type ExportBillReceiptParamsFormat string
+
 // RunForceTerminationCompensationJobParams defines parameters for RunForceTerminationCompensationJob.
 type RunForceTerminationCompensationJobParams struct {
 	WindowKey string `form:"window_key" json:"window_key"`
@@ -1297,6 +1311,9 @@ type ServerInterface interface {
 	// 收款確認（觸發 BillPaid event）
 	// (POST /bills/{id}/payment)
 	RecordBillPayment(c *gin.Context, id string)
+	// Export bill receipt as HTML
+	// (GET /bills/{id}/receipt)
+	ExportBillReceipt(c *gin.Context, id string, params ExportBillReceiptParams)
 	// 查詢強制終止進度
 	// (GET /force-terminations/{id})
 	GetForceTermination(c *gin.Context, id openapi_types.UUID)
@@ -1787,6 +1804,43 @@ func (siw *ServerInterfaceWrapper) RecordBillPayment(c *gin.Context) {
 	}
 
 	siw.Handler.RecordBillPayment(c, id)
+}
+
+// ExportBillReceipt operation middleware
+func (siw *ServerInterfaceWrapper) ExportBillReceipt(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Param("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(BearerAuthScopes, []string{})
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ExportBillReceiptParams
+
+	// ------------- Optional query parameter "format" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "format", c.Request.URL.Query(), &params.Format)
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter format: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ExportBillReceipt(c, id, params)
 }
 
 // GetForceTermination operation middleware
@@ -3990,6 +4044,7 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.POST(options.BaseURL+"/bills/:id/attachments", wrapper.CreateBillAttachment)
 	router.POST(options.BaseURL+"/bills/:id/meter", wrapper.SubmitBillMeter)
 	router.POST(options.BaseURL+"/bills/:id/payment", wrapper.RecordBillPayment)
+	router.GET(options.BaseURL+"/bills/:id/receipt", wrapper.ExportBillReceipt)
 	router.GET(options.BaseURL+"/force-terminations/:id", wrapper.GetForceTermination)
 	router.POST(options.BaseURL+"/internal/jobs/force-terminations/compensate", wrapper.RunForceTerminationCompensationJob)
 	router.POST(options.BaseURL+"/internal/jobs/leases/expire", wrapper.RunLeaseExpiryJob)

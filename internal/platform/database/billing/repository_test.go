@@ -141,6 +141,59 @@ func TestListTenantRosterRowsKeepsOverdueDueDateForNonMonthlyCadence(t *testing.
 	}
 }
 
+func TestFindBillReceiptReturnsDisplayData(t *testing.T) {
+	db, mock, repo := newBillingRepoTest(t)
+	defer closeBillingDB(t, db)
+
+	amount := 860
+	paidAmount := 860
+	previous := 1280
+	current := 1452
+	unitPrice := 5.0
+	periodStart := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	periodEnd := time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC)
+	mock.ExpectQuery(`(?s)SELECT\s+b.id,\s+b.type,\s+b.status,\s+b.amount,\s+b.paid_amount,\s+b.period_start,\s+b.period_end,\s+b.meter_previous_reading,\s+b.meter_current_reading,\s+b.meter_unit_price,\s+p.name,\s+rooms.name,\s+t.name\s+FROM bills b\s+JOIN properties p ON p.id = b.property_id AND p.deleted_at IS NULL\s+JOIN rooms ON rooms.id = b.room_id AND rooms.deleted_at IS NULL\s+LEFT JOIN tenants t ON t.id = b.tenant_id AND t.deleted_at IS NULL\s+WHERE b.id = \$1\s+AND b.deleted_at IS NULL\s+AND p.id IN \(\$2\)`).
+		WithArgs("bill-1", "property-1").
+		WillReturnRows(billReceiptRows().AddRow("bill-1", "electricity", "paid", amount, paidAmount, periodStart, periodEnd, previous, current, unitPrice, "Demo Property", "101", "Alice"))
+
+	receipt, err := repo.FindBillReceipt(context.Background(), Scope{
+		Role:                "staff",
+		AssignedPropertyIDs: []string{"property-1"},
+	}, "bill-1")
+	if err != nil {
+		t.Fatalf("FindBillReceipt: %v", err)
+	}
+	if receipt.BillID != "bill-1" || receipt.PropertyName != "Demo Property" || receipt.RoomName != "101" || receipt.TenantName != "Alice" {
+		t.Fatalf("unexpected receipt display data: %+v", receipt)
+	}
+	if receipt.Amount == nil || *receipt.Amount != amount || receipt.PaidAmount == nil || *receipt.PaidAmount != paidAmount {
+		t.Fatalf("unexpected amounts: %+v", receipt)
+	}
+	if receipt.MeterPreviousReading == nil || *receipt.MeterPreviousReading != previous || receipt.MeterCurrentReading == nil || *receipt.MeterCurrentReading != current {
+		t.Fatalf("unexpected meter readings: %+v", receipt)
+	}
+	if receipt.MeterUnitPrice == nil || *receipt.MeterUnitPrice != unitPrice {
+		t.Fatalf("MeterUnitPrice = %v, want %v", receipt.MeterUnitPrice, unitPrice)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestFindBillReceiptEmptyAssignedScopeReturnsNotFoundWithoutQuery(t *testing.T) {
+	db, mock, repo := newBillingRepoTest(t)
+	defer closeBillingDB(t, db)
+
+	_, err := repo.FindBillReceipt(context.Background(), Scope{Role: "staff"}, "bill-1")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("FindBillReceipt error = %v, want ErrNotFound", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
 func TestListAccessibleOrganizerWithNoAssignedPropertiesReturnsEmpty(t *testing.T) {
 	db, mock, repo := newBillingRepoTest(t)
 	defer closeBillingDB(t, db)
@@ -1032,6 +1085,24 @@ func tenantRosterRows() *sqlmock.Rows {
 		"next_rent_due_date",
 		"rent_billing_cadence",
 		"rent_amount",
+	})
+}
+
+func billReceiptRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{
+		"bill_id",
+		"bill_type",
+		"bill_status",
+		"amount",
+		"paid_amount",
+		"period_start",
+		"period_end",
+		"meter_previous_reading",
+		"meter_current_reading",
+		"meter_unit_price",
+		"property_name",
+		"room_name",
+		"tenant_name",
 	})
 }
 

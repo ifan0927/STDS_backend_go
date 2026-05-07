@@ -17,3 +17,12 @@ func MustNewTenantRosterRenderer() reporthtml.Renderer {
 	}
 	return renderer
 }
+
+// MustNewBillReceiptRenderer returns the renderer for bill receipt templates.
+func MustNewBillReceiptRenderer() reporthtml.Renderer {
+	renderer, err := reporthtml.NewTemplateRenderer(reportTemplateFS, "templates/*.html")
+	if err != nil {
+		panic(err)
+	}
+	return renderer
+}

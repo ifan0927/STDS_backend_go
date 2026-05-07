@@ -9,6 +9,8 @@ import (
 
 	"github.com/google/uuid"
 
+	domainbilling "stds_backend/internal/domain/billing"
+
 	domainevents "stds_backend/internal/domain/events"
 	"stds_backend/internal/shared/apperr"
 	"stds_backend/internal/shared/reporthtml"
@@ -84,6 +86,14 @@ type TenantRosterQuery struct {
 	IncludeVacant       bool
 }
 
+// BillReceiptQuery defines role scoping for bill receipt export.
+type BillReceiptQuery struct {
+	ActorRole           string
+	ActorUserID         string
+	AssignedPropertyIDs []string
+	BillID              string
+}
+
 // FinancialReportSummary is the application read model for report summary rows.
 type FinancialReportSummary struct {
 	Year         int
@@ -128,6 +138,23 @@ type TenantRosterRow struct {
 	ReportNotes        *string
 }
 
+// BillReceipt is the application read model for one bill receipt export.
+type BillReceipt struct {
+	BillID               string
+	BillType             string
+	BillStatus           string
+	Amount               *int
+	PaidAmount           *int
+	PeriodStart          time.Time
+	PeriodEnd            time.Time
+	MeterPreviousReading *int
+	MeterCurrentReading  *int
+	MeterUnitPrice       *float64
+	PropertyName         string
+	RoomName             string
+	TenantName           string
+}
+
 // ReportRepository defines read operations required by billing report use cases.
 type ReportRepository interface {
 	ListPendingMeterBills(ctx context.Context, query PendingMeterQuery) ([]Bill, error)
@@ -137,6 +164,7 @@ type ReportRepository interface {
 	FindLiveFinancialReport(ctx context.Context, query FinancialReportQuery) (*FinancialReport, error)
 	FindSnapshotFinancialReport(ctx context.Context, query FinancialReportQuery) (*FinancialReport, error)
 	ListTenantRosterRows(ctx context.Context, query TenantRosterQuery) ([]TenantRosterRow, error)
+	FindBillReceipt(ctx context.Context, query BillReceiptQuery) (*BillReceipt, error)
 }
 
 // ListPendingMeterInput is the use-case input for property pending meter reads.
@@ -593,6 +621,102 @@ func (s *ExportTenantRosterService) normalizeTenantRosterQuery(input ExportTenan
 	}, nil
 }
 
+// ExportBillReceiptInput is the use-case input for bill receipt HTML export.
+type ExportBillReceiptInput struct {
+	ActorRole           string
+	ActorUserID         string
+	AssignedPropertyIDs []string
+	BillID              string
+	Format              string
+}
+
+// ExportBillReceiptService renders one paid rent or electricity bill receipt as HTML.
+type ExportBillReceiptService struct {
+	repo     ReportRepository
+	renderer reporthtml.Renderer
+}
+
+// NewExportBillReceiptService returns an ExportBillReceiptService.
+func NewExportBillReceiptService(repo ReportRepository, renderer reporthtml.Renderer) *ExportBillReceiptService {
+	return &ExportBillReceiptService{repo: repo, renderer: renderer}
+}
+
+// Execute validates bill receipt export scope and renders the HTML document.
+func (s *ExportBillReceiptService) Execute(ctx context.Context, input ExportBillReceiptInput) (*reporthtml.Document, error) {
+	query, err := normalizeBillReceiptQuery(input)
+	if err != nil {
+		return nil, err
+	}
+	if s.renderer == nil {
+		return nil, apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "bill_receipt_renderer"})
+	}
+
+	receipt, err := s.repo.FindBillReceipt(ctx, query)
+	if err != nil {
+		return nil, mapReportRepositoryError(err)
+	}
+	if receipt == nil {
+		return nil, apperr.ErrBillNotFound
+	}
+	if err := validateBillReceiptExportable(receipt); err != nil {
+		return nil, err
+	}
+
+	view := newBillReceiptView(*receipt)
+	html, err := s.renderer.Render("bill_receipt.html", view)
+	if err != nil {
+		return nil, apperr.ErrInternalServerError.WithCause(err).WithDetails(map[string]interface{}{"dependency": "bill_receipt_renderer"})
+	}
+
+	return &reporthtml.Document{
+		HTML:     html,
+		Filename: reporthtml.HTMLFilename("bill-receipt", receipt.BillType, receipt.RoomName, receipt.PeriodStart.Format("2006-01-02")),
+	}, nil
+}
+
+func normalizeBillReceiptQuery(input ExportBillReceiptInput) (BillReceiptQuery, error) {
+	actorRole, err := normalizeFinancialReportReadRole(input.ActorRole)
+	if err != nil {
+		return BillReceiptQuery{}, err
+	}
+	billID, err := normalizeRequiredUUID(input.BillID, "id", apperr.ErrBillNotFound)
+	if err != nil {
+		return BillReceiptQuery{}, err
+	}
+	format := strings.ToLower(strings.TrimSpace(input.Format))
+	if format == "" {
+		format = "html"
+	}
+	if format != "html" {
+		return BillReceiptQuery{}, apperr.ErrBadRequest.WithDetails(map[string]interface{}{"field": "format"})
+	}
+	return BillReceiptQuery{
+		ActorRole:           actorRole,
+		ActorUserID:         strings.TrimSpace(input.ActorUserID),
+		AssignedPropertyIDs: cloneStrings(input.AssignedPropertyIDs),
+		BillID:              billID,
+	}, nil
+}
+
+func validateBillReceiptExportable(receipt *BillReceipt) error {
+	if receipt.BillStatus != domainbilling.StatusPaid {
+		return ErrBillReceiptNotExportable.WithDetails(map[string]interface{}{"status": receipt.BillStatus})
+	}
+	switch receipt.BillType {
+	case domainbilling.TypeRent:
+		if receipt.Amount == nil {
+			return apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "bill_receipt_amount"})
+		}
+	case domainbilling.TypeElectricity:
+		if receipt.Amount == nil || receipt.MeterPreviousReading == nil || receipt.MeterCurrentReading == nil || receipt.MeterUnitPrice == nil {
+			return ErrBillReceiptNotExportable.WithDetails(map[string]interface{}{"type": receipt.BillType})
+		}
+	default:
+		return ErrBillReceiptNotExportable.WithDetails(map[string]interface{}{"type": receipt.BillType})
+	}
+	return nil
+}
+
 func currentReportDate(clock Clock) time.Time {
 	now := clock.Now().In(taiwanReportLocation)
 	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, taiwanReportLocation)
@@ -620,6 +744,31 @@ type tenantRosterViewRow struct {
 	Notes                string
 }
 
+type billReceiptView struct {
+	Title         string
+	EnglishTitle  string
+	Copies        []billReceiptCopyView
+	IsRent        bool
+	IsElectricity bool
+}
+
+type billReceiptCopyView struct {
+	CopyLabel            string
+	PropertyName         string
+	RoomName             string
+	TenantName           string
+	PeriodLabel          string
+	ReceiptDate          string
+	Collector            string
+	ItemLabel            string
+	Description          string
+	AmountLabel          string
+	PreviousReadingLabel string
+	CurrentReadingLabel  string
+	UsageLabel           string
+	UnitPriceLabel       string
+}
+
 func newTenantRosterView(asOf time.Time, rows []TenantRosterRow) tenantRosterView {
 	propertyName := ""
 	if len(rows) > 0 {
@@ -645,6 +794,76 @@ func newTenantRosterView(asOf time.Time, rows []TenantRosterRow) tenantRosterVie
 		})
 	}
 	return view
+}
+
+func newBillReceiptView(receipt BillReceipt) billReceiptView {
+	view := billReceiptView{
+		Title:         billReceiptTitle(receipt.BillType),
+		EnglishTitle:  billReceiptEnglishTitle(receipt.BillType),
+		IsRent:        receipt.BillType == domainbilling.TypeRent,
+		IsElectricity: receipt.BillType == domainbilling.TypeElectricity,
+		Copies:        make([]billReceiptCopyView, 0, 2),
+	}
+	for _, copyLabel := range []string{"客戶聯", "存根聯"} {
+		view.Copies = append(view.Copies, newBillReceiptCopyView(receipt, copyLabel))
+	}
+	return view
+}
+
+func newBillReceiptCopyView(receipt BillReceipt, copyLabel string) billReceiptCopyView {
+	amount := 0
+	if receipt.Amount != nil {
+		amount = *receipt.Amount
+	}
+	view := billReceiptCopyView{
+		CopyLabel:    copyLabel,
+		PropertyName: receipt.PropertyName,
+		RoomName:     receipt.RoomName,
+		TenantName:   receipt.TenantName,
+		PeriodLabel:  receipt.PeriodStart.Format("2006-01-02") + " 至 " + receipt.PeriodEnd.Format("2006-01-02"),
+		ReceiptDate:  "",
+		Collector:    "",
+		ItemLabel:    billReceiptItemLabel(receipt.BillType),
+		Description:  billReceiptDescription(receipt),
+		AmountLabel:  moneyLabel(amount),
+	}
+	if receipt.BillType == domainbilling.TypeElectricity {
+		previous := intPtrValue(receipt.MeterPreviousReading)
+		current := intPtrValue(receipt.MeterCurrentReading)
+		view.PreviousReadingLabel = numberLabel(previous)
+		view.CurrentReadingLabel = numberLabel(current)
+		view.UsageLabel = numberLabel(current - previous)
+		view.UnitPriceLabel = unitPriceLabel(receipt.MeterUnitPrice)
+	}
+	return view
+}
+
+func billReceiptTitle(billType string) string {
+	if billType == domainbilling.TypeElectricity {
+		return "電費收據"
+	}
+	return "租金收據"
+}
+
+func billReceiptEnglishTitle(billType string) string {
+	if billType == domainbilling.TypeElectricity {
+		return "Electricity Receipt"
+	}
+	return "Rent Receipt"
+}
+
+func billReceiptItemLabel(billType string) string {
+	if billType == domainbilling.TypeElectricity {
+		return "電費"
+	}
+	return "租金"
+}
+
+func billReceiptDescription(receipt BillReceipt) string {
+	if receipt.BillType == domainbilling.TypeElectricity {
+		return receipt.PeriodStart.Format("2006 年 1 月") + "電費"
+	}
+	return receipt.PeriodStart.Format("2006 年 1 月") + "租金"
 }
 
 func tenantRosterStatusLabel(row TenantRosterRow) string {
@@ -688,6 +907,43 @@ func intValue(value *int) string {
 		return ""
 	}
 	return strconv.Itoa(*value)
+}
+
+func intPtrValue(value *int) int {
+	if value == nil {
+		return 0
+	}
+	return *value
+}
+
+func moneyLabel(value int) string {
+	return "NT$ " + numberLabel(value)
+}
+
+func numberLabel(value int) string {
+	sign := ""
+	if value < 0 {
+		sign = "-"
+		value = -value
+	}
+	text := strconv.Itoa(value)
+	if len(text) <= 3 {
+		return sign + text
+	}
+	parts := make([]string, 0, len(text)/3+1)
+	for len(text) > 3 {
+		parts = append([]string{text[len(text)-3:]}, parts...)
+		text = text[:len(text)-3]
+	}
+	parts = append([]string{text}, parts...)
+	return sign + strings.Join(parts, ",")
+}
+
+func unitPriceLabel(value *float64) string {
+	if value == nil {
+		return ""
+	}
+	return "NT$ " + strconv.FormatFloat(*value, 'f', -1, 64)
 }
 
 func normalizeMeterReportRole(role string) (string, error) {
@@ -772,6 +1028,8 @@ func mapReportRepositoryError(err error) error {
 		return nil
 	}
 	switch {
+	case errors.Is(err, ErrBillNotFound):
+		return apperr.ErrBillNotFound
 	case errors.Is(err, ErrFinancialReportNotFoundRepository):
 		return ErrFinancialReportNotFound
 	default:

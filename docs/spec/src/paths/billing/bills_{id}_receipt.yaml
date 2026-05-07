@@ -1,0 +1,96 @@
+get:
+  operationId: exportBillReceipt
+  summary: Export bill receipt as HTML
+  description: |
+    x-required-role: admin, organizer, staff (assigned); owner (own property, read-only)
+    x-ownership-required: true
+
+    Runtime HTML receipt export for one paid rent or electricity bill. Generated HTML is returned directly and is not stored in GCS, attachments, or snapshots.
+    Reprints render stable bill fields from the bill row, including type, amount, period, status, payment amount, and meter fields.
+    Display labels such as property, room, and tenant name are read from current records at render time, so later name edits may appear on reprinted receipts.
+  tags:
+    - Billing
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+    - owner
+  x-ownership-required: true
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    - name: format
+      in: query
+      schema:
+        type: string
+        enum:
+          - html
+        default: html
+      description: Export format. The first version supports html only.
+  responses:
+    '200':
+      description: Bill receipt HTML document
+      headers:
+        Content-Disposition:
+          description: Browser preview filename hint.
+          schema:
+            type: string
+            example: inline; filename="bill-receipt-rent-101-2026-05-01.html"
+      content:
+        text/html; charset=utf-8:
+          schema:
+            type: string
+          examples:
+            success:
+              value: <!doctype html><html lang="zh-Hant"><body><h1>租金收據</h1></body></html>
+    '400':
+      description: Invalid query parameter or ineligible bill status
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            bad_request:
+              value:
+                error_code: BAD_REQUEST
+                message: Bad request.
+            not_exportable:
+              value:
+                error_code: BILL_RECEIPT_NOT_EXPORTABLE
+                message: Bill receipt can only be exported for paid rent or electricity bills.
+    '401':
+      description: Unauthenticated
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: Unauthorized.
+    '403':
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: Forbidden.
+    '404':
+      description: Bill not found
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: BILL_NOT_FOUND
+                message: Bill not found.

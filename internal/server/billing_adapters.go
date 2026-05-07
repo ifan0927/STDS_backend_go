@@ -34,6 +34,7 @@ func newBillingServices(db *sql.DB, txRunner *dbtxrunner.Runner, publisher domai
 			get:          appbilling.NewGetFinancialReportService(reportRepo, nil),
 			send:         appbilling.NewSendFinancialReportService(reportRepo, publisher, nil),
 			tenantRoster: appbilling.NewExportTenantRosterService(reportRepo, appbilling.MustNewTenantRosterRenderer(), nil),
+			billReceipt:  appbilling.NewExportBillReceiptService(reportRepo, appbilling.MustNewBillReceiptRenderer()),
 		},
 	}
 }
@@ -177,6 +178,7 @@ type billingFinancialReportServiceAdapter struct {
 	get          *appbilling.GetFinancialReportService
 	send         *appbilling.SendFinancialReportService
 	tenantRoster *appbilling.ExportTenantRosterService
+	billReceipt  *appbilling.ExportBillReceiptService
 }
 
 func (a billingFinancialReportServiceAdapter) ListFinancialReportSummaries(ctx context.Context, input handler.BillingFinancialReportSummaryInput) ([]handler.BillingFinancialReportSummary, error) {
@@ -234,6 +236,16 @@ func (a billingFinancialReportServiceAdapter) ExportTenantRoster(ctx context.Con
 		PropertyID:          input.PropertyID,
 		AsOf:                input.AsOf,
 		IncludeVacant:       input.IncludeVacant,
+		Format:              input.Format,
+	})
+}
+
+func (a billingFinancialReportServiceAdapter) ExportBillReceipt(ctx context.Context, input handler.BillingReceiptInput) (*reporthtml.Document, error) {
+	return a.billReceipt.Execute(ctx, appbilling.ExportBillReceiptInput{
+		ActorRole:           input.ActorRole,
+		ActorUserID:         input.ActorUserID,
+		AssignedPropertyIDs: input.AssignedPropertyIDs,
+		BillID:              input.BillID,
 		Format:              input.Format,
 	})
 }
@@ -438,6 +450,19 @@ func (a billingReportRepositoryAdapter) ListTenantRosterRows(ctx context.Context
 	}
 
 	return toAppTenantRosterRows(rows), nil
+}
+
+func (a billingReportRepositoryAdapter) FindBillReceipt(ctx context.Context, query appbilling.BillReceiptQuery) (*appbilling.BillReceipt, error) {
+	receipt, err := a.repo.FindBillReceipt(ctx, dbbilling.Scope{
+		Role:                query.ActorRole,
+		UserID:              query.ActorUserID,
+		AssignedPropertyIDs: query.AssignedPropertyIDs,
+	}, query.BillID)
+	if err != nil {
+		return nil, mapBillingRepositoryError(err)
+	}
+
+	return toAppBillReceipt(receipt), nil
 }
 
 type billingAccountingRepositoryAdapter struct {
@@ -655,4 +680,25 @@ func toAppTenantRosterRows(rows []dbbilling.TenantRosterRow) []appbilling.Tenant
 		})
 	}
 	return result
+}
+
+func toAppBillReceipt(receipt *dbbilling.BillReceipt) *appbilling.BillReceipt {
+	if receipt == nil {
+		return nil
+	}
+	return &appbilling.BillReceipt{
+		BillID:               receipt.BillID,
+		BillType:             receipt.BillType,
+		BillStatus:           receipt.BillStatus,
+		Amount:               receipt.Amount,
+		PaidAmount:           receipt.PaidAmount,
+		PeriodStart:          receipt.PeriodStart,
+		PeriodEnd:            receipt.PeriodEnd,
+		MeterPreviousReading: receipt.MeterPreviousReading,
+		MeterCurrentReading:  receipt.MeterCurrentReading,
+		MeterUnitPrice:       receipt.MeterUnitPrice,
+		PropertyName:         receipt.PropertyName,
+		RoomName:             receipt.RoomName,
+		TenantName:           receipt.TenantName,
+	}
 }

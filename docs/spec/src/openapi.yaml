@@ -131,6 +131,8 @@ paths:
     $ref: paths/billing/bills.yaml
   /bills/{id}:
     $ref: paths/billing/bills_{id}.yaml
+  /bills/{id}/receipt:
+    $ref: paths/billing/bills_{id}_receipt.yaml
   /bills/{id}/attachments:
     $ref: paths/billing/bills_{id}_attachments.yaml
   /bills/{id}/meter:

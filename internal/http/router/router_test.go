@@ -2644,6 +2644,41 @@ func TestGetBillResolvesPropertyAccessThroughOwnershipQuery(t *testing.T) {
 	}
 }
 
+func TestBillReceiptExportResolvesPropertyAccessThroughOwnershipQuery(t *testing.T) {
+	repo := fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}}
+	var capturedBillID string
+	engine := newTestEngineWithBilling(repo, fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}}, fakePropertyRepo{}, fakeResourceOwnershipRepo{
+		propertyByBillID: map[string]string{
+			testBillID1: testPropertyID1,
+		},
+		billIDLookup: &capturedBillID,
+	}, "", fakeJobRunsRepo{}, handler.BillingServices{FinancialReports: fakeBillingFinancialReports{
+		document: &reporthtml.Document{
+			HTML:     []byte("<html>receipt</html>"),
+			Filename: "bill-receipt-rent-101-2026-05-01.html",
+		},
+	}})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/bills/"+testBillID1+"/receipt?format=html", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if capturedBillID != testBillID1 {
+		t.Fatalf("ownership lookup bill id = %q, want %q", capturedBillID, testBillID1)
+	}
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if got := resp.Header().Get("Content-Type"); got != reporthtml.ContentType {
+		t.Fatalf("Content-Type = %q", got)
+	}
+	if resp.Body.String() != "<html>receipt</html>" {
+		t.Fatalf("body = %q", resp.Body.String())
+	}
+}
+
 func TestFinancialReportReadAllowsOwnerOwningProperty(t *testing.T) {
 	engine := newTestEngine(
 		fakeUserRepo{role: "owner", userID: "owner-1"},
@@ -3979,6 +4014,16 @@ func (f fakeBillingFinancialReports) SendFinancialReport(_ context.Context, _ ha
 }
 
 func (f fakeBillingFinancialReports) ExportTenantRoster(_ context.Context, _ handler.BillingTenantRosterInput) (*reporthtml.Document, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.document != nil {
+		return f.document, nil
+	}
+	return nil, apperr.ErrInternalServerError
+}
+
+func (f fakeBillingFinancialReports) ExportBillReceipt(_ context.Context, _ handler.BillingReceiptInput) (*reporthtml.Document, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
