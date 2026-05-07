@@ -169,6 +169,9 @@ func TestFindBillReceiptReturnsDisplayData(t *testing.T) {
 	if receipt.Amount == nil || *receipt.Amount != amount || receipt.PaidAmount == nil || *receipt.PaidAmount != paidAmount {
 		t.Fatalf("unexpected amounts: %+v", receipt)
 	}
+	if !receipt.PeriodStart.Equal(periodStart) || !receipt.PeriodEnd.Equal(periodEnd) {
+		t.Fatalf("period = %s - %s, want %s - %s", receipt.PeriodStart, receipt.PeriodEnd, periodStart, periodEnd)
+	}
 	if receipt.MeterPreviousReading == nil || *receipt.MeterPreviousReading != previous || receipt.MeterCurrentReading == nil || *receipt.MeterCurrentReading != current {
 		t.Fatalf("unexpected meter readings: %+v", receipt)
 	}

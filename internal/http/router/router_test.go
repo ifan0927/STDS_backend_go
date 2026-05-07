@@ -2674,6 +2674,9 @@ func TestBillReceiptExportResolvesPropertyAccessThroughOwnershipQuery(t *testing
 	if got := resp.Header().Get("Content-Type"); got != reporthtml.ContentType {
 		t.Fatalf("Content-Type = %q", got)
 	}
+	if got := resp.Header().Get("Content-Disposition"); got != `inline; filename="bill-receipt-rent-101-2026-05-01.html"` {
+		t.Fatalf("Content-Disposition = %q", got)
+	}
 	if resp.Body.String() != "<html>receipt</html>" {
 		t.Fatalf("body = %q", resp.Body.String())
 	}

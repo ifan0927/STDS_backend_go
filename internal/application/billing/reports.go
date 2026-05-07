@@ -708,7 +708,10 @@ func validateBillReceiptExportable(receipt *BillReceipt) error {
 			return apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "bill_receipt_amount"})
 		}
 	case domainbilling.TypeElectricity:
-		if receipt.Amount == nil || receipt.MeterPreviousReading == nil || receipt.MeterCurrentReading == nil || receipt.MeterUnitPrice == nil {
+		if receipt.Amount == nil {
+			return apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "bill_receipt_amount"})
+		}
+		if receipt.MeterPreviousReading == nil || receipt.MeterCurrentReading == nil || receipt.MeterUnitPrice == nil {
 			return ErrBillReceiptNotExportable.WithDetails(map[string]interface{}{"type": receipt.BillType})
 		}
 	default:

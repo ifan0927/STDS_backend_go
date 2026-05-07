@@ -94,3 +94,14 @@ get:
               value:
                 error_code: BILL_NOT_FOUND
                 message: Bill not found.
+    '500':
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            internal_server_error:
+              value:
+                error_code: INTERNAL_SERVER_ERROR
+                message: Internal server error.

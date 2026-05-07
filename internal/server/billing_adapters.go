@@ -459,6 +459,7 @@ func (a billingReportRepositoryAdapter) FindBillReceipt(ctx context.Context, que
 		AssignedPropertyIDs: query.AssignedPropertyIDs,
 	}, query.BillID)
 	if err != nil {
+		// Preserve bill-not-found semantics; report not-found mapping is financial-report specific.
 		return nil, mapBillingRepositoryError(err)
 	}
 

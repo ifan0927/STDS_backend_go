@@ -842,6 +842,12 @@ func TestExportBillReceiptReturnsHTMLDocument(t *testing.T) {
 	if reports.receiptInput.BillID != "30000000-0000-0000-0000-000000000001" || reports.receiptInput.ActorRole != "staff" {
 		t.Fatalf("unexpected receipt input: %+v", reports.receiptInput)
 	}
+	if reports.receiptInput.ActorUserID != "user-1" {
+		t.Fatalf("ActorUserID = %q, want user-1", reports.receiptInput.ActorUserID)
+	}
+	if len(reports.receiptInput.AssignedPropertyIDs) != 1 || reports.receiptInput.AssignedPropertyIDs[0] != "10000000-0000-0000-0000-000000000001" {
+		t.Fatalf("AssignedPropertyIDs = %+v, want property scope", reports.receiptInput.AssignedPropertyIDs)
+	}
 	if reports.receiptInput.Format != "html" {
 		t.Fatalf("Format = %q, want html", reports.receiptInput.Format)
 	}

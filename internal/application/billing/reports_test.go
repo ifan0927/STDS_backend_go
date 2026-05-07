@@ -582,6 +582,29 @@ func TestExportBillReceiptRejectsIneligibleStatusAndUnsupportedFormat(t *testing
 	}
 }
 
+func TestExportBillReceiptTreatsPaidElectricityMissingAmountAsInternalError(t *testing.T) {
+	previous := 1280
+	current := 1452
+	unitPrice := 5.0
+	repo := &reportRepositoryStub{
+		billReceipt: &BillReceipt{
+			BillID:               testBillID,
+			BillType:             "electricity",
+			BillStatus:           "paid",
+			MeterPreviousReading: &previous,
+			MeterCurrentReading:  &current,
+			MeterUnitPrice:       &unitPrice,
+		},
+	}
+	service := NewExportBillReceiptService(repo, &recordingReportRenderer{html: []byte("<html></html>")})
+
+	_, err := service.Execute(context.Background(), ExportBillReceiptInput{
+		ActorRole: "staff",
+		BillID:    testBillID,
+	})
+	assertAppErrorCode(t, err, apperr.CodeInternalServerError)
+}
+
 func TestExportBillReceiptRendererFailureMapsInternalError(t *testing.T) {
 	amount := 18000
 	repo := &reportRepositoryStub{
