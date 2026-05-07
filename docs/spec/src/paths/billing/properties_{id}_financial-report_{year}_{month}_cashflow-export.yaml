@@ -1,6 +1,6 @@
 get:
   operationId: exportPropertyFinancialReportCashflow
-  summary: 月收支明細 HTML 匯出
+  summary: Export monthly cashflow detail as HTML
   description: |
     x-required-role: admin, organizer, staff（指派）; owner（自己名下，唯讀）
     x-ownership-required: true
@@ -38,10 +38,10 @@ get:
         enum:
           - html
         default: html
-      description: 匯出格式；第一版僅支援 html。
+      description: Export format; v1 supports html only.
   responses:
     '200':
-      description: 月收支明細 HTML 文件
+      description: Monthly cashflow detail HTML document.
       headers:
         Content-Disposition:
           description: Browser preview filename hint.
@@ -56,7 +56,7 @@ get:
             success:
               value: "<!doctype html><html><body><h1>Monthly Cashflow</h1></body></html>"
     '400':
-      description: 查詢參數格式錯誤
+      description: Invalid query parameter format.
       content:
         application/json:
           schema:
@@ -98,7 +98,7 @@ get:
             not_found:
               value:
                 error_code: FINANCIAL_REPORT_NOT_FOUND
-                message: 該月份財報不存在
+                message: Financial report for the requested month was not found.
     '500':
       description: HTML render failure
       content:

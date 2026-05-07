@@ -1109,7 +1109,7 @@ type GetPropertyFinancialReportSummaryParams struct {
 
 // ExportPropertyFinancialReportCashflowParams defines parameters for ExportPropertyFinancialReportCashflow.
 type ExportPropertyFinancialReportCashflowParams struct {
-	// Format 匯出格式；第一版僅支援 html。
+	// Format Export format; v1 supports html only.
 	Format *ExportPropertyFinancialReportCashflowParamsFormat `form:"format,omitempty" json:"format,omitempty"`
 }
 
@@ -1430,7 +1430,7 @@ type ServerInterface interface {
 	// 特定月份財報詳情
 	// (GET /properties/{id}/financial-report/{year}/{month})
 	GetPropertyFinancialReport(c *gin.Context, id string, year int, month int)
-	// 月收支明細 HTML 匯出
+	// Export monthly cashflow detail as HTML
 	// (GET /properties/{id}/financial-report/{year}/{month}/cashflow-export)
 	ExportPropertyFinancialReportCashflow(c *gin.Context, id string, year int, month int, params ExportPropertyFinancialReportCashflowParams)
 	// 財報審核後寄送給業主

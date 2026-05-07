@@ -935,16 +935,20 @@ type monthlyCashflowViewRow struct {
 func newMonthlyCashflowView(cashflow MonthlyCashflow, openingBalance int) monthlyCashflowView {
 	periodLabel := strconv.Itoa(cashflow.Year) + "-" + twoDigit(cashflow.Month)
 	view := monthlyCashflowView{
-		Title:               cashflow.PropertyName + "收支表 (" + strconv.Itoa(cashflow.Year) + "/" + strconv.Itoa(cashflow.Month) + ")",
+		Title:               cashflow.PropertyName + "收支表 (" + strconv.Itoa(cashflow.Year) + "/" + twoDigit(cashflow.Month) + ")",
 		PropertyName:        cashflow.PropertyName,
 		PeriodLabel:         periodLabel,
 		OpeningBalanceLabel: moneyLabel(openingBalance),
 		Rows:                make([]monthlyCashflowViewRow, 0, len(cashflow.Rows)),
 	}
 	runningBalance := openingBalance
+	totalIncome := 0
+	totalExpense := 0
 	for _, row := range cashflow.Rows {
 		income, expense := cashflowIncomeExpense(row.Category, row.Amount)
 		runningBalance += income - expense
+		totalIncome += income
+		totalExpense += expense
 		view.Rows = append(view.Rows, monthlyCashflowViewRow{
 			DateLabel:    row.CreatedAt.In(taiwanReportLocation).Format("01/02"),
 			SubjectLabel: cashflowCategoryLabel(row.Category),
@@ -953,13 +957,6 @@ func newMonthlyCashflowView(cashflow MonthlyCashflow, openingBalance int) monthl
 			BalanceLabel: moneyLabel(runningBalance),
 			Note:         cashflowNote(row),
 		})
-	}
-	totalIncome := 0
-	totalExpense := 0
-	for _, row := range cashflow.Rows {
-		income, expense := cashflowIncomeExpense(row.Category, row.Amount)
-		totalIncome += income
-		totalExpense += expense
 	}
 	view.MonthlyIncomeTotalLabel = moneyLabel(totalIncome)
 	view.MonthlyExpenseTotalLabel = moneyLabel(totalExpense)
@@ -1010,14 +1007,26 @@ func cashflowCategoryLabel(category string) string {
 }
 
 func cashflowNote(row MonthlyCashflowEntry) string {
-	parts := make([]string, 0, 2)
 	if description := stringValue(row.Description); description != "" {
-		parts = append(parts, description)
+		return description
 	}
-	if len(row.SourceRef) > 0 && string(row.SourceRef) != "null" {
-		parts = append(parts, string(row.SourceRef))
+
+	return cashflowSourceRefNote(row.SourceRef)
+}
+
+func cashflowSourceRefNote(sourceRef json.RawMessage) string {
+	if len(sourceRef) == 0 || string(sourceRef) == "null" {
+		return ""
 	}
-	return strings.Join(parts, " ")
+
+	var values map[string]string
+	if err := json.Unmarshal(sourceRef, &values); err != nil {
+		return ""
+	}
+	if reason := strings.TrimSpace(values["reason"]); reason != "" {
+		return reason
+	}
+	return ""
 }
 
 func absValue(value int) int {

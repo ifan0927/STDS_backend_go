@@ -638,6 +638,7 @@ func TestExportMonthlyCashflowUsesCurrentMonthLiveRowsAndRunningBalance(t *testi
 				{
 					Category:  "journal_expense",
 					Amount:    -2500,
+					SourceRef: []byte(`{"journal_log_id":"journal-1"}`),
 					CreatedAt: time.Date(2026, 5, 5, 10, 0, 0, 0, time.UTC),
 				},
 			},
@@ -672,7 +673,7 @@ func TestExportMonthlyCashflowUsesCurrentMonthLiveRowsAndRunningBalance(t *testi
 	if !ok {
 		t.Fatalf("renderer data = %T, want monthlyCashflowView", renderer.data)
 	}
-	if view.Title != "Demo Property收支表 (2026/5)" || view.PeriodLabel != "2026-05" {
+	if view.Title != "Demo Property收支表 (2026/05)" || view.PeriodLabel != "2026-05" {
 		t.Fatalf("unexpected view metadata: %+v", view)
 	}
 	if view.OpeningBalanceLabel != "NT$ 1,000" || view.MonthlyIncomeTotalLabel != "NT$ 18,000" || view.MonthlyExpenseTotalLabel != "NT$ 2,500" || view.EndingBalanceLabel != "NT$ 16,500" {
@@ -681,8 +682,11 @@ func TestExportMonthlyCashflowUsesCurrentMonthLiveRowsAndRunningBalance(t *testi
 	if len(view.Rows) != 2 || view.Rows[0].BalanceLabel != "NT$ 19,000" || view.Rows[1].BalanceLabel != "NT$ 16,500" {
 		t.Fatalf("unexpected rows: %+v", view.Rows)
 	}
-	if view.Rows[0].SubjectLabel != "租金收入" || view.Rows[0].Note != `101 2026-05 rent {"bill_id":"bill-1"}` {
+	if view.Rows[0].SubjectLabel != "租金收入" || view.Rows[0].Note != "101 2026-05 rent" {
 		t.Fatalf("unexpected first row: %+v", view.Rows[0])
+	}
+	if view.Rows[1].Note != "" {
+		t.Fatalf("second row note = %q, want empty note without raw source_ref JSON", view.Rows[1].Note)
 	}
 	if document.Filename != "monthly-cashflow-demo-property-2026-05.html" {
 		t.Fatalf("filename = %q", document.Filename)
