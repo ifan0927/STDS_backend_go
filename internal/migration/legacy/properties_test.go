@@ -266,7 +266,10 @@ LIMIT 1
 	if err := json.Unmarshal(content, &persisted); err != nil {
 		t.Fatalf("json.Unmarshal(report) error = %v", err)
 	}
-	if persisted.AlreadyMappedRows != report.AlreadyMappedRows || persisted.ImportedRows != report.ImportedRows || persisted.MappingsCreated != report.MappingsCreated {
+	if persisted.EligibleRows != report.EligibleRows ||
+		persisted.AlreadyMappedRows != report.AlreadyMappedRows ||
+		persisted.ImportedRows != report.ImportedRows ||
+		persisted.MappingsCreated != report.MappingsCreated {
 		t.Fatalf("persisted report counts = %+v, want returned counts %+v", persisted, report)
 	}
 
