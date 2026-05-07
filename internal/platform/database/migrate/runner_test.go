@@ -440,11 +440,12 @@ ORDER BY `+categoryColumn)
 func tableExists(t *testing.T, ctx context.Context, db *sql.DB, tableName string) bool {
 	t.Helper()
 
-	var exists bool
-	if err := db.QueryRowContext(ctx, `SELECT to_regclass($1) IS NOT NULL`, tableName).Scan(&exists); err != nil {
-		t.Fatalf("check table %s exists: %v", tableName, err)
-	}
-	return exists
+	return queryInt(t, ctx, db, `
+SELECT COUNT(*)
+FROM information_schema.tables
+WHERE table_schema = current_schema()
+  AND table_name = $1
+`, tableName) != 0
 }
 
 func assertColumnAbsent(t *testing.T, ctx context.Context, db *sql.DB, tableName string, columnName string) {
