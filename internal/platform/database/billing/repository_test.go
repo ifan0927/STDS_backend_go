@@ -786,6 +786,86 @@ func TestGetFinancialReportLiveNoPropertyAccountReturnsNotFound(t *testing.T) {
 	}
 }
 
+func TestGetMonthlyCashflowFinalizedMapsSnapshotRows(t *testing.T) {
+	db, mock, repo := newBillingRepoTest(t)
+	defer closeBillingDB(t, db)
+
+	createdAt := time.Date(2026, 4, 30, 23, 0, 0, 0, time.UTC)
+	mock.ExpectQuery(`(?s)FROM monthly_snapshots ms\s+JOIN properties p ON p.id = ms.property_id AND p.deleted_at IS NULL\s+LEFT JOIN monthly_snapshot_entries mse ON mse.snapshot_id = ms.id\s+WHERE ms.property_id = \$1\s+AND ms.year = \$2\s+AND ms.month = \$3`).
+		WithArgs("property-1", 2026, 4).
+		WillReturnRows(monthlyCashflowRows().
+			AddRow("property-1", "Demo Property", 2026, 4, "entry-1", "rent_payment", "rent", 12000, []byte(`{"bill_id":"bill-1"}`), createdAt).
+			AddRow("property-1", "Demo Property", 2026, 4, "entry-2", "journal_expense", nil, -1500, []byte(`{"journal_log_id":"journal-1"}`), createdAt))
+
+	cashflow, err := repo.GetMonthlyCashflow(context.Background(), Scope{Role: "admin"}, "property-1", 2026, 4, false)
+	if err != nil {
+		t.Fatalf("GetMonthlyCashflow finalized: %v", err)
+	}
+	if !cashflow.IsFinalized || cashflow.PropertyName != "Demo Property" {
+		t.Fatalf("unexpected cashflow metadata: %+v", cashflow)
+	}
+	if len(cashflow.Rows) != 2 {
+		t.Fatalf("rows = %d, want 2", len(cashflow.Rows))
+	}
+	if cashflow.Rows[0].Category != "rent_payment" || cashflow.Rows[0].Description == nil || *cashflow.Rows[0].Description != "rent" {
+		t.Fatalf("first row = %+v, want rent payment with description", cashflow.Rows[0])
+	}
+	if string(cashflow.Rows[1].SourceRef) != `{"journal_log_id":"journal-1"}` {
+		t.Fatalf("source_ref = %s", cashflow.Rows[1].SourceRef)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestGetMonthlyCashflowLiveMapsAccountingRows(t *testing.T) {
+	db, mock, repo := newBillingRepoTest(t)
+	defer closeBillingDB(t, db)
+
+	createdAt := time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC)
+	mock.ExpectQuery(`(?s)FROM property_accounts pa\s+JOIN properties p ON p.id = pa.property_id AND p.deleted_at IS NULL\s+LEFT JOIN accounting_entries ae ON ae.property_account_id = pa.id\s+AND ae.year = \$2\s+AND ae.month = \$3\s+WHERE pa.property_id = \$1\s+AND pa.deleted_at IS NULL`).
+		WithArgs("property-1", 2026, 5).
+		WillReturnRows(monthlyCashflowRows().
+			AddRow("property-1", "Demo Property", 2026, 5, "entry-1", "electricity_payment", nil, 860, []byte(`{"bill_id":"bill-2"}`), createdAt))
+
+	cashflow, err := repo.GetMonthlyCashflow(context.Background(), Scope{Role: "admin"}, "property-1", 2026, 5, true)
+	if err != nil {
+		t.Fatalf("GetMonthlyCashflow live: %v", err)
+	}
+	if cashflow.IsFinalized || cashflow.PropertyName != "Demo Property" {
+		t.Fatalf("unexpected cashflow metadata: %+v", cashflow)
+	}
+	if len(cashflow.Rows) != 1 || cashflow.Rows[0].Amount != 860 {
+		t.Fatalf("unexpected rows: %+v", cashflow.Rows)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestCalculateMonthlyCashflowOpeningBalanceSumsPriorSnapshotNet(t *testing.T) {
+	db, mock, repo := newBillingRepoTest(t)
+	defer closeBillingDB(t, db)
+
+	mock.ExpectQuery(`(?s)SELECT COALESCE\(SUM\(ms.net\), 0\)\s+FROM monthly_snapshots ms\s+JOIN properties p ON p.id = ms.property_id AND p.deleted_at IS NULL\s+WHERE ms.property_id = \$1\s+AND \(ms.year < \$2 OR \(ms.year = \$2 AND ms.month < \$3\)\)`).
+		WithArgs("property-1", 2026, 5).
+		WillReturnRows(sqlmock.NewRows([]string{"opening_balance"}).AddRow(16500))
+
+	openingBalance, err := repo.CalculateMonthlyCashflowOpeningBalance(context.Background(), Scope{Role: "admin"}, "property-1", 2026, 5)
+	if err != nil {
+		t.Fatalf("CalculateMonthlyCashflowOpeningBalance: %v", err)
+	}
+	if openingBalance != 16500 {
+		t.Fatalf("openingBalance = %d, want 16500", openingBalance)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
 func TestListFinancialReportSummariesDeduplicatesAndSortsLiveOverSnapshot(t *testing.T) {
 	db, mock, repo := newBillingRepoTest(t)
 	defer closeBillingDB(t, db)
@@ -1064,6 +1144,21 @@ func financialReportFinalizedRows() *sqlmock.Rows {
 func financialReportLiveRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"property_id",
+		"year",
+		"month",
+		"id",
+		"category",
+		"description",
+		"amount",
+		"source_ref",
+		"created_at",
+	})
+}
+
+func monthlyCashflowRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{
+		"property_id",
+		"property_name",
 		"year",
 		"month",
 		"id",

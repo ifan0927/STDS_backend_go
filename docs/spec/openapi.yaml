@@ -4267,6 +4267,119 @@ paths:
                   value:
                     error_code: FINANCIAL_REPORT_NOT_FOUND
                     message: 該月份財報不存在
+  /properties/{id}/financial-report/{year}/{month}/cashflow-export:
+    get:
+      operationId: exportPropertyFinancialReportCashflow
+      summary: Export monthly cashflow detail as HTML
+      description: |
+        x-required-role: admin, organizer, staff（指派）; owner（自己名下，唯讀）
+        x-ownership-required: true
+
+        Runtime HTML export. Report month is explicit from year/month path params.
+        Current Asia/Taipei month uses live accounting entries; historical months use finalized monthly snapshots.
+      tags:
+        - Billing
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+        - owner
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: year
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: month
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum:
+              - html
+            default: html
+          description: Export format; v1 supports html only.
+      responses:
+        '200':
+          description: Monthly cashflow detail HTML document.
+          headers:
+            Content-Disposition:
+              description: Browser preview filename hint.
+              schema:
+                type: string
+                example: inline; filename="monthly-cashflow-2026-05.html"
+          content:
+            text/html; charset=utf-8:
+              schema:
+                type: string
+              examples:
+                success:
+                  value: <!doctype html><html><body><h1>Monthly Cashflow</h1></body></html>
+        '400':
+          description: Invalid query parameter format.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                bad_request:
+                  value:
+                    error_code: BAD_REQUEST
+                    message: Bad request.
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unauthorized:
+                  value:
+                    error_code: UNAUTHORIZED
+                    message: Unauthorized.
+        '403':
+          description: 無存取權限
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    error_code: FORBIDDEN
+                    message: Forbidden.
+        '404':
+          description: 物業或該月財報不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: FINANCIAL_REPORT_NOT_FOUND
+                    message: Financial report for the requested month was not found.
+        '500':
+          description: HTML render failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                render_failure:
+                  value:
+                    error_code: INTERNAL_SERVER_ERROR
+                    message: Internal server error.
   /properties/{id}/financial-report/{year}/{month}/send:
     post:
       operationId: sendPropertyFinancialReport

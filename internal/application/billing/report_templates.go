@@ -26,3 +26,12 @@ func MustNewBillReceiptRenderer() reporthtml.Renderer {
 	}
 	return renderer
 }
+
+// MustNewMonthlyCashflowRenderer returns the renderer for monthly cashflow templates.
+func MustNewMonthlyCashflowRenderer() reporthtml.Renderer {
+	renderer, err := reporthtml.NewTemplateRenderer(reportTemplateFS, "templates/*.html")
+	if err != nil {
+		panic(err)
+	}
+	return renderer
+}

@@ -176,6 +176,7 @@ type BillingFinancialReportService interface {
 	SendFinancialReport(ctx context.Context, input BillingFinancialReportInput) (*BillingFinancialReport, error)
 	ExportTenantRoster(ctx context.Context, input BillingTenantRosterInput) (*reporthtml.Document, error)
 	ExportBillReceipt(ctx context.Context, input BillingReceiptInput) (*reporthtml.Document, error)
+	ExportMonthlyCashflow(ctx context.Context, input BillingMonthlyCashflowInput) (*reporthtml.Document, error)
 }
 
 type BillingListInput struct {
@@ -262,6 +263,16 @@ type BillingTenantRosterInput struct {
 	PropertyID          string
 	AsOf                *time.Time
 	IncludeVacant       bool
+	Format              string
+}
+
+type BillingMonthlyCashflowInput struct {
+	ActorRole           string
+	ActorUserID         string
+	AssignedPropertyIDs []string
+	PropertyID          string
+	Year                int
+	Month               int
 	Format              string
 }
 
@@ -1436,6 +1447,44 @@ func (s *APIServer) SendPropertyFinancialReport(c *gin.Context, id string, year 
 	}
 
 	c.JSON(http.StatusOK, toFinancialReportResponse(report))
+}
+
+// ExportPropertyFinancialReportCashflow handles monthly cashflow HTML export.
+func (s *APIServer) ExportPropertyFinancialReportCashflow(c *gin.Context, id string, year int, month int, params api.ExportPropertyFinancialReportCashflowParams) {
+	if !isValidMonth(month) {
+		c.Error(apperr.ErrBadRequest.WithDetails(map[string]interface{}{
+			"field":  "month",
+			"reason": "must be between 1 and 12",
+		}))
+		return
+	}
+
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	format := ""
+	if params.Format != nil {
+		format = string(*params.Format)
+	}
+
+	document, err := s.billing.FinancialReports.ExportMonthlyCashflow(c.Request.Context(), BillingMonthlyCashflowInput{
+		ActorRole:           principal.Role,
+		ActorUserID:         principal.UserID,
+		AssignedPropertyIDs: principal.AssignedPropertyIDs,
+		PropertyID:          id,
+		Year:                year,
+		Month:               month,
+		Format:              format,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	writeHTMLDocument(c, document)
 }
 
 // ExportPropertyTenantRoster handles tenant roster runtime HTML export.

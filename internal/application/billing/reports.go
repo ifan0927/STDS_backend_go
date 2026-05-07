@@ -2,6 +2,7 @@ package billing
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strconv"
 	"strings"
@@ -94,6 +95,16 @@ type BillReceiptQuery struct {
 	BillID              string
 }
 
+// MonthlyCashflowQuery defines role scoping for monthly cashflow export.
+type MonthlyCashflowQuery struct {
+	ActorRole           string
+	ActorUserID         string
+	AssignedPropertyIDs []string
+	PropertyID          string
+	Year                int
+	Month               int
+}
+
 // FinancialReportSummary is the application read model for report summary rows.
 type FinancialReportSummary struct {
 	Year         int
@@ -155,6 +166,25 @@ type BillReceipt struct {
 	TenantName           string
 }
 
+// MonthlyCashflow is the read model for a transaction-style monthly cashflow export.
+type MonthlyCashflow struct {
+	PropertyID   string
+	PropertyName string
+	Year         int
+	Month        int
+	IsFinalized  bool
+	Rows         []MonthlyCashflowEntry
+}
+
+// MonthlyCashflowEntry is one accounting row preserved for cashflow display.
+type MonthlyCashflowEntry struct {
+	Category    string
+	Description *string
+	Amount      int
+	SourceRef   json.RawMessage
+	CreatedAt   time.Time
+}
+
 // ReportRepository defines read operations required by billing report use cases.
 type ReportRepository interface {
 	ListPendingMeterBills(ctx context.Context, query PendingMeterQuery) ([]Bill, error)
@@ -165,6 +195,9 @@ type ReportRepository interface {
 	FindSnapshotFinancialReport(ctx context.Context, query FinancialReportQuery) (*FinancialReport, error)
 	ListTenantRosterRows(ctx context.Context, query TenantRosterQuery) ([]TenantRosterRow, error)
 	FindBillReceipt(ctx context.Context, query BillReceiptQuery) (*BillReceipt, error)
+	FindLiveMonthlyCashflow(ctx context.Context, query MonthlyCashflowQuery) (*MonthlyCashflow, error)
+	FindSnapshotMonthlyCashflow(ctx context.Context, query MonthlyCashflowQuery) (*MonthlyCashflow, error)
+	CalculateMonthlyCashflowOpeningBalance(ctx context.Context, query MonthlyCashflowQuery) (int, error)
 }
 
 // ListPendingMeterInput is the use-case input for property pending meter reads.
@@ -630,6 +663,17 @@ type ExportBillReceiptInput struct {
 	Format              string
 }
 
+// ExportMonthlyCashflowInput is the use-case input for monthly cashflow HTML export.
+type ExportMonthlyCashflowInput struct {
+	ActorRole           string
+	ActorUserID         string
+	AssignedPropertyIDs []string
+	PropertyID          string
+	Year                int
+	Month               int
+	Format              string
+}
+
 // ExportBillReceiptService renders one paid rent or electricity bill receipt as HTML.
 type ExportBillReceiptService struct {
 	repo     ReportRepository
@@ -696,6 +740,102 @@ func normalizeBillReceiptQuery(input ExportBillReceiptInput) (BillReceiptQuery, 
 		AssignedPropertyIDs: cloneStrings(input.AssignedPropertyIDs),
 		BillID:              billID,
 	}, nil
+}
+
+// ExportMonthlyCashflowService renders one property's monthly cashflow as HTML.
+type ExportMonthlyCashflowService struct {
+	repo     ReportRepository
+	renderer reporthtml.Renderer
+	clock    Clock
+}
+
+// NewExportMonthlyCashflowService returns an ExportMonthlyCashflowService.
+func NewExportMonthlyCashflowService(repo ReportRepository, renderer reporthtml.Renderer, clock Clock) *ExportMonthlyCashflowService {
+	if clock == nil {
+		clock = systemClock{}
+	}
+	return &ExportMonthlyCashflowService{repo: repo, renderer: renderer, clock: clock}
+}
+
+// Execute validates the request, selects live or finalized rows, and renders HTML.
+func (s *ExportMonthlyCashflowService) Execute(ctx context.Context, input ExportMonthlyCashflowInput) (*reporthtml.Document, error) {
+	query, err := normalizeMonthlyCashflowQuery(input)
+	if err != nil {
+		return nil, err
+	}
+	if s.renderer == nil {
+		return nil, apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "monthly_cashflow_renderer"})
+	}
+
+	cashflow, err := s.findMonthlyCashflow(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	openingBalance, err := s.repo.CalculateMonthlyCashflowOpeningBalance(ctx, query)
+	if err != nil {
+		return nil, mapReportRepositoryError(err)
+	}
+
+	view := newMonthlyCashflowView(*cashflow, openingBalance)
+	html, err := s.renderer.Render("monthly_cashflow.html", view)
+	if err != nil {
+		return nil, apperr.ErrInternalServerError.WithCause(err).WithDetails(map[string]interface{}{"dependency": "monthly_cashflow_renderer"})
+	}
+
+	return &reporthtml.Document{
+		HTML:     html,
+		Filename: reporthtml.HTMLFilename("monthly-cashflow", view.PropertyName, view.PeriodLabel),
+	}, nil
+}
+
+func normalizeMonthlyCashflowQuery(input ExportMonthlyCashflowInput) (MonthlyCashflowQuery, error) {
+	actorRole, err := normalizeFinancialReportReadRole(input.ActorRole)
+	if err != nil {
+		return MonthlyCashflowQuery{}, err
+	}
+	propertyID, err := normalizeRequiredUUID(input.PropertyID, "property_id", apperr.ErrPropertyNotFound)
+	if err != nil {
+		return MonthlyCashflowQuery{}, err
+	}
+	if err := validateYear(input.Year); err != nil {
+		return MonthlyCashflowQuery{}, err
+	}
+	if err := validateMonth(input.Month); err != nil {
+		return MonthlyCashflowQuery{}, err
+	}
+	format := strings.ToLower(strings.TrimSpace(input.Format))
+	if format == "" {
+		format = "html"
+	}
+	if format != "html" {
+		return MonthlyCashflowQuery{}, apperr.ErrBadRequest.WithDetails(map[string]interface{}{"field": "format"})
+	}
+	return MonthlyCashflowQuery{
+		ActorRole:           actorRole,
+		ActorUserID:         strings.TrimSpace(input.ActorUserID),
+		AssignedPropertyIDs: cloneStrings(input.AssignedPropertyIDs),
+		PropertyID:          propertyID,
+		Year:                input.Year,
+		Month:               input.Month,
+	}, nil
+}
+
+func (s *ExportMonthlyCashflowService) findMonthlyCashflow(ctx context.Context, query MonthlyCashflowQuery) (*MonthlyCashflow, error) {
+	currentYear, currentMonth := currentReportPeriod(s.clock)
+	var cashflow *MonthlyCashflow
+	var err error
+	if query.Year == currentYear && query.Month == currentMonth {
+		cashflow, err = s.repo.FindLiveMonthlyCashflow(ctx, query)
+	} else {
+		cashflow, err = s.repo.FindSnapshotMonthlyCashflow(ctx, query)
+	}
+	if err != nil {
+		return nil, mapReportRepositoryError(err)
+	}
+	if cashflow == nil {
+		return nil, ErrFinancialReportNotFound
+	}
+	return cashflow, nil
 }
 
 func validateBillReceiptExportable(receipt *BillReceipt) error {
@@ -770,6 +910,130 @@ type billReceiptCopyView struct {
 	CurrentReadingLabel  string
 	UsageLabel           string
 	UnitPriceLabel       string
+}
+
+type monthlyCashflowView struct {
+	Title                    string
+	PropertyName             string
+	PeriodLabel              string
+	Rows                     []monthlyCashflowViewRow
+	OpeningBalanceLabel      string
+	MonthlyIncomeTotalLabel  string
+	MonthlyExpenseTotalLabel string
+	EndingBalanceLabel       string
+}
+
+type monthlyCashflowViewRow struct {
+	DateLabel    string
+	SubjectLabel string
+	IncomeLabel  string
+	ExpenseLabel string
+	BalanceLabel string
+	Note         string
+}
+
+func newMonthlyCashflowView(cashflow MonthlyCashflow, openingBalance int) monthlyCashflowView {
+	periodLabel := strconv.Itoa(cashflow.Year) + "-" + twoDigit(cashflow.Month)
+	view := monthlyCashflowView{
+		Title:               cashflow.PropertyName + "收支表 (" + strconv.Itoa(cashflow.Year) + "/" + twoDigit(cashflow.Month) + ")",
+		PropertyName:        cashflow.PropertyName,
+		PeriodLabel:         periodLabel,
+		OpeningBalanceLabel: moneyLabel(openingBalance),
+		Rows:                make([]monthlyCashflowViewRow, 0, len(cashflow.Rows)),
+	}
+	runningBalance := openingBalance
+	totalIncome := 0
+	totalExpense := 0
+	for _, row := range cashflow.Rows {
+		income, expense := cashflowIncomeExpense(row.Category, row.Amount)
+		runningBalance += income - expense
+		totalIncome += income
+		totalExpense += expense
+		view.Rows = append(view.Rows, monthlyCashflowViewRow{
+			DateLabel:    row.CreatedAt.In(taiwanReportLocation).Format("01/02"),
+			SubjectLabel: cashflowCategoryLabel(row.Category),
+			IncomeLabel:  optionalMoneyLabel(income),
+			ExpenseLabel: optionalMoneyLabel(expense),
+			BalanceLabel: moneyLabel(runningBalance),
+			Note:         cashflowNote(row),
+		})
+	}
+	view.MonthlyIncomeTotalLabel = moneyLabel(totalIncome)
+	view.MonthlyExpenseTotalLabel = moneyLabel(totalExpense)
+	view.EndingBalanceLabel = moneyLabel(openingBalance + totalIncome - totalExpense)
+	return view
+}
+
+func twoDigit(value int) string {
+	if value < 10 {
+		return "0" + strconv.Itoa(value)
+	}
+	return strconv.Itoa(value)
+}
+
+func optionalMoneyLabel(value int) string {
+	if value == 0 {
+		return ""
+	}
+	return moneyLabel(value)
+}
+
+func cashflowIncomeExpense(category string, amount int) (int, int) {
+	switch category {
+	case "rent_payment", "electricity_payment", "deposit_deduction":
+		return absValue(amount), 0
+	case "deposit_refund", "journal_expense":
+		return 0, absValue(amount)
+	default:
+		return 0, 0
+	}
+}
+
+func cashflowCategoryLabel(category string) string {
+	switch category {
+	case "rent_payment":
+		return "租金收入"
+	case "electricity_payment":
+		return "房客電費收入"
+	case "deposit_deduction":
+		return "押金扣抵收入"
+	case "deposit_refund":
+		return "押金退還"
+	case "journal_expense":
+		return "支出"
+	default:
+		return category
+	}
+}
+
+func cashflowNote(row MonthlyCashflowEntry) string {
+	if description := stringValue(row.Description); description != "" {
+		return description
+	}
+
+	return cashflowSourceRefNote(row.SourceRef)
+}
+
+func cashflowSourceRefNote(sourceRef json.RawMessage) string {
+	if len(sourceRef) == 0 || string(sourceRef) == "null" {
+		return ""
+	}
+
+	var values map[string]string
+	if err := json.Unmarshal(sourceRef, &values); err != nil {
+		return ""
+	}
+	if reason := strings.TrimSpace(values["reason"]); reason != "" {
+		return reason
+	}
+	return ""
+}
+
+func absValue(value int) int {
+	if value < 0 {
+		return -value
+	}
+	return value
 }
 
 func newTenantRosterView(asOf time.Time, rows []TenantRosterRow) tenantRosterView {

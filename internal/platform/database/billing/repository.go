@@ -133,6 +133,26 @@ type FinancialReportEntry struct {
 	CreatedAt   time.Time
 }
 
+// MonthlyCashflow is one monthly cashflow export source read model.
+type MonthlyCashflow struct {
+	PropertyID   string
+	PropertyName string
+	Year         int
+	Month        int
+	IsFinalized  bool
+	Rows         []MonthlyCashflowEntry
+}
+
+// MonthlyCashflowEntry is one transaction row in the cashflow export.
+type MonthlyCashflowEntry struct {
+	ID          string
+	Category    string
+	Description *string
+	Amount      int
+	SourceRef   json.RawMessage
+	CreatedAt   time.Time
+}
+
 // TenantRosterRow is one room row for the tenant roster export read model.
 type TenantRosterRow struct {
 	PropertyID         string
@@ -1177,6 +1197,37 @@ func (r *SQLRepository) GetFinancialReport(ctx context.Context, scope Scope, pro
 	return r.getFinalizedFinancialReport(ctx, scope, propertyID, year, month)
 }
 
+// GetMonthlyCashflow returns one live or finalized monthly cashflow source.
+func (r *SQLRepository) GetMonthlyCashflow(ctx context.Context, scope Scope, propertyID string, year int, month int, live bool) (*MonthlyCashflow, error) {
+	if live {
+		return r.getLiveMonthlyCashflow(ctx, scope, propertyID, year, month)
+	}
+	return r.getFinalizedMonthlyCashflow(ctx, scope, propertyID, year, month)
+}
+
+// CalculateMonthlyCashflowOpeningBalance returns prior finalized snapshot net.
+func (r *SQLRepository) CalculateMonthlyCashflowOpeningBalance(ctx context.Context, scope Scope, propertyID string, year int, month int) (int, error) {
+	query := `
+SELECT COALESCE(SUM(ms.net), 0)
+FROM monthly_snapshots ms
+JOIN properties p ON p.id = ms.property_id AND p.deleted_at IS NULL
+WHERE ms.property_id = $1
+  AND (ms.year < $2 OR (ms.year = $2 AND ms.month < $3))
+`
+	args := []any{propertyID, year, month}
+	var ok bool
+	query, args, ok = appendPropertyScope(query, args, scope, "p")
+	if !ok {
+		return 0, ErrNotFound
+	}
+
+	var openingBalance int
+	if err := r.db.QueryRowContext(ctx, query, args...).Scan(&openingBalance); err != nil {
+		return 0, fmt.Errorf("calculate monthly cashflow opening balance: %w", err)
+	}
+	return openingBalance, nil
+}
+
 // ListTenantRosterRows returns room occupancy rows for a property report.
 func (r *SQLRepository) ListTenantRosterRows(ctx context.Context, scope Scope, propertyID string, asOf time.Time, includeVacant bool) (rows []TenantRosterRow, err error) {
 	query := `
@@ -1426,6 +1477,128 @@ WHERE pa.property_id = $1
 	report.Net = report.TotalIncome - report.TotalExpense
 
 	return report, nil
+}
+
+func (r *SQLRepository) getFinalizedMonthlyCashflow(ctx context.Context, scope Scope, propertyID string, year int, month int) (cashflow *MonthlyCashflow, err error) {
+	query := `
+SELECT
+	ms.property_id,
+	p.name,
+	ms.year,
+	ms.month,
+	mse.id,
+	mse.category,
+	mse.description,
+	mse.amount,
+	mse.source_ref,
+	mse.created_at
+FROM monthly_snapshots ms
+JOIN properties p ON p.id = ms.property_id AND p.deleted_at IS NULL
+LEFT JOIN monthly_snapshot_entries mse ON mse.snapshot_id = ms.id
+WHERE ms.property_id = $1
+  AND ms.year = $2
+  AND ms.month = $3
+`
+	args := []any{propertyID, year, month}
+	var ok bool
+	query, args, ok = appendPropertyScope(query, args, scope, "p")
+	if !ok {
+		return nil, ErrNotFound
+	}
+	query += "ORDER BY mse.created_at ASC, mse.id ASC\n"
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("get finalized monthly cashflow: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close finalized monthly cashflow rows: %w", cerr)
+		}
+	}()
+
+	for rows.Next() {
+		entry, hasEntry, rowCashflow, err := scanMonthlyCashflowRow(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan finalized monthly cashflow row: %w", err)
+		}
+		if cashflow == nil {
+			cashflow = rowCashflow
+			cashflow.IsFinalized = true
+		}
+		if hasEntry {
+			cashflow.Rows = append(cashflow.Rows, entry)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate finalized monthly cashflow rows: %w", err)
+	}
+	if cashflow == nil {
+		return nil, ErrNotFound
+	}
+
+	return cashflow, nil
+}
+
+func (r *SQLRepository) getLiveMonthlyCashflow(ctx context.Context, scope Scope, propertyID string, year int, month int) (cashflow *MonthlyCashflow, err error) {
+	query := `
+SELECT
+	pa.property_id,
+	p.name,
+	$2::int AS year,
+	$3::int AS month,
+	ae.id,
+	ae.category,
+	ae.description,
+	ae.amount,
+	ae.source_ref,
+	ae.created_at
+FROM property_accounts pa
+JOIN properties p ON p.id = pa.property_id AND p.deleted_at IS NULL
+LEFT JOIN accounting_entries ae ON ae.property_account_id = pa.id
+  AND ae.year = $2
+  AND ae.month = $3
+WHERE pa.property_id = $1
+  AND pa.deleted_at IS NULL
+`
+	args := []any{propertyID, year, month}
+	var ok bool
+	query, args, ok = appendPropertyScope(query, args, scope, "p")
+	if !ok {
+		return nil, ErrNotFound
+	}
+	query += "ORDER BY ae.created_at ASC, ae.id ASC\n"
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("get live monthly cashflow: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close live monthly cashflow rows: %w", cerr)
+		}
+	}()
+
+	for rows.Next() {
+		entry, hasEntry, rowCashflow, err := scanMonthlyCashflowRow(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan live monthly cashflow row: %w", err)
+		}
+		if cashflow == nil {
+			cashflow = rowCashflow
+		}
+		if hasEntry {
+			cashflow.Rows = append(cashflow.Rows, entry)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate live monthly cashflow rows: %w", err)
+	}
+	if cashflow == nil {
+		return nil, ErrNotFound
+	}
+
+	return cashflow, nil
 }
 
 func buildAccessibleBillQuery(scope Scope, filter BillFilter, single bool, billID *string) (string, []any, bool) {
@@ -1770,6 +1943,54 @@ func scanLiveFinancialReportRow(row rowScanner, report *FinancialReport) (Financ
 	}
 
 	return entry, hasEntry, nil
+}
+
+func scanMonthlyCashflowRow(row rowScanner) (MonthlyCashflowEntry, bool, *MonthlyCashflow, error) {
+	var cashflow MonthlyCashflow
+	var entry MonthlyCashflowEntry
+	var entryID sql.NullString
+	var category sql.NullString
+	var description sql.NullString
+	var amount sql.NullInt64
+	var sourceRef sql.NullString
+	var createdAt sql.NullTime
+
+	if err := row.Scan(
+		&cashflow.PropertyID,
+		&cashflow.PropertyName,
+		&cashflow.Year,
+		&cashflow.Month,
+		&entryID,
+		&category,
+		&description,
+		&amount,
+		&sourceRef,
+		&createdAt,
+	); err != nil {
+		return MonthlyCashflowEntry{}, false, nil, err
+	}
+	hasEntry := entryID.Valid
+	if entryID.Valid {
+		entry.ID = entryID.String
+	}
+	if category.Valid {
+		entry.Category = category.String
+	}
+	if description.Valid {
+		entry.Description = &description.String
+	}
+	if amount.Valid {
+		entry.Amount = int(amount.Int64)
+	}
+	if sourceRef.Valid {
+		entry.SourceRef = json.RawMessage(sourceRef.String)
+	}
+	if createdAt.Valid {
+		entry.CreatedAt = createdAt.Time
+	}
+	cashflow.Rows = make([]MonthlyCashflowEntry, 0)
+
+	return entry, hasEntry, &cashflow, nil
 }
 
 func scanTenantRosterRow(row rowScanner) (TenantRosterRow, error) {

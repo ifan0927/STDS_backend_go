@@ -619,6 +619,153 @@ func TestExportBillReceiptRendererFailureMapsInternalError(t *testing.T) {
 	assertAppErrorCode(t, err, apperr.CodeInternalServerError)
 }
 
+func TestExportMonthlyCashflowUsesCurrentMonthLiveRowsAndRunningBalance(t *testing.T) {
+	description := "101 2026-05 rent"
+	repo := &reportRepositoryStub{
+		liveCashflow: &MonthlyCashflow{
+			PropertyID:   testPropertyID,
+			PropertyName: "Demo Property",
+			Year:         2026,
+			Month:        5,
+			Rows: []MonthlyCashflowEntry{
+				{
+					Category:    "rent_payment",
+					Description: &description,
+					Amount:      18000,
+					SourceRef:   []byte(`{"bill_id":"bill-1"}`),
+					CreatedAt:   time.Date(2026, 5, 3, 10, 0, 0, 0, time.UTC),
+				},
+				{
+					Category:  "journal_expense",
+					Amount:    -2500,
+					SourceRef: []byte(`{"journal_log_id":"journal-1"}`),
+					CreatedAt: time.Date(2026, 5, 5, 10, 0, 0, 0, time.UTC),
+				},
+			},
+		},
+		openingBalance: 1000,
+	}
+	renderer := &recordingReportRenderer{html: []byte("<html>cashflow</html>")}
+	service := NewExportMonthlyCashflowService(repo, renderer, fixedClock{now: time.Date(2026, 5, 8, 16, 0, 0, 0, time.UTC)})
+
+	document, err := service.Execute(context.Background(), ExportMonthlyCashflowInput{
+		ActorRole:           "staff",
+		ActorUserID:         "user-1",
+		AssignedPropertyIDs: []string{testPropertyID},
+		PropertyID:          testPropertyID,
+		Year:                2026,
+		Month:               5,
+		Format:              "html",
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if repo.liveCashflowQuery == nil || repo.snapshotCashflowQuery != nil {
+		t.Fatalf("unexpected source queries: live=%+v snapshot=%+v", repo.liveCashflowQuery, repo.snapshotCashflowQuery)
+	}
+	if repo.openingBalanceQuery == nil || repo.openingBalanceQuery.PropertyID != testPropertyID {
+		t.Fatalf("unexpected opening balance query: %+v", repo.openingBalanceQuery)
+	}
+	if renderer.name != "monthly_cashflow.html" {
+		t.Fatalf("renderer template = %q", renderer.name)
+	}
+	view, ok := renderer.data.(monthlyCashflowView)
+	if !ok {
+		t.Fatalf("renderer data = %T, want monthlyCashflowView", renderer.data)
+	}
+	if view.Title != "Demo Property收支表 (2026/05)" || view.PeriodLabel != "2026-05" {
+		t.Fatalf("unexpected view metadata: %+v", view)
+	}
+	if view.OpeningBalanceLabel != "NT$ 1,000" || view.MonthlyIncomeTotalLabel != "NT$ 18,000" || view.MonthlyExpenseTotalLabel != "NT$ 2,500" || view.EndingBalanceLabel != "NT$ 16,500" {
+		t.Fatalf("unexpected totals: %+v", view)
+	}
+	if len(view.Rows) != 2 || view.Rows[0].BalanceLabel != "NT$ 19,000" || view.Rows[1].BalanceLabel != "NT$ 16,500" {
+		t.Fatalf("unexpected rows: %+v", view.Rows)
+	}
+	if view.Rows[0].SubjectLabel != "租金收入" || view.Rows[0].Note != "101 2026-05 rent" {
+		t.Fatalf("unexpected first row: %+v", view.Rows[0])
+	}
+	if view.Rows[1].Note != "" {
+		t.Fatalf("second row note = %q, want empty note without raw source_ref JSON", view.Rows[1].Note)
+	}
+	if document.Filename != "monthly-cashflow-demo-property-2026-05.html" {
+		t.Fatalf("filename = %q", document.Filename)
+	}
+}
+
+func TestExportMonthlyCashflowUsesSnapshotRowsForHistoricalMonth(t *testing.T) {
+	repo := &reportRepositoryStub{
+		snapshotCashflow: &MonthlyCashflow{
+			PropertyID:   testPropertyID,
+			PropertyName: "Demo Property",
+			Year:         2026,
+			Month:        4,
+			IsFinalized:  true,
+		},
+	}
+	service := NewExportMonthlyCashflowService(repo, &recordingReportRenderer{html: []byte("<html></html>")}, fixedClock{now: time.Date(2026, 5, 8, 16, 0, 0, 0, time.UTC)})
+
+	_, err := service.Execute(context.Background(), ExportMonthlyCashflowInput{
+		ActorRole:  "owner",
+		PropertyID: testPropertyID,
+		Year:       2026,
+		Month:      4,
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if repo.snapshotCashflowQuery == nil || repo.liveCashflowQuery != nil {
+		t.Fatalf("unexpected source queries: live=%+v snapshot=%+v", repo.liveCashflowQuery, repo.snapshotCashflowQuery)
+	}
+}
+
+func TestExportMonthlyCashflowRejectsUnsupportedFormatAndMapsErrors(t *testing.T) {
+	t.Run("format", func(t *testing.T) {
+		repo := &reportRepositoryStub{}
+		service := NewExportMonthlyCashflowService(repo, &recordingReportRenderer{html: []byte("<html></html>")}, fixedClock{now: time.Date(2026, 5, 8, 16, 0, 0, 0, time.UTC)})
+
+		_, err := service.Execute(context.Background(), ExportMonthlyCashflowInput{
+			ActorRole:  "staff",
+			PropertyID: testPropertyID,
+			Year:       2026,
+			Month:      5,
+			Format:     "pdf",
+		})
+		assertAppErrorCode(t, err, apperr.CodeBadRequest)
+		if repo.liveCashflowQuery != nil || repo.snapshotCashflowQuery != nil {
+			t.Fatalf("unexpected query: live=%+v snapshot=%+v", repo.liveCashflowQuery, repo.snapshotCashflowQuery)
+		}
+	})
+
+	t.Run("missing historical snapshot", func(t *testing.T) {
+		repo := &reportRepositoryStub{snapshotCashflowErr: ErrFinancialReportNotFoundRepository}
+		service := NewExportMonthlyCashflowService(repo, &recordingReportRenderer{html: []byte("<html></html>")}, fixedClock{now: time.Date(2026, 5, 8, 16, 0, 0, 0, time.UTC)})
+
+		_, err := service.Execute(context.Background(), ExportMonthlyCashflowInput{
+			ActorRole:  "staff",
+			PropertyID: testPropertyID,
+			Year:       2026,
+			Month:      4,
+		})
+		assertAppErrorCode(t, err, CodeFinancialReportNotFound)
+	})
+
+	t.Run("renderer", func(t *testing.T) {
+		repo := &reportRepositoryStub{
+			liveCashflow: &MonthlyCashflow{PropertyID: testPropertyID, PropertyName: "Demo Property", Year: 2026, Month: 5},
+		}
+		service := NewExportMonthlyCashflowService(repo, &recordingReportRenderer{err: errors.New("render failed")}, fixedClock{now: time.Date(2026, 5, 8, 16, 0, 0, 0, time.UTC)})
+
+		_, err := service.Execute(context.Background(), ExportMonthlyCashflowInput{
+			ActorRole:  "staff",
+			PropertyID: testPropertyID,
+			Year:       2026,
+			Month:      5,
+		})
+		assertAppErrorCode(t, err, apperr.CodeInternalServerError)
+	})
+}
+
 type reportRepositoryStub struct {
 	pendingMeterBills         []Bill
 	pendingMeterQuery         *PendingMeterQuery
@@ -638,6 +785,14 @@ type reportRepositoryStub struct {
 	tenantRosterQuery         *TenantRosterQuery
 	billReceipt               *BillReceipt
 	billReceiptQuery          *BillReceiptQuery
+	liveCashflow              *MonthlyCashflow
+	liveCashflowQuery         *MonthlyCashflowQuery
+	liveCashflowErr           error
+	snapshotCashflow          *MonthlyCashflow
+	snapshotCashflowQuery     *MonthlyCashflowQuery
+	snapshotCashflowErr       error
+	openingBalance            int
+	openingBalanceQuery       *MonthlyCashflowQuery
 	err                       error
 }
 
@@ -709,6 +864,36 @@ func (s *reportRepositoryStub) FindBillReceipt(_ context.Context, query BillRece
 		return nil, s.err
 	}
 	return s.billReceipt, nil
+}
+
+func (s *reportRepositoryStub) FindLiveMonthlyCashflow(_ context.Context, query MonthlyCashflowQuery) (*MonthlyCashflow, error) {
+	s.liveCashflowQuery = &query
+	if s.liveCashflowErr != nil {
+		return nil, s.liveCashflowErr
+	}
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.liveCashflow, nil
+}
+
+func (s *reportRepositoryStub) FindSnapshotMonthlyCashflow(_ context.Context, query MonthlyCashflowQuery) (*MonthlyCashflow, error) {
+	s.snapshotCashflowQuery = &query
+	if s.snapshotCashflowErr != nil {
+		return nil, s.snapshotCashflowErr
+	}
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.snapshotCashflow, nil
+}
+
+func (s *reportRepositoryStub) CalculateMonthlyCashflowOpeningBalance(_ context.Context, query MonthlyCashflowQuery) (int, error) {
+	s.openingBalanceQuery = &query
+	if s.err != nil {
+		return 0, s.err
+	}
+	return s.openingBalance, nil
 }
 
 type recordingReportRenderer struct {

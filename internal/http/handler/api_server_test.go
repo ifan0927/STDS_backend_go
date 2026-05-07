@@ -777,7 +777,7 @@ func TestExportPropertyTenantRosterReturnsHTMLDocument(t *testing.T) {
 	})
 	asOf := openapi_types.Date{Time: time.Date(2026, 5, 7, 0, 0, 0, 0, time.UTC)}
 	includeVacant := true
-	format := api.ExportPropertyTenantRosterParamsFormatHtml
+	format := api.Html
 
 	server.ExportPropertyTenantRoster(c, "10000000-0000-0000-0000-000000000001", api.ExportPropertyTenantRosterParams{
 		AsOf:          &asOf,
@@ -856,6 +856,54 @@ func TestExportBillReceiptReturnsHTMLDocument(t *testing.T) {
 	}
 }
 
+func TestExportPropertyFinancialReportCashflowReturnsHTMLDocument(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	reports := &recordingFinancialReports{
+		document: &reporthtml.Document{
+			HTML:     []byte("<html>cashflow</html>"),
+			Filename: "monthly-cashflow-demo-2026-05.html",
+		},
+	}
+	server := &APIServer{billing: BillingServices{FinancialReports: reports}}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/properties/10000000-0000-0000-0000-000000000001/financial-report/2026/5/cashflow-export?format=html", nil)
+	requestctx.SetPrincipal(c, requestctx.Principal{
+		UserID:              "user-1",
+		Role:                "staff",
+		AssignedPropertyIDs: []string{"10000000-0000-0000-0000-000000000001"},
+	})
+	format := api.ExportPropertyFinancialReportCashflowParamsFormat("html")
+
+	server.ExportPropertyFinancialReportCashflow(c, "10000000-0000-0000-0000-000000000001", 2026, 5, api.ExportPropertyFinancialReportCashflowParams{Format: &format})
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if got := recorder.Header().Get("Content-Type"); got != reporthtml.ContentType {
+		t.Fatalf("Content-Type = %q", got)
+	}
+	if got := recorder.Header().Get("Content-Disposition"); got != `inline; filename="monthly-cashflow-demo-2026-05.html"` {
+		t.Fatalf("Content-Disposition = %q", got)
+	}
+	if reports.cashflowInput.PropertyID != "10000000-0000-0000-0000-000000000001" || reports.cashflowInput.ActorRole != "staff" {
+		t.Fatalf("unexpected cashflow input: %+v", reports.cashflowInput)
+	}
+	if reports.cashflowInput.Year != 2026 || reports.cashflowInput.Month != 5 || reports.cashflowInput.Format != "html" {
+		t.Fatalf("unexpected cashflow period/options: %+v", reports.cashflowInput)
+	}
+	if reports.cashflowInput.ActorUserID != "user-1" {
+		t.Fatalf("ActorUserID = %q, want user-1", reports.cashflowInput.ActorUserID)
+	}
+	if len(reports.cashflowInput.AssignedPropertyIDs) != 1 || reports.cashflowInput.AssignedPropertyIDs[0] != "10000000-0000-0000-0000-000000000001" {
+		t.Fatalf("AssignedPropertyIDs = %+v, want property scope", reports.cashflowInput.AssignedPropertyIDs)
+	}
+	if recorder.Body.String() != "<html>cashflow</html>" {
+		t.Fatalf("body = %q", recorder.Body.String())
+	}
+}
+
 type recordingBillingQuery struct {
 	input    BillingListInput
 	getInput BillingGetInput
@@ -928,6 +976,7 @@ type recordingFinancialReports struct {
 	sendInput         BillingFinancialReportInput
 	tenantRosterInput BillingTenantRosterInput
 	receiptInput      BillingReceiptInput
+	cashflowInput     BillingMonthlyCashflowInput
 	summaries         []BillingFinancialReportSummary
 	report            BillingFinancialReport
 	sentReport        BillingFinancialReport
@@ -969,6 +1018,14 @@ func (r *recordingFinancialReports) ExportTenantRoster(_ context.Context, input 
 
 func (r *recordingFinancialReports) ExportBillReceipt(_ context.Context, input BillingReceiptInput) (*reporthtml.Document, error) {
 	r.receiptInput = input
+	if r.err != nil {
+		return nil, r.err
+	}
+	return r.document, nil
+}
+
+func (r *recordingFinancialReports) ExportMonthlyCashflow(_ context.Context, input BillingMonthlyCashflowInput) (*reporthtml.Document, error) {
+	r.cashflowInput = input
 	if r.err != nil {
 		return nil, r.err
 	}
