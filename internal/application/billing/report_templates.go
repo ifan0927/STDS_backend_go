@@ -44,3 +44,12 @@ func MustNewProfitLossRenderer() reporthtml.Renderer {
 	}
 	return renderer
 }
+
+// MustNewOperationReportRenderer returns the renderer for operation report templates.
+func MustNewOperationReportRenderer() reporthtml.Renderer {
+	renderer, err := reporthtml.NewTemplateRenderer(reportTemplateFS, "templates/*.html")
+	if err != nil {
+		panic(err)
+	}
+	return renderer
+}

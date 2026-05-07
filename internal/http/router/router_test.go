@@ -2795,6 +2795,58 @@ func TestFinancialReportProfitLossExportReturnsHTMLWithHeaders(t *testing.T) {
 	}
 }
 
+func TestOperationReportExportReturnsHTMLWithHeaders(t *testing.T) {
+	var operationInput handler.BillingOperationReportInput
+	operationCalls := 0
+	engine := newTestEngineWithBilling(
+		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
+		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{},
+		"",
+		fakeJobRunsRepo{},
+		handler.BillingServices{FinancialReports: fakeBillingFinancialReports{
+			document: &reporthtml.Document{
+				HTML:     []byte("<html>operation report</html>"),
+				Filename: "operation-report-demo-2026-05.html",
+			},
+			operationInputSink: &operationInput,
+			operationCalls:     &operationCalls,
+		}},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/properties/"+testPropertyID1+"/operation-report/2026/5?format=html", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if got := resp.Header().Get("Content-Type"); got != reporthtml.ContentType {
+		t.Fatalf("Content-Type = %q", got)
+	}
+	if got := resp.Header().Get("Content-Disposition"); got != `inline; filename="operation-report-demo-2026-05.html"` {
+		t.Fatalf("Content-Disposition = %q", got)
+	}
+	if resp.Body.String() != "<html>operation report</html>" {
+		t.Fatalf("body = %q", resp.Body.String())
+	}
+	if operationCalls != 1 {
+		t.Fatalf("ExportOperationReport calls = %d, want 1", operationCalls)
+	}
+	if operationInput.PropertyID != testPropertyID1 || operationInput.Year != 2026 || operationInput.Month != 5 || operationInput.Format != "html" {
+		t.Fatalf("unexpected operation report input: %+v", operationInput)
+	}
+	if operationInput.ActorRole != "organizer" || operationInput.ActorUserID != "user-1" {
+		t.Fatalf("unexpected actor input: %+v", operationInput)
+	}
+	if len(operationInput.AssignedPropertyIDs) != 1 || operationInput.AssignedPropertyIDs[0] != testPropertyID1 {
+		t.Fatalf("AssignedPropertyIDs = %+v, want property scope", operationInput.AssignedPropertyIDs)
+	}
+}
+
 func TestFinancialReportProfitLossExportRejectsUnsupportedFormatWithSharedErrorShape(t *testing.T) {
 	var profitLossInput handler.BillingProfitLossInput
 	profitLossCalls := 0
@@ -4171,6 +4223,8 @@ type fakeBillingFinancialReports struct {
 	err                 error
 	profitLossInputSink *handler.BillingProfitLossInput
 	profitLossCalls     *int
+	operationInputSink  *handler.BillingOperationReportInput
+	operationCalls      *int
 }
 
 func (f fakeBillingFinancialReports) ListFinancialReportSummaries(_ context.Context, _ handler.BillingFinancialReportSummaryInput) ([]handler.BillingFinancialReportSummary, error) {
@@ -4230,6 +4284,22 @@ func (f fakeBillingFinancialReports) ExportProfitLoss(_ context.Context, input h
 	}
 	if f.profitLossInputSink != nil {
 		*f.profitLossInputSink = input
+	}
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.document != nil {
+		return f.document, nil
+	}
+	return nil, apperr.ErrInternalServerError
+}
+
+func (f fakeBillingFinancialReports) ExportOperationReport(_ context.Context, input handler.BillingOperationReportInput) (*reporthtml.Document, error) {
+	if f.operationCalls != nil {
+		(*f.operationCalls)++
+	}
+	if f.operationInputSink != nil {
+		*f.operationInputSink = input
 	}
 	if f.err != nil {
 		return nil, f.err

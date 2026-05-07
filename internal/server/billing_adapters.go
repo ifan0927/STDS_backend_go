@@ -37,6 +37,7 @@ func newBillingServices(db *sql.DB, txRunner *dbtxrunner.Runner, publisher domai
 			billReceipt:  appbilling.NewExportBillReceiptService(reportRepo, appbilling.MustNewBillReceiptRenderer()),
 			cashflow:     appbilling.NewExportMonthlyCashflowService(reportRepo, appbilling.MustNewMonthlyCashflowRenderer(), nil),
 			profitLoss:   appbilling.NewExportProfitLossService(reportRepo, appbilling.MustNewProfitLossRenderer(), nil),
+			operation:    appbilling.NewExportOperationReportService(reportRepo, appbilling.MustNewOperationReportRenderer(), nil),
 		},
 	}
 }
@@ -183,6 +184,7 @@ type billingFinancialReportServiceAdapter struct {
 	billReceipt  *appbilling.ExportBillReceiptService
 	cashflow     *appbilling.ExportMonthlyCashflowService
 	profitLoss   *appbilling.ExportProfitLossService
+	operation    *appbilling.ExportOperationReportService
 }
 
 func (a billingFinancialReportServiceAdapter) ListFinancialReportSummaries(ctx context.Context, input handler.BillingFinancialReportSummaryInput) ([]handler.BillingFinancialReportSummary, error) {
@@ -268,6 +270,18 @@ func (a billingFinancialReportServiceAdapter) ExportMonthlyCashflow(ctx context.
 
 func (a billingFinancialReportServiceAdapter) ExportProfitLoss(ctx context.Context, input handler.BillingProfitLossInput) (*reporthtml.Document, error) {
 	return a.profitLoss.Execute(ctx, appbilling.ExportProfitLossInput{
+		ActorRole:           input.ActorRole,
+		ActorUserID:         input.ActorUserID,
+		AssignedPropertyIDs: input.AssignedPropertyIDs,
+		PropertyID:          input.PropertyID,
+		Year:                input.Year,
+		Month:               input.Month,
+		Format:              input.Format,
+	})
+}
+
+func (a billingFinancialReportServiceAdapter) ExportOperationReport(ctx context.Context, input handler.BillingOperationReportInput) (*reporthtml.Document, error) {
+	return a.operation.Execute(ctx, appbilling.ExportOperationReportInput{
 		ActorRole:           input.ActorRole,
 		ActorUserID:         input.ActorUserID,
 		AssignedPropertyIDs: input.AssignedPropertyIDs,
@@ -557,6 +571,30 @@ func (a billingReportRepositoryAdapter) FindSnapshotProfitLossPeriod(ctx context
 	return toAppProfitLossPeriod(period), nil
 }
 
+func (a billingReportRepositoryAdapter) FindLiveOperationReport(ctx context.Context, query appbilling.OperationReportQuery) (*appbilling.OperationReport, error) {
+	report, err := a.repo.GetOperationReport(ctx, dbbilling.Scope{
+		Role:                query.ActorRole,
+		UserID:              query.ActorUserID,
+		AssignedPropertyIDs: query.AssignedPropertyIDs,
+	}, query.PropertyID, query.Year, query.Month, true)
+	if err != nil {
+		return nil, mapBillingReportRepositoryError(err)
+	}
+	return toAppOperationReport(report), nil
+}
+
+func (a billingReportRepositoryAdapter) FindSnapshotOperationReport(ctx context.Context, query appbilling.OperationReportQuery) (*appbilling.OperationReport, error) {
+	report, err := a.repo.GetOperationReport(ctx, dbbilling.Scope{
+		Role:                query.ActorRole,
+		UserID:              query.ActorUserID,
+		AssignedPropertyIDs: query.AssignedPropertyIDs,
+	}, query.PropertyID, query.Year, query.Month, false)
+	if err != nil {
+		return nil, mapBillingReportRepositoryError(err)
+	}
+	return toAppOperationReport(report), nil
+}
+
 type billingAccountingRepositoryAdapter struct {
 	repo *dbbilling.SQLRepository
 }
@@ -844,5 +882,36 @@ func toAppProfitLossPeriod(period *dbbilling.ProfitLossPeriod) *appbilling.Profi
 		Month:        period.Month,
 		IsFinalized:  period.IsFinalized,
 		Rows:         rows,
+	}
+}
+
+func toAppOperationReport(report *dbbilling.OperationReport) *appbilling.OperationReport {
+	if report == nil {
+		return nil
+	}
+	rows := make([]appbilling.OperationReportLogRow, 0, len(report.ManagementLogRows))
+	for i := range report.ManagementLogRows {
+		rows = append(rows, appbilling.OperationReportLogRow{
+			Date:     report.ManagementLogRows[i].Date,
+			RoomName: report.ManagementLogRows[i].RoomName,
+			Summary:  report.ManagementLogRows[i].Summary,
+		})
+	}
+	return &appbilling.OperationReport{
+		PropertyID:        report.PropertyID,
+		PropertyName:      report.PropertyName,
+		Year:              report.Year,
+		Month:             report.Month,
+		IsFinalized:       report.IsFinalized,
+		PreviousBalance:   report.PreviousBalance,
+		MonthlyIncome:     report.MonthlyIncome,
+		MonthlyExpense:    report.MonthlyExpense,
+		OwnerDistribution: report.OwnerDistribution,
+		EndingBalance:     report.EndingBalance,
+		PreviousRented:    report.PreviousRented,
+		NewRentals:        report.NewRentals,
+		Terminations:      report.Terminations,
+		EndingRented:      report.EndingRented,
+		ManagementLogRows: rows,
 	}
 }

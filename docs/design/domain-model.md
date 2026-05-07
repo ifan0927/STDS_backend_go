@@ -480,6 +480,15 @@ PropertyOwnerView
 - `notes` 欄位在第一版 template 保留顯示位置，但資料先保持空值，待後續確認來源。
 - replacement 或多租戶邊界先依目前 active lease selection rule 決定，不在 template 層做額外業務判斷。
 
+月營運報告（operation report）沿用 runtime HTML export foundation：
+
+- 財務摘要沿用既有 financial-report `category` totals contract；`accounting_titles.kind` 不用來重算收入／支出。
+- 當月報表使用 live `accounting_entries`；歷史月份財務摘要使用 finalized `monthly_snapshots`。
+- 業主收益目前沒有 owner distribution workflow 或 accounting source，第一版固定顯示 `0`，不納入實質分潤計算。
+- 出租異動第一版規則：新租以 `lease.start_date` 落在報表月份計算；退租以 `status IN ('terminated', 'force_terminated')` 且 `updated_at` 落在報表月份計算。replacement 案例可接受被視為退租異動。
+- 管理日誌第一版只納入 repair 類紀錄與新租／退租摘要，不納入一般 journal logs。
+- richer stable display-note snapshot contract（room/tenant labels、period label、source date、report-owned notes）保留給 #123 後續處理；本報表第一版不擴充 snapshot/display schema。
+
 ---
 
 ## 資料庫設計原則

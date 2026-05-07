@@ -176,6 +176,32 @@ type ProfitLossRow struct {
 	Note        *string
 }
 
+// OperationReport is one monthly operation report source read model.
+type OperationReport struct {
+	PropertyID        string
+	PropertyName      string
+	Year              int
+	Month             int
+	IsFinalized       bool
+	PreviousBalance   int
+	MonthlyIncome     int
+	MonthlyExpense    int
+	OwnerDistribution int
+	EndingBalance     int
+	PreviousRented    int
+	NewRentals        int
+	Terminations      int
+	EndingRented      int
+	ManagementLogRows []OperationReportLogRow
+}
+
+// OperationReportLogRow is one operation report management log row.
+type OperationReportLogRow struct {
+	Date     time.Time
+	RoomName *string
+	Summary  string
+}
+
 // TenantRosterRow is one room row for the tenant roster export read model.
 type TenantRosterRow struct {
 	PropertyID         string
@@ -1268,6 +1294,24 @@ func (r *SQLRepository) GetProfitLossPeriod(ctx context.Context, scope Scope, pr
 	return r.getFinalizedProfitLossPeriod(ctx, scope, propertyID, year, month)
 }
 
+// GetOperationReport returns one live or finalized monthly operation report.
+func (r *SQLRepository) GetOperationReport(ctx context.Context, scope Scope, propertyID string, year int, month int, live bool) (*OperationReport, error) {
+	report, err := r.getOperationReportSummary(ctx, scope, propertyID, year, month, live)
+	if err != nil {
+		return nil, err
+	}
+	report.IsFinalized = !live
+	if err := r.populateOperationReportOccupancy(ctx, scope, report); err != nil {
+		return nil, err
+	}
+	rows, err := r.listOperationReportLogs(ctx, scope, propertyID, year, month)
+	if err != nil {
+		return nil, err
+	}
+	report.ManagementLogRows = rows
+	return report, nil
+}
+
 // CalculateMonthlyCashflowOpeningBalance returns prior finalized snapshot net.
 func (r *SQLRepository) CalculateMonthlyCashflowOpeningBalance(ctx context.Context, scope Scope, propertyID string, year int, month int) (int, error) {
 	query := `
@@ -1289,6 +1333,214 @@ WHERE ms.property_id = $1
 		return 0, fmt.Errorf("calculate monthly cashflow opening balance: %w", err)
 	}
 	return openingBalance, nil
+}
+
+func (r *SQLRepository) getOperationReportSummary(ctx context.Context, scope Scope, propertyID string, year int, month int, live bool) (*OperationReport, error) {
+	openingBalance, err := r.CalculateMonthlyCashflowOpeningBalance(ctx, scope, propertyID, year, month)
+	if err != nil {
+		return nil, err
+	}
+	var query string
+	if live {
+		query = `
+SELECT
+	pa.property_id,
+	p.name,
+	$2::int AS year,
+	$3::int AS month,
+	COALESCE(SUM(CASE WHEN ae.category IN ('rent_payment', 'electricity_payment', 'deposit_deduction') THEN ABS(ae.amount) ELSE 0 END), 0)::int AS total_income,
+	COALESCE(SUM(CASE WHEN ae.category IN ('deposit_refund', 'journal_expense') THEN ABS(ae.amount) ELSE 0 END), 0)::int AS total_expense
+FROM property_accounts pa
+JOIN properties p ON p.id = pa.property_id AND p.deleted_at IS NULL
+LEFT JOIN accounting_entries ae ON ae.property_account_id = pa.id
+  AND ae.year = $2
+  AND ae.month = $3
+WHERE pa.property_id = $1
+  AND pa.deleted_at IS NULL
+`
+	} else {
+		query = `
+SELECT
+	ms.property_id,
+	p.name,
+	ms.year,
+	ms.month,
+	ms.total_income,
+	ms.total_expense
+FROM monthly_snapshots ms
+JOIN properties p ON p.id = ms.property_id AND p.deleted_at IS NULL
+WHERE ms.property_id = $1
+  AND ms.year = $2
+  AND ms.month = $3
+`
+	}
+	args := []any{propertyID, year, month}
+	var ok bool
+	query, args, ok = appendPropertyScope(query, args, scope, "p")
+	if !ok {
+		return nil, ErrNotFound
+	}
+	if live {
+		query += "GROUP BY pa.property_id, p.name\n"
+	}
+
+	report := OperationReport{
+		PreviousBalance:   openingBalance,
+		OwnerDistribution: 0,
+	}
+	if err := r.db.QueryRowContext(ctx, query, args...).Scan(
+		&report.PropertyID,
+		&report.PropertyName,
+		&report.Year,
+		&report.Month,
+		&report.MonthlyIncome,
+		&report.MonthlyExpense,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("get operation report summary: %w", err)
+	}
+	report.EndingBalance = report.PreviousBalance + report.MonthlyIncome - report.MonthlyExpense - report.OwnerDistribution
+	return &report, nil
+}
+
+func (r *SQLRepository) populateOperationReportOccupancy(ctx context.Context, scope Scope, report *OperationReport) error {
+	periodStartDate, nextPeriodDate, periodStartInstant, nextPeriodInstant := operationReportPeriodBounds(report.Year, report.Month)
+	query := `
+SELECT
+	COALESCE(COUNT(*) FILTER (
+		WHERE l.start_date < $2
+		  AND l.end_date >= $2
+		  AND l.status IN ('active', 'expired', 'terminated', 'force_terminated')
+	), 0)::int AS previous_rented,
+	COALESCE(COUNT(*) FILTER (
+		WHERE l.start_date >= $2
+		  AND l.start_date < $3
+	), 0)::int AS new_rentals,
+	COALESCE(COUNT(*) FILTER (
+		WHERE l.status IN ('terminated', 'force_terminated')
+		  AND l.updated_at >= $4
+		  AND l.updated_at < $5
+	), 0)::int AS terminations,
+	COALESCE(COUNT(*) FILTER (
+		WHERE l.start_date < $3
+		  AND l.end_date >= $3
+		  AND l.status IN ('active', 'expired', 'terminated', 'force_terminated')
+	), 0)::int AS ending_rented
+FROM properties p
+LEFT JOIN leases l ON l.property_id = p.id AND l.deleted_at IS NULL
+WHERE p.id = $1
+  AND p.deleted_at IS NULL
+`
+	args := []any{report.PropertyID, periodStartDate, nextPeriodDate, periodStartInstant, nextPeriodInstant}
+	var ok bool
+	query, args, ok = appendPropertyScope(query, args, scope, "p")
+	if !ok {
+		return ErrNotFound
+	}
+	if err := r.db.QueryRowContext(ctx, query, args...).Scan(
+		&report.PreviousRented,
+		&report.NewRentals,
+		&report.Terminations,
+		&report.EndingRented,
+	); err != nil {
+		return fmt.Errorf("get operation report occupancy: %w", err)
+	}
+	return nil
+}
+
+func (r *SQLRepository) listOperationReportLogs(ctx context.Context, scope Scope, propertyID string, year int, month int) (rows []OperationReportLogRow, err error) {
+	periodStartDate, nextPeriodDate, periodStartInstant, nextPeriodInstant := operationReportPeriodBounds(year, month)
+	query := `
+SELECT row_date, room_name, summary
+FROM (
+	SELECT rr.created_at AS row_date, rooms.name AS room_name, rr.title AS summary, rr.id AS row_id
+	FROM repair_requests rr
+	JOIN properties p ON p.id = rr.property_id AND p.deleted_at IS NULL
+	JOIN rooms ON rooms.id = rr.room_id AND rooms.deleted_at IS NULL
+	WHERE rr.property_id = $1
+	  AND rr.created_at >= $4
+	  AND rr.created_at < $5
+	  AND rr.deleted_at IS NULL
+`
+	args := []any{propertyID, periodStartDate, nextPeriodDate, periodStartInstant, nextPeriodInstant}
+	var ok bool
+	query, args, ok = appendPropertyScope(query, args, scope, "p")
+	if !ok {
+		return []OperationReportLogRow{}, nil
+	}
+	query += `
+	UNION ALL
+	SELECT l.start_date::timestamptz AS row_date, rooms.name AS room_name, '新租：' || tenants.name AS summary, l.id AS row_id
+	FROM leases l
+	JOIN properties p ON p.id = l.property_id AND p.deleted_at IS NULL
+	JOIN rooms ON rooms.id = l.room_id AND rooms.deleted_at IS NULL
+	JOIN tenants ON tenants.id = l.tenant_id AND tenants.deleted_at IS NULL
+	WHERE l.property_id = $1
+	  AND l.start_date >= $2
+	  AND l.start_date < $3
+	  AND l.deleted_at IS NULL
+`
+	query, args, ok = appendPropertyScope(query, args, scope, "p")
+	if !ok {
+		return []OperationReportLogRow{}, nil
+	}
+	query += `
+	UNION ALL
+	SELECT l.updated_at AS row_date, rooms.name AS room_name, '退租：' || tenants.name AS summary, l.id AS row_id
+	FROM leases l
+	JOIN properties p ON p.id = l.property_id AND p.deleted_at IS NULL
+	JOIN rooms ON rooms.id = l.room_id AND rooms.deleted_at IS NULL
+	JOIN tenants ON tenants.id = l.tenant_id AND tenants.deleted_at IS NULL
+	WHERE l.property_id = $1
+	  AND l.status IN ('terminated', 'force_terminated')
+	  AND l.updated_at >= $4
+	  AND l.updated_at < $5
+	  AND l.deleted_at IS NULL
+`
+	query, args, ok = appendPropertyScope(query, args, scope, "p")
+	if !ok {
+		return []OperationReportLogRow{}, nil
+	}
+	query += `
+) logs
+ORDER BY row_date ASC, row_id ASC
+`
+
+	dbRows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list operation report logs: %w", err)
+	}
+	defer func() {
+		if cerr := dbRows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close operation report log rows: %w", cerr)
+		}
+	}()
+
+	rows = make([]OperationReportLogRow, 0)
+	for dbRows.Next() {
+		var row OperationReportLogRow
+		var roomName sql.NullString
+		if err := dbRows.Scan(&row.Date, &roomName, &row.Summary); err != nil {
+			return nil, fmt.Errorf("scan operation report log row: %w", err)
+		}
+		row.RoomName = nullStringPtr(roomName)
+		rows = append(rows, row)
+	}
+	if err := dbRows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate operation report log rows: %w", err)
+	}
+	return rows, nil
+}
+
+func operationReportPeriodBounds(year int, month int) (time.Time, time.Time, time.Time, time.Time) {
+	reportLocation := time.FixedZone("Asia/Taipei", 8*60*60)
+	periodStartDate := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+	nextPeriodDate := periodStartDate.AddDate(0, 1, 0)
+	periodStartInstant := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, reportLocation).UTC()
+	nextPeriodInstant := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, reportLocation).AddDate(0, 1, 0).UTC()
+	return periodStartDate, nextPeriodDate, periodStartInstant, nextPeriodInstant
 }
 
 // ListTenantRosterRows returns room occupancy rows for a property report.

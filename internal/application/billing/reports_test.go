@@ -1028,40 +1028,108 @@ func TestExportProfitLossAddsFixedUnsupportedLegacyZeroRows(t *testing.T) {
 	}
 }
 
+func TestExportOperationReportUsesCurrentMonthLiveRows(t *testing.T) {
+	roomName := "101"
+	repo := &reportRepositoryStub{
+		liveOperationReport: &OperationReport{
+			PropertyID:        testPropertyID,
+			PropertyName:      "Demo Property",
+			Year:              2026,
+			Month:             5,
+			PreviousBalance:   1000,
+			MonthlyIncome:     12000,
+			MonthlyExpense:    500,
+			OwnerDistribution: 0,
+			EndingBalance:     12500,
+			PreviousRented:    8,
+			NewRentals:        2,
+			Terminations:      1,
+			EndingRented:      9,
+			ManagementLogRows: []OperationReportLogRow{
+				{
+					Date:     time.Date(2026, 5, 3, 10, 0, 0, 0, time.UTC),
+					RoomName: &roomName,
+					Summary:  "Repair sink",
+				},
+			},
+		},
+	}
+	renderer := &recordingReportRenderer{html: []byte("<html>operation report</html>")}
+	service := NewExportOperationReportService(repo, renderer, fixedClock{now: time.Date(2026, 5, 8, 16, 0, 0, 0, time.UTC)})
+
+	document, err := service.Execute(context.Background(), ExportOperationReportInput{
+		ActorRole:           "staff",
+		ActorUserID:         "user-1",
+		AssignedPropertyIDs: []string{testPropertyID},
+		PropertyID:          testPropertyID,
+		Year:                2026,
+		Month:               5,
+		Format:              "html",
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if repo.liveOperationReportQuery == nil || repo.snapshotOperationReportQuery != nil {
+		t.Fatalf("unexpected source queries: live=%+v snapshot=%+v", repo.liveOperationReportQuery, repo.snapshotOperationReportQuery)
+	}
+	if renderer.name != "operation_report.html" {
+		t.Fatalf("renderer template = %q", renderer.name)
+	}
+	view, ok := renderer.data.(operationReportView)
+	if !ok {
+		t.Fatalf("renderer data = %T, want operationReportView", renderer.data)
+	}
+	if view.OwnerDistributionLabel != "NT$ 0" || view.EndingBalanceLabel != "NT$ 12,500" {
+		t.Fatalf("unexpected financial labels: %+v", view)
+	}
+	if view.NewRentalsLabel != "2" || view.TerminationsLabel != "1" || len(view.ManagementLogRows) != 1 {
+		t.Fatalf("unexpected occupancy/log view: %+v", view)
+	}
+	if document.Filename != "operation-report-demo-property-2026-05.html" {
+		t.Fatalf("Filename = %q", document.Filename)
+	}
+}
+
 type reportRepositoryStub struct {
-	pendingMeterBills         []Bill
-	pendingMeterQuery         *PendingMeterQuery
-	propertyMeterHistoryBills []Bill
-	propertyMeterHistoryQuery *MeterHistoryQuery
-	roomMeterHistoryBills     []Bill
-	roomMeterHistoryQuery     *MeterHistoryQuery
-	summaries                 []FinancialReportSummary
-	summaryQuery              *FinancialReportSummaryQuery
-	liveReport                *FinancialReport
-	liveReportQuery           *FinancialReportQuery
-	liveReportErr             error
-	snapshotReport            *FinancialReport
-	snapshotReportQuery       *FinancialReportQuery
-	snapshotReportErr         error
-	tenantRosterRows          []TenantRosterRow
-	tenantRosterQuery         *TenantRosterQuery
-	billReceipt               *BillReceipt
-	billReceiptQuery          *BillReceiptQuery
-	liveCashflow              *MonthlyCashflow
-	liveCashflowQuery         *MonthlyCashflowQuery
-	liveCashflowErr           error
-	snapshotCashflow          *MonthlyCashflow
-	snapshotCashflowQuery     *MonthlyCashflowQuery
-	snapshotCashflowErr       error
-	openingBalance            int
-	openingBalanceQuery       *MonthlyCashflowQuery
-	liveProfitLoss            *ProfitLossPeriod
-	liveProfitLossQuery       *ProfitLossQuery
-	liveProfitLossErr         error
-	snapshotProfitLoss        *ProfitLossPeriod
-	snapshotProfitLossQuery   *ProfitLossQuery
-	snapshotProfitLossErr     error
-	err                       error
+	pendingMeterBills            []Bill
+	pendingMeterQuery            *PendingMeterQuery
+	propertyMeterHistoryBills    []Bill
+	propertyMeterHistoryQuery    *MeterHistoryQuery
+	roomMeterHistoryBills        []Bill
+	roomMeterHistoryQuery        *MeterHistoryQuery
+	summaries                    []FinancialReportSummary
+	summaryQuery                 *FinancialReportSummaryQuery
+	liveReport                   *FinancialReport
+	liveReportQuery              *FinancialReportQuery
+	liveReportErr                error
+	snapshotReport               *FinancialReport
+	snapshotReportQuery          *FinancialReportQuery
+	snapshotReportErr            error
+	tenantRosterRows             []TenantRosterRow
+	tenantRosterQuery            *TenantRosterQuery
+	billReceipt                  *BillReceipt
+	billReceiptQuery             *BillReceiptQuery
+	liveCashflow                 *MonthlyCashflow
+	liveCashflowQuery            *MonthlyCashflowQuery
+	liveCashflowErr              error
+	snapshotCashflow             *MonthlyCashflow
+	snapshotCashflowQuery        *MonthlyCashflowQuery
+	snapshotCashflowErr          error
+	openingBalance               int
+	openingBalanceQuery          *MonthlyCashflowQuery
+	liveProfitLoss               *ProfitLossPeriod
+	liveProfitLossQuery          *ProfitLossQuery
+	liveProfitLossErr            error
+	snapshotProfitLoss           *ProfitLossPeriod
+	snapshotProfitLossQuery      *ProfitLossQuery
+	snapshotProfitLossErr        error
+	liveOperationReport          *OperationReport
+	liveOperationReportQuery     *OperationReportQuery
+	liveOperationReportErr       error
+	snapshotOperationReport      *OperationReport
+	snapshotOperationReportQuery *OperationReportQuery
+	snapshotOperationReportErr   error
+	err                          error
 }
 
 func (s *reportRepositoryStub) ListPendingMeterBills(_ context.Context, query PendingMeterQuery) ([]Bill, error) {
@@ -1184,6 +1252,28 @@ func (s *reportRepositoryStub) FindSnapshotProfitLossPeriod(_ context.Context, q
 		return nil, s.err
 	}
 	return s.snapshotProfitLoss, nil
+}
+
+func (s *reportRepositoryStub) FindLiveOperationReport(_ context.Context, query OperationReportQuery) (*OperationReport, error) {
+	s.liveOperationReportQuery = &query
+	if s.liveOperationReportErr != nil {
+		return nil, s.liveOperationReportErr
+	}
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.liveOperationReport, nil
+}
+
+func (s *reportRepositoryStub) FindSnapshotOperationReport(_ context.Context, query OperationReportQuery) (*OperationReport, error) {
+	s.snapshotOperationReportQuery = &query
+	if s.snapshotOperationReportErr != nil {
+		return nil, s.snapshotOperationReportErr
+	}
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.snapshotOperationReport, nil
 }
 
 type recordingReportRenderer struct {

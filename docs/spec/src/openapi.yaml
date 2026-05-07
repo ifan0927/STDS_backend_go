@@ -153,6 +153,8 @@ paths:
     $ref: paths/billing/properties_{id}_financial-report_{year}_{month}_cashflow-export.yaml
   /properties/{id}/financial-report/{year}/{month}/profit-loss-export:
     $ref: paths/billing/properties_{id}_financial-report_{year}_{month}_profit-loss-export.yaml
+  /properties/{id}/operation-report/{year}/{month}:
+    $ref: paths/billing/properties_{id}_operation-report_{year}_{month}.yaml
   /properties/{id}/financial-report/{year}/{month}/send:
     $ref: paths/billing/properties_{id}_financial-report_{year}_{month}_send.yaml
   /properties/{id}/tenant-roster:

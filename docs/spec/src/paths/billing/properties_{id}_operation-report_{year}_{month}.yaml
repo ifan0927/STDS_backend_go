@@ -1,0 +1,113 @@
+get:
+  operationId: exportPropertyOperationReport
+  summary: Export monthly operation report as HTML
+  description: |
+    x-required-role: admin, organizer, staff (assigned); owner (own property, read-only)
+    x-ownership-required: true
+
+    Runtime HTML operation report export. The financial summary uses the existing financial-report category contract. Current Asia/Taipei month uses live accounting entries; historical months use finalized monthly snapshots for financial totals.
+
+    Owner distribution is not supported in this version and is rendered as zero. Occupancy movement uses lease start dates for new rentals and terminated or force-terminated leases with updated_at in the requested month for terminations. Management log entries include repair-related activity and lease movement summaries. Richer stable display-note snapshot fields remain a follow-up tracked by issue #123.
+  tags:
+    - Billing
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+    - owner
+  x-ownership-required: true
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    - name: year
+      in: path
+      required: true
+      schema:
+        type: integer
+    - name: month
+      in: path
+      required: true
+      schema:
+        type: integer
+    - name: format
+      in: query
+      schema:
+        type: string
+        enum:
+          - html
+        default: html
+      description: Export format. The first version supports html only.
+  responses:
+    '200':
+      description: Monthly operation report HTML document.
+      headers:
+        Content-Disposition:
+          description: Browser preview filename hint.
+          schema:
+            type: string
+            example: inline; filename="operation-report-demo-2026-05.html"
+      content:
+        text/html; charset=utf-8:
+          schema:
+            type: string
+          examples:
+            success:
+              value: "<!doctype html><html lang=\"zh-Hant\"><body><h1>營運報告</h1></body></html>"
+    '400':
+      description: Invalid query parameter format.
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            bad_request:
+              value:
+                error_code: BAD_REQUEST
+                message: Bad request.
+    '401':
+      description: Unauthenticated
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: Unauthorized.
+    '403':
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: Forbidden.
+    '404':
+      description: Property or monthly financial report not found
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: FINANCIAL_REPORT_NOT_FOUND
+                message: Financial report for the requested month was not found.
+    '500':
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            internal_server_error:
+              value:
+                error_code: INTERNAL_SERVER_ERROR
+                message: Internal server error.
