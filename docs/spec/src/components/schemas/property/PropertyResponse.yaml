@@ -39,6 +39,8 @@ properties:
     type: array
     items: {}
     nullable: true
+  occupancy_summary:
+    $ref: ./OccupancySummary.yaml
   created_at:
     type: string
     format: date-time

@@ -16,6 +16,13 @@ type DashboardInput struct {
 	PropertyID string
 }
 
+// HomeDashboardInput is the query payload for retrieving the home dashboard.
+type HomeDashboardInput struct {
+	ActorRole           string
+	ActorUserID         string
+	AssignedPropertyIDs []string
+}
+
 // DashboardService retrieves the property dashboard read model.
 type DashboardService struct {
 	repo DashboardRepository
@@ -60,6 +67,30 @@ func (s *DashboardService) Execute(ctx context.Context, input DashboardInput) (*
 		default:
 			return nil, apperr.ErrInternalServerError.WithCause(err)
 		}
+	}
+
+	return dashboard, nil
+}
+
+// ExecuteHome validates scope and returns the role-scoped home dashboard.
+func (s *DashboardService) ExecuteHome(ctx context.Context, input HomeDashboardInput) (*HomeDashboard, error) {
+	role := strings.TrimSpace(input.ActorRole)
+	userID := strings.TrimSpace(input.ActorUserID)
+	if role == "" {
+		return nil, apperr.ErrUnauthorized
+	}
+	if role == "owner" && userID == "" {
+		return nil, apperr.ErrUnauthorized
+	}
+
+	current := s.now().In(taiwanDashboardLocation)
+	dashboard, err := s.repo.GetHomeDashboard(ctx, DashboardScope{
+		Role:                role,
+		UserID:              userID,
+		AssignedPropertyIDs: input.AssignedPropertyIDs,
+	}, current.Year(), int(current.Month()))
+	if err != nil {
+		return nil, apperr.ErrInternalServerError.WithCause(err)
 	}
 
 	return dashboard, nil

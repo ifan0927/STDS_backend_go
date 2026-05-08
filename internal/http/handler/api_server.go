@@ -1365,6 +1365,27 @@ func (s *APIServer) ListProperties(c *gin.Context) {
 	c.JSON(http.StatusOK, api.PropertyListResponse{Data: &items})
 }
 
+// GetDashboard handles home dashboard retrieval.
+func (s *APIServer) GetDashboard(c *gin.Context) {
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	dashboard, err := s.propertyDashboard.ExecuteHome(c.Request.Context(), appproperty.HomeDashboardInput{
+		ActorRole:           principal.Role,
+		ActorUserID:         principal.UserID,
+		AssignedPropertyIDs: principal.AssignedPropertyIDs,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toHomeDashboardResponse(dashboard))
+}
+
 // CreateProperty handles property creation.
 func (s *APIServer) CreateProperty(c *gin.Context) {
 	var request api.CreatePropertyRequest
@@ -2923,14 +2944,106 @@ func toDashboardResponse(dashboard *appproperty.Dashboard) api.DashboardResponse
 			CollectedRent:    &collectedRent,
 			OverdueBillCount: &overdueBillCount,
 		},
-		RecentJournals: &recentJournals,
-		Rooms:          &rooms,
+		OccupancySummary: toOccupancySummaryResponse(dashboard.Occupancy),
+		RecentJournals:   &recentJournals,
+		Rooms:            &rooms,
 	}
 	if propertyOK {
 		response.PropertyId = &propertyID
 	}
 
 	return response
+}
+
+func toHomeDashboardResponse(dashboard *appproperty.HomeDashboard) api.HomeDashboardResponse {
+	propertySummaries := make([]api.HomeDashboardPropertySummary, 0, len(dashboard.PropertySummaries))
+	for i := range dashboard.PropertySummaries {
+		propertySummaries = append(propertySummaries, toHomeDashboardPropertySummary(dashboard.PropertySummaries[i]))
+	}
+	recentJournals := make([]api.HomeDashboardRecentJournalItem, 0, len(dashboard.RecentJournals))
+	for i := range dashboard.RecentJournals {
+		recentJournals = append(recentJournals, toHomeDashboardRecentJournalItem(dashboard.RecentJournals[i]))
+	}
+
+	return api.HomeDashboardResponse{
+		PortfolioSummary:      toOccupancySummaryResponse(dashboard.PortfolioSummary),
+		MonthlyBillingSummary: toHomeDashboardBillingSummary(dashboard.MonthlyBillingSummary),
+		PropertySummaries:     &propertySummaries,
+		RecentJournals:        &recentJournals,
+	}
+}
+
+func toHomeDashboardPropertySummary(summary appproperty.HomeDashboardPropertySummary) api.HomeDashboardPropertySummary {
+	propertyID, propertyOK := parseUUID(summary.PropertyID)
+	propertyName := summary.PropertyName
+	response := api.HomeDashboardPropertySummary{
+		MonthlyBillingSummary: toHomeDashboardBillingSummary(summary.MonthlySummary),
+		OccupancySummary:      toOccupancySummaryResponse(summary.Occupancy),
+		PropertyName:          &propertyName,
+	}
+	if propertyOK {
+		response.PropertyId = &propertyID
+	}
+	return response
+}
+
+func toHomeDashboardBillingSummary(summary appproperty.DashboardMonthlySummary) *api.HomeDashboardBillingSummary {
+	expectedRent := summary.ExpectedRent
+	collectedRent := summary.CollectedRent
+	overdueBillCount := summary.OverdueBillCount
+	return &api.HomeDashboardBillingSummary{
+		ExpectedRent:     &expectedRent,
+		CollectedRent:    &collectedRent,
+		OverdueBillCount: &overdueBillCount,
+	}
+}
+
+func toHomeDashboardRecentJournalItem(journal appproperty.HomeDashboardRecentJournal) api.HomeDashboardRecentJournalItem {
+	id, idOK := parseUUID(journal.ID)
+	propertyID, propertyOK := parseUUID(journal.PropertyID)
+	propertyName := journal.PropertyName
+	content := journal.Content
+	createdAt := journal.CreatedAt
+	itemType := journal.Type
+
+	response := api.HomeDashboardRecentJournalItem{
+		Content:      &content,
+		CreatedAt:    &createdAt,
+		PropertyName: &propertyName,
+		Type:         &itemType,
+	}
+	if idOK {
+		response.Id = &id
+	}
+	if propertyOK {
+		response.PropertyId = &propertyID
+	}
+	return response
+}
+
+func toOccupancySummaryResponse(summary appproperty.OccupancySummary) *api.OccupancySummary {
+	totalRooms := summary.TotalRooms
+	occupiedRooms := summary.OccupiedRooms
+	vacantRooms := summary.VacantRooms
+	maintenanceRooms := summary.MaintenanceRooms
+	occupancyRate := summary.OccupancyRate
+	return &api.OccupancySummary{
+		TotalRooms:       &totalRooms,
+		OccupiedRooms:    &occupiedRooms,
+		VacantRooms:      &vacantRooms,
+		MaintenanceRooms: &maintenanceRooms,
+		OccupancyRate:    &occupancyRate,
+	}
+}
+
+func toDBPropertyOccupancySummaryResponse(summary dbpropertyquery.OccupancySummary) *api.OccupancySummary {
+	return toOccupancySummaryResponse(appproperty.OccupancySummary{
+		TotalRooms:       summary.TotalRooms,
+		OccupiedRooms:    summary.OccupiedRooms,
+		VacantRooms:      summary.VacantRooms,
+		MaintenanceRooms: summary.MaintenanceRooms,
+		OccupancyRate:    summary.OccupancyRate,
+	})
 }
 
 func toDashboardRoomItem(room appproperty.DashboardRoom) api.DashboardRoomItem {
@@ -3030,11 +3143,12 @@ func toPropertyResponse(property *dbpropertyquery.Property) api.PropertyResponse
 	version := property.Version
 
 	response := api.PropertyResponse{
-		Address:   &address,
-		CreatedAt: &createdAt,
-		Name:      &name,
-		UpdatedAt: &updatedAt,
-		Version:   &version,
+		Address:          &address,
+		CreatedAt:        &createdAt,
+		Name:             &name,
+		OccupancySummary: toDBPropertyOccupancySummaryResponse(property.Occupancy),
+		UpdatedAt:        &updatedAt,
+		Version:          &version,
 	}
 	if property.DefaultElectricityBillingCadence != "" {
 		cadence := api.PropertyResponseDefaultElectricityBillingCadence(property.DefaultElectricityBillingCadence)

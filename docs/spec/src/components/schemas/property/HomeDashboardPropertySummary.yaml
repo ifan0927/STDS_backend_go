@@ -1,0 +1,11 @@
+type: object
+properties:
+  property_id:
+    type: string
+    format: uuid
+  property_name:
+    type: string
+  occupancy_summary:
+    $ref: ./OccupancySummary.yaml
+  monthly_billing_summary:
+    $ref: ./HomeDashboardBillingSummary.yaml

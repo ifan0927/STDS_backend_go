@@ -116,12 +116,13 @@ func TestE2EAuthAndMasterDataAcceptance(t *testing.T) {
 }
 
 type e2ePropertyResponse struct {
-	ID                               string  `json:"id"`
-	Name                             string  `json:"name"`
-	Address                          string  `json:"address"`
-	ElectricityUnitPrice             float64 `json:"electricity_unit_price"`
-	DefaultElectricityBillingCadence string  `json:"default_electricity_billing_cadence"`
-	OwnerID                          string  `json:"owner_id"`
+	ID                               string              `json:"id"`
+	Name                             string              `json:"name"`
+	Address                          string              `json:"address"`
+	ElectricityUnitPrice             float64             `json:"electricity_unit_price"`
+	DefaultElectricityBillingCadence string              `json:"default_electricity_billing_cadence"`
+	OwnerID                          string              `json:"owner_id"`
+	OccupancySummary                 e2eOccupancySummary `json:"occupancy_summary"`
 }
 
 type e2eRoomResponse struct {

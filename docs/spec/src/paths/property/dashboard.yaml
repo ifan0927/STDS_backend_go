@@ -1,0 +1,77 @@
+get:
+  operationId: getDashboard
+  summary: Home dashboard summary read model
+  description: |
+    Backend-owned cross-property dashboard read model for frontend home cards and lists.
+    The response is scoped by role and property authorization so frontend does not aggregate
+    rooms, bills, or journals across child endpoints.
+  tags:
+    - Property
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+    - owner
+  x-ownership-required: true
+  responses:
+    '200':
+      description: Home dashboard summary
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/property/HomeDashboardResponse.yaml
+          examples:
+            success:
+              value:
+                portfolio_summary:
+                  total_rooms: 10
+                  occupied_rooms: 7
+                  vacant_rooms: 2
+                  maintenance_rooms: 1
+                  occupancy_rate: 0.7
+                monthly_billing_summary:
+                  expected_rent: 120000
+                  collected_rent: 90000
+                  overdue_bill_count: 3
+                property_summaries:
+                  - property_id: 10000000-0000-0000-0000-000000000001
+                    property_name: 台北大安物業
+                    occupancy_summary:
+                      total_rooms: 10
+                      occupied_rooms: 7
+                      vacant_rooms: 2
+                      maintenance_rooms: 1
+                      occupancy_rate: 0.7
+                    monthly_billing_summary:
+                      expected_rent: 120000
+                      collected_rent: 90000
+                      overdue_bill_count: 3
+                recent_journals:
+                  - id: 60000000-0000-0000-0000-000000000001
+                    property_id: 10000000-0000-0000-0000-000000000001
+                    property_name: 台北大安物業
+                    type: journal_log
+                    content: 更換大廳燈泡
+                    created_at: '2026-04-10T09:00:00Z'
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: Unauthorized.
+    '403':
+      description: 權限不足
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: Forbidden.

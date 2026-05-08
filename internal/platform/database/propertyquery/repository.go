@@ -23,9 +23,19 @@ type Property struct {
 	ElectricityUnitPrice             *float64
 	DefaultElectricityBillingCadence string
 	OwnerID                          string
+	Occupancy                        OccupancySummary
 	CreatedAt                        time.Time
 	UpdatedAt                        time.Time
 	Version                          int
+}
+
+// OccupancySummary contains room status totals for one property.
+type OccupancySummary struct {
+	TotalRooms       int
+	OccupiedRooms    int
+	VacantRooms      int
+	MaintenanceRooms int
+	OccupancyRate    float64
 }
 
 // Room is the read model returned by room queries.
@@ -66,10 +76,26 @@ func NewRepository(db *sql.DB) *SQLRepository {
 // FindByID returns a single active property.
 func (r *SQLRepository) FindByID(ctx context.Context, propertyID string) (*Property, error) {
 	const query = `
-SELECT id, name, address, electricity_unit_price, default_electricity_billing_cadence, owner_id, created_at, updated_at, version
-FROM properties
-WHERE id = $1
-  AND deleted_at IS NULL
+SELECT
+	p.id,
+	p.name,
+	p.address,
+	p.electricity_unit_price,
+	p.default_electricity_billing_cadence,
+	p.owner_id,
+	COUNT(rooms.id)::int AS total_rooms,
+	COUNT(rooms.id) FILTER (WHERE rooms.status = 'occupied')::int AS occupied_rooms,
+	COUNT(rooms.id) FILTER (WHERE rooms.status = 'vacant')::int AS vacant_rooms,
+	COUNT(rooms.id) FILTER (WHERE rooms.status = 'maintenance')::int AS maintenance_rooms,
+	CASE WHEN COUNT(rooms.id) = 0 THEN 0 ELSE COUNT(rooms.id) FILTER (WHERE rooms.status = 'occupied')::float / COUNT(rooms.id)::float END AS occupancy_rate,
+	p.created_at,
+	p.updated_at,
+	p.version
+FROM properties p
+LEFT JOIN rooms ON rooms.property_id = p.id AND rooms.deleted_at IS NULL
+WHERE p.id = $1
+  AND p.deleted_at IS NULL
+GROUP BY p.id
 LIMIT 1
 `
 
@@ -87,15 +113,30 @@ LIMIT 1
 // ListAccessible returns properties visible to the authenticated principal.
 func (r *SQLRepository) ListAccessible(ctx context.Context, role string, userID string, assignedPropertyIDs []string) ([]Property, error) {
 	base := `
-SELECT id, name, address, electricity_unit_price, default_electricity_billing_cadence, owner_id, created_at, updated_at, version
-FROM properties
-WHERE deleted_at IS NULL
+SELECT
+	p.id,
+	p.name,
+	p.address,
+	p.electricity_unit_price,
+	p.default_electricity_billing_cadence,
+	p.owner_id,
+	COUNT(rooms.id)::int AS total_rooms,
+	COUNT(rooms.id) FILTER (WHERE rooms.status = 'occupied')::int AS occupied_rooms,
+	COUNT(rooms.id) FILTER (WHERE rooms.status = 'vacant')::int AS vacant_rooms,
+	COUNT(rooms.id) FILTER (WHERE rooms.status = 'maintenance')::int AS maintenance_rooms,
+	CASE WHEN COUNT(rooms.id) = 0 THEN 0 ELSE COUNT(rooms.id) FILTER (WHERE rooms.status = 'occupied')::float / COUNT(rooms.id)::float END AS occupancy_rate,
+	p.created_at,
+	p.updated_at,
+	p.version
+FROM properties p
+LEFT JOIN rooms ON rooms.property_id = p.id AND rooms.deleted_at IS NULL
+WHERE p.deleted_at IS NULL
 `
 	args := []any{}
 
 	switch role {
 	case "owner":
-		base += " AND owner_id = $1"
+		base += " AND p.owner_id = $1"
 		args = append(args, userID)
 	case "organizer", "staff":
 		if len(assignedPropertyIDs) == 0 {
@@ -106,10 +147,10 @@ WHERE deleted_at IS NULL
 			args = append(args, propertyID)
 			placeholders = append(placeholders, fmt.Sprintf("$%d", i+1))
 		}
-		base += " AND id IN (" + strings.Join(placeholders, ", ") + ")"
+		base += " AND p.id IN (" + strings.Join(placeholders, ", ") + ")"
 	}
 
-	base += " ORDER BY created_at DESC"
+	base += " GROUP BY p.id ORDER BY p.created_at DESC"
 	rows, err := r.db.QueryContext(ctx, base, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list accessible properties: %w", err)
@@ -207,6 +248,11 @@ func scanProperty(row rowScanner) (*Property, error) {
 		&electricityUnitPrice,
 		&property.DefaultElectricityBillingCadence,
 		&property.OwnerID,
+		&property.Occupancy.TotalRooms,
+		&property.Occupancy.OccupiedRooms,
+		&property.Occupancy.VacantRooms,
+		&property.Occupancy.MaintenanceRooms,
+		&property.Occupancy.OccupancyRate,
 		&property.CreatedAt,
 		&property.UpdatedAt,
 		&property.Version,

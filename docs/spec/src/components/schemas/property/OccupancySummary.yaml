@@ -1,0 +1,15 @@
+type: object
+properties:
+  total_rooms:
+    type: integer
+  occupied_rooms:
+    type: integer
+  vacant_rooms:
+    type: integer
+  maintenance_rooms:
+    type: integer
+  occupancy_rate:
+    type: number
+    format: double
+    minimum: 0
+    maximum: 1
