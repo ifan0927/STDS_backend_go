@@ -239,6 +239,34 @@ func TestCreateServiceMapsMissingPropertyToNotFound(t *testing.T) {
 	}
 }
 
+func TestListServiceReturnsRepositoryResult(t *testing.T) {
+	repo := &journalRepositoryStub{
+		listResult: ListResult{
+			Items: []JournalLog{{ID: testJournalID, PropertyID: testPropertyID}},
+			Total: 12,
+		},
+	}
+	service := NewListService(repo)
+
+	result, err := service.Execute(context.Background(), ListInput{
+		ActorRole: " admin ",
+		Limit:     20,
+		Offset:    40,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if result.Total != 12 {
+		t.Fatalf("Total = %d, want 12", result.Total)
+	}
+	if len(result.Items) != 1 || result.Items[0].ID != testJournalID {
+		t.Fatalf("Items = %+v, want journal %s", result.Items, testJournalID)
+	}
+	if repo.listQuery.ActorRole != "admin" {
+		t.Fatalf("ActorRole = %q, want admin", repo.listQuery.ActorRole)
+	}
+}
+
 func TestListServiceRejectsInvalidInputBeforeRepository(t *testing.T) {
 	t.Run("invalid property id", func(t *testing.T) {
 		repo := &journalRepositoryStub{}
@@ -462,13 +490,16 @@ type journalRepositoryStub struct {
 	room           *Room
 	created        *JournalLog
 	current        *JournalLog
+	listResult     ListResult
+	listQuery      ListQuery
 	deletedID      string
 	listCalls      int
 }
 
-func (s *journalRepositoryStub) List(context.Context, ListQuery) ([]JournalLog, error) {
+func (s *journalRepositoryStub) List(_ context.Context, query ListQuery) (ListResult, error) {
 	s.listCalls++
-	return nil, nil
+	s.listQuery = query
+	return s.listResult, nil
 }
 
 func (s *journalRepositoryStub) FindByID(context.Context, string) (*JournalLog, error) {

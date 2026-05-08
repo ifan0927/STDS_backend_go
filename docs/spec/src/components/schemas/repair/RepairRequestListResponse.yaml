@@ -4,3 +4,5 @@ properties:
     type: array
     items:
       $ref: ./RepairRequestResponse.yaml
+  pagination:
+    $ref: ../shared/PaginationResponse.yaml

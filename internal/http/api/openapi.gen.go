@@ -63,8 +63,8 @@ const (
 
 // Defines values for BillResponseType.
 const (
-	Electricity BillResponseType = "electricity"
-	Rent        BillResponseType = "rent"
+	BillResponseTypeElectricity BillResponseType = "electricity"
+	BillResponseTypeRent        BillResponseType = "rent"
 )
 
 // Defines values for CheckoutSettlementBlockerCode.
@@ -324,6 +324,12 @@ const (
 	ListBillsParamsStatusWrittenOff     ListBillsParamsStatus = "written_off"
 )
 
+// Defines values for ListBillsParamsType.
+const (
+	ListBillsParamsTypeElectricity ListBillsParamsType = "electricity"
+	ListBillsParamsTypeRent        ListBillsParamsType = "rent"
+)
+
 // Defines values for ExportBillReceiptParamsFormat.
 const (
 	ExportBillReceiptParamsFormatHtml ExportBillReceiptParamsFormat = "html"
@@ -451,7 +457,8 @@ type AttachmentUploadURLResponse struct {
 
 // BillListResponse defines model for BillListResponse.
 type BillListResponse struct {
-	Data *[]BillResponse `json:"data,omitempty"`
+	Data       *[]BillResponse     `json:"data,omitempty"`
+	Pagination *PaginationResponse `json:"pagination,omitempty"`
 }
 
 // BillResponse defines model for BillResponse.
@@ -839,7 +846,8 @@ type HomeDashboardResponse struct {
 
 // JournalLogListResponse defines model for JournalLogListResponse.
 type JournalLogListResponse struct {
-	Data *[]JournalLogResponse `json:"data,omitempty"`
+	Data       *[]JournalLogResponse `json:"data,omitempty"`
+	Pagination *PaginationResponse   `json:"pagination,omitempty"`
 }
 
 // JournalLogResponse defines model for JournalLogResponse.
@@ -857,7 +865,8 @@ type JournalLogResponse struct {
 
 // LeaseListResponse defines model for LeaseListResponse.
 type LeaseListResponse struct {
-	Data *[]LeaseResponse `json:"data,omitempty"`
+	Data       *[]LeaseResponse    `json:"data,omitempty"`
+	Pagination *PaginationResponse `json:"pagination,omitempty"`
 }
 
 // LeaseReplaceRequest defines model for LeaseReplaceRequest.
@@ -948,6 +957,24 @@ type OccupancySummary struct {
 	VacantRooms      *int     `json:"vacant_rooms,omitempty"`
 }
 
+// PaginationResponse defines model for PaginationResponse.
+type PaginationResponse struct {
+	// HasNext Whether another page exists after the current page.
+	HasNext *bool `json:"has_next,omitempty"`
+
+	// Limit Page size used for this response.
+	Limit *int `json:"limit,omitempty"`
+
+	// Page Current 1-based page number.
+	Page *int `json:"page,omitempty"`
+
+	// Total Total number of rows matching the same filters and access scope.
+	Total *int `json:"total,omitempty"`
+
+	// TotalPages Total page count based on total and limit.
+	TotalPages *int `json:"total_pages,omitempty"`
+}
+
 // PropertyAssignmentRequest defines model for PropertyAssignmentRequest.
 type PropertyAssignmentRequest struct {
 	PropertyIds []openapi_types.UUID `json:"property_ids"`
@@ -1020,7 +1047,8 @@ type RegisterRepairRequestAttachmentRequestPhotoStage string
 
 // RepairRequestListResponse defines model for RepairRequestListResponse.
 type RepairRequestListResponse struct {
-	Data *[]RepairRequestResponse `json:"data,omitempty"`
+	Data       *[]RepairRequestResponse `json:"data,omitempty"`
+	Pagination *PaginationResponse      `json:"pagination,omitempty"`
 }
 
 // RepairRequestResponse defines model for RepairRequestResponse.
@@ -1045,7 +1073,8 @@ type RepairRequestResponseStatus string
 
 // RoomListResponse defines model for RoomListResponse.
 type RoomListResponse struct {
-	Data *[]RoomResponse `json:"data,omitempty"`
+	Data       *[]RoomResponse     `json:"data,omitempty"`
+	Pagination *PaginationResponse `json:"pagination,omitempty"`
 }
 
 // RoomResponse defines model for RoomResponse.
@@ -1106,7 +1135,8 @@ type SetMaintenanceResponse struct {
 
 // TenantListResponse defines model for TenantListResponse.
 type TenantListResponse struct {
-	Data *[]TenantResponse `json:"data,omitempty"`
+	Data       *[]TenantResponse   `json:"data,omitempty"`
+	Pagination *PaginationResponse `json:"pagination,omitempty"`
 }
 
 // TenantResponse defines model for TenantResponse.
@@ -1220,7 +1250,8 @@ type UpdateUserRequestRole string
 
 // UserListResponse defines model for UserListResponse.
 type UserListResponse struct {
-	Data *[]UserResponse `json:"data,omitempty"`
+	Data       *[]UserResponse     `json:"data,omitempty"`
+	Pagination *PaginationResponse `json:"pagination,omitempty"`
 }
 
 // UserResponse defines model for UserResponse.
@@ -1248,13 +1279,19 @@ type ListBillsParams struct {
 	// TenantId 依租客 ID 篩選帳單
 	TenantId *openapi_types.UUID    `form:"tenant_id,omitempty" json:"tenant_id,omitempty"`
 	Status   *ListBillsParamsStatus `form:"status,omitempty" json:"status,omitempty"`
-	Month    *string                `form:"month,omitempty" json:"month,omitempty"`
-	Page     *int                   `form:"page,omitempty" json:"page,omitempty"`
-	Limit    *int                   `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Type 依帳單類型篩選，租金或電費
+	Type  *ListBillsParamsType `form:"type,omitempty" json:"type,omitempty"`
+	Month *string              `form:"month,omitempty" json:"month,omitempty"`
+	Page  *int                 `form:"page,omitempty" json:"page,omitempty"`
+	Limit *int                 `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ListBillsParamsStatus defines parameters for ListBills.
 type ListBillsParamsStatus string
+
+// ListBillsParamsType defines parameters for ListBills.
+type ListBillsParamsType string
 
 // ExportBillReceiptParams defines parameters for ExportBillReceipt.
 type ExportBillReceiptParams struct {
@@ -1923,6 +1960,14 @@ func (siw *ServerInterfaceWrapper) ListBills(c *gin.Context) {
 	err = runtime.BindQueryParameter("form", true, false, "status", c.Request.URL.Query(), &params.Status)
 	if err != nil {
 		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter status: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "type" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "type", c.Request.URL.Query(), &params.Type)
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter type: %w", err), http.StatusBadRequest)
 		return
 	}
 

@@ -4,3 +4,5 @@ properties:
     type: array
     items:
       $ref: ./RoomResponse.yaml
+  pagination:
+    $ref: ../shared/PaginationResponse.yaml

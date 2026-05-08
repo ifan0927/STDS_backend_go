@@ -16,6 +16,9 @@ func TestListAccessibleOwnerScopeReturnsOwnedBills(t *testing.T) {
 	defer closeBillingDB(t, db)
 
 	now := time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC)
+	mock.ExpectQuery(`(?s)SELECT COUNT\(\*\)\s+FROM bills b\s+JOIN properties p ON p.id = b.property_id AND p.deleted_at IS NULL\s+WHERE b.deleted_at IS NULL\s+AND p.owner_id = \$1`).
+		WithArgs("user-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectQuery(`(?s)FROM bills b\s+JOIN properties p ON p.id = b.property_id AND p.deleted_at IS NULL\s+WHERE b.deleted_at IS NULL\s+AND p.owner_id = \$1\s+ORDER BY b.due_date DESC, b.created_at DESC LIMIT \$2 OFFSET \$3`).
 		WithArgs("user-1", 10, 0).
 		WillReturnRows(billRows().AddRow(
@@ -23,15 +26,18 @@ func TestListAccessibleOwnerScopeReturnsOwnedBills(t *testing.T) {
 			now, now, now, "pending_payment", nil, nil, nil, nil, nil, nil, nil, nil, 0, now, now, 1,
 		))
 
-	bills, err := repo.ListAccessible(context.Background(), Scope{Role: "owner", UserID: "user-1"}, BillFilter{Limit: 10})
+	result, err := repo.ListAccessible(context.Background(), Scope{Role: "owner", UserID: "user-1"}, BillFilter{Limit: 10})
 	if err != nil {
 		t.Fatalf("ListAccessible: %v", err)
 	}
-	if len(bills) != 1 {
-		t.Fatalf("expected 1 bill, got %d", len(bills))
+	if len(result.Items) != 1 {
+		t.Fatalf("expected 1 bill, got %d", len(result.Items))
 	}
-	if bills[0].PropertyID != "property-owned" {
-		t.Fatalf("PropertyID = %q, want property-owned", bills[0].PropertyID)
+	if result.Items[0].PropertyID != "property-owned" {
+		t.Fatalf("PropertyID = %q, want property-owned", result.Items[0].PropertyID)
+	}
+	if result.Total != 1 {
+		t.Fatalf("Total = %d, want 1", result.Total)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -201,12 +207,15 @@ func TestListAccessibleOrganizerWithNoAssignedPropertiesReturnsEmpty(t *testing.
 	db, mock, repo := newBillingRepoTest(t)
 	defer closeBillingDB(t, db)
 
-	bills, err := repo.ListAccessible(context.Background(), Scope{Role: "organizer"}, BillFilter{Limit: 10})
+	result, err := repo.ListAccessible(context.Background(), Scope{Role: "organizer"}, BillFilter{Limit: 10})
 	if err != nil {
 		t.Fatalf("ListAccessible: %v", err)
 	}
-	if len(bills) != 0 {
-		t.Fatalf("expected no bills, got %d", len(bills))
+	if len(result.Items) != 0 {
+		t.Fatalf("expected no bills, got %d", len(result.Items))
+	}
+	if result.Total != 0 {
+		t.Fatalf("Total = %d, want 0", result.Total)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("ExpectationsWereMet: %v", err)
@@ -220,20 +229,25 @@ func TestListAccessibleAppliesFiltersAndPagination(t *testing.T) {
 	propertyID := "property-1"
 	leaseID := "lease-1"
 	tenantID := "tenant-1"
+	billType := "electricity"
 	status := "pending_payment"
 	month := "2026-04"
 
-	mock.ExpectQuery(`(?s)b.property_id IN \(\$1\).*b.property_id = \$2.*b.lease_id = \$3.*b.tenant_id = \$4.*b.status = \$5.*b.due_date >= to_date\(\$6, 'YYYY-MM'\).*b.due_date < to_date\(\$6, 'YYYY-MM'\) \+ INTERVAL '1 month'.*LIMIT \$7 OFFSET \$8`).
-		WithArgs("property-1", propertyID, leaseID, tenantID, status, month, 25, 50).
+	mock.ExpectQuery(`(?s)SELECT COUNT\(\*\).*b.property_id IN \(\$1\).*b.property_id = \$2.*b.lease_id = \$3.*b.tenant_id = \$4.*b.type = \$5.*b.status = \$6.*b.due_date >= to_date\(\$7, 'YYYY-MM'\).*b.due_date < to_date\(\$7, 'YYYY-MM'\) \+ INTERVAL '1 month'`).
+		WithArgs("property-1", propertyID, leaseID, tenantID, billType, status, month).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(2))
+	mock.ExpectQuery(`(?s)b.property_id IN \(\$1\).*b.property_id = \$2.*b.lease_id = \$3.*b.tenant_id = \$4.*b.type = \$5.*b.status = \$6.*b.due_date >= to_date\(\$7, 'YYYY-MM'\).*b.due_date < to_date\(\$7, 'YYYY-MM'\) \+ INTERVAL '1 month'.*LIMIT \$8 OFFSET \$9`).
+		WithArgs("property-1", propertyID, leaseID, tenantID, billType, status, month, 25, 50).
 		WillReturnRows(billRows())
 
-	_, err := repo.ListAccessible(context.Background(), Scope{
+	result, err := repo.ListAccessible(context.Background(), Scope{
 		Role:                "staff",
 		AssignedPropertyIDs: []string{"property-1"},
 	}, BillFilter{
 		PropertyID: &propertyID,
 		LeaseID:    &leaseID,
 		TenantID:   &tenantID,
+		Type:       &billType,
 		Status:     &status,
 		Month:      &month,
 		Limit:      25,
@@ -241,6 +255,9 @@ func TestListAccessibleAppliesFiltersAndPagination(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("ListAccessible: %v", err)
+	}
+	if result.Total != 2 {
+		t.Fatalf("Total = %d, want 2", result.Total)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {

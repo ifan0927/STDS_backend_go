@@ -30,10 +30,17 @@ type BillFilter struct {
 	PropertyID *string
 	LeaseID    *string
 	TenantID   *string
+	Type       *string
 	Status     *string
 	Month      *string
 	Limit      int
 	Offset     int
+}
+
+// BillListResult contains paginated bill rows and the total matching count.
+type BillListResult struct {
+	Items []Bill
+	Total int
 }
 
 // Bill is the billing read and mutation model persisted in PostgreSQL.
@@ -599,15 +606,23 @@ WHERE pa.id = ae.property_account_id
 }
 
 // ListAccessible returns active bills visible to the provided scope.
-func (r *SQLRepository) ListAccessible(ctx context.Context, scope Scope, filter BillFilter) (bills []Bill, err error) {
+func (r *SQLRepository) ListAccessible(ctx context.Context, scope Scope, filter BillFilter) (result BillListResult, err error) {
 	query, args, ok := buildAccessibleBillQuery(scope, filter, false, nil)
 	if !ok {
-		return []Bill{}, nil
+		return BillListResult{Items: []Bill{}}, nil
+	}
+	countQuery, countArgs, ok := buildAccessibleBillCountQuery(scope, filter)
+	if !ok {
+		return BillListResult{Items: []Bill{}}, nil
+	}
+
+	if err := r.db.QueryRowContext(ctx, countQuery, countArgs...).Scan(&result.Total); err != nil {
+		return BillListResult{}, fmt.Errorf("count accessible bills: %w", err)
 	}
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("list accessible bills: %w", err)
+		return BillListResult{}, fmt.Errorf("list accessible bills: %w", err)
 	}
 	defer func() {
 		if cerr := rows.Close(); cerr != nil && err == nil {
@@ -615,19 +630,19 @@ func (r *SQLRepository) ListAccessible(ctx context.Context, scope Scope, filter 
 		}
 	}()
 
-	bills = make([]Bill, 0)
+	result.Items = make([]Bill, 0)
 	for rows.Next() {
 		bill, err := scanBill(rows)
 		if err != nil {
-			return nil, fmt.Errorf("scan bill row: %w", err)
+			return BillListResult{}, fmt.Errorf("scan bill row: %w", err)
 		}
-		bills = append(bills, *bill)
+		result.Items = append(result.Items, *bill)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate bill rows: %w", err)
+		return BillListResult{}, fmt.Errorf("iterate bill rows: %w", err)
 	}
 
-	return bills, nil
+	return result, nil
 }
 
 // FindByIDAccessible returns one visible bill. Pending electricity bills with a NULL
@@ -2186,6 +2201,34 @@ func profitLossSignedAmountSQL(categoryExpr string, amountExpr string) string {
 }
 
 func buildAccessibleBillQuery(scope Scope, filter BillFilter, single bool, billID *string) (string, []any, bool) {
+	base, args, ok := buildAccessibleBillQueryBase(scope, filter, billID)
+	if !ok {
+		return "", nil, false
+	}
+	if single {
+		base += "\nLIMIT 1"
+		return base, args, true
+	}
+
+	args = append(args, filter.Limit, filter.Offset)
+	base += fmt.Sprintf("\nORDER BY b.due_date DESC, b.created_at DESC LIMIT $%d OFFSET $%d", len(args)-1, len(args))
+	return base, args, true
+}
+
+func buildAccessibleBillCountQuery(scope Scope, filter BillFilter) (string, []any, bool) {
+	base, args, ok := buildAccessibleBillQueryBase(scope, filter, nil)
+	if !ok {
+		return "", nil, false
+	}
+	fromIndex := strings.Index(base, "FROM bills b")
+	if fromIndex < 0 {
+		return "", nil, false
+	}
+
+	return "SELECT COUNT(*)\n" + base[fromIndex:], args, true
+}
+
+func buildAccessibleBillQueryBase(scope Scope, filter BillFilter, billID *string) (string, []any, bool) {
 	base := `
 SELECT
 	b.id,
@@ -2253,6 +2296,10 @@ FROM bills b
 		args = append(args, strings.TrimSpace(*filter.TenantID))
 		conditions = append(conditions, fmt.Sprintf("b.tenant_id = $%d", len(args)))
 	}
+	if filter.Type != nil && strings.TrimSpace(*filter.Type) != "" {
+		args = append(args, strings.TrimSpace(*filter.Type))
+		conditions = append(conditions, fmt.Sprintf("b.type = $%d", len(args)))
+	}
 	if filter.Status != nil && strings.TrimSpace(*filter.Status) != "" {
 		args = append(args, strings.TrimSpace(*filter.Status))
 		conditions = append(conditions, fmt.Sprintf("b.status = $%d", len(args)))
@@ -2267,13 +2314,6 @@ FROM bills b
 		base += strings.Join(joins, "\n") + "\n"
 	}
 	base += "WHERE " + strings.Join(conditions, "\n  AND ")
-	if single {
-		base += "\nLIMIT 1"
-		return base, args, true
-	}
-
-	args = append(args, filter.Limit, filter.Offset)
-	base += fmt.Sprintf("\nORDER BY b.due_date DESC, b.created_at DESC LIMIT $%d OFFSET $%d", len(args)-1, len(args))
 	return base, args, true
 }
 

@@ -21,6 +21,12 @@ func TestListReturnsActiveUsersWithPagination(t *testing.T) {
 	repo := NewRepository(db)
 	now := time.Date(2026, 4, 20, 10, 0, 0, 0, time.UTC)
 
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*)::int
+FROM users
+WHERE deleted_at IS NULL
+`)).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(5))
+
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT
 	id,
 	firebase_uid,
@@ -52,11 +58,15 @@ LIMIT $1 OFFSET $2`)).
 			1,
 		))
 
-	items, err := repo.List(context.Background(), ListParams{Limit: 20, Offset: 0})
+	result, err := repo.List(context.Background(), ListParams{Limit: 20, Offset: 0})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
 
+	if result.Total != 5 {
+		t.Fatalf("expected total 5, got %d", result.Total)
+	}
+	items := result.Items
 	if len(items) != 1 {
 		t.Fatalf("expected 1 user, got %d", len(items))
 	}
@@ -78,6 +88,14 @@ func TestListSupportsRoleFilter(t *testing.T) {
 
 	repo := NewRepository(db)
 	now := time.Date(2026, 4, 20, 10, 0, 0, 0, time.UTC)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*)::int
+FROM users
+WHERE deleted_at IS NULL
+  AND role = $1
+`)).
+		WithArgs("staff").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(2))
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT
 	id,
@@ -111,11 +129,15 @@ LIMIT $2 OFFSET $3`)).
 			1,
 		))
 
-	items, err := repo.List(context.Background(), ListParams{Role: "staff", Limit: 10, Offset: 10})
+	result, err := repo.List(context.Background(), ListParams{Role: "staff", Limit: 10, Offset: 10})
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
 
+	if result.Total != 2 {
+		t.Fatalf("expected total 2, got %d", result.Total)
+	}
+	items := result.Items
 	if len(items) != 1 {
 		t.Fatalf("expected 1 user, got %d", len(items))
 	}
@@ -137,6 +159,12 @@ func TestListWrapsQueryErrorsWithOperationContext(t *testing.T) {
 
 	repo := NewRepository(db)
 	queryErr := errors.New("db down")
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*)::int
+FROM users
+WHERE deleted_at IS NULL
+`)).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT
 	id,

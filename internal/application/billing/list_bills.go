@@ -20,6 +20,7 @@ type ListBillsInput struct {
 	PropertyID          *string
 	LeaseID             *string
 	TenantID            *string
+	Type                *string
 	Status              *string
 	Month               *string
 	Limit               int
@@ -37,63 +38,68 @@ func NewListBillsService(repo Repository) *ListBillsService {
 }
 
 // Execute validates filters and delegates role scoping to the repository query contract.
-func (s *ListBillsService) Execute(ctx context.Context, input ListBillsInput) ([]Bill, error) {
+func (s *ListBillsService) Execute(ctx context.Context, input ListBillsInput) (ListBillsResult, error) {
 	actorRole, err := normalizeReadRole(input.ActorRole)
 	if err != nil {
-		return nil, err
+		return ListBillsResult{}, err
 	}
 
 	propertyID, err := normalizeOptionalUUID(input.PropertyID, "property_id")
 	if err != nil {
-		return nil, err
+		return ListBillsResult{}, err
 	}
 	leaseID, err := normalizeOptionalUUID(input.LeaseID, "lease_id")
 	if err != nil {
-		return nil, err
+		return ListBillsResult{}, err
 	}
 	tenantID, err := normalizeOptionalUUID(input.TenantID, "tenant_id")
 	if err != nil {
-		return nil, err
+		return ListBillsResult{}, err
+	}
+	billType, err := normalizeOptionalBillType(input.Type)
+	if err != nil {
+		return ListBillsResult{}, err
 	}
 	status, err := normalizeOptionalStatus(input.Status)
 	if err != nil {
-		return nil, err
+		return ListBillsResult{}, err
 	}
 	month, err := normalizeOptionalMonth(input.Month)
 	if err != nil {
-		return nil, err
+		return ListBillsResult{}, err
 	}
 
 	if input.Limit < 1 || input.Limit > maxListBillsLimit {
-		return nil, apperr.ErrBadRequest.WithDetails(map[string]interface{}{
+		return ListBillsResult{}, apperr.ErrBadRequest.WithDetails(map[string]interface{}{
 			"field":  "limit",
 			"reason": "must be between 1 and 100",
 		})
 	}
 	if input.Offset < 0 {
-		return nil, apperr.ErrBadRequest.WithDetails(map[string]interface{}{
+		return ListBillsResult{}, apperr.ErrBadRequest.WithDetails(map[string]interface{}{
 			"field":  "offset",
 			"reason": "must be greater than or equal to 0",
 		})
 	}
 
-	bills, err := s.repo.ListBills(ctx, ListBillsQuery{
+	result, err := s.repo.ListBills(ctx, ListBillsQuery{
 		ActorRole:           actorRole,
 		ActorUserID:         strings.TrimSpace(input.ActorUserID),
 		AssignedPropertyIDs: cloneStrings(input.AssignedPropertyIDs),
 		PropertyID:          propertyID,
 		LeaseID:             leaseID,
 		TenantID:            tenantID,
+		Type:                billType,
 		Status:              status,
 		Month:               month,
 		Limit:               input.Limit,
 		Offset:              input.Offset,
 	})
 	if err != nil {
-		return nil, mapRepositoryError(err)
+		return ListBillsResult{}, mapRepositoryError(err)
 	}
 
-	return bills, nil
+	return result, nil
 }
 
 func normalizeReadRole(role string) (string, error) {
@@ -143,6 +149,20 @@ func normalizeOptionalStatus(value *string) (*string, error) {
 		return &status, nil
 	default:
 		return nil, apperr.ErrBadRequest.WithDetails(map[string]interface{}{"field": "status"})
+	}
+}
+
+func normalizeOptionalBillType(value *string) (*string, error) {
+	if value == nil {
+		return nil, nil
+	}
+
+	billType := strings.TrimSpace(*value)
+	switch billType {
+	case "rent", "electricity":
+		return &billType, nil
+	default:
+		return nil, apperr.ErrBadRequest.WithDetails(map[string]interface{}{"field": "type"})
 	}
 }
 

@@ -22,52 +22,30 @@ func NewRepository(db *sql.DB) *SQLRepository {
 }
 
 // List returns active repair requests visible to the actor scope.
-func (r *SQLRepository) List(ctx context.Context, query apprepair.ListQuery) ([]apprepair.RepairRequest, error) {
-	base := selectRepairRequestColumns + `
+func (r *SQLRepository) List(ctx context.Context, query apprepair.ListQuery) (apprepair.ListResult, error) {
+	filterSQL, args, scoped := buildRepairListFilter(query)
+	if !scoped {
+		return apprepair.ListResult{Items: []apprepair.RepairRequest{}}, nil
+	}
+
+	countQuery := `
+SELECT COUNT(*)
 FROM repair_requests rr
-WHERE rr.deleted_at IS NULL
-`
-	args := make([]any, 0)
-
-	switch strings.TrimSpace(query.ActorRole) {
-	case "organizer", "staff":
-		if len(query.AssignedPropertyIDs) == 0 {
-			return []apprepair.RepairRequest{}, nil
-		}
-		placeholders := make([]string, 0, len(query.AssignedPropertyIDs))
-		for _, id := range query.AssignedPropertyIDs {
-			args = append(args, id)
-			placeholders = append(placeholders, fmt.Sprintf("$%d", len(args)))
-		}
-		base += "\n  AND rr.property_id IN (" + strings.Join(placeholders, ", ") + ")"
-	case "admin":
-	default:
-		return []apprepair.RepairRequest{}, nil
+` + filterSQL
+	var total int
+	if err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
+		return apprepair.ListResult{}, fmt.Errorf("count repair requests: %w", err)
 	}
 
-	if query.PropertyID != nil {
-		args = append(args, *query.PropertyID)
-		base += fmt.Sprintf("\n  AND rr.property_id = $%d", len(args))
-	}
-	if query.RoomID != nil {
-		args = append(args, *query.RoomID)
-		base += fmt.Sprintf("\n  AND rr.room_id = $%d", len(args))
-	}
-	if query.Status != nil {
-		args = append(args, *query.Status)
-		base += fmt.Sprintf("\n  AND rr.status = $%d", len(args))
-	}
-	if query.AssignedTo != nil {
-		args = append(args, *query.AssignedTo)
-		base += fmt.Sprintf("\n  AND rr.assigned_to = $%d", len(args))
-	}
+	listArgs := append([]any{}, args...)
+	listArgs = append(listArgs, query.Limit, query.Offset)
+	listQuery := selectRepairRequestColumns + `
+FROM repair_requests rr
+` + filterSQL + fmt.Sprintf("\nORDER BY rr.created_at DESC, rr.id DESC LIMIT $%d OFFSET $%d", len(listArgs)-1, len(listArgs))
 
-	args = append(args, query.Limit, query.Offset)
-	base += fmt.Sprintf("\nORDER BY rr.created_at DESC, rr.id DESC LIMIT $%d OFFSET $%d", len(args)-1, len(args))
-
-	rows, err := r.db.QueryContext(ctx, base, args...)
+	rows, err := r.db.QueryContext(ctx, listQuery, listArgs...)
 	if err != nil {
-		return nil, fmt.Errorf("list repair requests: %w", err)
+		return apprepair.ListResult{}, fmt.Errorf("list repair requests: %w", err)
 	}
 	defer rows.Close()
 
@@ -75,15 +53,56 @@ WHERE rr.deleted_at IS NULL
 	for rows.Next() {
 		item, err := scanRepairRequest(rows)
 		if err != nil {
-			return nil, fmt.Errorf("scan repair request: %w", err)
+			return apprepair.ListResult{}, fmt.Errorf("scan repair request: %w", err)
 		}
 		items = append(items, *item)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate repair requests: %w", err)
+		return apprepair.ListResult{}, fmt.Errorf("iterate repair requests: %w", err)
 	}
 
-	return items, nil
+	return apprepair.ListResult{Items: items, Total: total}, nil
+}
+
+func buildRepairListFilter(query apprepair.ListQuery) (string, []any, bool) {
+	filter := `WHERE rr.deleted_at IS NULL
+`
+	args := make([]any, 0)
+
+	switch strings.TrimSpace(query.ActorRole) {
+	case "organizer", "staff":
+		if len(query.AssignedPropertyIDs) == 0 {
+			return "", nil, false
+		}
+		placeholders := make([]string, 0, len(query.AssignedPropertyIDs))
+		for _, id := range query.AssignedPropertyIDs {
+			args = append(args, id)
+			placeholders = append(placeholders, fmt.Sprintf("$%d", len(args)))
+		}
+		filter += "\n  AND rr.property_id IN (" + strings.Join(placeholders, ", ") + ")"
+	case "admin":
+	default:
+		return "", nil, false
+	}
+
+	if query.PropertyID != nil {
+		args = append(args, *query.PropertyID)
+		filter += fmt.Sprintf("\n  AND rr.property_id = $%d", len(args))
+	}
+	if query.RoomID != nil {
+		args = append(args, *query.RoomID)
+		filter += fmt.Sprintf("\n  AND rr.room_id = $%d", len(args))
+	}
+	if query.Status != nil {
+		args = append(args, *query.Status)
+		filter += fmt.Sprintf("\n  AND rr.status = $%d", len(args))
+	}
+	if query.AssignedTo != nil {
+		args = append(args, *query.AssignedTo)
+		filter += fmt.Sprintf("\n  AND rr.assigned_to = $%d", len(args))
+	}
+
+	return filter, args, true
 }
 
 // FindByID returns one active repair request.

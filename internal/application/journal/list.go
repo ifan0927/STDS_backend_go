@@ -35,35 +35,35 @@ func NewListService(repo Repository) *ListService {
 }
 
 // Execute returns active journal logs visible to the actor.
-func (s *ListService) Execute(ctx context.Context, input ListInput) ([]JournalLog, error) {
+func (s *ListService) Execute(ctx context.Context, input ListInput) (ListResult, error) {
 	role := strings.ToLower(strings.TrimSpace(input.ActorRole))
 	switch role {
 	case "admin", "organizer", "staff":
 	default:
-		return nil, apperr.ErrForbidden
+		return ListResult{}, apperr.ErrForbidden
 	}
 	propertyID, err := normalizeOptionalFilterUUID(input.PropertyID, "property_id")
 	if err != nil {
-		return nil, err
+		return ListResult{}, err
 	}
 	roomID, err := normalizeOptionalFilterUUID(input.RoomID, "room_id")
 	if err != nil {
-		return nil, err
+		return ListResult{}, err
 	}
 	if input.Limit < 1 || input.Limit > maxListJournalLogsLimit {
-		return nil, apperr.ErrBadRequest.WithDetails(map[string]interface{}{
+		return ListResult{}, apperr.ErrBadRequest.WithDetails(map[string]interface{}{
 			"field":  "limit",
 			"reason": "must be between 1 and 100",
 		})
 	}
 	if input.Offset < 0 {
-		return nil, apperr.ErrBadRequest.WithDetails(map[string]interface{}{
+		return ListResult{}, apperr.ErrBadRequest.WithDetails(map[string]interface{}{
 			"field":  "offset",
 			"reason": "must be greater than or equal to 0",
 		})
 	}
 
-	items, err := s.repo.List(ctx, ListQuery{
+	result, err := s.repo.List(ctx, ListQuery{
 		ActorRole:           role,
 		AssignedPropertyIDs: cloneStrings(input.AssignedPropertyIDs),
 		PropertyID:          propertyID,
@@ -74,10 +74,10 @@ func (s *ListService) Execute(ctx context.Context, input ListInput) ([]JournalLo
 		Offset:              input.Offset,
 	})
 	if err != nil {
-		return nil, mapRepositoryError(err)
+		return ListResult{}, mapRepositoryError(err)
 	}
 
-	return items, nil
+	return result, nil
 }
 
 func normalizeOptionalFilterUUID(value *string, field string) (*string, error) {

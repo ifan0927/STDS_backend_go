@@ -56,10 +56,17 @@ type ListBillsQuery struct {
 	PropertyID          *string
 	LeaseID             *string
 	TenantID            *string
+	Type                *string
 	Status              *string
 	Month               *time.Time
 	Limit               int
 	Offset              int
+}
+
+// ListBillsResult contains paginated bill rows and the total matching count.
+type ListBillsResult struct {
+	Items []Bill
+	Total int
 }
 
 // GetBillQuery defines role scoping for bill detail retrieval.
@@ -92,7 +99,7 @@ type UpdatePaymentParams struct {
 
 // Repository defines database operations required by billing use cases.
 type Repository interface {
-	ListBills(ctx context.Context, query ListBillsQuery) ([]Bill, error)
+	ListBills(ctx context.Context, query ListBillsQuery) (ListBillsResult, error)
 	FindBillByID(ctx context.Context, query GetBillQuery) (*Bill, error)
 	FindBillByIDForUpdate(ctx context.Context, tx *sql.Tx, billID string) (*Bill, error)
 	FindPreviousElectricityReading(ctx context.Context, tx *sql.Tx, roomID string, beforePeriodStart time.Time) (int, error)

@@ -47,29 +47,34 @@ type billingQueryServiceAdapter struct {
 	getBill   *appbilling.GetBillService
 }
 
-func (a billingQueryServiceAdapter) ListBills(ctx context.Context, input handler.BillingListInput) ([]handler.BillingBill, error) {
+func (a billingQueryServiceAdapter) ListBills(ctx context.Context, input handler.BillingListInput) (handler.BillingListResult, error) {
+	var billType *string
+	if input.Type != "" {
+		billType = &input.Type
+	}
 	var status *string
 	if input.Status != "" {
 		status = &input.Status
 	}
 
-	bills, err := a.listBills.Execute(ctx, appbilling.ListBillsInput{
+	result, err := a.listBills.Execute(ctx, appbilling.ListBillsInput{
 		ActorRole:           input.ActorRole,
 		ActorUserID:         input.ActorUserID,
 		AssignedPropertyIDs: input.AssignedPropertyIDs,
 		PropertyID:          input.PropertyID,
 		LeaseID:             input.LeaseID,
 		TenantID:            input.TenantID,
+		Type:                billType,
 		Status:              status,
 		Month:               input.Month,
 		Limit:               input.Limit,
 		Offset:              input.Offset,
 	})
 	if err != nil {
-		return nil, err
+		return handler.BillingListResult{}, err
 	}
 
-	return toHandlerBills(bills), nil
+	return handler.BillingListResult{Items: toHandlerBills(result.Items), Total: result.Total}, nil
 }
 
 func (a billingQueryServiceAdapter) GetBill(ctx context.Context, input handler.BillingGetInput) (*handler.BillingBill, error) {
@@ -296,14 +301,14 @@ type billingRepositoryAdapter struct {
 	repo *dbbilling.SQLRepository
 }
 
-func (a billingRepositoryAdapter) ListBills(ctx context.Context, query appbilling.ListBillsQuery) ([]appbilling.Bill, error) {
+func (a billingRepositoryAdapter) ListBills(ctx context.Context, query appbilling.ListBillsQuery) (appbilling.ListBillsResult, error) {
 	var month *string
 	if query.Month != nil {
 		value := query.Month.Format("2006-01")
 		month = &value
 	}
 
-	bills, err := a.repo.ListAccessible(ctx, dbbilling.Scope{
+	result, err := a.repo.ListAccessible(ctx, dbbilling.Scope{
 		Role:                query.ActorRole,
 		UserID:              query.ActorUserID,
 		AssignedPropertyIDs: query.AssignedPropertyIDs,
@@ -311,16 +316,17 @@ func (a billingRepositoryAdapter) ListBills(ctx context.Context, query appbillin
 		PropertyID: query.PropertyID,
 		LeaseID:    query.LeaseID,
 		TenantID:   query.TenantID,
+		Type:       query.Type,
 		Status:     query.Status,
 		Month:      month,
 		Limit:      query.Limit,
 		Offset:     query.Offset,
 	})
 	if err != nil {
-		return nil, mapBillingRepositoryError(err)
+		return appbilling.ListBillsResult{}, mapBillingRepositoryError(err)
 	}
 
-	return toAppBills(bills), nil
+	return appbilling.ListBillsResult{Items: toAppBills(result.Items), Total: result.Total}, nil
 }
 
 func (a billingRepositoryAdapter) FindBillByID(ctx context.Context, query appbilling.GetBillQuery) (*appbilling.Bill, error) {

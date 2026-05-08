@@ -4400,8 +4400,8 @@ type customClaimsCall struct {
 
 type fakeBillingQuery struct{}
 
-func (fakeBillingQuery) ListBills(_ context.Context, _ handler.BillingListInput) ([]handler.BillingBill, error) {
-	return nil, nil
+func (fakeBillingQuery) ListBills(_ context.Context, _ handler.BillingListInput) (handler.BillingListResult, error) {
+	return handler.BillingListResult{}, nil
 }
 
 func (fakeBillingQuery) GetBill(_ context.Context, _ handler.BillingGetInput) (*handler.BillingBill, error) {
@@ -4721,18 +4721,18 @@ func (f fakeUserRepo) FindByID(_ context.Context, id string) (*users.User, error
 	}, nil
 }
 
-func (f *fakeUserRepo) List(_ context.Context, params users.ListParams) ([]users.User, error) {
+func (f *fakeUserRepo) List(_ context.Context, params users.ListParams) (users.UserListResult, error) {
 	if f.listParamsSink != nil {
 		*f.listParamsSink = params
 	}
 	if f.listErr != nil {
-		return nil, f.listErr
+		return users.UserListResult{}, f.listErr
 	}
 	if f.listUsers != nil {
-		return f.listUsers, nil
+		return users.UserListResult{Items: f.listUsers, Total: len(f.listUsers)}, nil
 	}
 
-	return []users.User{
+	items := []users.User{
 		{
 			ID:                  "user-1",
 			FirebaseUID:         "uid-1",
@@ -4745,7 +4745,8 @@ func (f *fakeUserRepo) List(_ context.Context, params users.ListParams) ([]users
 			UpdatedAt:           time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
 			Version:             1,
 		},
-	}, nil
+	}
+	return users.UserListResult{Items: items, Total: len(items)}, nil
 }
 
 func (f fakeUserRepo) Create(_ context.Context, params users.CreateUserParams) (*users.User, error) {
@@ -5196,7 +5197,7 @@ func (f fakePropertyQueryRepo) ListAccessible(_ context.Context, _ string, _ str
 	}, nil
 }
 
-func (f fakePropertyQueryRepo) ListRoomsByProperty(_ context.Context, propertyID string, status string, limit int, offset int) ([]dbpropertyquery.Room, error) {
+func (f fakePropertyQueryRepo) ListRoomsByProperty(_ context.Context, propertyID string, status string, limit int, offset int) (dbpropertyquery.RoomListResult, error) {
 	if f.listRoomsCall != nil {
 		f.listRoomsCall.propertyID = propertyID
 		f.listRoomsCall.status = status
@@ -5204,10 +5205,10 @@ func (f fakePropertyQueryRepo) ListRoomsByProperty(_ context.Context, propertyID
 		f.listRoomsCall.offset = offset
 	}
 	if f.roomErr != nil {
-		return nil, f.roomErr
+		return dbpropertyquery.RoomListResult{}, f.roomErr
 	}
 	if f.rooms != nil {
-		return f.rooms, nil
+		return dbpropertyquery.RoomListResult{Items: f.rooms, Total: len(f.rooms)}, nil
 	}
 
 	size := 10.5
@@ -5218,7 +5219,7 @@ func (f fakePropertyQueryRepo) ListRoomsByProperty(_ context.Context, propertyID
 	zone := "A"
 	facilities := map[string]interface{}{"ac": true}
 
-	return []dbpropertyquery.Room{
+	rooms := []dbpropertyquery.Room{
 		{
 			ID:                testRoomID1,
 			PropertyID:        propertyID,
@@ -5234,7 +5235,8 @@ func (f fakePropertyQueryRepo) ListRoomsByProperty(_ context.Context, propertyID
 			CreatedAt:         time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
 			UpdatedAt:         time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
 		},
-	}, nil
+	}
+	return dbpropertyquery.RoomListResult{Items: rooms, Total: len(rooms)}, nil
 }
 
 func (f fakePropertyQueryRepo) FindRoomByID(_ context.Context, roomID string) (*dbpropertyquery.Room, error) {
@@ -5586,7 +5588,7 @@ func (f fakeLeaseRepo) DeactivateTenantIfNoActiveLeases(_ context.Context, _ *sq
 	return nil
 }
 
-func (f fakeTenantQueryRepo) ListAccessible(_ context.Context, role string, assignedPropertyIDs []string, propertyID *string, status string, limit int, offset int) ([]dbtenantquery.Tenant, error) {
+func (f fakeTenantQueryRepo) ListAccessible(_ context.Context, role string, assignedPropertyIDs []string, propertyID *string, status string, limit int, offset int) (dbtenantquery.TenantListResult, error) {
 	if f.listCall != nil {
 		f.listCall.role = role
 		f.listCall.assignedPropertyIDs = assignedPropertyIDs
@@ -5596,13 +5598,13 @@ func (f fakeTenantQueryRepo) ListAccessible(_ context.Context, role string, assi
 		f.listCall.offset = offset
 	}
 	if f.tenantErr != nil {
-		return nil, f.tenantErr
+		return dbtenantquery.TenantListResult{}, f.tenantErr
 	}
 	if f.tenants != nil {
-		return f.tenants, nil
+		return dbtenantquery.TenantListResult{Items: f.tenants, Total: len(f.tenants)}, nil
 	}
 
-	return []dbtenantquery.Tenant{}, nil
+	return dbtenantquery.TenantListResult{Items: []dbtenantquery.Tenant{}}, nil
 }
 
 func (f fakeTenantQueryRepo) FindByIDAccessible(_ context.Context, _ string, _ string, _ []string) (*dbtenantquery.Tenant, error) {
@@ -5641,20 +5643,20 @@ func (f fakeTenantQueryRepo) ListLeasesByTenantAccessible(_ context.Context, ten
 	return []dbtenantquery.Lease{}, nil
 }
 
-func (f fakeLeaseQueryRepo) ListAccessible(_ context.Context, role string, assignedPropertyIDs []string, params dbleasequery.ListParams) ([]dbleasequery.Lease, error) {
+func (f fakeLeaseQueryRepo) ListAccessible(_ context.Context, role string, assignedPropertyIDs []string, params dbleasequery.ListParams) (dbleasequery.LeaseListResult, error) {
 	if f.listCall != nil {
 		f.listCall.role = role
 		f.listCall.assignedPropertyIDs = assignedPropertyIDs
 		f.listCall.params = params
 	}
 	if f.leaseErr != nil {
-		return nil, f.leaseErr
+		return dbleasequery.LeaseListResult{}, f.leaseErr
 	}
 	if f.leases != nil {
-		return f.leases, nil
+		return dbleasequery.LeaseListResult{Items: f.leases, Total: len(f.leases)}, nil
 	}
 
-	return []dbleasequery.Lease{}, nil
+	return dbleasequery.LeaseListResult{Items: []dbleasequery.Lease{}}, nil
 }
 
 func (f fakeLeaseQueryRepo) FindByIDAccessible(_ context.Context, id string, role string, assignedPropertyIDs []string) (*dbleasequery.Lease, error) {
@@ -5689,8 +5691,8 @@ func (f fakeLeaseQueryRepo) FindByIDAccessible(_ context.Context, id string, rol
 	}, nil
 }
 
-func (fakeRepairQueryRepo) List(context.Context, apprepair.ListQuery) ([]apprepair.RepairRequest, error) {
-	return []apprepair.RepairRequest{}, nil
+func (fakeRepairQueryRepo) List(context.Context, apprepair.ListQuery) (apprepair.ListResult, error) {
+	return apprepair.ListResult{Items: []apprepair.RepairRequest{}}, nil
 }
 
 func (fakeRepairQueryRepo) FindByID(context.Context, string) (*apprepair.RepairRequest, error) {

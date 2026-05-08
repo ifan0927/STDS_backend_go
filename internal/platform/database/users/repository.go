@@ -36,6 +36,12 @@ type User struct {
 	Version             int
 }
 
+// UserListResult is the paginated user list query result.
+type UserListResult struct {
+	Items []User
+	Total int
+}
+
 // JobNotificationRecipient is the active user shape needed by scheduler notifications.
 type JobNotificationRecipient struct {
 	Email string
@@ -72,7 +78,7 @@ type ListParams struct {
 type Repository interface {
 	FindByFirebaseUID(ctx context.Context, firebaseUID string) (*User, error)
 	FindByID(ctx context.Context, id string) (*User, error)
-	List(ctx context.Context, params ListParams) ([]User, error)
+	List(ctx context.Context, params ListParams) (UserListResult, error)
 	Create(ctx context.Context, params CreateUserParams) (*User, error)
 	UpdateCurrentUser(ctx context.Context, id string, params UpdateCurrentUserParams) (*User, error)
 	UpdateManagedUser(ctx context.Context, id string, params UpdateManagedUserParams) (*User, error)
@@ -175,26 +181,23 @@ LIMIT 1
 }
 
 // List returns active users filtered by role and paginated by limit/offset.
-func (r *SQLRepository) List(ctx context.Context, params ListParams) ([]User, error) {
-	query := selectUserColumns + `
-FROM users
-WHERE deleted_at IS NULL
-`
-
-	args := make([]any, 0, 3)
-	argPos := 1
-	if params.Role != "" {
-		query += fmt.Sprintf("  AND role = $%d\n", argPos)
-		args = append(args, params.Role)
-		argPos++
+func (r *SQLRepository) List(ctx context.Context, params ListParams) (UserListResult, error) {
+	countQuery, countArgs := buildUserListQuery(params, true)
+	var total int
+	if err := r.db.QueryRowContext(ctx, countQuery, countArgs...).Scan(&total); err != nil {
+		return UserListResult{}, fmt.Errorf(
+			"count users query role=%q limit=%d offset=%d: %w",
+			params.Role,
+			params.Limit,
+			params.Offset,
+			err,
+		)
 	}
 
-	query += fmt.Sprintf("ORDER BY created_at DESC, id DESC\nLIMIT $%d OFFSET $%d", argPos, argPos+1)
-	args = append(args, params.Limit, params.Offset)
-
+	query, args := buildUserListQuery(params, false)
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf(
+		return UserListResult{}, fmt.Errorf(
 			"list users query role=%q limit=%d offset=%d: %w",
 			params.Role,
 			params.Limit,
@@ -208,7 +211,7 @@ WHERE deleted_at IS NULL
 	for rows.Next() {
 		user, err := scanUser(rows)
 		if err != nil {
-			return nil, fmt.Errorf(
+			return UserListResult{}, fmt.Errorf(
 				"scan listed user role=%q limit=%d offset=%d: %w",
 				params.Role,
 				params.Limit,
@@ -220,7 +223,7 @@ WHERE deleted_at IS NULL
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf(
+		return UserListResult{}, fmt.Errorf(
 			"iterate listed users role=%q limit=%d offset=%d: %w",
 			params.Role,
 			params.Limit,
@@ -229,7 +232,37 @@ WHERE deleted_at IS NULL
 		)
 	}
 
-	return items, nil
+	return UserListResult{Items: items, Total: total}, nil
+}
+
+func buildUserListQuery(params ListParams, count bool) (string, []any) {
+	query := selectUserColumns + `
+FROM users
+WHERE deleted_at IS NULL
+`
+	if count {
+		query = `
+SELECT COUNT(*)::int
+FROM users
+WHERE deleted_at IS NULL
+`
+	}
+
+	args := make([]any, 0, 3)
+	argPos := 1
+	if params.Role != "" {
+		query += fmt.Sprintf("  AND role = $%d\n", argPos)
+		args = append(args, params.Role)
+		argPos++
+	}
+
+	if count {
+		return query, args
+	}
+
+	query += fmt.Sprintf("ORDER BY created_at DESC, id DESC\nLIMIT $%d OFFSET $%d", argPos, argPos+1)
+	args = append(args, params.Limit, params.Offset)
+	return query, args
 }
 
 // Create persists a new user row and returns the created record.

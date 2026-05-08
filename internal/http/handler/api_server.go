@@ -150,12 +150,12 @@ type RepairServices struct {
 
 // RepairQueryRepository serves repair request read endpoints.
 type RepairQueryRepository interface {
-	List(ctx context.Context, query apprepair.ListQuery) ([]apprepair.RepairRequest, error)
+	List(ctx context.Context, query apprepair.ListQuery) (apprepair.ListResult, error)
 	FindByID(ctx context.Context, id string) (*apprepair.RepairRequest, error)
 }
 
 type BillingQueryService interface {
-	ListBills(ctx context.Context, input BillingListInput) ([]BillingBill, error)
+	ListBills(ctx context.Context, input BillingListInput) (BillingListResult, error)
 	GetBill(ctx context.Context, input BillingGetInput) (*BillingBill, error)
 }
 
@@ -194,10 +194,16 @@ type BillingListInput struct {
 	PropertyID          *string
 	LeaseID             *string
 	TenantID            *string
+	Type                string
 	Status              string
 	Month               *string
 	Limit               int
 	Offset              int
+}
+
+type BillingListResult struct {
+	Items []BillingBill
+	Total int
 }
 
 type BillingGetInput struct {
@@ -596,6 +602,10 @@ func (s *APIServer) ListBills(c *gin.Context, params api.ListBillsParams) {
 	if params.Status != nil {
 		status = string(*params.Status)
 	}
+	billType := ""
+	if params.Type != nil {
+		billType = string(*params.Type)
+	}
 
 	var tenantID *string
 	if params.TenantId != nil {
@@ -603,13 +613,14 @@ func (s *APIServer) ListBills(c *gin.Context, params api.ListBillsParams) {
 		tenantID = &value
 	}
 
-	bills, err := s.billing.Query.ListBills(c.Request.Context(), BillingListInput{
+	result, err := s.billing.Query.ListBills(c.Request.Context(), BillingListInput{
 		ActorRole:           principal.Role,
 		ActorUserID:         principal.UserID,
 		AssignedPropertyIDs: principal.AssignedPropertyIDs,
 		PropertyID:          params.PropertyId,
 		LeaseID:             params.LeaseId,
 		TenantID:            tenantID,
+		Type:                billType,
 		Status:              status,
 		Month:               params.Month,
 		Limit:               pagination.Limit,
@@ -620,12 +631,12 @@ func (s *APIServer) ListBills(c *gin.Context, params api.ListBillsParams) {
 		return
 	}
 
-	items := make([]api.BillResponse, 0, len(bills))
-	for i := range bills {
-		items = append(items, toBillResponse(&bills[i]))
+	items := make([]api.BillResponse, 0, len(result.Items))
+	for i := range result.Items {
+		items = append(items, toBillResponse(&result.Items[i]))
 	}
 
-	c.JSON(http.StatusOK, api.BillListResponse{Data: &items})
+	c.JSON(http.StatusOK, api.BillListResponse{Data: &items, Pagination: toPaginationResponse(pagination, result.Total)})
 }
 
 // CreateAttachmentUploadURL handles attachment upload URL creation.
@@ -852,7 +863,7 @@ func (s *APIServer) ListJournalLogs(c *gin.Context, params api.ListJournalLogsPa
 		dateTo = &value
 	}
 
-	items, err := s.journal.List.Execute(c.Request.Context(), appjournal.ListInput{
+	result, err := s.journal.List.Execute(c.Request.Context(), appjournal.ListInput{
 		ActorRole:           principal.Role,
 		AssignedPropertyIDs: principal.AssignedPropertyIDs,
 		PropertyID:          propertyID,
@@ -867,11 +878,11 @@ func (s *APIServer) ListJournalLogs(c *gin.Context, params api.ListJournalLogsPa
 		return
 	}
 
-	responses := make([]api.JournalLogResponse, 0, len(items))
-	for i := range items {
-		responses = append(responses, toJournalLogResponse(&items[i]))
+	responses := make([]api.JournalLogResponse, 0, len(result.Items))
+	for i := range result.Items {
+		responses = append(responses, toJournalLogResponse(&result.Items[i]))
 	}
-	c.JSON(http.StatusOK, api.JournalLogListResponse{Data: &responses})
+	c.JSON(http.StatusOK, api.JournalLogListResponse{Data: &responses, Pagination: toPaginationResponse(pagination, result.Total)})
 }
 
 // CreateJournalLog handles journal log creation.
@@ -982,7 +993,7 @@ func (s *APIServer) ListLeases(c *gin.Context, params api.ListLeasesParams) {
 		status = string(*params.Status)
 	}
 
-	leases, err := s.leaseQueryRepo.ListAccessible(c.Request.Context(), principal.Role, principal.AssignedPropertyIDs, dbleasequery.ListParams{
+	result, err := s.leaseQueryRepo.ListAccessible(c.Request.Context(), principal.Role, principal.AssignedPropertyIDs, dbleasequery.ListParams{
 		PropertyID: params.PropertyId,
 		RoomID:     params.RoomId,
 		TenantID:   params.TenantId,
@@ -995,12 +1006,12 @@ func (s *APIServer) ListLeases(c *gin.Context, params api.ListLeasesParams) {
 		return
 	}
 
-	items := make([]api.LeaseResponse, 0, len(leases))
-	for _, lease := range leases {
+	items := make([]api.LeaseResponse, 0, len(result.Items))
+	for _, lease := range result.Items {
 		items = append(items, toLeaseResponse(&lease))
 	}
 
-	c.JSON(http.StatusOK, api.LeaseListResponse{Data: &items})
+	c.JSON(http.StatusOK, api.LeaseListResponse{Data: &items, Pagination: toPaginationResponse(pagination, result.Total)})
 }
 
 // CreateLease handles lease creation.
@@ -1849,13 +1860,13 @@ func (s *APIServer) ListPropertyRooms(c *gin.Context, id string, params api.List
 		return
 	}
 
-	rooms, err := s.propertyQueryRepo.ListRoomsByProperty(c.Request.Context(), id, status, pagination.Limit, pagination.Offset)
+	result, err := s.propertyQueryRepo.ListRoomsByProperty(c.Request.Context(), id, status, pagination.Limit, pagination.Offset)
 	if err != nil {
 		c.Error(apperr.ErrInternalServerError.WithCause(err))
 		return
 	}
 
-	if len(rooms) == 0 {
+	if len(result.Items) == 0 {
 		_, err := s.propertyQueryRepo.FindByID(c.Request.Context(), id)
 		if err != nil {
 			switch err {
@@ -1868,12 +1879,12 @@ func (s *APIServer) ListPropertyRooms(c *gin.Context, id string, params api.List
 		}
 	}
 
-	items := make([]api.RoomResponse, 0, len(rooms))
-	for i := range rooms {
-		items = append(items, toRoomResponse(&rooms[i]))
+	items := make([]api.RoomResponse, 0, len(result.Items))
+	for i := range result.Items {
+		items = append(items, toRoomResponse(&result.Items[i]))
 	}
 
-	c.JSON(http.StatusOK, api.RoomListResponse{Data: &items})
+	c.JSON(http.StatusOK, api.RoomListResponse{Data: &items, Pagination: toPaginationResponse(pagination, result.Total)})
 }
 
 // CreatePropertyRoom handles room creation within a property.
@@ -1932,7 +1943,7 @@ func (s *APIServer) ListRepairRequests(c *gin.Context, params api.ListRepairRequ
 		return
 	}
 
-	items, err := s.repairQueryRepo.List(c.Request.Context(), apprepair.ListQuery{
+	result, err := s.repairQueryRepo.List(c.Request.Context(), apprepair.ListQuery{
 		ActorRole:           principal.Role,
 		AssignedPropertyIDs: principal.AssignedPropertyIDs,
 		PropertyID:          propertyID,
@@ -1947,11 +1958,11 @@ func (s *APIServer) ListRepairRequests(c *gin.Context, params api.ListRepairRequ
 		return
 	}
 
-	responses := make([]api.RepairRequestResponse, 0, len(items))
-	for _, item := range items {
+	responses := make([]api.RepairRequestResponse, 0, len(result.Items))
+	for _, item := range result.Items {
 		responses = append(responses, toApplicationRepairRequestResponse(&item))
 	}
-	c.JSON(http.StatusOK, api.RepairRequestListResponse{Data: &responses})
+	c.JSON(http.StatusOK, api.RepairRequestListResponse{Data: &responses, Pagination: toPaginationResponse(pagination, result.Total)})
 }
 
 // CreateRepairRequest handles repair request creation.
@@ -2285,18 +2296,18 @@ func (s *APIServer) ListTenants(c *gin.Context, params api.ListTenantsParams) {
 		status = string(*params.Status)
 	}
 
-	tenants, err := s.tenantQueryRepo.ListAccessible(c.Request.Context(), principal.Role, principal.AssignedPropertyIDs, params.PropertyId, status, pagination.Limit, pagination.Offset)
+	result, err := s.tenantQueryRepo.ListAccessible(c.Request.Context(), principal.Role, principal.AssignedPropertyIDs, params.PropertyId, status, pagination.Limit, pagination.Offset)
 	if err != nil {
 		c.Error(apperr.ErrInternalServerError.WithCause(err))
 		return
 	}
 
-	items := make([]api.TenantResponse, 0, len(tenants))
-	for _, tenant := range tenants {
+	items := make([]api.TenantResponse, 0, len(result.Items))
+	for _, tenant := range result.Items {
 		items = append(items, toTenantResponse(&tenant))
 	}
 
-	c.JSON(http.StatusOK, api.TenantListResponse{Data: &items})
+	c.JSON(http.StatusOK, api.TenantListResponse{Data: &items, Pagination: toPaginationResponse(pagination, result.Total)})
 }
 
 // CreateTenant handles tenant creation.
@@ -2433,7 +2444,7 @@ func (s *APIServer) ListUsers(c *gin.Context, params api.ListUsersParams) {
 		return
 	}
 
-	items, err := s.userRepo.List(c.Request.Context(), users.ListParams{
+	result, err := s.userRepo.List(c.Request.Context(), users.ListParams{
 		Role:   role,
 		Limit:  pagination.Limit,
 		Offset: pagination.Offset,
@@ -2443,12 +2454,12 @@ func (s *APIServer) ListUsers(c *gin.Context, params api.ListUsersParams) {
 		return
 	}
 
-	responseItems := make([]api.UserResponse, 0, len(items))
-	for _, user := range items {
+	responseItems := make([]api.UserResponse, 0, len(result.Items))
+	for _, user := range result.Items {
 		responseItems = append(responseItems, toUserResponse(&user))
 	}
 
-	c.JSON(http.StatusOK, api.UserListResponse{Data: &responseItems})
+	c.JSON(http.StatusOK, api.UserListResponse{Data: &responseItems, Pagination: toPaginationResponse(pagination, result.Total)})
 }
 
 // CreateUser handles user creation.
@@ -2770,6 +2781,23 @@ func toBillListResponse(bills []BillingBill) api.BillListResponse {
 	}
 
 	return api.BillListResponse{Data: &items}
+}
+
+func toPaginationResponse(pagination queryparams.Pagination, total int) *api.PaginationResponse {
+	totalPages := 0
+	if total > 0 {
+		totalPages = (total + pagination.Limit - 1) / pagination.Limit
+	}
+	hasNext := pagination.Page < totalPages
+	page := pagination.Page
+	limit := pagination.Limit
+	return &api.PaginationResponse{
+		Page:       &page,
+		Limit:      &limit,
+		Total:      &total,
+		TotalPages: &totalPages,
+		HasNext:    &hasNext,
+	}
 }
 
 func toBillResponse(bill *BillingBill) api.BillResponse {

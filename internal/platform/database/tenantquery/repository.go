@@ -30,6 +30,12 @@ type Tenant struct {
 	Version    int
 }
 
+// TenantListResult is the paginated tenant list query result.
+type TenantListResult struct {
+	Items []Tenant
+	Total int
+}
+
 // Lease is the read model returned by tenant lease-history queries.
 type Lease struct {
 	ID                        string
@@ -57,7 +63,7 @@ type Lease struct {
 
 // Repository serves read-model queries for tenants.
 type Repository interface {
-	ListAccessible(ctx context.Context, role string, assignedPropertyIDs []string, propertyID *string, status string, limit int, offset int) ([]Tenant, error)
+	ListAccessible(ctx context.Context, role string, assignedPropertyIDs []string, propertyID *string, status string, limit int, offset int) (TenantListResult, error)
 	FindByIDAccessible(ctx context.Context, tenantID string, role string, assignedPropertyIDs []string) (*Tenant, error)
 	ListLeasesByTenantAccessible(ctx context.Context, tenantID string, role string, assignedPropertyIDs []string, status string) ([]Lease, error)
 }
@@ -73,7 +79,42 @@ func NewRepository(db *sql.DB) *SQLRepository {
 }
 
 // ListAccessible returns tenants visible to the authenticated principal.
-func (r *SQLRepository) ListAccessible(ctx context.Context, role string, assignedPropertyIDs []string, propertyID *string, status string, limit int, offset int) ([]Tenant, error) {
+func (r *SQLRepository) ListAccessible(ctx context.Context, role string, assignedPropertyIDs []string, propertyID *string, status string, limit int, offset int) (TenantListResult, error) {
+	countQuery, countArgs, ok := buildAccessibleTenantListQuery(role, assignedPropertyIDs, propertyID, status, 0, 0, true)
+	if !ok {
+		return TenantListResult{Items: []Tenant{}}, nil
+	}
+
+	var total int
+	if err := r.db.QueryRowContext(ctx, countQuery, countArgs...).Scan(&total); err != nil {
+		return TenantListResult{}, fmt.Errorf("count accessible tenants: %w", err)
+	}
+
+	listQuery, listArgs, _ := buildAccessibleTenantListQuery(role, assignedPropertyIDs, propertyID, status, limit, offset, false)
+	rows, err := r.db.QueryContext(ctx, listQuery, listArgs...)
+	if err != nil {
+		return TenantListResult{}, fmt.Errorf("list accessible tenants: %w", err)
+	}
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	tenants := make([]Tenant, 0)
+	for rows.Next() {
+		tenant, err := scanTenant(rows)
+		if err != nil {
+			return TenantListResult{}, fmt.Errorf("scan tenant row: %w", err)
+		}
+		tenants = append(tenants, *tenant)
+	}
+	if err := rows.Err(); err != nil {
+		return TenantListResult{}, fmt.Errorf("iterate tenant rows: %w", err)
+	}
+
+	return TenantListResult{Items: tenants, Total: total}, nil
+}
+
+func buildAccessibleTenantListQuery(role string, assignedPropertyIDs []string, propertyID *string, status string, limit int, offset int, count bool) (string, []any, bool) {
 	base := `
 SELECT DISTINCT
 	t.id,
@@ -91,6 +132,12 @@ SELECT DISTINCT
 	t.version
 FROM tenants t
 `
+	if count {
+		base = `
+SELECT COUNT(DISTINCT t.id)::int
+FROM tenants t
+`
+	}
 	args := []any{}
 	joins := []string{}
 	conditions := []string{"t.deleted_at IS NULL"}
@@ -99,7 +146,7 @@ FROM tenants t
 	switch role {
 	case "organizer", "staff":
 		if len(assignedPropertyIDs) == 0 {
-			return []Tenant{}, nil
+			return "", nil, false
 		}
 		joins = append(joins, "JOIN leases l ON l.tenant_id = t.id AND l.deleted_at IS NULL")
 		placeholders := make([]string, 0, len(assignedPropertyIDs))
@@ -113,7 +160,7 @@ FROM tenants t
 			joins = append(joins, "JOIN leases l ON l.tenant_id = t.id AND l.deleted_at IS NULL")
 		}
 	default:
-		return []Tenant{}, nil
+		return "", nil, false
 	}
 
 	if propertyID != nil && strings.TrimSpace(*propertyID) != "" {
@@ -134,30 +181,12 @@ FROM tenants t
 	}
 
 	base += "WHERE " + strings.Join(conditions, "\n  AND ")
+	if count {
+		return base, args, true
+	}
 	args = append(args, limit, offset)
 	base += fmt.Sprintf("\nORDER BY t.created_at DESC LIMIT $%d OFFSET $%d", len(args)-1, len(args))
-
-	rows, err := r.db.QueryContext(ctx, base, args...)
-	if err != nil {
-		return nil, fmt.Errorf("list accessible tenants: %w", err)
-	}
-	defer func() {
-		_ = rows.Close()
-	}()
-
-	tenants := make([]Tenant, 0)
-	for rows.Next() {
-		tenant, err := scanTenant(rows)
-		if err != nil {
-			return nil, fmt.Errorf("scan tenant row: %w", err)
-		}
-		tenants = append(tenants, *tenant)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate tenant rows: %w", err)
-	}
-
-	return tenants, nil
+	return base, args, true
 }
 
 // FindByIDAccessible returns one tenant visible to the authenticated principal.

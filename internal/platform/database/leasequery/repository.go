@@ -38,6 +38,12 @@ type Lease struct {
 	Version                   int
 }
 
+// LeaseListResult is the paginated lease list query result.
+type LeaseListResult struct {
+	Items []Lease
+	Total int
+}
+
 // ListParams captures supported filters for lease listing.
 type ListParams struct {
 	PropertyID *string
@@ -50,7 +56,7 @@ type ListParams struct {
 
 // Repository serves read-model queries for leases.
 type Repository interface {
-	ListAccessible(ctx context.Context, role string, assignedPropertyIDs []string, params ListParams) ([]Lease, error)
+	ListAccessible(ctx context.Context, role string, assignedPropertyIDs []string, params ListParams) (LeaseListResult, error)
 	FindByIDAccessible(ctx context.Context, leaseID string, role string, assignedPropertyIDs []string) (*Lease, error)
 }
 
@@ -64,7 +70,42 @@ func NewRepository(db *sql.DB) *SQLRepository {
 	return &SQLRepository{db: db}
 }
 
-func (r *SQLRepository) ListAccessible(ctx context.Context, role string, assignedPropertyIDs []string, params ListParams) ([]Lease, error) {
+func (r *SQLRepository) ListAccessible(ctx context.Context, role string, assignedPropertyIDs []string, params ListParams) (LeaseListResult, error) {
+	countQuery, countArgs, ok := buildAccessibleLeaseListQuery(role, assignedPropertyIDs, params, true)
+	if !ok {
+		return LeaseListResult{Items: []Lease{}}, nil
+	}
+
+	var total int
+	if err := r.db.QueryRowContext(ctx, countQuery, countArgs...).Scan(&total); err != nil {
+		return LeaseListResult{}, fmt.Errorf("count accessible leases: %w", err)
+	}
+
+	listQuery, listArgs, _ := buildAccessibleLeaseListQuery(role, assignedPropertyIDs, params, false)
+	rows, err := r.db.QueryContext(ctx, listQuery, listArgs...)
+	if err != nil {
+		return LeaseListResult{}, fmt.Errorf("list accessible leases: %w", err)
+	}
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	leases := make([]Lease, 0)
+	for rows.Next() {
+		lease, err := scanLease(rows)
+		if err != nil {
+			return LeaseListResult{}, fmt.Errorf("scan lease row: %w", err)
+		}
+		leases = append(leases, *lease)
+	}
+	if err := rows.Err(); err != nil {
+		return LeaseListResult{}, fmt.Errorf("iterate lease rows: %w", err)
+	}
+
+	return LeaseListResult{Items: leases, Total: total}, nil
+}
+
+func buildAccessibleLeaseListQuery(role string, assignedPropertyIDs []string, params ListParams, count bool) (string, []any, bool) {
 	base := `
 SELECT
 	l.id,
@@ -91,13 +132,20 @@ SELECT
 FROM leases l
 WHERE l.deleted_at IS NULL
 `
+	if count {
+		base = `
+SELECT COUNT(*)::int
+FROM leases l
+WHERE l.deleted_at IS NULL
+`
+	}
 
 	args := make([]any, 0)
 	role = strings.TrimSpace(role)
 	switch role {
 	case "organizer", "staff":
 		if len(assignedPropertyIDs) == 0 {
-			return []Lease{}, nil
+			return "", nil, false
 		}
 		placeholders := make([]string, 0, len(assignedPropertyIDs))
 		for _, id := range assignedPropertyIDs {
@@ -107,7 +155,7 @@ WHERE l.deleted_at IS NULL
 		base += "\n  AND l.property_id IN (" + strings.Join(placeholders, ", ") + ")"
 	case "admin":
 	default:
-		return []Lease{}, nil
+		return "", nil, false
 	}
 
 	if params.PropertyID != nil && strings.TrimSpace(*params.PropertyID) != "" {
@@ -127,30 +175,13 @@ WHERE l.deleted_at IS NULL
 		base += fmt.Sprintf("\n  AND l.status = $%d", len(args))
 	}
 
+	if count {
+		return base, args, true
+	}
+
 	args = append(args, params.Limit, params.Offset)
 	base += fmt.Sprintf("\nORDER BY l.created_at DESC LIMIT $%d OFFSET $%d", len(args)-1, len(args))
-
-	rows, err := r.db.QueryContext(ctx, base, args...)
-	if err != nil {
-		return nil, fmt.Errorf("list accessible leases: %w", err)
-	}
-	defer func() {
-		_ = rows.Close()
-	}()
-
-	leases := make([]Lease, 0)
-	for rows.Next() {
-		lease, err := scanLease(rows)
-		if err != nil {
-			return nil, fmt.Errorf("scan lease row: %w", err)
-		}
-		leases = append(leases, *lease)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate lease rows: %w", err)
-	}
-
-	return leases, nil
+	return base, args, true
 }
 
 func (r *SQLRepository) FindByIDAccessible(ctx context.Context, leaseID string, role string, assignedPropertyIDs []string) (*Lease, error) {
