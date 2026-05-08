@@ -41,13 +41,13 @@ const (
 
 // Defines values for AttachmentUploadURLRequestResourceType.
 const (
-	Bill          AttachmentUploadURLRequestResourceType = "bill"
-	JournalLog    AttachmentUploadURLRequestResourceType = "journal_log"
-	Lease         AttachmentUploadURLRequestResourceType = "lease"
-	Property      AttachmentUploadURLRequestResourceType = "property"
-	RepairRequest AttachmentUploadURLRequestResourceType = "repair_request"
-	Room          AttachmentUploadURLRequestResourceType = "room"
-	Tenant        AttachmentUploadURLRequestResourceType = "tenant"
+	AttachmentUploadURLRequestResourceTypeBill          AttachmentUploadURLRequestResourceType = "bill"
+	AttachmentUploadURLRequestResourceTypeJournalLog    AttachmentUploadURLRequestResourceType = "journal_log"
+	AttachmentUploadURLRequestResourceTypeLease         AttachmentUploadURLRequestResourceType = "lease"
+	AttachmentUploadURLRequestResourceTypeProperty      AttachmentUploadURLRequestResourceType = "property"
+	AttachmentUploadURLRequestResourceTypeRepairRequest AttachmentUploadURLRequestResourceType = "repair_request"
+	AttachmentUploadURLRequestResourceTypeRoom          AttachmentUploadURLRequestResourceType = "room"
+	AttachmentUploadURLRequestResourceTypeTenant        AttachmentUploadURLRequestResourceType = "tenant"
 )
 
 // Defines values for BillResponsePaymentMethod.
@@ -155,6 +155,21 @@ const (
 	FinancialReportEntryItemCategoryElectricityPayment FinancialReportEntryItemCategory = "electricity_payment"
 	FinancialReportEntryItemCategoryJournalExpense     FinancialReportEntryItemCategory = "journal_expense"
 	FinancialReportEntryItemCategoryRentPayment        FinancialReportEntryItemCategory = "rent_payment"
+)
+
+// Defines values for FinancialReportEntrySourceDetail.
+const (
+	DepositDeduction FinancialReportEntrySourceDetail = "deposit_deduction"
+	DepositRefund    FinancialReportEntrySourceDetail = "deposit_refund"
+	JournalExpense   FinancialReportEntrySourceDetail = "journal_expense"
+	Payment          FinancialReportEntrySourceDetail = "payment"
+)
+
+// Defines values for FinancialReportEntrySourceType.
+const (
+	FinancialReportEntrySourceTypeBill       FinancialReportEntrySourceType = "bill"
+	FinancialReportEntrySourceTypeJournalLog FinancialReportEntrySourceType = "journal_log"
+	FinancialReportEntrySourceTypeLease      FinancialReportEntrySourceType = "lease"
 )
 
 // Defines values for ForceTerminateRequestDepositHandling.
@@ -772,13 +787,38 @@ type ErrorResponse struct {
 
 // FinancialReportEntryItem defines model for FinancialReportEntryItem.
 type FinancialReportEntryItem struct {
-	Amount      *int                              `json:"amount,omitempty"`
-	Category    *FinancialReportEntryItemCategory `json:"category,omitempty"`
-	Description *string                           `json:"description,omitempty"`
+	AccountingTitleCode *string                           `json:"accounting_title_code,omitempty"`
+	AccountingTitleId   *openapi_types.UUID               `json:"accounting_title_id,omitempty"`
+	AccountingTitleName *string                           `json:"accounting_title_name,omitempty"`
+	Amount              *int                              `json:"amount,omitempty"`
+	Category            *FinancialReportEntryItemCategory `json:"category,omitempty"`
+	Description         *string                           `json:"description,omitempty"`
+	DisplayNote         *string                           `json:"display_note,omitempty"`
+
+	// EntryId Stable report-row identifier from accounting_entries or monthly_snapshot_entries.
+	EntryId     *openapi_types.UUID         `json:"entry_id,omitempty"`
+	PeriodLabel *string                     `json:"period_label,omitempty"`
+	RoomLabel   *string                     `json:"room_label,omitempty"`
+	Source      *FinancialReportEntrySource `json:"source,omitempty"`
+	SourceDate  *openapi_types.Date         `json:"source_date,omitempty"`
+	TenantLabel *string                     `json:"tenant_label,omitempty"`
 }
 
 // FinancialReportEntryItemCategory defines model for FinancialReportEntryItem.Category.
 type FinancialReportEntryItemCategory string
+
+// FinancialReportEntrySource defines model for FinancialReportEntrySource.
+type FinancialReportEntrySource struct {
+	Detail *FinancialReportEntrySourceDetail `json:"detail,omitempty"`
+	Id     *openapi_types.UUID               `json:"id,omitempty"`
+	Type   *FinancialReportEntrySourceType   `json:"type,omitempty"`
+}
+
+// FinancialReportEntrySourceDetail defines model for FinancialReportEntrySource.Detail.
+type FinancialReportEntrySourceDetail string
+
+// FinancialReportEntrySourceType defines model for FinancialReportEntrySource.Type.
+type FinancialReportEntrySourceType string
 
 // FinancialReportListResponse defines model for FinancialReportListResponse.
 type FinancialReportListResponse struct {

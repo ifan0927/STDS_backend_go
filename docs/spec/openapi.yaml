@@ -8299,9 +8299,32 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/FinancialReportSummaryItem'
+    FinancialReportEntrySource:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - bill
+            - journal_log
+            - lease
+        id:
+          type: string
+          format: uuid
+        detail:
+          type: string
+          enum:
+            - payment
+            - journal_expense
+            - deposit_refund
+            - deposit_deduction
     FinancialReportEntryItem:
       type: object
       properties:
+        entry_id:
+          type: string
+          format: uuid
+          description: Stable report-row identifier from accounting_entries or monthly_snapshot_entries.
         category:
           type: string
           enum:
@@ -8310,10 +8333,30 @@ components:
             - deposit_refund
             - deposit_deduction
             - journal_expense
+        accounting_title_id:
+          type: string
+          format: uuid
+        accounting_title_code:
+          type: string
+        accounting_title_name:
+          type: string
+        source_date:
+          type: string
+          format: date
+        room_label:
+          type: string
+        tenant_label:
+          type: string
+        period_label:
+          type: string
+        display_note:
+          type: string
         description:
           type: string
         amount:
           type: integer
+        source:
+          $ref: '#/components/schemas/FinancialReportEntrySource'
     FinancialReportResponse:
       type: object
       properties:

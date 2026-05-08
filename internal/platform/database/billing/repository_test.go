@@ -753,11 +753,23 @@ func TestGetFinancialReportFinalizedMapsSnapshotEntries(t *testing.T) {
 	defer closeBillingDB(t, db)
 
 	createdAt := time.Date(2026, 4, 30, 23, 0, 0, 0, time.UTC)
-	mock.ExpectQuery(`(?s)FROM monthly_snapshots ms\s+JOIN properties p ON p.id = ms.property_id AND p.deleted_at IS NULL\s+LEFT JOIN monthly_snapshot_entries mse ON mse.snapshot_id = ms.id\s+WHERE ms.property_id = \$1\s+AND ms.year = \$2\s+AND ms.month = \$3`).
+	sourceDate := time.Date(2026, 4, 29, 0, 0, 0, 0, time.UTC)
+	mock.ExpectQuery(queryContainsInOrder(
+		"mse.accounting_title_name,",
+		"mse.source_date,",
+		"mse.room_label,",
+		"mse.tenant_label,",
+		"mse.period_label,",
+		"mse.display_note,",
+		"mse.source_ref,",
+		"FROM monthly_snapshots ms",
+		"LEFT JOIN monthly_snapshot_entries mse ON mse.snapshot_id = ms.id",
+		"WHERE ms.property_id = $1",
+	)).
 		WithArgs("property-1", 2026, 4).
 		WillReturnRows(financialReportFinalizedRows().
-			AddRow("property-1", 2026, 4, 13000, 1500, 11500, "entry-1", "rent_payment", "title-4603", "4603", "租金收入", "rent", 12000, []byte(`{"bill_id":"bill-1"}`), createdAt).
-			AddRow("property-1", 2026, 4, 13000, 1500, 11500, "entry-2", "journal_expense", "title-6681", "6681", "其他支出", nil, 1500, []byte(`{"journal_log_id":"journal-1"}`), createdAt))
+			AddRow("property-1", 2026, 4, 13000, 1500, 11500, "entry-1", "rent_payment", "title-4603", "4603", "租金收入", sourceDate, "101", "王小明", "2026-04", "101 王小明 2026-04 rent", "rent", 12000, []byte(`{"bill_id":"bill-1"}`), createdAt).
+			AddRow("property-1", 2026, 4, 13000, 1500, 11500, "entry-2", "journal_expense", "title-6681", "6681", "其他支出", nil, nil, nil, nil, "水電修繕", nil, 1500, []byte(`{"journal_log_id":"journal-1"}`), createdAt))
 
 	report, err := repo.GetFinancialReport(context.Background(), Scope{Role: "admin"}, "property-1", 2026, 4, false)
 	if err != nil {
@@ -775,6 +787,15 @@ func TestGetFinancialReportFinalizedMapsSnapshotEntries(t *testing.T) {
 	if report.Entries[0].Category != "rent_payment" || report.Entries[0].Description == nil || *report.Entries[0].Description != "rent" {
 		t.Fatalf("first entry = %+v, want rent_payment with description", report.Entries[0])
 	}
+	if report.Entries[0].AccountingTitleCode == nil || *report.Entries[0].AccountingTitleCode != "4603" || report.Entries[0].AccountingTitleName == nil || *report.Entries[0].AccountingTitleName != "租金收入" {
+		t.Fatalf("first entry title = %+v/%+v, want 4603 租金收入", report.Entries[0].AccountingTitleCode, report.Entries[0].AccountingTitleName)
+	}
+	if report.Entries[0].SourceDate == nil || !report.Entries[0].SourceDate.Equal(sourceDate) || report.Entries[0].RoomLabel == nil || *report.Entries[0].RoomLabel != "101" || report.Entries[0].TenantLabel == nil || *report.Entries[0].TenantLabel != "王小明" || report.Entries[0].PeriodLabel == nil || *report.Entries[0].PeriodLabel != "2026-04" || report.Entries[0].DisplayNote == nil || *report.Entries[0].DisplayNote != "101 王小明 2026-04 rent" {
+		t.Fatalf("first entry display fields = %+v", report.Entries[0])
+	}
+	if report.Entries[1].DisplayNote == nil || *report.Entries[1].DisplayNote != "水電修繕" {
+		t.Fatalf("second entry display note = %+v, want 水電修繕", report.Entries[1].DisplayNote)
+	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("ExpectationsWereMet: %v", err)
@@ -786,13 +807,25 @@ func TestGetFinancialReportLiveMapsAccountingEntriesAndAggregatesTotals(t *testi
 	defer closeBillingDB(t, db)
 
 	createdAt := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
-	mock.ExpectQuery(`(?s)FROM property_accounts pa\s+JOIN properties p ON p.id = pa.property_id AND p.deleted_at IS NULL\s+LEFT JOIN accounting_entries ae ON ae.property_account_id = pa.id\s+AND ae.year = \$2\s+AND ae.month = \$3\s+WHERE pa.property_id = \$1\s+AND pa.deleted_at IS NULL`).
+	sourceDate := time.Date(2026, 4, 24, 0, 0, 0, 0, time.UTC)
+	mock.ExpectQuery(queryContainsInOrder(
+		"ae.accounting_title_name,",
+		"ae.source_date,",
+		"ae.room_label,",
+		"ae.tenant_label,",
+		"ae.period_label,",
+		"ae.display_note,",
+		"ae.source_ref,",
+		"FROM property_accounts pa",
+		"LEFT JOIN accounting_entries ae ON ae.property_account_id = pa.id",
+		"WHERE pa.property_id = $1",
+	)).
 		WithArgs("property-1", 2026, 4).
 		WillReturnRows(financialReportLiveRows().
-			AddRow("property-1", 2026, 4, "entry-1", "rent_payment", "title-4603", "4603", "租金收入", "rent", 12000, []byte(`{"bill_id":"bill-1"}`), createdAt).
-			AddRow("property-1", 2026, 4, "entry-2", "electricity_payment", "title-4605", "4605", "房客電費收入", nil, 1000, []byte(`{"bill_id":"bill-2"}`), createdAt).
-			AddRow("property-1", 2026, 4, "entry-3", "deposit_refund", "title-4602", "4602", "押金退回(減項)", "refund", -3000, []byte(`{"lease_id":"lease-1"}`), createdAt).
-			AddRow("property-1", 2026, 4, "entry-4", "journal_expense", "title-6681", "6681", "其他支出", nil, 500, []byte(`{"journal_log_id":"journal-1"}`), createdAt))
+			AddRow("property-1", 2026, 4, "entry-1", "rent_payment", "title-4603", "4603", "租金收入", sourceDate, "101", "王小明", "2026-04", "101 王小明 2026-04 rent", "rent", 12000, []byte(`{"bill_id":"bill-1"}`), createdAt).
+			AddRow("property-1", 2026, 4, "entry-2", "electricity_payment", "title-4605", "4605", "房客電費收入", nil, nil, nil, nil, nil, nil, 1000, []byte(`{"bill_id":"bill-2"}`), createdAt).
+			AddRow("property-1", 2026, 4, "entry-3", "deposit_refund", "title-4602", "4602", "押金退回(減項)", nil, nil, nil, nil, "refund", "refund", -3000, []byte(`{"lease_id":"lease-1"}`), createdAt).
+			AddRow("property-1", 2026, 4, "entry-4", "journal_expense", "title-6681", "6681", "其他支出", nil, nil, nil, nil, nil, nil, 500, []byte(`{"journal_log_id":"journal-1"}`), createdAt))
 
 	report, err := repo.GetFinancialReport(context.Background(), Scope{Role: "admin"}, "property-1", 2026, 4, true)
 	if err != nil {
@@ -810,6 +843,12 @@ func TestGetFinancialReportLiveMapsAccountingEntriesAndAggregatesTotals(t *testi
 	if report.Entries[2].Amount != -3000 {
 		t.Fatalf("deposit refund amount = %d, want stored -3000", report.Entries[2].Amount)
 	}
+	if report.Entries[0].AccountingTitleCode == nil || *report.Entries[0].AccountingTitleCode != "4603" || report.Entries[0].SourceDate == nil || !report.Entries[0].SourceDate.Equal(sourceDate) || report.Entries[0].DisplayNote == nil || *report.Entries[0].DisplayNote != "101 王小明 2026-04 rent" {
+		t.Fatalf("first entry fields = %+v", report.Entries[0])
+	}
+	if report.Entries[2].DisplayNote == nil || *report.Entries[2].DisplayNote != "refund" {
+		t.Fatalf("deposit refund display note = %+v, want refund", report.Entries[2].DisplayNote)
+	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("ExpectationsWereMet: %v", err)
@@ -823,7 +862,7 @@ func TestGetFinancialReportFinalizedAllowsEmptyEntries(t *testing.T) {
 	mock.ExpectQuery(`(?s)FROM monthly_snapshots ms\s+JOIN properties p ON p.id = ms.property_id AND p.deleted_at IS NULL\s+LEFT JOIN monthly_snapshot_entries mse ON mse.snapshot_id = ms.id\s+WHERE ms.property_id = \$1\s+AND ms.year = \$2\s+AND ms.month = \$3`).
 		WithArgs("property-1", 2026, 4).
 		WillReturnRows(financialReportFinalizedRows().
-			AddRow("property-1", 2026, 4, 0, 0, 0, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			AddRow("property-1", 2026, 4, 0, 0, 0, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	report, err := repo.GetFinancialReport(context.Background(), Scope{Role: "admin"}, "property-1", 2026, 4, false)
 	if err != nil {
@@ -848,7 +887,7 @@ func TestGetFinancialReportLiveAllowsEmptyEntries(t *testing.T) {
 	mock.ExpectQuery(`(?s)FROM property_accounts pa\s+JOIN properties p ON p.id = pa.property_id AND p.deleted_at IS NULL\s+LEFT JOIN accounting_entries ae ON ae.property_account_id = pa.id\s+AND ae.year = \$2\s+AND ae.month = \$3\s+WHERE pa.property_id = \$1\s+AND pa.deleted_at IS NULL`).
 		WithArgs("property-1", 2026, 4).
 		WillReturnRows(financialReportLiveRows().
-			AddRow("property-1", 2026, 4, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+			AddRow("property-1", 2026, 4, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	report, err := repo.GetFinancialReport(context.Background(), Scope{Role: "admin"}, "property-1", 2026, 4, true)
 	if err != nil {
@@ -1487,6 +1526,11 @@ func financialReportFinalizedRows() *sqlmock.Rows {
 		"accounting_title_id",
 		"accounting_title_code",
 		"accounting_title_name",
+		"source_date",
+		"room_label",
+		"tenant_label",
+		"period_label",
+		"display_note",
 		"description",
 		"amount",
 		"source_ref",
@@ -1504,6 +1548,11 @@ func financialReportLiveRows() *sqlmock.Rows {
 		"accounting_title_id",
 		"accounting_title_code",
 		"accounting_title_name",
+		"source_date",
+		"room_label",
+		"tenant_label",
+		"period_label",
+		"display_note",
 		"description",
 		"amount",
 		"source_ref",

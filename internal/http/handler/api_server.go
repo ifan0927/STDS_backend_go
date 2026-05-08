@@ -427,9 +427,25 @@ type BillingFinancialReport struct {
 }
 
 type BillingFinancialReportEntry struct {
-	Category    string
-	Description *string
-	Amount      int
+	ID                  string
+	Category            string
+	AccountingTitleID   *string
+	AccountingTitleCode *string
+	AccountingTitleName *string
+	SourceDate          *time.Time
+	RoomLabel           *string
+	TenantLabel         *string
+	PeriodLabel         *string
+	DisplayNote         *string
+	Description         *string
+	Amount              int
+	Source              *BillingFinancialReportEntrySource
+}
+
+type BillingFinancialReportEntrySource struct {
+	Type   string
+	ID     string
+	Detail *string
 }
 
 // NewAPIServer returns an API server with all exposed endpoint dependencies
@@ -3223,12 +3239,54 @@ func toFinancialReportResponse(report *BillingFinancialReport) api.FinancialRepo
 func toFinancialReportEntryItem(entry BillingFinancialReportEntry) api.FinancialReportEntryItem {
 	amount := entry.Amount
 	category := api.FinancialReportEntryItemCategory(entry.Category)
+	entryID, entryIDOK := parseUUID(entry.ID)
 
-	return api.FinancialReportEntryItem{
-		Amount:      &amount,
-		Category:    &category,
-		Description: entry.Description,
+	response := api.FinancialReportEntryItem{
+		AccountingTitleCode: entry.AccountingTitleCode,
+		AccountingTitleName: entry.AccountingTitleName,
+		Amount:              &amount,
+		Category:            &category,
+		Description:         entry.Description,
+		DisplayNote:         entry.DisplayNote,
+		PeriodLabel:         entry.PeriodLabel,
+		RoomLabel:           entry.RoomLabel,
+		Source:              toFinancialReportEntrySource(entry.Source),
+		TenantLabel:         entry.TenantLabel,
 	}
+	if entryIDOK {
+		response.EntryId = &entryID
+	}
+	if entry.AccountingTitleID != nil {
+		if accountingTitleID, ok := parseUUID(*entry.AccountingTitleID); ok {
+			response.AccountingTitleId = &accountingTitleID
+		}
+	}
+	if entry.SourceDate != nil {
+		sourceDate := openapi_types.Date{Time: *entry.SourceDate}
+		response.SourceDate = &sourceDate
+	}
+
+	return response
+}
+
+func toFinancialReportEntrySource(source *BillingFinancialReportEntrySource) *api.FinancialReportEntrySource {
+	if source == nil {
+		return nil
+	}
+	sourceID, ok := parseUUID(source.ID)
+	if !ok {
+		return nil
+	}
+	sourceType := api.FinancialReportEntrySourceType(source.Type)
+	response := api.FinancialReportEntrySource{
+		Id:   &sourceID,
+		Type: &sourceType,
+	}
+	if source.Detail != nil {
+		detail := api.FinancialReportEntrySourceDetail(*source.Detail)
+		response.Detail = &detail
+	}
+	return &response
 }
 
 func toDashboardResponse(dashboard *appproperty.Dashboard) api.DashboardResponse {
