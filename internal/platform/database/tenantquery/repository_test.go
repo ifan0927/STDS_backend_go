@@ -27,6 +27,15 @@ func TestListAccessibleReturnsAssignedPropertyTenants(t *testing.T) {
 	repo := NewRepository(db)
 	now := time.Date(2026, 4, 20, 10, 0, 0, 0, time.UTC)
 
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(DISTINCT t.id)::int
+FROM tenants t
+JOIN leases l ON l.tenant_id = t.id AND l.deleted_at IS NULL
+WHERE t.deleted_at IS NULL
+  AND l.property_id IN ($1)
+  AND t.status = $2`)).
+		WithArgs("10000000-0000-0000-0000-000000000001", "active").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(7))
+
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT DISTINCT
 	t.id,
 	t.name,
@@ -67,10 +76,14 @@ ORDER BY t.created_at DESC LIMIT $3 OFFSET $4`)).
 		))
 	mock.ExpectClose()
 
-	tenants, err := repo.ListAccessible(context.Background(), "organizer", []string{"10000000-0000-0000-0000-000000000001"}, nil, "active", 10, 20)
+	result, err := repo.ListAccessible(context.Background(), "organizer", []string{"10000000-0000-0000-0000-000000000001"}, nil, "active", 10, 20)
 	if err != nil {
 		t.Fatalf("ListAccessible: %v", err)
 	}
+	if result.Total != 7 {
+		t.Fatalf("expected total 7, got %d", result.Total)
+	}
+	tenants := result.Items
 	if len(tenants) != 1 {
 		t.Fatalf("expected 1 tenant, got %d", len(tenants))
 	}

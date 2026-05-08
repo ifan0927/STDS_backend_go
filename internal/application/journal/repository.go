@@ -52,6 +52,12 @@ type ListQuery struct {
 	Offset              int
 }
 
+// ListResult contains journal logs and the total matching rows before pagination.
+type ListResult struct {
+	Items []JournalLog
+	Total int
+}
+
 // CreateParams contains fields for journal log creation.
 type CreateParams struct {
 	PropertyID         string
@@ -86,7 +92,7 @@ type UpdateParams struct {
 
 // Repository defines persistence required by journal use cases.
 type Repository interface {
-	List(ctx context.Context, query ListQuery) ([]JournalLog, error)
+	List(ctx context.Context, query ListQuery) (ListResult, error)
 	FindByID(ctx context.Context, id string) (*JournalLog, error)
 	FindByIDForUpdate(ctx context.Context, tx *sql.Tx, id string) (*JournalLog, error)
 	EnsurePropertyExists(ctx context.Context, tx *sql.Tx, id string) error

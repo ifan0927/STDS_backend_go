@@ -63,6 +63,12 @@ type ListQuery struct {
 	Offset              int
 }
 
+// ListResult contains repair requests and the total matching rows before pagination.
+type ListResult struct {
+	Items []RepairRequest
+	Total int
+}
+
 // CreateParams contains fields for repair request creation.
 type CreateParams struct {
 	PropertyID  string
@@ -100,7 +106,7 @@ type CancelParams struct {
 
 // Repository defines persistence required by repair use cases.
 type Repository interface {
-	List(ctx context.Context, query ListQuery) ([]RepairRequest, error)
+	List(ctx context.Context, query ListQuery) (ListResult, error)
 	FindByID(ctx context.Context, id string) (*RepairRequest, error)
 	FindByIDForUpdate(ctx context.Context, tx *sql.Tx, id string) (*RepairRequest, error)
 	FindRoomByID(ctx context.Context, tx *sql.Tx, id string) (*Room, error)

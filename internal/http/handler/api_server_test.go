@@ -238,6 +238,7 @@ func TestListBillsForwardsFiltersAndPagination(t *testing.T) {
 
 	query := &recordingBillingQuery{
 		bills: []BillingBill{testBillingBill()},
+		total: 21,
 	}
 	server := &APIServer{billing: BillingServices{Query: query}}
 	recorder := httptest.NewRecorder()
@@ -253,6 +254,7 @@ func TestListBillsForwardsFiltersAndPagination(t *testing.T) {
 	leaseID := "40000000-0000-0000-0000-000000000001"
 	tenantID := openapi_types.UUID([16]byte{0x50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1})
 	status := api.ListBillsParamsStatusPaid
+	billType := api.ListBillsParamsTypeRent
 	month := "2026-04"
 	page := 2
 	limit := 10
@@ -262,6 +264,7 @@ func TestListBillsForwardsFiltersAndPagination(t *testing.T) {
 		LeaseId:    &leaseID,
 		TenantId:   &tenantID,
 		Status:     &status,
+		Type:       &billType,
 		Month:      &month,
 		Page:       &page,
 		Limit:      &limit,
@@ -282,7 +285,7 @@ func TestListBillsForwardsFiltersAndPagination(t *testing.T) {
 	if query.input.TenantID == nil || *query.input.TenantID != tenantID.String() {
 		t.Fatalf("TenantID = %v, want %s", query.input.TenantID, tenantID.String())
 	}
-	if query.input.Status != "paid" || query.input.Month == nil || *query.input.Month != month {
+	if query.input.Type != "rent" || query.input.Status != "paid" || query.input.Month == nil || *query.input.Month != month {
 		t.Fatalf("unexpected filters: %+v", query.input)
 	}
 	if query.input.Limit != 10 || query.input.Offset != 10 {
@@ -298,6 +301,12 @@ func TestListBillsForwardsFiltersAndPagination(t *testing.T) {
 	}
 	if (*response.Data)[0].Amount == nil || *(*response.Data)[0].Amount != 12000 {
 		t.Fatalf("unexpected bill response: %+v", (*response.Data)[0])
+	}
+	if response.Pagination == nil || response.Pagination.Total == nil || *response.Pagination.Total != 21 {
+		t.Fatalf("unexpected pagination: %+v", response.Pagination)
+	}
+	if response.Pagination.TotalPages == nil || *response.Pagination.TotalPages != 3 || response.Pagination.HasNext == nil || !*response.Pagination.HasNext {
+		t.Fatalf("unexpected pagination derived fields: %+v", response.Pagination)
 	}
 }
 
@@ -1091,12 +1100,13 @@ type recordingBillingQuery struct {
 	input    BillingListInput
 	getInput BillingGetInput
 	bills    []BillingBill
+	total    int
 	getBill  BillingBill
 }
 
-func (q *recordingBillingQuery) ListBills(_ context.Context, input BillingListInput) ([]BillingBill, error) {
+func (q *recordingBillingQuery) ListBills(_ context.Context, input BillingListInput) (BillingListResult, error) {
 	q.input = input
-	return q.bills, nil
+	return BillingListResult{Items: q.bills, Total: q.total}, nil
 }
 
 func (q *recordingBillingQuery) GetBill(_ context.Context, input BillingGetInput) (*BillingBill, error) {
@@ -1271,9 +1281,9 @@ type recordingRepairQueryRepo struct {
 	err   error
 }
 
-func (r *recordingRepairQueryRepo) List(_ context.Context, query apprepair.ListQuery) ([]apprepair.RepairRequest, error) {
+func (r *recordingRepairQueryRepo) List(_ context.Context, query apprepair.ListQuery) (apprepair.ListResult, error) {
 	r.query = query
-	return r.items, r.err
+	return apprepair.ListResult{Items: r.items, Total: len(r.items)}, r.err
 }
 
 func (r *recordingRepairQueryRepo) FindByID(context.Context, string) (*apprepair.RepairRequest, error) {
@@ -1360,8 +1370,8 @@ type handlerRepairRepositoryStub struct {
 	repairRequest *apprepair.RepairRequest
 }
 
-func (r *handlerRepairRepositoryStub) List(context.Context, apprepair.ListQuery) ([]apprepair.RepairRequest, error) {
-	return nil, nil
+func (r *handlerRepairRepositoryStub) List(context.Context, apprepair.ListQuery) (apprepair.ListResult, error) {
+	return apprepair.ListResult{}, nil
 }
 
 func (r *handlerRepairRepositoryStub) FindByID(context.Context, string) (*apprepair.RepairRequest, error) {

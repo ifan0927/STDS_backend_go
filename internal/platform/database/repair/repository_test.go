@@ -20,6 +20,9 @@ func TestListScopesOrganizerToAssignedPropertiesAndFilters(t *testing.T) {
 	defer db.Close()
 
 	now := time.Date(2026, 4, 27, 10, 0, 0, 0, time.UTC)
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*)")).
+		WithArgs(testPropertyID, testPropertyID, testRoomID, "submitted", testStaffID).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(3))
 	mock.ExpectQuery(regexp.QuoteMeta("FROM repair_requests rr")).
 		WithArgs(testPropertyID, testPropertyID, testRoomID, "submitted", testStaffID, 20, 0).
 		WillReturnRows(repairRows().AddRow(
@@ -44,7 +47,7 @@ func TestListScopesOrganizerToAssignedPropertiesAndFilters(t *testing.T) {
 	roomID := testRoomID
 	assignedTo := testStaffID
 	propertyID := testPropertyID
-	items, err := repo.List(context.Background(), apprepair.ListQuery{
+	result, err := repo.List(context.Background(), apprepair.ListQuery{
 		ActorRole:           "organizer",
 		AssignedPropertyIDs: []string{testPropertyID},
 		PropertyID:          &propertyID,
@@ -57,8 +60,38 @@ func TestListScopesOrganizerToAssignedPropertiesAndFilters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
+	if result.Total != 3 {
+		t.Fatalf("Total = %d, want 3", result.Total)
+	}
+	items := result.Items
 	if len(items) != 1 || items[0].ID != testRepairID {
 		t.Fatalf("unexpected items: %+v", items)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestListReturnsEmptyForUnscopedStaff(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewRepository(db)
+	result, err := repo.List(context.Background(), apprepair.ListQuery{
+		ActorRole: "staff",
+		Limit:     20,
+	})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(result.Items) != 0 {
+		t.Fatalf("items = %d, want 0", len(result.Items))
+	}
+	if result.Total != 0 {
+		t.Fatalf("Total = %d, want 0", result.Total)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet sql expectations: %v", err)

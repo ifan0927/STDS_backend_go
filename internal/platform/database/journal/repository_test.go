@@ -25,12 +25,15 @@ func TestListAppliesFiltersPaginationAndScope(t *testing.T) {
 	createdAt := time.Date(2026, 4, 10, 9, 0, 0, 0, time.UTC)
 	updatedAt := createdAt
 
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*)")).
+		WithArgs(propertyID, propertyID, roomID, dateFrom, dateTo.AddDate(0, 0, 1)).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(7))
 	mock.ExpectQuery(regexp.QuoteMeta("FROM journal_logs jl")).
 		WithArgs(propertyID, propertyID, roomID, dateFrom, dateTo.AddDate(0, 0, 1), 20, 40).
 		WillReturnRows(journalLogRows().
 			AddRow("60000000-0000-0000-0000-000000000001", propertyID, roomID, "00000000-0000-0000-0000-000000000002", "Inspection", nil, nil, createdAt, updatedAt))
 
-	items, err := repo.List(context.Background(), appjournal.ListQuery{
+	result, err := repo.List(context.Background(), appjournal.ListQuery{
 		ActorRole:           "staff",
 		AssignedPropertyIDs: []string{propertyID},
 		PropertyID:          &propertyID,
@@ -43,6 +46,10 @@ func TestListAppliesFiltersPaginationAndScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
+	if result.Total != 7 {
+		t.Fatalf("Total = %d, want 7", result.Total)
+	}
+	items := result.Items
 	if len(items) != 1 {
 		t.Fatalf("items = %d, want 1", len(items))
 	}
@@ -58,15 +65,18 @@ func TestListReturnsEmptyForUnscopedStaff(t *testing.T) {
 	db, mock, repo := newJournalRepoTest(t)
 	defer db.Close()
 
-	items, err := repo.List(context.Background(), appjournal.ListQuery{
+	result, err := repo.List(context.Background(), appjournal.ListQuery{
 		ActorRole: "staff",
 		Limit:     20,
 	})
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
-	if len(items) != 0 {
-		t.Fatalf("items = %d, want 0", len(items))
+	if len(result.Items) != 0 {
+		t.Fatalf("items = %d, want 0", len(result.Items))
+	}
+	if result.Total != 0 {
+		t.Fatalf("Total = %d, want 0", result.Total)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet sql expectations: %v", err)
@@ -174,6 +184,9 @@ func TestListQueryContainsSoftDeletePredicate(t *testing.T) {
 	db, mock, repo := newJournalRepoTest(t)
 	defer db.Close()
 
+	mock.ExpectQuery("(?s)" + regexp.QuoteMeta("SELECT COUNT(*)") + ".*" + regexp.QuoteMeta("FROM journal_logs jl") + ".*" + regexp.QuoteMeta("WHERE jl.deleted_at IS NULL")).
+		WithArgs().
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 	mock.ExpectQuery("(?s)"+regexp.QuoteMeta("FROM journal_logs jl")+".*"+regexp.QuoteMeta("WHERE jl.deleted_at IS NULL")).
 		WithArgs(20, 0).
 		WillReturnRows(journalLogRows())
@@ -195,6 +208,9 @@ func TestListOrdersByCreatedAtAndID(t *testing.T) {
 	defer db.Close()
 
 	orderPattern := strings.ReplaceAll("ORDER BY jl.created_at DESC, jl.id DESC LIMIT", " ", `\s+`)
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT COUNT(*)")).
+		WithArgs().
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 	mock.ExpectQuery("(?s)"+orderPattern).
 		WithArgs(20, 0).
 		WillReturnRows(journalLogRows())

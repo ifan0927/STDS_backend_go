@@ -70,6 +70,14 @@ func TestListRoomsByPropertyReturnsActiveRoomsWithStatusFilterAndPagination(t *t
 	repo := NewRepository(db)
 	now := time.Date(2026, 4, 20, 10, 0, 0, 0, time.UTC)
 
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*)::int
+FROM rooms
+WHERE property_id = $1
+  AND deleted_at IS NULL
+ AND status = $2`)).
+		WithArgs("10000000-0000-0000-0000-000000000001", "vacant").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(4))
+
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, property_id, name, status, size, floor, room_type, facilities::text, default_rent_amount, notes, zone, created_at, updated_at
 FROM rooms
 WHERE property_id = $1
@@ -94,11 +102,15 @@ WHERE property_id = $1
 			now,
 		))
 
-	rooms, err := repo.ListRoomsByProperty(context.Background(), "10000000-0000-0000-0000-000000000001", "vacant", 10, 20)
+	result, err := repo.ListRoomsByProperty(context.Background(), "10000000-0000-0000-0000-000000000001", "vacant", 10, 20)
 	if err != nil {
 		t.Fatalf("ListRoomsByProperty: %v", err)
 	}
 
+	if result.Total != 4 {
+		t.Fatalf("expected total 4, got %d", result.Total)
+	}
+	rooms := result.Items
 	if len(rooms) != 1 {
 		t.Fatalf("expected 1 room, got %d", len(rooms))
 	}
@@ -183,6 +195,14 @@ func TestListRoomsByPropertyIgnoresNonObjectFacilities(t *testing.T) {
 	repo := NewRepository(db)
 	now := time.Date(2026, 4, 20, 10, 0, 0, 0, time.UTC)
 
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*)::int
+FROM rooms
+WHERE property_id = $1
+  AND deleted_at IS NULL
+`)).
+		WithArgs("10000000-0000-0000-0000-000000000001").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, property_id, name, status, size, floor, room_type, facilities::text, default_rent_amount, notes, zone, created_at, updated_at
 FROM rooms
 WHERE property_id = $1
@@ -207,11 +227,15 @@ WHERE property_id = $1
 			now,
 		))
 
-	rooms, err := repo.ListRoomsByProperty(context.Background(), "10000000-0000-0000-0000-000000000001", "", 20, 0)
+	result, err := repo.ListRoomsByProperty(context.Background(), "10000000-0000-0000-0000-000000000001", "", 20, 0)
 	if err != nil {
 		t.Fatalf("ListRoomsByProperty: %v", err)
 	}
 
+	if result.Total != 1 {
+		t.Fatalf("expected total 1, got %d", result.Total)
+	}
+	rooms := result.Items
 	if len(rooms) != 1 {
 		t.Fatalf("expected 1 room, got %d", len(rooms))
 	}

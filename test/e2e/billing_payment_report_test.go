@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"testing"
 	"time"
 )
@@ -47,6 +48,27 @@ func TestE2EBillingPaymentAndFinancialReportAcceptance(t *testing.T) {
 	bills := billingFlowE2EListBills(t, ctx, adminClient, lease.ID)
 	rentBill := billingFlowE2EFindBill(t, bills, "rent")
 	electricityBill := billingFlowE2EFindBill(t, bills, "electricity")
+	rentBills := billingFlowE2EListBillsByType(t, ctx, adminClient, lease.ID, "rent")
+	if len(rentBills.Data) == 0 {
+		t.Fatalf("expected rent bills for lease %q", lease.ID)
+	}
+	for _, bill := range rentBills.Data {
+		if bill.Type != "rent" {
+			t.Fatalf("expected only rent bills, got %+v", rentBills.Data)
+		}
+	}
+	billingFlowE2ERequirePagination(t, rentBills.Pagination, 1, 100, len(rentBills.Data))
+
+	electricityBills := billingFlowE2EListBillsByType(t, ctx, adminClient, lease.ID, "electricity")
+	if len(electricityBills.Data) == 0 {
+		t.Fatalf("expected electricity bills for lease %q", lease.ID)
+	}
+	for _, bill := range electricityBills.Data {
+		if bill.Type != "electricity" {
+			t.Fatalf("expected only electricity bills, got %+v", electricityBills.Data)
+		}
+	}
+	billingFlowE2ERequirePagination(t, electricityBills.Pagination, 1, 100, len(electricityBills.Data))
 
 	if rentBill.Amount == nil {
 		t.Fatalf("expected rent bill amount: %+v", rentBill)
@@ -137,7 +159,16 @@ type billingFlowE2EBillResponse struct {
 }
 
 type billingFlowE2EBillListResponse struct {
-	Data []billingFlowE2EBillResponse `json:"data"`
+	Data       []billingFlowE2EBillResponse `json:"data"`
+	Pagination billingFlowE2EPagination     `json:"pagination"`
+}
+
+type billingFlowE2EPagination struct {
+	Page       int  `json:"page"`
+	Limit      int  `json:"limit"`
+	Total      int  `json:"total"`
+	TotalPages int  `json:"total_pages"`
+	HasNext    bool `json:"has_next"`
 }
 
 type billingFlowE2EFinancialReportResponse struct {
@@ -203,7 +234,27 @@ func billingFlowE2ECreateLease(t *testing.T, ctx context.Context, client apiClie
 func billingFlowE2EListBills(t *testing.T, ctx context.Context, client apiClient, leaseID string) []billingFlowE2EBillResponse {
 	t.Helper()
 
-	resp, body, err := client.getJSON(ctx, "/api/v1/bills?lease_id="+leaseID+"&limit=100")
+	result := billingFlowE2EListBillsByQuery(t, ctx, client, url.Values{
+		"lease_id": []string{leaseID},
+		"limit":    []string{"100"},
+	})
+	return result.Data
+}
+
+func billingFlowE2EListBillsByType(t *testing.T, ctx context.Context, client apiClient, leaseID string, billType string) billingFlowE2EBillListResponse {
+	t.Helper()
+
+	return billingFlowE2EListBillsByQuery(t, ctx, client, url.Values{
+		"lease_id": []string{leaseID},
+		"type":     []string{billType},
+		"limit":    []string{"100"},
+	})
+}
+
+func billingFlowE2EListBillsByQuery(t *testing.T, ctx context.Context, client apiClient, query url.Values) billingFlowE2EBillListResponse {
+	t.Helper()
+
+	resp, body, err := client.getJSON(ctx, "/api/v1/bills?"+query.Encode())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +262,23 @@ func billingFlowE2EListBills(t *testing.T, ctx context.Context, client apiClient
 
 	var result billingFlowE2EBillListResponse
 	decodeJSON(t, body, &result)
-	return result.Data
+	return result
+}
+
+func billingFlowE2ERequirePagination(t *testing.T, got billingFlowE2EPagination, page int, limit int, total int) {
+	t.Helper()
+
+	if got.Page != page || got.Limit != limit || got.Total != total {
+		t.Fatalf("pagination = %+v, want page=%d limit=%d total=%d", got, page, limit, total)
+	}
+	wantTotalPages := 0
+	if total > 0 {
+		wantTotalPages = (total + limit - 1) / limit
+	}
+	wantHasNext := page < wantTotalPages
+	if got.TotalPages != wantTotalPages || got.HasNext != wantHasNext {
+		t.Fatalf("pagination derived fields = %+v, want total_pages=%d has_next=%t", got, wantTotalPages, wantHasNext)
+	}
 }
 
 func billingFlowE2EFindBill(t *testing.T, bills []billingFlowE2EBillResponse, billType string) billingFlowE2EBillResponse {

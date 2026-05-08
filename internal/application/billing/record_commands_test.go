@@ -88,12 +88,34 @@ func TestListBillsServiceRejectsInvalidPagination(t *testing.T) {
 	}
 }
 
-func TestListBillsServiceForwardsValidatedPagination(t *testing.T) {
+func TestListBillsServiceRejectsInvalidType(t *testing.T) {
 	repo := &billingRepositoryStub{}
 	service := NewListBillsService(repo)
+	billType := "deposit"
 
 	_, err := service.Execute(context.Background(), ListBillsInput{
 		ActorRole: "staff",
+		Type:      &billType,
+		Limit:     10,
+	})
+	assertAppErrorCode(t, err, apperr.CodeBadRequest)
+	assertAppErrorDetails(t, err, map[string]any{"field": "type"})
+	if repo.listBillsQuery != nil {
+		t.Fatalf("unexpected ListBills call: %+v", repo.listBillsQuery)
+	}
+}
+
+func TestListBillsServiceForwardsValidatedPagination(t *testing.T) {
+	repo := &billingRepositoryStub{listBillsResult: ListBillsResult{
+		Items: []Bill{{ID: testBillID}},
+		Total: 3,
+	}}
+	service := NewListBillsService(repo)
+	billType := " electricity "
+
+	result, err := service.Execute(context.Background(), ListBillsInput{
+		ActorRole: "staff",
+		Type:      &billType,
 		Limit:     25,
 		Offset:    50,
 	})
@@ -105,6 +127,12 @@ func TestListBillsServiceForwardsValidatedPagination(t *testing.T) {
 	}
 	if repo.listBillsQuery.Limit != 25 || repo.listBillsQuery.Offset != 50 {
 		t.Fatalf("pagination = limit %d offset %d, want 25/50", repo.listBillsQuery.Limit, repo.listBillsQuery.Offset)
+	}
+	if repo.listBillsQuery.Type == nil || *repo.listBillsQuery.Type != "electricity" {
+		t.Fatalf("type = %v, want electricity", repo.listBillsQuery.Type)
+	}
+	if len(result.Items) != 1 || result.Items[0].ID != testBillID || result.Total != 3 {
+		t.Fatalf("unexpected result: %+v", result)
 	}
 }
 
@@ -548,6 +576,7 @@ func TestRecordPaymentServiceRollsBackWhenAccountingEntryFails(t *testing.T) {
 
 type billingRepositoryStub struct {
 	bills                           []Bill
+	listBillsResult                 ListBillsResult
 	listBillsQuery                  *ListBillsQuery
 	bill                            *Bill
 	getBillQuery                    *GetBillQuery
@@ -569,9 +598,12 @@ type billingRepositoryStub struct {
 	updatePaymentErr                error
 }
 
-func (s *billingRepositoryStub) ListBills(_ context.Context, query ListBillsQuery) ([]Bill, error) {
+func (s *billingRepositoryStub) ListBills(_ context.Context, query ListBillsQuery) (ListBillsResult, error) {
 	s.listBillsQuery = &query
-	return s.bills, nil
+	if s.listBillsResult.Items != nil || s.listBillsResult.Total != 0 {
+		return s.listBillsResult, nil
+	}
+	return ListBillsResult{Items: s.bills, Total: len(s.bills)}, nil
 }
 
 func (s *billingRepositoryStub) FindBillByID(_ context.Context, query GetBillQuery) (*Bill, error) {

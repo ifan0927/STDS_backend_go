@@ -611,8 +611,8 @@ type workflowRepoStub struct {
 	restoreErr     error
 }
 
-func (r *workflowRepoStub) List(context.Context, ListQuery) ([]RepairRequest, error) {
-	return nil, nil
+func (r *workflowRepoStub) List(context.Context, ListQuery) (ListResult, error) {
+	return ListResult{}, nil
 }
 
 func (r *workflowRepoStub) FindByID(context.Context, string) (*RepairRequest, error) {

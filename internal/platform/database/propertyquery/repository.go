@@ -55,11 +55,17 @@ type Room struct {
 	UpdatedAt         time.Time
 }
 
+// RoomListResult is the paginated room list query result.
+type RoomListResult struct {
+	Items []Room
+	Total int
+}
+
 // Repository serves read-model queries for properties.
 type Repository interface {
 	FindByID(ctx context.Context, propertyID string) (*Property, error)
 	ListAccessible(ctx context.Context, role string, userID string, assignedPropertyIDs []string) ([]Property, error)
-	ListRoomsByProperty(ctx context.Context, propertyID string, status string, limit int, offset int) ([]Room, error)
+	ListRoomsByProperty(ctx context.Context, propertyID string, status string, limit int, offset int) (RoomListResult, error)
 	FindRoomByID(ctx context.Context, roomID string) (*Room, error)
 }
 
@@ -174,26 +180,17 @@ WHERE p.deleted_at IS NULL
 }
 
 // ListRoomsByProperty returns active rooms for a property with optional status filtering.
-func (r *SQLRepository) ListRoomsByProperty(ctx context.Context, propertyID string, status string, limit int, offset int) ([]Room, error) {
-	base := `
-SELECT id, property_id, name, status, size, floor, room_type, facilities::text, default_rent_amount, notes, zone, created_at, updated_at
-FROM rooms
-WHERE property_id = $1
-  AND deleted_at IS NULL
-`
-	args := []any{propertyID}
-
-	if status != "" {
-		args = append(args, status)
-		base += fmt.Sprintf(" AND status = $%d", len(args))
+func (r *SQLRepository) ListRoomsByProperty(ctx context.Context, propertyID string, status string, limit int, offset int) (RoomListResult, error) {
+	countQuery, countArgs := buildRoomsByPropertyListQuery(propertyID, status, 0, 0, true)
+	var total int
+	if err := r.db.QueryRowContext(ctx, countQuery, countArgs...).Scan(&total); err != nil {
+		return RoomListResult{}, fmt.Errorf("count rooms by property: %w", err)
 	}
 
-	args = append(args, limit, offset)
-	base += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", len(args)-1, len(args))
-
-	rows, err := r.db.QueryContext(ctx, base, args...)
+	query, args := buildRoomsByPropertyListQuery(propertyID, status, limit, offset, false)
+	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("list rooms by property: %w", err)
+		return RoomListResult{}, fmt.Errorf("list rooms by property: %w", err)
 	}
 	defer rows.Close()
 
@@ -201,16 +198,47 @@ WHERE property_id = $1
 	for rows.Next() {
 		room, err := scanRoom(rows)
 		if err != nil {
-			return nil, fmt.Errorf("scan room row: %w", err)
+			return RoomListResult{}, fmt.Errorf("scan room row: %w", err)
 		}
 		rooms = append(rooms, *room)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate rooms rows: %w", err)
+		return RoomListResult{}, fmt.Errorf("iterate rooms rows: %w", err)
 	}
 
-	return rooms, nil
+	return RoomListResult{Items: rooms, Total: total}, nil
+}
+
+func buildRoomsByPropertyListQuery(propertyID string, status string, limit int, offset int, count bool) (string, []any) {
+	base := `
+SELECT id, property_id, name, status, size, floor, room_type, facilities::text, default_rent_amount, notes, zone, created_at, updated_at
+FROM rooms
+WHERE property_id = $1
+  AND deleted_at IS NULL
+`
+	if count {
+		base = `
+SELECT COUNT(*)::int
+FROM rooms
+WHERE property_id = $1
+  AND deleted_at IS NULL
+`
+	}
+	args := []any{propertyID}
+
+	if status != "" {
+		args = append(args, status)
+		base += fmt.Sprintf(" AND status = $%d", len(args))
+	}
+
+	if count {
+		return base, args
+	}
+
+	args = append(args, limit, offset)
+	base += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", len(args)-1, len(args))
+	return base, args
 }
 
 // FindRoomByID returns a single active room.

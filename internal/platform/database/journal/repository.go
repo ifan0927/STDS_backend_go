@@ -21,52 +21,30 @@ func NewRepository(db *sql.DB) *SQLRepository {
 }
 
 // List returns active journal logs visible to the actor scope.
-func (r *SQLRepository) List(ctx context.Context, query appjournal.ListQuery) ([]appjournal.JournalLog, error) {
-	base := selectJournalLogColumns + `
+func (r *SQLRepository) List(ctx context.Context, query appjournal.ListQuery) (appjournal.ListResult, error) {
+	filterSQL, args, scoped := buildJournalListFilter(query)
+	if !scoped {
+		return appjournal.ListResult{Items: []appjournal.JournalLog{}}, nil
+	}
+
+	countQuery := `
+SELECT COUNT(*)
 FROM journal_logs jl
-WHERE jl.deleted_at IS NULL
-`
-	args := make([]any, 0)
-
-	switch strings.TrimSpace(query.ActorRole) {
-	case "organizer", "staff":
-		if len(query.AssignedPropertyIDs) == 0 {
-			return []appjournal.JournalLog{}, nil
-		}
-		placeholders := make([]string, 0, len(query.AssignedPropertyIDs))
-		for _, id := range query.AssignedPropertyIDs {
-			args = append(args, id)
-			placeholders = append(placeholders, fmt.Sprintf("$%d", len(args)))
-		}
-		base += "\n  AND jl.property_id IN (" + strings.Join(placeholders, ", ") + ")"
-	case "admin":
-	default:
-		return []appjournal.JournalLog{}, nil
+` + filterSQL
+	var total int
+	if err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
+		return appjournal.ListResult{}, fmt.Errorf("count journal logs: %w", err)
 	}
 
-	if query.PropertyID != nil {
-		args = append(args, *query.PropertyID)
-		base += fmt.Sprintf("\n  AND jl.property_id = $%d", len(args))
-	}
-	if query.RoomID != nil {
-		args = append(args, *query.RoomID)
-		base += fmt.Sprintf("\n  AND jl.room_id = $%d", len(args))
-	}
-	if query.DateFrom != nil {
-		args = append(args, query.DateFrom.UTC())
-		base += fmt.Sprintf("\n  AND jl.created_at >= $%d", len(args))
-	}
-	if query.DateTo != nil {
-		args = append(args, query.DateTo.UTC().AddDate(0, 0, 1))
-		base += fmt.Sprintf("\n  AND jl.created_at < $%d", len(args))
-	}
+	listArgs := append([]any{}, args...)
+	listArgs = append(listArgs, query.Limit, query.Offset)
+	listQuery := selectJournalLogColumns + `
+FROM journal_logs jl
+` + filterSQL + fmt.Sprintf("\nORDER BY jl.created_at DESC, jl.id DESC LIMIT $%d OFFSET $%d", len(listArgs)-1, len(listArgs))
 
-	args = append(args, query.Limit, query.Offset)
-	base += fmt.Sprintf("\nORDER BY jl.created_at DESC, jl.id DESC LIMIT $%d OFFSET $%d", len(args)-1, len(args))
-
-	rows, err := r.db.QueryContext(ctx, base, args...)
+	rows, err := r.db.QueryContext(ctx, listQuery, listArgs...)
 	if err != nil {
-		return nil, fmt.Errorf("list journal logs: %w", err)
+		return appjournal.ListResult{}, fmt.Errorf("list journal logs: %w", err)
 	}
 	defer rows.Close()
 
@@ -74,15 +52,56 @@ WHERE jl.deleted_at IS NULL
 	for rows.Next() {
 		item, err := scanJournalLog(rows)
 		if err != nil {
-			return nil, fmt.Errorf("scan journal log: %w", err)
+			return appjournal.ListResult{}, fmt.Errorf("scan journal log: %w", err)
 		}
 		items = append(items, *item)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate journal logs: %w", err)
+		return appjournal.ListResult{}, fmt.Errorf("iterate journal logs: %w", err)
 	}
 
-	return items, nil
+	return appjournal.ListResult{Items: items, Total: total}, nil
+}
+
+func buildJournalListFilter(query appjournal.ListQuery) (string, []any, bool) {
+	filter := `WHERE jl.deleted_at IS NULL
+`
+	args := make([]any, 0)
+
+	switch strings.TrimSpace(query.ActorRole) {
+	case "organizer", "staff":
+		if len(query.AssignedPropertyIDs) == 0 {
+			return "", nil, false
+		}
+		placeholders := make([]string, 0, len(query.AssignedPropertyIDs))
+		for _, id := range query.AssignedPropertyIDs {
+			args = append(args, id)
+			placeholders = append(placeholders, fmt.Sprintf("$%d", len(args)))
+		}
+		filter += "\n  AND jl.property_id IN (" + strings.Join(placeholders, ", ") + ")"
+	case "admin":
+	default:
+		return "", nil, false
+	}
+
+	if query.PropertyID != nil {
+		args = append(args, *query.PropertyID)
+		filter += fmt.Sprintf("\n  AND jl.property_id = $%d", len(args))
+	}
+	if query.RoomID != nil {
+		args = append(args, *query.RoomID)
+		filter += fmt.Sprintf("\n  AND jl.room_id = $%d", len(args))
+	}
+	if query.DateFrom != nil {
+		args = append(args, query.DateFrom.UTC())
+		filter += fmt.Sprintf("\n  AND jl.created_at >= $%d", len(args))
+	}
+	if query.DateTo != nil {
+		args = append(args, query.DateTo.UTC().AddDate(0, 0, 1))
+		filter += fmt.Sprintf("\n  AND jl.created_at < $%d", len(args))
+	}
+
+	return filter, args, true
 }
 
 // FindByID returns one active journal log.

@@ -38,6 +38,14 @@ get:
           - overdue
           - voided
           - written_off
+    - name: type
+      in: query
+      schema:
+        type: string
+        enum:
+          - rent
+          - electricity
+      description: 依帳單類型篩選，租金或電費
     - name: month
       in: query
       schema:
@@ -79,6 +87,12 @@ get:
                     amount: null
                     due_date: '2026-05-01'
                     status: pending_meter
+                pagination:
+                  page: 1
+                  limit: 20
+                  total: 2
+                  total_pages: 1
+                  has_next: false
     '401':
       description: 未認證
       content:

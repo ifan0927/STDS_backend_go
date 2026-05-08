@@ -19,6 +19,12 @@ func TestListAccessibleAdminDoesNotApplyPropertyScope(t *testing.T) {
 	startDate := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	endDate := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
 
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COUNT(*)::int
+FROM leases l
+WHERE l.deleted_at IS NULL
+`)).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(3))
+
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT
 	l.id,
 	l.tenant_id,
@@ -51,10 +57,14 @@ ORDER BY l.created_at DESC LIMIT $1 OFFSET $2`)).
 			"monthly", "monthly", "active", 24000, nil, nil, "held", nil, nil, nil, nil, now, now, 1,
 		))
 
-	leases, err := repo.ListAccessible(context.Background(), "admin", []string{"property-ignored"}, ListParams{Limit: 10, Offset: 20})
+	result, err := repo.ListAccessible(context.Background(), "admin", []string{"property-ignored"}, ListParams{Limit: 10, Offset: 20})
 	if err != nil {
 		t.Fatalf("ListAccessible: %v", err)
 	}
+	if result.Total != 3 {
+		t.Fatalf("expected total 3, got %d", result.Total)
+	}
+	leases := result.Items
 	if len(leases) != 1 {
 		t.Fatalf("expected 1 lease, got %d", len(leases))
 	}
@@ -79,16 +89,23 @@ func TestListAccessibleOrganizerAndStaffApplyAssignedPropertyScope(t *testing.T)
 			db, mock, repo := newLeaseQueryRepoTest(t)
 			defer closeLeaseQueryDB(t, db)
 
+			mock.ExpectQuery(`(?s)SELECT COUNT\(\*\)::int\s+FROM leases l\s+WHERE l\.deleted_at IS NULL\s+AND l\.property_id IN \(\$1, \$2\)`).
+				WithArgs("property-1", "property-2").
+				WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
 			mock.ExpectQuery(`(?s)WHERE l\.deleted_at IS NULL\s+AND l\.property_id IN \(\$1, \$2\)\s+ORDER BY l\.created_at DESC LIMIT \$3 OFFSET \$4`).
 				WithArgs("property-1", "property-2", 25, 50).
 				WillReturnRows(leaseQueryRows())
 
-			leases, err := repo.ListAccessible(context.Background(), tc.role, []string{"property-1", "property-2"}, ListParams{Limit: 25, Offset: 50})
+			result, err := repo.ListAccessible(context.Background(), tc.role, []string{"property-1", "property-2"}, ListParams{Limit: 25, Offset: 50})
 			if err != nil {
 				t.Fatalf("ListAccessible: %v", err)
 			}
-			if len(leases) != 0 {
-				t.Fatalf("expected no leases, got %d", len(leases))
+			if result.Total != 0 {
+				t.Fatalf("expected total 0, got %d", result.Total)
+			}
+			if len(result.Items) != 0 {
+				t.Fatalf("expected no leases, got %d", len(result.Items))
 			}
 
 			if err := mock.ExpectationsWereMet(); err != nil {
@@ -112,12 +129,15 @@ func TestListAccessibleEmptyAssignedAndUnknownRoleReturnEmptyWithoutQuery(t *tes
 			db, mock, repo := newLeaseQueryRepoTest(t)
 			defer closeLeaseQueryDB(t, db)
 
-			leases, err := repo.ListAccessible(context.Background(), tc.role, tc.assignedPropertyIDs, ListParams{Limit: 10})
+			result, err := repo.ListAccessible(context.Background(), tc.role, tc.assignedPropertyIDs, ListParams{Limit: 10})
 			if err != nil {
 				t.Fatalf("ListAccessible: %v", err)
 			}
-			if len(leases) != 0 {
-				t.Fatalf("expected empty leases, got %d", len(leases))
+			if result.Total != 0 {
+				t.Fatalf("expected total 0, got %d", result.Total)
+			}
+			if len(result.Items) != 0 {
+				t.Fatalf("expected empty leases, got %d", len(result.Items))
 			}
 
 			if err := mock.ExpectationsWereMet(); err != nil {
@@ -135,11 +155,15 @@ func TestListAccessibleAppliesFiltersAndPagination(t *testing.T) {
 	roomID := "room-filter"
 	tenantID := "tenant-filter"
 
+	mock.ExpectQuery(`(?s)SELECT COUNT\(\*\)::int\s+FROM leases l\s+WHERE l\.deleted_at IS NULL\s+AND l\.property_id IN \(\$1\).*l\.property_id = \$2.*l\.room_id = \$3.*l\.tenant_id = \$4.*l\.status = \$5`).
+		WithArgs("property-assigned", propertyID, roomID, tenantID, "active").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(12))
+
 	mock.ExpectQuery(`(?s)l\.property_id IN \(\$1\).*l\.property_id = \$2.*l\.room_id = \$3.*l\.tenant_id = \$4.*l\.status = \$5.*LIMIT \$6 OFFSET \$7`).
 		WithArgs("property-assigned", propertyID, roomID, tenantID, "active", 30, 60).
 		WillReturnRows(leaseQueryRows())
 
-	_, err := repo.ListAccessible(context.Background(), "staff", []string{"property-assigned"}, ListParams{
+	result, err := repo.ListAccessible(context.Background(), "staff", []string{"property-assigned"}, ListParams{
 		PropertyID: &propertyID,
 		RoomID:     &roomID,
 		TenantID:   &tenantID,
@@ -149,6 +173,9 @@ func TestListAccessibleAppliesFiltersAndPagination(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("ListAccessible: %v", err)
+	}
+	if result.Total != 12 {
+		t.Fatalf("expected total 12, got %d", result.Total)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -164,6 +191,9 @@ func TestListAccessibleScansNullableFieldsAndSettlementDetail(t *testing.T) {
 	startDate := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	endDate := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
 
+	mock.ExpectQuery(`(?s)SELECT COUNT\(\*\)::int\s+FROM leases l\s+WHERE l\.deleted_at IS NULL`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(2))
+
 	mock.ExpectQuery(`(?s)WHERE l\.deleted_at IS NULL\s+ORDER BY l\.created_at DESC LIMIT \$1 OFFSET \$2`).
 		WithArgs(10, 0).
 		WillReturnRows(leaseQueryRows().
@@ -177,10 +207,14 @@ func TestListAccessibleScansNullableFieldsAndSettlementDetail(t *testing.T) {
 				"monthly", "bi_monthly", "active", 30000, nil, nil, "held", nil, nil, nil, nil, now, now, 1,
 			))
 
-	leases, err := repo.ListAccessible(context.Background(), "admin", nil, ListParams{Limit: 10})
+	result, err := repo.ListAccessible(context.Background(), "admin", nil, ListParams{Limit: 10})
 	if err != nil {
 		t.Fatalf("ListAccessible: %v", err)
 	}
+	if result.Total != 2 {
+		t.Fatalf("expected total 2, got %d", result.Total)
+	}
+	leases := result.Items
 	if len(leases) != 2 {
 		t.Fatalf("expected 2 leases, got %d", len(leases))
 	}

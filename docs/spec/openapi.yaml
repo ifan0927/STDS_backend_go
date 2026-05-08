@@ -3595,6 +3595,14 @@ paths:
               - overdue
               - voided
               - written_off
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum:
+              - rent
+              - electricity
+          description: 依帳單類型篩選，租金或電費
         - name: month
           in: query
           schema:
@@ -3636,6 +3644,12 @@ paths:
                         amount: null
                         due_date: '2026-05-01'
                         status: pending_meter
+                    pagination:
+                      page: 1
+                      limit: 20
+                      total: 2
+                      total_pages: 1
+                      has_next: false
         '401':
           description: 未認證
           content:
@@ -6784,6 +6798,29 @@ components:
         details:
           type: object
           nullable: true
+    PaginationResponse:
+      type: object
+      properties:
+        page:
+          type: integer
+          description: Current 1-based page number.
+          example: 1
+        limit:
+          type: integer
+          description: Page size used for this response.
+          example: 20
+        total:
+          type: integer
+          description: Total number of rows matching the same filters and access scope.
+          example: 42
+        total_pages:
+          type: integer
+          description: Total page count based on total and limit.
+          example: 3
+        has_next:
+          type: boolean
+          description: Whether another page exists after the current page.
+          example: true
     UserListResponse:
       type: object
       properties:
@@ -6791,6 +6828,8 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/UserResponse'
+        pagination:
+          $ref: '#/components/schemas/PaginationResponse'
     CreateUserRequest:
       type: object
       required:
@@ -7114,6 +7153,8 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/RoomResponse'
+        pagination:
+          $ref: '#/components/schemas/PaginationResponse'
     CreateRoomRequest:
       type: object
       required:
@@ -7302,6 +7343,8 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/TenantResponse'
+        pagination:
+          $ref: '#/components/schemas/PaginationResponse'
     CreateTenantRequest:
       type: object
       required:
@@ -7417,6 +7460,8 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/LeaseResponse'
+        pagination:
+          $ref: '#/components/schemas/PaginationResponse'
     CreateLeaseRequest:
       type: object
       required:
@@ -7930,6 +7975,8 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/BillResponse'
+        pagination:
+          $ref: '#/components/schemas/PaginationResponse'
     RecordMeterRequest:
       type: object
       required:
@@ -8053,6 +8100,8 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/JournalLogResponse'
+        pagination:
+          $ref: '#/components/schemas/PaginationResponse'
     CreateJournalLogRequest:
       type: object
       required:
@@ -8090,6 +8139,8 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/RepairRequestResponse'
+        pagination:
+          $ref: '#/components/schemas/PaginationResponse'
     CreateRepairRequestRequest:
       type: object
       required:
