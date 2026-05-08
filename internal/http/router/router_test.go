@@ -3137,6 +3137,63 @@ func TestTenantRosterExportRendererFailureUsesSharedErrorShape(t *testing.T) {
 	}
 }
 
+func TestTenantLeaseRosterRouteReturnsJSONAndForwardsScope(t *testing.T) {
+	var input handler.BillingTenantLeaseRosterInput
+	tenantName := "王小明"
+	nextStatus := "overdue"
+	nextDue := time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC)
+	engine := newTestEngineWithBilling(
+		fakeUserRepo{role: "owner", userID: "owner-1"},
+		fakeAuthenticator{role: "owner"},
+		fakePropertyRepo{
+			ownerByPropertyID: map[string]string{
+				testPropertyID1: "owner-1",
+			},
+		},
+		fakeResourceOwnershipRepo{},
+		"",
+		fakeJobRunsRepo{},
+		handler.BillingServices{TenantLeaseRoster: fakeBillingTenantLeaseRoster{
+			input: &input,
+			rows: []handler.BillingTenantLeaseRosterRow{{
+				PropertyID:      testPropertyID1,
+				RoomID:          testRoomID1,
+				RoomLabel:       "101",
+				RoomStatus:      "occupied",
+				TenantLabel:     &tenantName,
+				NextRentStatus:  &nextStatus,
+				NextRentDueDate: &nextDue,
+			}},
+			total: 1,
+		}},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/properties/"+testPropertyID1+"/tenant-lease-roster?include_vacant=true&page=1&limit=20", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if input.ActorRole != "owner" || input.ActorUserID != "owner-1" || input.PropertyID != testPropertyID1 || !input.IncludeVacant {
+		t.Fatalf("unexpected input: %+v", input)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	data, ok := payload["data"].([]any)
+	if !ok || len(data) != 1 {
+		t.Fatalf("unexpected data: %+v", payload["data"])
+	}
+	row := data[0].(map[string]any)
+	if row["room_label"] != "101" || row["tenant_label"] != "王小明" || row["next_rent_status"] != "overdue" {
+		t.Fatalf("unexpected row: %+v", row)
+	}
+}
+
 func TestMeterRoutesRejectOwnerRole(t *testing.T) {
 	paths := []struct {
 		name string
@@ -4434,6 +4491,23 @@ type fakeBillingRoomMeters struct{}
 
 func (fakeBillingRoomMeters) ListRoomMeterHistory(_ context.Context, _ handler.BillingRoomMeterHistoryInput) ([]handler.BillingBill, error) {
 	return nil, nil
+}
+
+type fakeBillingTenantLeaseRoster struct {
+	input *handler.BillingTenantLeaseRosterInput
+	rows  []handler.BillingTenantLeaseRosterRow
+	total int
+	err   error
+}
+
+func (f fakeBillingTenantLeaseRoster) ListTenantLeaseRoster(_ context.Context, input handler.BillingTenantLeaseRosterInput) (handler.BillingTenantLeaseRosterResult, error) {
+	if f.input != nil {
+		*f.input = input
+	}
+	if f.err != nil {
+		return handler.BillingTenantLeaseRosterResult{}, f.err
+	}
+	return handler.BillingTenantLeaseRosterResult{Items: f.rows, Total: f.total}, nil
 }
 
 type fakeBillingFinancialReports struct {
@@ -5974,12 +6048,13 @@ func defaultAPIServerDeps(userRepo *fakeUserRepo, authenticator fakeAuthenticato
 			GetForceTermination: applease.NewGetForceTerminationService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil)),
 		},
 		Billing: handler.BillingServices{
-			Query:            fakeBillingQuery{},
-			Meter:            fakeBillingMeter{},
-			Payment:          fakeBillingPayment{},
-			PropertyMeters:   fakeBillingPropertyMeters{},
-			RoomMeters:       fakeBillingRoomMeters{},
-			FinancialReports: fakeBillingFinancialReports{},
+			Query:             fakeBillingQuery{},
+			Meter:             fakeBillingMeter{},
+			Payment:           fakeBillingPayment{},
+			PropertyMeters:    fakeBillingPropertyMeters{},
+			RoomMeters:        fakeBillingRoomMeters{},
+			TenantLeaseRoster: fakeBillingTenantLeaseRoster{},
+			FinancialReports:  fakeBillingFinancialReports{},
 		},
 		Journal: handler.JournalServices{
 			List:   appjournal.NewListService(nil),
@@ -6013,6 +6088,9 @@ func mergeBillingServices(base handler.BillingServices, override handler.Billing
 	}
 	if override.RoomMeters != nil {
 		base.RoomMeters = override.RoomMeters
+	}
+	if override.TenantLeaseRoster != nil {
+		base.TenantLeaseRoster = override.TenantLeaseRoster
 	}
 	if override.FinancialReports != nil {
 		base.FinancialReports = override.FinancialReports

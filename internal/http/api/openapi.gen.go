@@ -1046,6 +1046,34 @@ type PropertyResponse struct {
 // PropertyResponseDefaultElectricityBillingCadence defines model for PropertyResponse.DefaultElectricityBillingCadence.
 type PropertyResponseDefaultElectricityBillingCadence string
 
+// PropertyTenantLeaseRosterResponse defines model for PropertyTenantLeaseRosterResponse.
+type PropertyTenantLeaseRosterResponse struct {
+	Data       *[]PropertyTenantLeaseRosterRow `json:"data,omitempty"`
+	Pagination *PaginationResponse             `json:"pagination,omitempty"`
+}
+
+// PropertyTenantLeaseRosterRow defines model for PropertyTenantLeaseRosterRow.
+type PropertyTenantLeaseRosterRow struct {
+	DepositAmount      *int                `json:"deposit_amount"`
+	DepositStatus      *string             `json:"deposit_status"`
+	EndDate            *openapi_types.Date `json:"end_date"`
+	LeaseId            *openapi_types.UUID `json:"lease_id"`
+	LeaseStatus        *string             `json:"lease_status"`
+	NextRentDueDate    *openapi_types.Date `json:"next_rent_due_date"`
+	NextRentStatus     *string             `json:"next_rent_status"`
+	Notes              *string             `json:"notes"`
+	PropertyId         *openapi_types.UUID `json:"property_id,omitempty"`
+	RentAmount         *int                `json:"rent_amount"`
+	RentBillingCadence *string             `json:"rent_billing_cadence"`
+	RoomId             *openapi_types.UUID `json:"room_id,omitempty"`
+	RoomLabel          *string             `json:"room_label,omitempty"`
+	RoomStatus         *string             `json:"room_status,omitempty"`
+	StartDate          *openapi_types.Date `json:"start_date"`
+	TenantId           *openapi_types.UUID `json:"tenant_id"`
+	TenantLabel        *string             `json:"tenant_label"`
+	TenantPhone        *string             `json:"tenant_phone"`
+}
+
 // RecordMeterRequest defines model for RecordMeterRequest.
 type RecordMeterRequest struct {
 	// CurrentReading 本月電表度數（員工輸入）
@@ -1448,6 +1476,14 @@ type ListPropertyRoomsParams struct {
 // ListPropertyRoomsParamsStatus defines parameters for ListPropertyRooms.
 type ListPropertyRoomsParamsStatus string
 
+// ListPropertyTenantLeaseRosterParams defines parameters for ListPropertyTenantLeaseRoster.
+type ListPropertyTenantLeaseRosterParams struct {
+	// IncludeVacant 是否包含沒有目前 active lease 的空房。
+	IncludeVacant *bool `form:"include_vacant,omitempty" json:"include_vacant,omitempty"`
+	Page          *int  `form:"page,omitempty" json:"page,omitempty"`
+	Limit         *int  `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // ExportPropertyTenantRosterParams defines parameters for ExportPropertyTenantRoster.
 type ExportPropertyTenantRosterParams struct {
 	// AsOf 報表基準日，未提供時使用伺服器當日。
@@ -1789,6 +1825,9 @@ type ServerInterface interface {
 	// 建立房間
 	// (POST /properties/{id}/rooms)
 	CreatePropertyRoom(c *gin.Context, id string)
+	// 物業租客租約名冊
+	// (GET /properties/{id}/tenant-lease-roster)
+	ListPropertyTenantLeaseRoster(c *gin.Context, id string, params ListPropertyTenantLeaseRosterParams)
 	// 租客名冊 HTML 匯出
 	// (GET /properties/{id}/tenant-roster)
 	ExportPropertyTenantRoster(c *gin.Context, id string, params ExportPropertyTenantRosterParams)
@@ -3671,6 +3710,59 @@ func (siw *ServerInterfaceWrapper) CreatePropertyRoom(c *gin.Context) {
 	siw.Handler.CreatePropertyRoom(c, id)
 }
 
+// ListPropertyTenantLeaseRoster operation middleware
+func (siw *ServerInterfaceWrapper) ListPropertyTenantLeaseRoster(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Param("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(BearerAuthScopes, []string{})
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListPropertyTenantLeaseRosterParams
+
+	// ------------- Optional query parameter "include_vacant" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "include_vacant", c.Request.URL.Query(), &params.IncludeVacant)
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter include_vacant: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "page" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "page", c.Request.URL.Query(), &params.Page)
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter page: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "limit", c.Request.URL.Query(), &params.Limit)
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter limit: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ListPropertyTenantLeaseRoster(c, id, params)
+}
+
 // ExportPropertyTenantRoster operation middleware
 func (siw *ServerInterfaceWrapper) ExportPropertyTenantRoster(c *gin.Context) {
 
@@ -4726,6 +4818,7 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.GET(options.BaseURL+"/properties/:id/pending-meter", wrapper.ListPropertyPendingMeters)
 	router.GET(options.BaseURL+"/properties/:id/rooms", wrapper.ListPropertyRooms)
 	router.POST(options.BaseURL+"/properties/:id/rooms", wrapper.CreatePropertyRoom)
+	router.GET(options.BaseURL+"/properties/:id/tenant-lease-roster", wrapper.ListPropertyTenantLeaseRoster)
 	router.GET(options.BaseURL+"/properties/:id/tenant-roster", wrapper.ExportPropertyTenantRoster)
 	router.GET(options.BaseURL+"/repair-requests", wrapper.ListRepairRequests)
 	router.POST(options.BaseURL+"/repair-requests", wrapper.CreateRepairRequest)

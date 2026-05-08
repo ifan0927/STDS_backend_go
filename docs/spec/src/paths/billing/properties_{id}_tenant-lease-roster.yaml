@@ -1,0 +1,118 @@
+get:
+  operationId: listPropertyTenantLeaseRoster
+  summary: 物業租客租約名冊
+  description: |
+    x-required-role: admin, organizer, staff（指派）; owner（自己名下，唯讀）
+    x-ownership-required: true
+
+    JSON read model for interactive property tenant/lease roster tables. This endpoint is separate from the backend-owned runtime HTML tenant roster export.
+  tags:
+    - Billing
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+    - owner
+  x-ownership-required: true
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    - name: include_vacant
+      in: query
+      schema:
+        type: boolean
+        default: false
+      description: 是否包含沒有目前 active lease 的空房。
+    - name: page
+      in: query
+      schema:
+        type: integer
+        default: 1
+    - name: limit
+      in: query
+      schema:
+        type: integer
+        default: 20
+        maximum: 100
+  responses:
+    '200':
+      description: 租客租約名冊
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/billing/PropertyTenantLeaseRosterResponse.yaml
+          examples:
+            success:
+              value:
+                data:
+                  - property_id: 10000000-0000-0000-0000-000000000001
+                    room_id: 20000000-0000-0000-0000-000000000001
+                    room_label: '101'
+                    room_status: occupied
+                    lease_id: 40000000-0000-0000-0000-000000000001
+                    lease_status: active
+                    tenant_id: 30000000-0000-0000-0000-000000000001
+                    tenant_label: 王小明
+                    tenant_phone: '0912345678'
+                    start_date: '2026-01-01'
+                    end_date: '2026-12-31'
+                    rent_amount: 18000
+                    rent_billing_cadence: monthly
+                    deposit_amount: 36000
+                    deposit_status: held
+                    next_rent_due_date: '2026-05-10'
+                    next_rent_status: pending_payment
+                    notes: 續約提醒
+                pagination:
+                  page: 1
+                  limit: 20
+                  total: 1
+                  total_pages: 1
+                  has_next: false
+    '400':
+      description: 查詢參數格式錯誤
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            bad_request:
+              value:
+                error_code: BAD_REQUEST
+                message: Bad request.
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: Unauthorized.
+    '403':
+      description: 無存取權限
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            forbidden:
+              value:
+                error_code: FORBIDDEN
+                message: Forbidden.
+    '404':
+      description: 物業不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            not_found:
+              value:
+                error_code: PROPERTY_NOT_FOUND
+                message: Property not found.

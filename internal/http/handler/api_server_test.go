@@ -505,6 +505,96 @@ func TestListPropertyMeterHistoryReturnsBillPeriodsForYear(t *testing.T) {
 	}
 }
 
+func TestListPropertyTenantLeaseRosterReturnsRowsAndPagination(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	leaseID := "40000000-0000-0000-0000-000000000001"
+	leaseStatus := "active"
+	tenantID := "30000000-0000-0000-0000-000000000001"
+	tenantLabel := "王小明"
+	tenantPhone := "0912345678"
+	startDate := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	endDate := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
+	rentAmount := 18000
+	cadence := "monthly"
+	depositAmount := 36000
+	depositStatus := "held"
+	nextDue := time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC)
+	nextStatus := "pending_payment"
+	notes := "renewal note"
+	roster := &recordingTenantLeaseRoster{
+		result: BillingTenantLeaseRosterResult{
+			Items: []BillingTenantLeaseRosterRow{{
+				PropertyID:         "10000000-0000-0000-0000-000000000001",
+				RoomID:             "20000000-0000-0000-0000-000000000001",
+				RoomLabel:          "101",
+				RoomStatus:         "occupied",
+				LeaseID:            &leaseID,
+				LeaseStatus:        &leaseStatus,
+				TenantID:           &tenantID,
+				TenantLabel:        &tenantLabel,
+				TenantPhone:        &tenantPhone,
+				StartDate:          &startDate,
+				EndDate:            &endDate,
+				RentAmount:         &rentAmount,
+				RentBillingCadence: &cadence,
+				DepositAmount:      &depositAmount,
+				DepositStatus:      &depositStatus,
+				NextRentDueDate:    &nextDue,
+				NextRentStatus:     &nextStatus,
+				Notes:              &notes,
+			}},
+			Total: 21,
+		},
+	}
+	server := &APIServer{billing: BillingServices{TenantLeaseRoster: roster}}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/properties/10000000-0000-0000-0000-000000000001/tenant-lease-roster?include_vacant=true&page=2&limit=10", nil)
+	requestctx.SetPrincipal(c, requestctx.Principal{
+		UserID:              "user-1",
+		Role:                "staff",
+		AssignedPropertyIDs: []string{"10000000-0000-0000-0000-000000000001"},
+	})
+	includeVacant := true
+	page := 2
+	limit := 10
+
+	server.ListPropertyTenantLeaseRoster(c, "10000000-0000-0000-0000-000000000001", api.ListPropertyTenantLeaseRosterParams{
+		IncludeVacant: &includeVacant,
+		Page:          &page,
+		Limit:         &limit,
+	})
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if roster.input.PropertyID != "10000000-0000-0000-0000-000000000001" || roster.input.ActorRole != "staff" || roster.input.ActorUserID != "user-1" {
+		t.Fatalf("unexpected input scope: %+v", roster.input)
+	}
+	if !roster.input.IncludeVacant || roster.input.Limit != 10 || roster.input.Offset != 10 {
+		t.Fatalf("unexpected input pagination: %+v", roster.input)
+	}
+
+	var response api.PropertyTenantLeaseRosterResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if response.Data == nil || len(*response.Data) != 1 {
+		t.Fatalf("expected one roster row, got %+v", response.Data)
+	}
+	row := (*response.Data)[0]
+	if row.RoomLabel == nil || *row.RoomLabel != "101" || row.TenantLabel == nil || *row.TenantLabel != "王小明" {
+		t.Fatalf("unexpected roster labels: %+v", row)
+	}
+	if row.NextRentDueDate == nil || row.NextRentDueDate.Time.Format("2006-01-02") != "2026-05-10" || row.NextRentStatus == nil || *row.NextRentStatus != "pending_payment" {
+		t.Fatalf("unexpected next rent fields: %+v", row)
+	}
+	if response.Pagination == nil || response.Pagination.Total == nil || *response.Pagination.Total != 21 || response.Pagination.TotalPages == nil || *response.Pagination.TotalPages != 3 {
+		t.Fatalf("unexpected pagination: %+v", response.Pagination)
+	}
+}
+
 func TestListRoomMeterHistoryRejectsMonthWithoutYear(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -1164,6 +1254,20 @@ type recordingRoomMeters struct {
 func (m *recordingRoomMeters) ListRoomMeterHistory(_ context.Context, input BillingRoomMeterHistoryInput) ([]BillingBill, error) {
 	m.input = input
 	return m.bills, nil
+}
+
+type recordingTenantLeaseRoster struct {
+	input  BillingTenantLeaseRosterInput
+	result BillingTenantLeaseRosterResult
+	err    error
+}
+
+func (r *recordingTenantLeaseRoster) ListTenantLeaseRoster(_ context.Context, input BillingTenantLeaseRosterInput) (BillingTenantLeaseRosterResult, error) {
+	r.input = input
+	if r.err != nil {
+		return BillingTenantLeaseRosterResult{}, r.err
+	}
+	return r.result, nil
 }
 
 type recordingFinancialReports struct {

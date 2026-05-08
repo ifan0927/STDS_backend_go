@@ -147,6 +147,65 @@ func TestListTenantRosterRowsKeepsOverdueDueDateForNonMonthlyCadence(t *testing.
 	}
 }
 
+func TestListTenantLeaseRosterReturnsPaginatedRows(t *testing.T) {
+	db, mock, repo := newBillingRepoTest(t)
+	defer closeBillingDB(t, db)
+
+	asOf := time.Date(2026, 5, 7, 0, 0, 0, 0, time.UTC)
+	startDate := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	endDate := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
+	dueDate := time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC)
+	mock.ExpectQuery(`(?s)SELECT COUNT\(\*\)::int.*FROM rooms.*LEFT JOIN LATERAL.*l.status = 'active'.*AND \(\$3 OR active_lease.id IS NOT NULL\).*AND p.id IN \(\$4\)`).
+		WithArgs("property-1", asOf, true, "property-1").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(2))
+	mock.ExpectQuery(`(?s)SELECT\s+rooms.property_id.*LEFT JOIN LATERAL.*SELECT b.due_date, b.status.*b.type = 'rent'.*b.status IN \('pending_payment', 'overdue'\).*AND \(\$3 OR active_lease.id IS NOT NULL\).*AND p.id IN \(\$4\).*ORDER BY NULLIF\(regexp_replace\(rooms.name, '\\D', '', 'g'\), ''\)::int NULLS LAST, rooms.name ASC, rooms.id ASC\s+LIMIT \$5 OFFSET \$6`).
+		WithArgs("property-1", asOf, true, "property-1", 10, 20).
+		WillReturnRows(tenantLeaseRosterRows().
+			AddRow("property-1", "room-101", "101", "occupied", "lease-1", "active", "tenant-1", "Alice", "0912", startDate, endDate, 18000, "monthly", 36000, "held", dueDate, "pending_payment", "renewal note").
+			AddRow("property-1", "room-102", "102", "vacant", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+
+	result, err := repo.ListTenantLeaseRoster(context.Background(), Scope{
+		Role:                "staff",
+		AssignedPropertyIDs: []string{"property-1"},
+	}, "property-1", asOf, true, 10, 20)
+	if err != nil {
+		t.Fatalf("ListTenantLeaseRoster: %v", err)
+	}
+	if result.Total != 2 || len(result.Items) != 2 {
+		t.Fatalf("result = %+v", result)
+	}
+	row := result.Items[0]
+	if row.LeaseID == nil || *row.LeaseID != "lease-1" || row.TenantID == nil || *row.TenantID != "tenant-1" {
+		t.Fatalf("unexpected occupied row: %+v", row)
+	}
+	if row.NextRentDueDate == nil || !row.NextRentDueDate.Equal(dueDate) || row.NextRentStatus == nil || *row.NextRentStatus != "pending_payment" {
+		t.Fatalf("unexpected next rent fields: %+v", row)
+	}
+	if result.Items[1].LeaseID != nil || result.Items[1].TenantID != nil || result.Items[1].NextRentDueDate != nil {
+		t.Fatalf("unexpected vacant row: %+v", result.Items[1])
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestListTenantLeaseRosterReturnsEmptyForUnassignedStaff(t *testing.T) {
+	db, mock, repo := newBillingRepoTest(t)
+	defer closeBillingDB(t, db)
+
+	result, err := repo.ListTenantLeaseRoster(context.Background(), Scope{Role: "staff"}, "property-1", time.Time{}, false, 20, 0)
+	if err != nil {
+		t.Fatalf("ListTenantLeaseRoster: %v", err)
+	}
+	if result.Total != 0 || len(result.Items) != 0 {
+		t.Fatalf("result = %+v, want empty", result)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
 func TestFindBillReceiptReturnsDisplayData(t *testing.T) {
 	db, mock, repo := newBillingRepoTest(t)
 	defer closeBillingDB(t, db)
@@ -1502,6 +1561,29 @@ func tenantRosterRows() *sqlmock.Rows {
 		"next_rent_due_date",
 		"rent_billing_cadence",
 		"rent_amount",
+	})
+}
+
+func tenantLeaseRosterRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{
+		"property_id",
+		"room_id",
+		"room_label",
+		"room_status",
+		"lease_id",
+		"lease_status",
+		"tenant_id",
+		"tenant_label",
+		"tenant_phone",
+		"start_date",
+		"end_date",
+		"rent_amount",
+		"rent_billing_cadence",
+		"deposit_amount",
+		"deposit_status",
+		"next_rent_due_date",
+		"next_rent_status",
+		"notes",
 	})
 }
 

@@ -123,12 +123,13 @@ type LeaseServices struct {
 // BillingServices groups the billing application entry points used by the
 // transport layer.
 type BillingServices struct {
-	Query            BillingQueryService
-	Meter            BillingMeterService
-	Payment          BillingPaymentService
-	PropertyMeters   BillingPropertyMeterService
-	RoomMeters       BillingRoomMeterService
-	FinancialReports BillingFinancialReportService
+	Query             BillingQueryService
+	Meter             BillingMeterService
+	Payment           BillingPaymentService
+	PropertyMeters    BillingPropertyMeterService
+	RoomMeters        BillingRoomMeterService
+	TenantLeaseRoster BillingTenantLeaseRosterService
+	FinancialReports  BillingFinancialReportService
 }
 
 // JournalServices groups journal log application services used by the transport layer.
@@ -174,6 +175,10 @@ type BillingPropertyMeterService interface {
 
 type BillingRoomMeterService interface {
 	ListRoomMeterHistory(ctx context.Context, input BillingRoomMeterHistoryInput) ([]BillingBill, error)
+}
+
+type BillingTenantLeaseRosterService interface {
+	ListTenantLeaseRoster(ctx context.Context, input BillingTenantLeaseRosterInput) (BillingTenantLeaseRosterResult, error)
 }
 
 type BillingFinancialReportService interface {
@@ -251,6 +256,21 @@ type BillingRoomMeterHistoryInput struct {
 	RoomID              string
 	Year                *int
 	Month               *int
+}
+
+type BillingTenantLeaseRosterInput struct {
+	ActorRole           string
+	ActorUserID         string
+	AssignedPropertyIDs []string
+	PropertyID          string
+	IncludeVacant       bool
+	Limit               int
+	Offset              int
+}
+
+type BillingTenantLeaseRosterResult struct {
+	Items []BillingTenantLeaseRosterRow
+	Total int
 }
 
 type BillingFinancialReportSummaryInput struct {
@@ -363,6 +383,27 @@ type BillingPropertyMeterHistoryRow struct {
 	Amount          *int
 	Status          string
 	MeterRecordedAt *time.Time
+}
+
+type BillingTenantLeaseRosterRow struct {
+	PropertyID         string
+	RoomID             string
+	RoomLabel          string
+	RoomStatus         string
+	LeaseID            *string
+	LeaseStatus        *string
+	TenantID           *string
+	TenantLabel        *string
+	TenantPhone        *string
+	StartDate          *time.Time
+	EndDate            *time.Time
+	RentAmount         *int
+	RentBillingCadence *string
+	DepositAmount      *int
+	DepositStatus      *string
+	NextRentDueDate    *time.Time
+	NextRentStatus     *string
+	Notes              *string
 }
 
 type BillingFinancialReportSummary struct {
@@ -478,6 +519,7 @@ func validateAPIServerDeps(deps APIServerDeps) {
 		{"billing_payment", deps.Billing.Payment},
 		{"billing_property_meters", deps.Billing.PropertyMeters},
 		{"billing_room_meters", deps.Billing.RoomMeters},
+		{"billing_tenant_lease_roster", deps.Billing.TenantLeaseRoster},
 		{"billing_financial_reports", deps.Billing.FinancialReports},
 		{"journal_list", deps.Journal.List},
 		{"journal_get", deps.Journal.Get},
@@ -1779,6 +1821,44 @@ func (s *APIServer) ExportPropertyTenantRoster(c *gin.Context, id string, params
 	writeHTMLDocument(c, document)
 }
 
+// ListPropertyTenantLeaseRoster handles property tenant/lease roster JSON reads.
+func (s *APIServer) ListPropertyTenantLeaseRoster(c *gin.Context, id string, params api.ListPropertyTenantLeaseRosterParams) {
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	pagination, err := queryparams.NormalizePagination(params.Page, params.Limit)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	includeVacant := false
+	if params.IncludeVacant != nil {
+		includeVacant = *params.IncludeVacant
+	}
+
+	result, err := s.billing.TenantLeaseRoster.ListTenantLeaseRoster(c.Request.Context(), BillingTenantLeaseRosterInput{
+		ActorRole:           principal.Role,
+		ActorUserID:         principal.UserID,
+		AssignedPropertyIDs: principal.AssignedPropertyIDs,
+		PropertyID:          id,
+		IncludeVacant:       includeVacant,
+		Limit:               pagination.Limit,
+		Offset:              pagination.Offset,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	response := toPropertyTenantLeaseRosterResponse(result.Items)
+	response.Pagination = toPaginationResponse(pagination, result.Total)
+	c.JSON(http.StatusOK, response)
+}
+
 // ExportBillReceipt handles bill receipt runtime HTML export.
 func (s *APIServer) ExportBillReceipt(c *gin.Context, id string, params api.ExportBillReceiptParams) {
 	principal, ok := requestctx.GetPrincipal(c)
@@ -2811,6 +2891,77 @@ func toPropertyMeterHistoryResponse(rows []BillingPropertyMeterHistoryRow) api.P
 	}
 
 	return api.PropertyMeterHistoryResponse{Data: &items}
+}
+
+func toPropertyTenantLeaseRosterResponse(rows []BillingTenantLeaseRosterRow) api.PropertyTenantLeaseRosterResponse {
+	items := make([]api.PropertyTenantLeaseRosterRow, 0, len(rows))
+	for i := range rows {
+		items = append(items, toPropertyTenantLeaseRosterRowResponse(rows[i]))
+	}
+
+	return api.PropertyTenantLeaseRosterResponse{Data: &items}
+}
+
+func toPropertyTenantLeaseRosterRowResponse(row BillingTenantLeaseRosterRow) api.PropertyTenantLeaseRosterRow {
+	propertyID, propertyOK := parseUUID(row.PropertyID)
+	roomID, roomOK := parseUUID(row.RoomID)
+	roomStatus := row.RoomStatus
+
+	response := api.PropertyTenantLeaseRosterRow{
+		DepositAmount: row.DepositAmount,
+		Notes:         row.Notes,
+		RentAmount:    row.RentAmount,
+		RoomLabel:     &row.RoomLabel,
+		RoomStatus:    &roomStatus,
+		TenantLabel:   row.TenantLabel,
+		TenantPhone:   row.TenantPhone,
+	}
+	if propertyOK {
+		response.PropertyId = &propertyID
+	}
+	if roomOK {
+		response.RoomId = &roomID
+	}
+	if row.LeaseID != nil {
+		if leaseID, ok := parseUUID(*row.LeaseID); ok {
+			response.LeaseId = &leaseID
+		}
+	}
+	if row.LeaseStatus != nil {
+		status := *row.LeaseStatus
+		response.LeaseStatus = &status
+	}
+	if row.TenantID != nil {
+		if tenantID, ok := parseUUID(*row.TenantID); ok {
+			response.TenantId = &tenantID
+		}
+	}
+	if row.StartDate != nil {
+		startDate := openapi_types.Date{Time: *row.StartDate}
+		response.StartDate = &startDate
+	}
+	if row.EndDate != nil {
+		endDate := openapi_types.Date{Time: *row.EndDate}
+		response.EndDate = &endDate
+	}
+	if row.RentBillingCadence != nil {
+		cadence := *row.RentBillingCadence
+		response.RentBillingCadence = &cadence
+	}
+	if row.DepositStatus != nil {
+		status := *row.DepositStatus
+		response.DepositStatus = &status
+	}
+	if row.NextRentDueDate != nil {
+		dueDate := openapi_types.Date{Time: *row.NextRentDueDate}
+		response.NextRentDueDate = &dueDate
+	}
+	if row.NextRentStatus != nil {
+		status := *row.NextRentStatus
+		response.NextRentStatus = &status
+	}
+
+	return response
 }
 
 func toPropertyMeterHistoryRowResponse(row BillingPropertyMeterHistoryRow) api.PropertyMeterHistoryRow {

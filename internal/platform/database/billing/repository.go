@@ -256,6 +256,34 @@ type TenantRosterRow struct {
 	RentAmount         *int
 }
 
+// TenantLeaseRosterRow is one row for the interactive tenant/lease roster read model.
+type TenantLeaseRosterRow struct {
+	PropertyID         string
+	RoomID             string
+	RoomLabel          string
+	RoomStatus         string
+	LeaseID            *string
+	LeaseStatus        *string
+	TenantID           *string
+	TenantLabel        *string
+	TenantPhone        *string
+	StartDate          *time.Time
+	EndDate            *time.Time
+	RentAmount         *int
+	RentBillingCadence *string
+	DepositAmount      *int
+	DepositStatus      *string
+	NextRentDueDate    *time.Time
+	NextRentStatus     *string
+	Notes              *string
+}
+
+// TenantLeaseRosterListResult contains paginated roster rows and total matching rows.
+type TenantLeaseRosterListResult struct {
+	Items []TenantLeaseRosterRow
+	Total int
+}
+
 // BillReceipt is one bill-scoped receipt export read model.
 type BillReceipt struct {
 	BillID               string
@@ -1739,6 +1767,144 @@ ORDER BY NULLIF(regexp_replace(rooms.name, '\D', '', 'g'), '')::int NULLS LAST, 
 	return rows, nil
 }
 
+// ListTenantLeaseRoster returns grid-ready tenant/lease rows for one property.
+func (r *SQLRepository) ListTenantLeaseRoster(ctx context.Context, scope Scope, propertyID string, asOf time.Time, includeVacant bool, limit int, offset int) (result TenantLeaseRosterListResult, err error) {
+	countQuery, countArgs, ok := buildTenantLeaseRosterQuery(scope, propertyID, asOf, includeVacant, limit, offset, true)
+	if !ok {
+		return TenantLeaseRosterListResult{Items: []TenantLeaseRosterRow{}}, nil
+	}
+
+	if err := r.db.QueryRowContext(ctx, countQuery, countArgs...).Scan(&result.Total); err != nil {
+		return TenantLeaseRosterListResult{}, fmt.Errorf("count tenant lease roster rows: %w", err)
+	}
+
+	listQuery, listArgs, _ := buildTenantLeaseRosterQuery(scope, propertyID, asOf, includeVacant, limit, offset, false)
+	dbRows, err := r.db.QueryContext(ctx, listQuery, listArgs...)
+	if err != nil {
+		return TenantLeaseRosterListResult{}, fmt.Errorf("list tenant lease roster rows: %w", err)
+	}
+	defer func() {
+		if cerr := dbRows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close tenant lease roster rows: %w", cerr)
+		}
+	}()
+
+	result.Items = make([]TenantLeaseRosterRow, 0)
+	for dbRows.Next() {
+		row, err := scanTenantLeaseRosterRow(dbRows)
+		if err != nil {
+			return TenantLeaseRosterListResult{}, err
+		}
+		result.Items = append(result.Items, row)
+	}
+	if err := dbRows.Err(); err != nil {
+		return TenantLeaseRosterListResult{}, fmt.Errorf("iterate tenant lease roster rows: %w", err)
+	}
+
+	return result, nil
+}
+
+func buildTenantLeaseRosterQuery(scope Scope, propertyID string, asOf time.Time, includeVacant bool, limit int, offset int, count bool) (string, []any, bool) {
+	base := `
+SELECT
+	rooms.property_id,
+	rooms.id,
+	rooms.name,
+	rooms.status,
+	active_lease.id,
+	active_lease.status,
+	active_lease.tenant_id,
+	t.name,
+	t.phone,
+	active_lease.start_date,
+	active_lease.end_date,
+	active_lease.rent_amount,
+	active_lease.rent_billing_cadence,
+	active_lease.deposit_amount,
+	active_lease.deposit_status,
+	next_rent.due_date,
+	next_rent.status,
+	active_lease.notes
+FROM rooms
+JOIN properties p ON p.id = rooms.property_id AND p.deleted_at IS NULL
+LEFT JOIN LATERAL (
+	SELECT
+		l.id,
+		l.status,
+		l.tenant_id,
+		l.start_date,
+		l.end_date,
+		l.rent_amount,
+		l.rent_billing_cadence,
+		l.deposit_amount,
+		l.deposit_status,
+		l.notes
+	FROM leases l
+	WHERE l.room_id = rooms.id
+	  AND l.property_id = rooms.property_id
+	  AND l.status = 'active'
+	  AND l.start_date <= $2
+	  AND l.end_date >= $2
+	  AND l.deleted_at IS NULL
+	ORDER BY l.start_date DESC, l.created_at DESC, l.id ASC
+	LIMIT 1
+) active_lease ON TRUE
+LEFT JOIN tenants t ON t.id = active_lease.tenant_id AND t.deleted_at IS NULL
+LEFT JOIN LATERAL (
+	SELECT b.due_date, b.status
+	FROM bills b
+	WHERE b.lease_id = active_lease.id
+	  AND b.type = 'rent'
+	  AND b.status IN ('pending_payment', 'overdue')
+	  AND b.deleted_at IS NULL
+	ORDER BY b.due_date ASC, b.created_at ASC, b.id ASC
+	LIMIT 1
+) next_rent ON TRUE
+WHERE rooms.property_id = $1
+  AND rooms.deleted_at IS NULL
+  AND ($3 OR active_lease.id IS NOT NULL)
+`
+	if count {
+		base = `
+SELECT COUNT(*)::int
+FROM rooms
+JOIN properties p ON p.id = rooms.property_id AND p.deleted_at IS NULL
+LEFT JOIN LATERAL (
+	SELECT l.id
+	FROM leases l
+	WHERE l.room_id = rooms.id
+	  AND l.property_id = rooms.property_id
+	  AND l.status = 'active'
+	  AND l.start_date <= $2
+	  AND l.end_date >= $2
+	  AND l.deleted_at IS NULL
+	ORDER BY l.start_date DESC, l.created_at DESC, l.id ASC
+	LIMIT 1
+) active_lease ON TRUE
+WHERE rooms.property_id = $1
+  AND rooms.deleted_at IS NULL
+  AND ($3 OR active_lease.id IS NOT NULL)
+`
+	}
+
+	args := []any{propertyID, asOf, includeVacant}
+	query, args, ok := appendPropertyScope(base, args, scope, "p")
+	if !ok {
+		return "", nil, false
+	}
+	if count {
+		return query, args, true
+	}
+
+	args = append(args, limit, offset)
+	query += fmt.Sprintf(`
+ORDER BY NULLIF(regexp_replace(rooms.name, '\D', '', 'g'), '')::int NULLS LAST, rooms.name ASC, rooms.id ASC
+LIMIT $%d OFFSET $%d
+`, len(args)-1, len(args))
+
+	return query, args, true
+}
+
 // FindBillReceipt returns the display data needed for one bill receipt.
 func (r *SQLRepository) FindBillReceipt(ctx context.Context, scope Scope, billID string) (*BillReceipt, error) {
 	query := `
@@ -2800,6 +2966,76 @@ func scanTenantRosterRow(row rowScanner) (TenantRosterRow, error) {
 		value := int(rentAmount.Int64)
 		roster.RentAmount = &value
 	}
+
+	return roster, nil
+}
+
+func scanTenantLeaseRosterRow(row rowScanner) (TenantLeaseRosterRow, error) {
+	var roster TenantLeaseRosterRow
+	var leaseID sql.NullString
+	var leaseStatus sql.NullString
+	var tenantID sql.NullString
+	var tenantLabel sql.NullString
+	var tenantPhone sql.NullString
+	var startDate sql.NullTime
+	var endDate sql.NullTime
+	var rentAmount sql.NullInt64
+	var rentBillingCadence sql.NullString
+	var depositAmount sql.NullInt64
+	var depositStatus sql.NullString
+	var nextRentDueDate sql.NullTime
+	var nextRentStatus sql.NullString
+	var notes sql.NullString
+
+	if err := row.Scan(
+		&roster.PropertyID,
+		&roster.RoomID,
+		&roster.RoomLabel,
+		&roster.RoomStatus,
+		&leaseID,
+		&leaseStatus,
+		&tenantID,
+		&tenantLabel,
+		&tenantPhone,
+		&startDate,
+		&endDate,
+		&rentAmount,
+		&rentBillingCadence,
+		&depositAmount,
+		&depositStatus,
+		&nextRentDueDate,
+		&nextRentStatus,
+		&notes,
+	); err != nil {
+		return TenantLeaseRosterRow{}, fmt.Errorf("scan tenant lease roster row: %w", err)
+	}
+
+	roster.LeaseID = nullStringPtr(leaseID)
+	roster.LeaseStatus = nullStringPtr(leaseStatus)
+	roster.TenantID = nullStringPtr(tenantID)
+	roster.TenantLabel = nullStringPtr(tenantLabel)
+	roster.TenantPhone = nullStringPtr(tenantPhone)
+	if startDate.Valid {
+		roster.StartDate = &startDate.Time
+	}
+	if endDate.Valid {
+		roster.EndDate = &endDate.Time
+	}
+	if rentAmount.Valid {
+		value := int(rentAmount.Int64)
+		roster.RentAmount = &value
+	}
+	roster.RentBillingCadence = nullStringPtr(rentBillingCadence)
+	if depositAmount.Valid {
+		value := int(depositAmount.Int64)
+		roster.DepositAmount = &value
+	}
+	roster.DepositStatus = nullStringPtr(depositStatus)
+	if nextRentDueDate.Valid {
+		roster.NextRentDueDate = &nextRentDueDate.Time
+	}
+	roster.NextRentStatus = nullStringPtr(nextRentStatus)
+	roster.Notes = nullStringPtr(notes)
 
 	return roster, nil
 }

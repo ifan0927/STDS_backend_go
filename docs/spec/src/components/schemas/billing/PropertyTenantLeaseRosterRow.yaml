@@ -1,0 +1,59 @@
+type: object
+properties:
+  property_id:
+    type: string
+    format: uuid
+  room_id:
+    type: string
+    format: uuid
+  room_label:
+    type: string
+  room_status:
+    type: string
+  lease_id:
+    type: string
+    format: uuid
+    nullable: true
+  lease_status:
+    type: string
+    nullable: true
+  tenant_id:
+    type: string
+    format: uuid
+    nullable: true
+  tenant_label:
+    type: string
+    nullable: true
+  tenant_phone:
+    type: string
+    nullable: true
+  start_date:
+    type: string
+    format: date
+    nullable: true
+  end_date:
+    type: string
+    format: date
+    nullable: true
+  rent_amount:
+    type: integer
+    nullable: true
+  rent_billing_cadence:
+    type: string
+    nullable: true
+  deposit_amount:
+    type: integer
+    nullable: true
+  deposit_status:
+    type: string
+    nullable: true
+  next_rent_due_date:
+    type: string
+    format: date
+    nullable: true
+  next_rent_status:
+    type: string
+    nullable: true
+  notes:
+    type: string
+    nullable: true

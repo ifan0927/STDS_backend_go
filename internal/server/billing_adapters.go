@@ -29,6 +29,9 @@ func newBillingServices(db *sql.DB, txRunner *dbtxrunner.Runner, publisher domai
 		Payment:        billingPaymentServiceAdapter{service: appbilling.NewRecordPaymentService(billingRepo, accountingRepo, txRunner)},
 		PropertyMeters: billingPropertyMeterServiceAdapter{pendingMeters: appbilling.NewListPendingMeterService(reportRepo), meterHistory: appbilling.NewListPropertyMeterHistoryService(reportRepo)},
 		RoomMeters:     billingRoomMeterServiceAdapter{meterHistory: appbilling.NewListRoomMeterHistoryService(reportRepo)},
+		TenantLeaseRoster: billingTenantLeaseRosterServiceAdapter{
+			service: appbilling.NewTenantLeaseRosterService(reportRepo, nil),
+		},
 		FinancialReports: billingFinancialReportServiceAdapter{
 			summaries:    appbilling.NewListFinancialReportSummariesService(reportRepo),
 			get:          appbilling.NewGetFinancialReportService(reportRepo, nil),
@@ -179,6 +182,27 @@ func (a billingRoomMeterServiceAdapter) ListRoomMeterHistory(ctx context.Context
 	}
 
 	return toHandlerBills(bills), nil
+}
+
+type billingTenantLeaseRosterServiceAdapter struct {
+	service *appbilling.TenantLeaseRosterService
+}
+
+func (a billingTenantLeaseRosterServiceAdapter) ListTenantLeaseRoster(ctx context.Context, input handler.BillingTenantLeaseRosterInput) (handler.BillingTenantLeaseRosterResult, error) {
+	result, err := a.service.Execute(ctx, appbilling.TenantLeaseRosterInput{
+		ActorRole:           input.ActorRole,
+		ActorUserID:         input.ActorUserID,
+		AssignedPropertyIDs: input.AssignedPropertyIDs,
+		PropertyID:          input.PropertyID,
+		IncludeVacant:       input.IncludeVacant,
+		Limit:               input.Limit,
+		Offset:              input.Offset,
+	})
+	if err != nil {
+		return handler.BillingTenantLeaseRosterResult{}, err
+	}
+
+	return handler.BillingTenantLeaseRosterResult{Items: toHandlerTenantLeaseRosterRows(result.Items), Total: result.Total}, nil
 }
 
 type billingFinancialReportServiceAdapter struct {
@@ -498,6 +522,19 @@ func (a billingReportRepositoryAdapter) ListTenantRosterRows(ctx context.Context
 	}
 
 	return toAppTenantRosterRows(rows), nil
+}
+
+func (a billingReportRepositoryAdapter) ListTenantLeaseRoster(ctx context.Context, query appbilling.TenantLeaseRosterQuery) (appbilling.TenantLeaseRosterResult, error) {
+	result, err := a.repo.ListTenantLeaseRoster(ctx, dbbilling.Scope{
+		Role:                query.ActorRole,
+		UserID:              query.ActorUserID,
+		AssignedPropertyIDs: query.AssignedPropertyIDs,
+	}, query.PropertyID, query.AsOf, query.IncludeVacant, query.Limit, query.Offset)
+	if err != nil {
+		return appbilling.TenantLeaseRosterResult{}, mapBillingReportRepositoryError(err)
+	}
+
+	return appbilling.TenantLeaseRosterResult{Items: toAppTenantLeaseRosterRows(result.Items), Total: result.Total}, nil
 }
 
 func (a billingReportRepositoryAdapter) FindBillReceipt(ctx context.Context, query appbilling.BillReceiptQuery) (*appbilling.BillReceipt, error) {
@@ -875,6 +912,60 @@ func toAppTenantRosterRows(rows []dbbilling.TenantRosterRow) []appbilling.Tenant
 			NextRentDueDate:    rows[i].NextRentDueDate,
 			RentBillingCadence: rows[i].RentBillingCadence,
 			RentAmount:         rows[i].RentAmount,
+		})
+	}
+	return result
+}
+
+func toAppTenantLeaseRosterRows(rows []dbbilling.TenantLeaseRosterRow) []appbilling.TenantLeaseRosterRow {
+	result := make([]appbilling.TenantLeaseRosterRow, 0, len(rows))
+	for i := range rows {
+		result = append(result, appbilling.TenantLeaseRosterRow{
+			PropertyID:         rows[i].PropertyID,
+			RoomID:             rows[i].RoomID,
+			RoomLabel:          rows[i].RoomLabel,
+			RoomStatus:         rows[i].RoomStatus,
+			LeaseID:            rows[i].LeaseID,
+			LeaseStatus:        rows[i].LeaseStatus,
+			TenantID:           rows[i].TenantID,
+			TenantLabel:        rows[i].TenantLabel,
+			TenantPhone:        rows[i].TenantPhone,
+			StartDate:          rows[i].StartDate,
+			EndDate:            rows[i].EndDate,
+			RentAmount:         rows[i].RentAmount,
+			RentBillingCadence: rows[i].RentBillingCadence,
+			DepositAmount:      rows[i].DepositAmount,
+			DepositStatus:      rows[i].DepositStatus,
+			NextRentDueDate:    rows[i].NextRentDueDate,
+			NextRentStatus:     rows[i].NextRentStatus,
+			Notes:              rows[i].Notes,
+		})
+	}
+	return result
+}
+
+func toHandlerTenantLeaseRosterRows(rows []appbilling.TenantLeaseRosterRow) []handler.BillingTenantLeaseRosterRow {
+	result := make([]handler.BillingTenantLeaseRosterRow, 0, len(rows))
+	for i := range rows {
+		result = append(result, handler.BillingTenantLeaseRosterRow{
+			PropertyID:         rows[i].PropertyID,
+			RoomID:             rows[i].RoomID,
+			RoomLabel:          rows[i].RoomLabel,
+			RoomStatus:         rows[i].RoomStatus,
+			LeaseID:            rows[i].LeaseID,
+			LeaseStatus:        rows[i].LeaseStatus,
+			TenantID:           rows[i].TenantID,
+			TenantLabel:        rows[i].TenantLabel,
+			TenantPhone:        rows[i].TenantPhone,
+			StartDate:          rows[i].StartDate,
+			EndDate:            rows[i].EndDate,
+			RentAmount:         rows[i].RentAmount,
+			RentBillingCadence: rows[i].RentBillingCadence,
+			DepositAmount:      rows[i].DepositAmount,
+			DepositStatus:      rows[i].DepositStatus,
+			NextRentDueDate:    rows[i].NextRentDueDate,
+			NextRentStatus:     rows[i].NextRentStatus,
+			Notes:              rows[i].Notes,
 		})
 	}
 	return result
