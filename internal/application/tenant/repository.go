@@ -29,20 +29,28 @@ type Tenant struct {
 
 // CreateTenantParams contains the writable fields required to persist a tenant.
 type CreateTenantParams struct {
-	Name     string
-	Email    *string
-	Phone    *string
-	Contacts []map[string]interface{}
+	Name       string
+	Email      *string
+	Phone      *string
+	Contacts   []map[string]interface{}
+	BirthDate  *time.Time
+	NationalID *string
+	Address    *string
+	Occupation *string
 }
 
 // UpdateTenantParams contains the writable fields required to persist a tenant update.
 type UpdateTenantParams struct {
-	ID       string
-	Name     string
-	Email    *string
-	Phone    *string
-	Contacts []map[string]interface{}
-	Version  int
+	ID         string
+	Name       string
+	Email      *string
+	Phone      *string
+	Contacts   []map[string]interface{}
+	BirthDate  *time.Time
+	NationalID *string
+	Address    *string
+	Occupation *string
+	Version    int
 }
 
 // Repository defines persistence needed by tenant application services.

@@ -19,10 +19,15 @@ var ErrNotFound = errors.New("property query not found")
 type Property struct {
 	ID                               string
 	Name                             string
+	Subtitle                         *string
 	Address                          string
 	ElectricityUnitPrice             *float64
 	DefaultElectricityBillingCadence string
 	OwnerID                          string
+	ContactPhone                     *string
+	ContactEmail                     *string
+	Notes                            *string
+	Facilities                       *map[string]interface{}
 	Occupancy                        OccupancySummary
 	CreatedAt                        time.Time
 	UpdatedAt                        time.Time
@@ -85,10 +90,15 @@ func (r *SQLRepository) FindByID(ctx context.Context, propertyID string) (*Prope
 SELECT
 	p.id,
 	p.name,
+	p.subtitle,
 	p.address,
 	p.electricity_unit_price,
 	p.default_electricity_billing_cadence,
 	p.owner_id,
+	p.contact_phone,
+	p.contact_email,
+	p.notes,
+	p.facilities::text,
 	COUNT(rooms.id)::int AS total_rooms,
 	COUNT(rooms.id) FILTER (WHERE rooms.status = 'occupied')::int AS occupied_rooms,
 	COUNT(rooms.id) FILTER (WHERE rooms.status = 'vacant')::int AS vacant_rooms,
@@ -122,10 +132,15 @@ func (r *SQLRepository) ListAccessible(ctx context.Context, role string, userID 
 SELECT
 	p.id,
 	p.name,
+	p.subtitle,
 	p.address,
 	p.electricity_unit_price,
 	p.default_electricity_billing_cadence,
 	p.owner_id,
+	p.contact_phone,
+	p.contact_email,
+	p.notes,
+	p.facilities::text,
 	COUNT(rooms.id)::int AS total_rooms,
 	COUNT(rooms.id) FILTER (WHERE rooms.status = 'occupied')::int AS occupied_rooms,
 	COUNT(rooms.id) FILTER (WHERE rooms.status = 'vacant')::int AS vacant_rooms,
@@ -268,14 +283,24 @@ type rowScanner interface {
 
 func scanProperty(row rowScanner) (*Property, error) {
 	var property Property
+	var subtitle sql.NullString
 	var electricityUnitPrice sql.NullFloat64
+	var contactPhone sql.NullString
+	var contactEmail sql.NullString
+	var notes sql.NullString
+	var facilities sql.NullString
 	if err := row.Scan(
 		&property.ID,
 		&property.Name,
+		&subtitle,
 		&property.Address,
 		&electricityUnitPrice,
 		&property.DefaultElectricityBillingCadence,
 		&property.OwnerID,
+		&contactPhone,
+		&contactEmail,
+		&notes,
+		&facilities,
 		&property.Occupancy.TotalRooms,
 		&property.Occupancy.OccupiedRooms,
 		&property.Occupancy.VacantRooms,
@@ -289,6 +314,17 @@ func scanProperty(row rowScanner) (*Property, error) {
 	}
 	if electricityUnitPrice.Valid {
 		property.ElectricityUnitPrice = &electricityUnitPrice.Float64
+	}
+	property.Subtitle = nullStringPtr(subtitle)
+	property.ContactPhone = nullStringPtr(contactPhone)
+	property.ContactEmail = nullStringPtr(contactEmail)
+	property.Notes = nullStringPtr(notes)
+	if facilities.Valid {
+		decoded, err := unmarshalFacilities(facilities.String)
+		if err != nil {
+			return nil, fmt.Errorf("decode property facilities: %w", err)
+		}
+		property.Facilities = decoded
 	}
 
 	return &property, nil
@@ -352,4 +388,27 @@ func scanRoom(row rowScanner) (*Room, error) {
 	}
 
 	return &room, nil
+}
+
+func unmarshalFacilities(raw string) (*map[string]interface{}, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	var decoded any
+	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+		return nil, err
+	}
+	objectValue, ok := decoded.(map[string]interface{})
+	if !ok {
+		return nil, nil
+	}
+	return &objectValue, nil
+}
+
+func nullStringPtr(value sql.NullString) *string {
+	if !value.Valid {
+		return nil
+	}
+	result := value.String
+	return &result
 }

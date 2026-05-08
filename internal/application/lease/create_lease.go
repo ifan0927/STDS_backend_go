@@ -38,6 +38,7 @@ type CreateLeaseInput struct {
 	RentBillingCadence        string
 	ElectricityBillingCadence *string
 	StartingMeterReading      int
+	Notes                     *string
 }
 
 // CreateLeaseService creates a lease and pre-generates bills.
@@ -142,6 +143,7 @@ func (s *CreateLeaseService) Execute(ctx context.Context, input CreateLeaseInput
 			ElectricityBillingCadence: state.ElectricityBillingCadence,
 			StartingMeterReading:      input.StartingMeterReading,
 			DepositAmount:             state.DepositAmount,
+			Notes:                     trimmedOptionalString(input.Notes),
 		})
 		if err != nil {
 			return apperr.ErrInternalServerError.WithCause(err)
@@ -191,6 +193,17 @@ func containsAssignedProperty(assignedPropertyIDs []string, propertyID string) b
 	}
 
 	return false
+}
+
+func trimmedOptionalString(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
 }
 
 func buildBillSeeds(lease *Lease, rentPeriods []domainlease.BillingPeriod, electricityPeriods []domainlease.BillingPeriod) []CreateBillParams {

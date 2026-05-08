@@ -4,6 +4,7 @@ import (
 	"net/mail"
 	"reflect"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -14,21 +15,33 @@ const (
 
 // State is the persisted tenant aggregate state.
 type State struct {
-	ID       string
-	Name     string
-	Email    *string
-	Phone    *string
-	Contacts []map[string]interface{}
-	Status   string
-	Version  int
+	ID         string
+	Name       string
+	Email      *string
+	Phone      *string
+	Contacts   []map[string]interface{}
+	BirthDate  *time.Time
+	NationalID *string
+	Address    *string
+	Occupation *string
+	Status     string
+	Version    int
 }
 
 // UpdateInput is the aggregate patch for tenant mutations.
 type UpdateInput struct {
-	Name     *string
-	Email    *string
-	Phone    *string
-	Contacts *[]map[string]interface{}
+	Name            *string
+	Email           *string
+	Phone           *string
+	Contacts        *[]map[string]interface{}
+	BirthDate       *time.Time
+	ClearBirthDate  bool
+	NationalID      *string
+	ClearNationalID bool
+	Address         *string
+	ClearAddress    bool
+	Occupation      *string
+	ClearOccupation bool
 }
 
 // Aggregate owns tenant command validation and normalization.
@@ -85,6 +98,27 @@ func (a *Aggregate) Update(input UpdateInput) error {
 	if input.Contacts != nil {
 		a.state.Contacts = cloneContacts(*input.Contacts)
 	}
+	if input.BirthDate != nil {
+		birthDate := *input.BirthDate
+		a.state.BirthDate = &birthDate
+	} else if input.ClearBirthDate {
+		a.state.BirthDate = nil
+	}
+	if input.NationalID != nil {
+		a.state.NationalID = normalizeOptionalString(*input.NationalID)
+	} else if input.ClearNationalID {
+		a.state.NationalID = nil
+	}
+	if input.Address != nil {
+		a.state.Address = normalizeOptionalString(*input.Address)
+	} else if input.ClearAddress {
+		a.state.Address = nil
+	}
+	if input.Occupation != nil {
+		a.state.Occupation = normalizeOptionalString(*input.Occupation)
+	} else if input.ClearOccupation {
+		a.state.Occupation = nil
+	}
 
 	return nil
 }
@@ -99,6 +133,10 @@ func (a *Aggregate) State() State {
 	snapshot.Email = cloneStringPtr(a.state.Email)
 	snapshot.Phone = cloneStringPtr(a.state.Phone)
 	snapshot.Contacts = cloneContacts(a.state.Contacts)
+	snapshot.BirthDate = cloneTimePtr(a.state.BirthDate)
+	snapshot.NationalID = cloneStringPtr(a.state.NationalID)
+	snapshot.Address = cloneStringPtr(a.state.Address)
+	snapshot.Occupation = cloneStringPtr(a.state.Occupation)
 
 	return snapshot
 }
@@ -117,6 +155,10 @@ func normalizeState(state State, requireEmail bool) (State, error) {
 	state.Email = email
 	state.Phone = normalizeOptionalStringPtr(state.Phone)
 	state.Contacts = cloneContacts(state.Contacts)
+	state.BirthDate = cloneTimePtr(state.BirthDate)
+	state.NationalID = normalizeOptionalStringPtr(state.NationalID)
+	state.Address = normalizeOptionalStringPtr(state.Address)
+	state.Occupation = normalizeOptionalStringPtr(state.Occupation)
 	if state.Status == "" {
 		state.Status = StatusActive
 	} else {
@@ -180,6 +222,15 @@ func normalizeOptionalString(value string) *string {
 }
 
 func cloneStringPtr(value *string) *string {
+	if value == nil {
+		return nil
+	}
+
+	cloned := *value
+	return &cloned
+}
+
+func cloneTimePtr(value *time.Time) *time.Time {
 	if value == nil {
 		return nil
 	}

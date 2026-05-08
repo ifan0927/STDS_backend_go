@@ -49,6 +49,7 @@ func TestE2ELeaseCreationLifecycleAcceptance(t *testing.T) {
 		RentAmount: 18000,
 		Deposit:    36000,
 		Cadence:    "monthly",
+		Notes:      "E2E lease notes",
 	})
 
 	readRoom := getRoom(t, ctx, adminClient, room.ID)
@@ -71,6 +72,7 @@ func TestE2ELeaseCreationLifecycleAcceptance(t *testing.T) {
 		RentAmount: 18000,
 		Deposit:    36000,
 		Cadence:    "monthly",
+		Notes:      "E2E lease notes",
 	})
 
 	bills := leaseLifecycleE2EListBills(t, ctx, adminClient, lease.ID)
@@ -222,6 +224,7 @@ type leaseLifecycleE2ECreateLeaseParams struct {
 	RentCadence               string
 	ElectricityBillingCadence string
 	StartingMeterReading      int
+	Notes                     string
 }
 
 type leaseLifecycleE2ELeaseResponse struct {
@@ -319,6 +322,9 @@ func leaseLifecycleE2ECreateLease(t *testing.T, ctx context.Context, client apiC
 	}
 	if params.RentCadence != "" {
 		request["rent_billing_cadence"] = params.RentCadence
+	}
+	if params.Notes != "" {
+		request["notes"] = params.Notes
 	}
 
 	resp, body, err := client.postJSON(ctx, "/api/v1/leases", request)
@@ -487,6 +493,11 @@ func leaseLifecycleE2ERequireLease(t *testing.T, lease leaseLifecycleE2ELeaseRes
 	}
 	if lease.EndDate != expected.EndDate {
 		t.Fatalf("expected end_date %q, got %q", expected.EndDate, lease.EndDate)
+	}
+	if expected.Notes != "" {
+		if lease.Notes == nil || *lease.Notes != expected.Notes {
+			t.Fatalf("expected notes %q, got %+v", expected.Notes, lease.Notes)
+		}
 	}
 }
 

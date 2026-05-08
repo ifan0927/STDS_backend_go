@@ -24,16 +24,22 @@ func TestListAccessibleReturnsOccupancySummary(t *testing.T) {
 
 	mock.ExpectQuery(`(?s)LEFT JOIN rooms ON rooms.property_id = p.id AND rooms.deleted_at IS NULL\s+WHERE p.deleted_at IS NULL\s+GROUP BY p.id ORDER BY p.created_at DESC`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "address", "electricity_unit_price", "default_electricity_billing_cadence", "owner_id",
+			"id", "name", "subtitle", "address", "electricity_unit_price", "default_electricity_billing_cadence", "owner_id",
+			"contact_phone", "contact_email", "notes", "facilities",
 			"total_rooms", "occupied_rooms", "vacant_rooms", "maintenance_rooms", "occupancy_rate",
 			"created_at", "updated_at", "version",
 		}).AddRow(
 			"10000000-0000-0000-0000-000000000001",
 			"Demo Property",
+			nil,
 			"Demo Address",
 			4.5,
 			"monthly",
 			"90000000-0000-0000-0000-000000000001",
+			nil,
+			nil,
+			nil,
+			nil,
 			4,
 			2,
 			1,

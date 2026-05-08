@@ -16,9 +16,19 @@ type UpdatePropertyInput struct {
 	ID                               string
 	ActorRole                        string
 	Name                             *string
+	Subtitle                         *string
+	ClearSubtitle                    bool
 	Address                          *string
 	ElectricityUnitPrice             *float64
 	DefaultElectricityBillingCadence *string
+	ContactPhone                     *string
+	ClearContactPhone                bool
+	ContactEmail                     *string
+	ClearContactEmail                bool
+	Notes                            *string
+	ClearNotes                       bool
+	Facilities                       *map[string]interface{}
+	ClearFacilities                  bool
 }
 
 // UpdatePropertyService updates property fields while enforcing mutation rules.
@@ -47,7 +57,7 @@ func (s *UpdatePropertyService) Execute(ctx context.Context, input UpdatePropert
 	if strings.TrimSpace(input.ActorRole) == "" {
 		return nil, apperr.ErrUnauthorized
 	}
-	if input.Name == nil && input.Address == nil && input.ElectricityUnitPrice == nil && input.DefaultElectricityBillingCadence == nil {
+	if input.Name == nil && input.Subtitle == nil && !input.ClearSubtitle && input.Address == nil && input.ElectricityUnitPrice == nil && input.DefaultElectricityBillingCadence == nil && input.ContactPhone == nil && !input.ClearContactPhone && input.ContactEmail == nil && !input.ClearContactEmail && input.Notes == nil && !input.ClearNotes && input.Facilities == nil && !input.ClearFacilities {
 		return nil, apperr.ErrBadRequest
 	}
 
@@ -66,10 +76,15 @@ func (s *UpdatePropertyService) Execute(ctx context.Context, input UpdatePropert
 		aggregate, err := domainproperty.Rehydrate(domainproperty.State{
 			ID:                               current.ID,
 			Name:                             current.Name,
+			Subtitle:                         current.Subtitle,
 			Address:                          current.Address,
 			ElectricityUnitPrice:             current.ElectricityUnitPrice,
 			DefaultElectricityBillingCadence: current.DefaultElectricityBillingCadence,
 			OwnerID:                          current.OwnerID,
+			ContactPhone:                     current.ContactPhone,
+			ContactEmail:                     current.ContactEmail,
+			Notes:                            current.Notes,
+			Facilities:                       current.Facilities,
 			Version:                          current.Version,
 		})
 		if err != nil {
@@ -79,9 +94,19 @@ func (s *UpdatePropertyService) Execute(ctx context.Context, input UpdatePropert
 		if err := aggregate.Update(domainproperty.UpdateInput{
 			ActorRole:                        input.ActorRole,
 			Name:                             input.Name,
+			Subtitle:                         input.Subtitle,
+			ClearSubtitle:                    input.ClearSubtitle,
 			Address:                          input.Address,
 			ElectricityUnitPrice:             input.ElectricityUnitPrice,
 			DefaultElectricityBillingCadence: input.DefaultElectricityBillingCadence,
+			ContactPhone:                     input.ContactPhone,
+			ClearContactPhone:                input.ClearContactPhone,
+			ContactEmail:                     input.ContactEmail,
+			ClearContactEmail:                input.ClearContactEmail,
+			Notes:                            input.Notes,
+			ClearNotes:                       input.ClearNotes,
+			Facilities:                       input.Facilities,
+			ClearFacilities:                  input.ClearFacilities,
 		}); err != nil {
 			return mapDomainError(err)
 		}
@@ -90,10 +115,15 @@ func (s *UpdatePropertyService) Execute(ctx context.Context, input UpdatePropert
 		property, err := s.propertyRepo.Update(ctx, tx, UpdatePropertyParams{
 			ID:                               state.ID,
 			Name:                             state.Name,
+			Subtitle:                         state.Subtitle,
 			Address:                          state.Address,
 			ElectricityUnitPrice:             state.ElectricityUnitPrice,
 			DefaultElectricityBillingCadence: state.DefaultElectricityBillingCadence,
 			OwnerID:                          state.OwnerID,
+			ContactPhone:                     state.ContactPhone,
+			ContactEmail:                     state.ContactEmail,
+			Notes:                            state.Notes,
+			Facilities:                       state.Facilities,
 			Version:                          state.Version,
 		})
 		if err != nil {

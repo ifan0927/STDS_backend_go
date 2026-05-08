@@ -2,3 +2,26 @@ type: object
 properties:
   name:
     type: string
+  size:
+    type: number
+    format: double
+    nullable: true
+  floor:
+    type: string
+    nullable: true
+  room_type:
+    type: string
+    nullable: true
+  facilities:
+    type: object
+    additionalProperties: true
+    nullable: true
+  default_rent_amount:
+    type: integer
+    nullable: true
+  notes:
+    type: string
+    nullable: true
+  zone:
+    type: string
+    nullable: true

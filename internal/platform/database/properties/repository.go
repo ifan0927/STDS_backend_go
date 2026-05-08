@@ -3,6 +3,7 @@ package properties
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -34,10 +35,15 @@ type CommandRepository interface {
 type Property struct {
 	ID                               string
 	Name                             string
+	Subtitle                         *string
 	Address                          string
 	ElectricityUnitPrice             *float64
 	DefaultElectricityBillingCadence string
 	OwnerID                          string
+	ContactPhone                     *string
+	ContactEmail                     *string
+	Notes                            *string
+	Facilities                       *map[string]interface{}
 	CreatedAt                        time.Time
 	UpdatedAt                        time.Time
 	Version                          int
@@ -45,12 +51,19 @@ type Property struct {
 
 // Room is the persisted room state used by write flows.
 type Room struct {
-	ID         string
-	PropertyID string
-	Name       string
-	Status     string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	ID                string
+	PropertyID        string
+	Name              string
+	Status            string
+	Size              *float64
+	Floor             *string
+	RoomType          *string
+	Facilities        *map[string]interface{}
+	DefaultRentAmount *int
+	Notes             *string
+	Zone              *string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 // RepairRequest is the persisted repair request state used by write flows.
@@ -73,34 +86,58 @@ type RepairRequest struct {
 // CreatePropertyParams contains the writable fields required to persist a property.
 type CreatePropertyParams struct {
 	Name                             string
+	Subtitle                         *string
 	Address                          string
 	ElectricityUnitPrice             float64
 	DefaultElectricityBillingCadence string
 	OwnerID                          string
+	ContactPhone                     *string
+	ContactEmail                     *string
+	Notes                            *string
+	Facilities                       *map[string]interface{}
 }
 
 // UpdatePropertyParams contains the writable fields required to persist a property update.
 type UpdatePropertyParams struct {
 	ID                               string
 	Name                             string
+	Subtitle                         *string
 	Address                          string
 	ElectricityUnitPrice             *float64
 	DefaultElectricityBillingCadence string
 	OwnerID                          string
+	ContactPhone                     *string
+	ContactEmail                     *string
+	Notes                            *string
+	Facilities                       *map[string]interface{}
 	Version                          int
 }
 
 // CreateRoomParams contains the writable fields required to persist a room.
 type CreateRoomParams struct {
-	PropertyID string
-	Name       string
+	PropertyID        string
+	Name              string
+	Size              *float64
+	Floor             *string
+	RoomType          *string
+	Facilities        *map[string]interface{}
+	DefaultRentAmount *int
+	Notes             *string
+	Zone              *string
 }
 
 // UpdateRoomParams contains the writable fields required to persist a room update.
 type UpdateRoomParams struct {
-	ID     string
-	Name   string
-	Status *string
+	ID                string
+	Name              string
+	Status            *string
+	Size              *float64
+	Floor             *string
+	RoomType          *string
+	Facilities        *map[string]interface{}
+	DefaultRentAmount *int
+	Notes             *string
+	Zone              *string
 }
 
 // CreateRepairRequestParams contains the writable fields required to persist a repair request.
@@ -146,27 +183,42 @@ LIMIT 1
 
 // Create persists a new property row within the provided transaction.
 func (r *SQLRepository) Create(ctx context.Context, tx *sql.Tx, params CreatePropertyParams) (*Property, error) {
+	facilitiesJSON, err := marshalJSONMap(params.Facilities)
+	if err != nil {
+		return nil, fmt.Errorf("marshal property facilities: %w", err)
+	}
+
 	const query = `
 INSERT INTO properties (
 	name,
-	address,
-	electricity_unit_price,
-	default_electricity_billing_cadence,
-	owner_id
-) VALUES ($1, $2, $3, $4, $5)
-RETURNING
-	id,
-	name,
+	subtitle,
 	address,
 	electricity_unit_price,
 	default_electricity_billing_cadence,
 	owner_id,
+	contact_phone,
+	contact_email,
+	notes,
+	facilities
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
+RETURNING
+	id,
+	name,
+	subtitle,
+	address,
+	electricity_unit_price,
+	default_electricity_billing_cadence,
+	owner_id,
+	contact_phone,
+	contact_email,
+	notes,
+	facilities::text,
 	created_at,
 	updated_at,
 	version
 `
 
-	property, err := scanProperty(tx.QueryRowContext(ctx, query, params.Name, params.Address, params.ElectricityUnitPrice, params.DefaultElectricityBillingCadence, params.OwnerID))
+	property, err := scanProperty(tx.QueryRowContext(ctx, query, params.Name, params.Subtitle, params.Address, params.ElectricityUnitPrice, params.DefaultElectricityBillingCadence, params.OwnerID, params.ContactPhone, params.ContactEmail, params.Notes, facilitiesJSON))
 	if err != nil {
 		return nil, fmt.Errorf("create property: %w", err)
 	}
@@ -180,10 +232,15 @@ func (r *SQLRepository) FindByID(ctx context.Context, tx *sql.Tx, id string) (*P
 SELECT
 	id,
 	name,
+	subtitle,
 	address,
 	electricity_unit_price,
 	default_electricity_billing_cadence,
 	owner_id,
+	contact_phone,
+	contact_email,
+	notes,
+	facilities::text,
 	created_at,
 	updated_at,
 	version
@@ -206,31 +263,46 @@ LIMIT 1
 
 // Update persists a property mutation inside the provided transaction.
 func (r *SQLRepository) Update(ctx context.Context, tx *sql.Tx, params UpdatePropertyParams) (*Property, error) {
+	facilitiesJSON, err := marshalJSONMap(params.Facilities)
+	if err != nil {
+		return nil, fmt.Errorf("marshal property facilities: %w", err)
+	}
+
 	const query = `
 UPDATE properties
 SET name = $2,
-	address = $3,
-	electricity_unit_price = $4,
-	default_electricity_billing_cadence = $5,
-	owner_id = $6,
+	subtitle = $3,
+	address = $4,
+	electricity_unit_price = $5,
+	default_electricity_billing_cadence = $6,
+	owner_id = $7,
+	contact_phone = $8,
+	contact_email = $9,
+	notes = $10,
+	facilities = $11::jsonb,
 	updated_at = now(),
 	version = version + 1
 WHERE id = $1
-  AND version = $7
+  AND version = $12
   AND deleted_at IS NULL
 RETURNING
 	id,
 	name,
+	subtitle,
 	address,
 	electricity_unit_price,
 	default_electricity_billing_cadence,
 	owner_id,
+	contact_phone,
+	contact_email,
+	notes,
+	facilities::text,
 	created_at,
 	updated_at,
 	version
 `
 
-	property, err := scanProperty(tx.QueryRowContext(ctx, query, params.ID, params.Name, params.Address, params.ElectricityUnitPrice, params.DefaultElectricityBillingCadence, params.OwnerID, params.Version))
+	property, err := scanProperty(tx.QueryRowContext(ctx, query, params.ID, params.Name, params.Subtitle, params.Address, params.ElectricityUnitPrice, params.DefaultElectricityBillingCadence, params.OwnerID, params.ContactPhone, params.ContactEmail, params.Notes, facilitiesJSON, params.Version))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -306,21 +378,40 @@ WHERE id = $1
 
 // CreateRoom persists a new room row within the provided transaction.
 func (r *SQLRepository) CreateRoom(ctx context.Context, tx *sql.Tx, params CreateRoomParams) (*Room, error) {
+	facilitiesJSON, err := marshalJSONMap(params.Facilities)
+	if err != nil {
+		return nil, fmt.Errorf("marshal room facilities: %w", err)
+	}
+
 	const query = `
 INSERT INTO rooms (
 	property_id,
-	name
-) VALUES ($1, $2)
+	name,
+	size,
+	floor,
+	room_type,
+	facilities,
+	default_rent_amount,
+	notes,
+	zone
+) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)
 RETURNING
 	id,
 	property_id,
 	name,
 	status,
+	size,
+	floor,
+	room_type,
+	facilities::text,
+	default_rent_amount,
+	notes,
+	zone,
 	created_at,
 	updated_at
 `
 
-	room, err := scanRoom(tx.QueryRowContext(ctx, query, params.PropertyID, params.Name))
+	room, err := scanRoom(tx.QueryRowContext(ctx, query, params.PropertyID, params.Name, params.Size, params.Floor, params.RoomType, facilitiesJSON, params.DefaultRentAmount, params.Notes, params.Zone))
 	if err != nil {
 		return nil, fmt.Errorf("create room: %w", err)
 	}
@@ -336,6 +427,13 @@ SELECT
 	property_id,
 	name,
 	status,
+	size,
+	floor,
+	room_type,
+	facilities::text,
+	default_rent_amount,
+	notes,
+	zone,
 	created_at,
 	updated_at
 FROM rooms
@@ -357,6 +455,11 @@ LIMIT 1
 
 // UpdateRoom persists a room mutation inside the provided transaction.
 func (r *SQLRepository) UpdateRoom(ctx context.Context, tx *sql.Tx, params UpdateRoomParams) (*Room, error) {
+	facilitiesJSON, err := marshalJSONMap(params.Facilities)
+	if err != nil {
+		return nil, fmt.Errorf("marshal room facilities: %w", err)
+	}
+
 	status := ""
 	if params.Status != nil {
 		status = *params.Status
@@ -366,6 +469,13 @@ func (r *SQLRepository) UpdateRoom(ctx context.Context, tx *sql.Tx, params Updat
 UPDATE rooms
 SET name = $2,
 	status = CASE WHEN $3 = '' THEN status ELSE $3 END,
+	size = $4,
+	floor = $5,
+	room_type = $6,
+	facilities = $7::jsonb,
+	default_rent_amount = $8,
+	notes = $9,
+	zone = $10,
 	updated_at = now()
 WHERE id = $1
   AND deleted_at IS NULL
@@ -374,11 +484,18 @@ RETURNING
 	property_id,
 	name,
 	status,
+	size,
+	floor,
+	room_type,
+	facilities::text,
+	default_rent_amount,
+	notes,
+	zone,
 	created_at,
 	updated_at
 `
 
-	room, err := scanRoom(tx.QueryRowContext(ctx, query, params.ID, params.Name, status))
+	room, err := scanRoom(tx.QueryRowContext(ctx, query, params.ID, params.Name, status, params.Size, params.Floor, params.RoomType, facilitiesJSON, params.DefaultRentAmount, params.Notes, params.Zone))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -455,22 +572,43 @@ type rowScanner interface {
 
 func scanProperty(row rowScanner) (*Property, error) {
 	var property Property
+	var subtitle sql.NullString
 	var electricityUnitPrice sql.NullFloat64
+	var contactPhone sql.NullString
+	var contactEmail sql.NullString
+	var notes sql.NullString
+	var facilities sql.NullString
 	if err := row.Scan(
 		&property.ID,
 		&property.Name,
+		&subtitle,
 		&property.Address,
 		&electricityUnitPrice,
 		&property.DefaultElectricityBillingCadence,
 		&property.OwnerID,
+		&contactPhone,
+		&contactEmail,
+		&notes,
+		&facilities,
 		&property.CreatedAt,
 		&property.UpdatedAt,
 		&property.Version,
 	); err != nil {
 		return nil, err
 	}
+	property.Subtitle = nullStringPtr(subtitle)
 	if electricityUnitPrice.Valid {
 		property.ElectricityUnitPrice = &electricityUnitPrice.Float64
+	}
+	property.ContactPhone = nullStringPtr(contactPhone)
+	property.ContactEmail = nullStringPtr(contactEmail)
+	property.Notes = nullStringPtr(notes)
+	if facilities.Valid {
+		decoded, err := unmarshalJSONMap(facilities.String)
+		if err != nil {
+			return nil, fmt.Errorf("decode property facilities: %w", err)
+		}
+		property.Facilities = decoded
 	}
 
 	return &property, nil
@@ -478,18 +616,85 @@ func scanProperty(row rowScanner) (*Property, error) {
 
 func scanRoom(row rowScanner) (*Room, error) {
 	var room Room
+	var size sql.NullFloat64
+	var floor sql.NullString
+	var roomType sql.NullString
+	var facilities sql.NullString
+	var defaultRentAmount sql.NullInt64
+	var notes sql.NullString
+	var zone sql.NullString
 	if err := row.Scan(
 		&room.ID,
 		&room.PropertyID,
 		&room.Name,
 		&room.Status,
+		&size,
+		&floor,
+		&roomType,
+		&facilities,
+		&defaultRentAmount,
+		&notes,
+		&zone,
 		&room.CreatedAt,
 		&room.UpdatedAt,
 	); err != nil {
 		return nil, err
 	}
+	if size.Valid {
+		room.Size = &size.Float64
+	}
+	room.Floor = nullStringPtr(floor)
+	room.RoomType = nullStringPtr(roomType)
+	if facilities.Valid {
+		decoded, err := unmarshalJSONMap(facilities.String)
+		if err != nil {
+			return nil, fmt.Errorf("decode room facilities: %w", err)
+		}
+		room.Facilities = decoded
+	}
+	if defaultRentAmount.Valid {
+		value := int(defaultRentAmount.Int64)
+		room.DefaultRentAmount = &value
+	}
+	room.Notes = nullStringPtr(notes)
+	room.Zone = nullStringPtr(zone)
 
 	return &room, nil
+}
+
+func marshalJSONMap(value *map[string]interface{}) (*string, error) {
+	if value == nil {
+		return nil, nil
+	}
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	result := string(payload)
+	return &result, nil
+}
+
+func unmarshalJSONMap(raw string) (*map[string]interface{}, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	var decoded any
+	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+		return nil, err
+	}
+	objectValue, ok := decoded.(map[string]interface{})
+	if !ok {
+		return nil, nil
+	}
+	return &objectValue, nil
+}
+
+func nullStringPtr(value sql.NullString) *string {
+	if !value.Valid {
+		return nil
+	}
+	result := value.String
+	return &result
 }
 
 func scanRepairRequest(row rowScanner) (*RepairRequest, error) {

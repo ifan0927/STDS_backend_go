@@ -13,4 +13,17 @@ properties:
   contacts:
     type: array
     items:
-      type: object
+      $ref: ./TenantContact.yaml
+  birth_date:
+    type: string
+    format: date
+    nullable: true
+  national_id:
+    type: string
+    nullable: true
+  address:
+    type: string
+    nullable: true
+  occupation:
+    type: string
+    nullable: true

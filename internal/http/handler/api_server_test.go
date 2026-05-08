@@ -55,6 +55,39 @@ func TestToPropertyResponseAllowsNilElectricityUnitPrice(t *testing.T) {
 	}
 }
 
+func TestToPropertyResponseIncludesWritableV1Fields(t *testing.T) {
+	subtitle := "North wing"
+	contactPhone := "02-1234-5678"
+	contactEmail := "owner@example.com"
+	notes := "Managed property"
+	facilities := map[string]interface{}{"elevator": true}
+
+	response := toPropertyResponse(&dbpropertyquery.Property{
+		ID:           "00000000-0000-0000-0000-000000000001",
+		Name:         "Property",
+		Subtitle:     &subtitle,
+		Address:      "Address",
+		OwnerID:      "00000000-0000-0000-0000-000000000002",
+		ContactPhone: &contactPhone,
+		ContactEmail: &contactEmail,
+		Notes:        &notes,
+		Facilities:   &facilities,
+		CreatedAt:    time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+		UpdatedAt:    time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+		Version:      1,
+	})
+
+	if response.Subtitle == nil || *response.Subtitle != subtitle {
+		t.Fatalf("subtitle = %v, want %s", response.Subtitle, subtitle)
+	}
+	if response.ContactEmail == nil || string(*response.ContactEmail) != contactEmail {
+		t.Fatalf("contact_email = %v, want %s", response.ContactEmail, contactEmail)
+	}
+	if response.Facilities == nil || (*response.Facilities)["elevator"] != true {
+		t.Fatalf("facilities = %#v, want elevator=true", response.Facilities)
+	}
+}
+
 func TestToRoomResponseAllowsNilOptionalFields(t *testing.T) {
 	response := toRoomResponse(&dbpropertyquery.Room{
 		ID:         "20000000-0000-0000-0000-000000000001",

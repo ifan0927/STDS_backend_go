@@ -14,10 +14,15 @@ var ErrPropertyNotFound = errors.New("property not found")
 type Property struct {
 	ID                               string
 	Name                             string
+	Subtitle                         *string
 	Address                          string
 	ElectricityUnitPrice             *float64
 	DefaultElectricityBillingCadence string
 	OwnerID                          string
+	ContactPhone                     *string
+	ContactEmail                     *string
+	Notes                            *string
+	Facilities                       *map[string]interface{}
 	CreatedAt                        time.Time
 	UpdatedAt                        time.Time
 	Version                          int
@@ -25,12 +30,19 @@ type Property struct {
 
 // Room is the application-facing room shape for room command use cases.
 type Room struct {
-	ID         string
-	PropertyID string
-	Name       string
-	Status     string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	ID                string
+	PropertyID        string
+	Name              string
+	Status            string
+	Size              *float64
+	Floor             *string
+	RoomType          *string
+	Facilities        *map[string]interface{}
+	DefaultRentAmount *int
+	Notes             *string
+	Zone              *string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 // RepairRequest is the application-facing repair request shape for maintenance entry.
@@ -120,10 +132,15 @@ type DashboardRecentJournal struct {
 // property.
 type CreatePropertyParams struct {
 	Name                             string
+	Subtitle                         *string
 	Address                          string
 	ElectricityUnitPrice             float64
 	DefaultElectricityBillingCadence string
 	OwnerID                          string
+	ContactPhone                     *string
+	ContactEmail                     *string
+	Notes                            *string
+	Facilities                       *map[string]interface{}
 }
 
 // CreatePropertyAccountParams contains the fields required to create the
@@ -137,24 +154,43 @@ type CreatePropertyAccountParams struct {
 type UpdatePropertyParams struct {
 	ID                               string
 	Name                             string
+	Subtitle                         *string
 	Address                          string
 	ElectricityUnitPrice             *float64
 	DefaultElectricityBillingCadence string
 	OwnerID                          string
+	ContactPhone                     *string
+	ContactEmail                     *string
+	Notes                            *string
+	Facilities                       *map[string]interface{}
 	Version                          int
 }
 
 // CreateRoomParams contains the writable fields required to create a room.
 type CreateRoomParams struct {
-	PropertyID string
-	Name       string
+	PropertyID        string
+	Name              string
+	Size              *float64
+	Floor             *string
+	RoomType          *string
+	Facilities        *map[string]interface{}
+	DefaultRentAmount *int
+	Notes             *string
+	Zone              *string
 }
 
 // UpdateRoomParams contains the writable fields required to persist a room update.
 type UpdateRoomParams struct {
-	ID     string
-	Name   string
-	Status *string
+	ID                string
+	Name              string
+	Status            *string
+	Size              *float64
+	Floor             *string
+	RoomType          *string
+	Facilities        *map[string]interface{}
+	DefaultRentAmount *int
+	Notes             *string
+	Zone              *string
 }
 
 // CreateRepairRequestParams contains the writable fields required to create a room-scoped repair request.
