@@ -53,7 +53,7 @@ func (r *TemplateRenderer) Render(name string, data any) ([]byte, error) {
 
 // HTMLFilename builds a conservative browser-safe HTML filename.
 func HTMLFilename(prefix string, parts ...string) string {
-	segments := make([]string, 0, len(parts)+1)
+	segments := make([]string, 0, len(parts))
 	if cleaned := filenameSegment(prefix); cleaned != "" {
 		segments = append(segments, cleaned)
 	}
