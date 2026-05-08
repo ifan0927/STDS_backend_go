@@ -121,6 +121,12 @@ paths:
     $ref: paths/tenancy/leases_{id}_replace.yaml
   /leases/{id}/terminate:
     $ref: paths/tenancy/leases_{id}_terminate.yaml
+  /leases/{id}/checkout-settlement/preview:
+    $ref: paths/tenancy/leases_{id}_checkout-settlement_preview.yaml
+  /leases/{id}/checkout-settlement/finalize:
+    $ref: paths/tenancy/leases_{id}_checkout-settlement_finalize.yaml
+  /leases/{id}/checkout-settlement/export:
+    $ref: paths/tenancy/leases_{id}_checkout-settlement_export.yaml
   /leases/{id}/force-terminate:
     $ref: paths/tenancy/leases_{id}_force-terminate.yaml
   /force-terminations/{id}:

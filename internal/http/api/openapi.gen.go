@@ -67,6 +67,46 @@ const (
 	Rent        BillResponseType = "rent"
 )
 
+// Defines values for CheckoutSettlementBlockerCode.
+const (
+	CheckoutSettlementBlockerCodeChargeExceedsDeposit    CheckoutSettlementBlockerCode = "charge_exceeds_deposit"
+	CheckoutSettlementBlockerCodeDepositNotHeld          CheckoutSettlementBlockerCode = "deposit_not_held"
+	CheckoutSettlementBlockerCodeLeaseNotActive          CheckoutSettlementBlockerCode = "lease_not_active"
+	CheckoutSettlementBlockerCodePendingMeter            CheckoutSettlementBlockerCode = "pending_meter"
+	CheckoutSettlementBlockerCodeRentRefundNotCalculated CheckoutSettlementBlockerCode = "rent_refund_not_calculated"
+	CheckoutSettlementBlockerCodeUnpaidBill              CheckoutSettlementBlockerCode = "unpaid_bill"
+)
+
+// Defines values for CheckoutSettlementLineDirection.
+const (
+	CheckoutSettlementLineDirectionCharge CheckoutSettlementLineDirection = "charge"
+	CheckoutSettlementLineDirectionInfo   CheckoutSettlementLineDirection = "info"
+	CheckoutSettlementLineDirectionRefund CheckoutSettlementLineDirection = "refund"
+)
+
+// Defines values for CheckoutSettlementLineKind.
+const (
+	CheckoutSettlementLineKindCleaningFee           CheckoutSettlementLineKind = "cleaning_fee"
+	CheckoutSettlementLineKindDepositRefund         CheckoutSettlementLineKind = "deposit_refund"
+	CheckoutSettlementLineKindElectricitySettlement CheckoutSettlementLineKind = "electricity_settlement"
+	CheckoutSettlementLineKindKeyCardLoss           CheckoutSettlementLineKind = "key_card_loss"
+	CheckoutSettlementLineKindOtherFee              CheckoutSettlementLineKind = "other_fee"
+	CheckoutSettlementLineKindRentRefund            CheckoutSettlementLineKind = "rent_refund"
+)
+
+// Defines values for CheckoutSettlementResponseNetDirection.
+const (
+	CheckoutSettlementResponseNetDirectionPayable CheckoutSettlementResponseNetDirection = "payable"
+	CheckoutSettlementResponseNetDirectionRefund  CheckoutSettlementResponseNetDirection = "refund"
+	CheckoutSettlementResponseNetDirectionZero    CheckoutSettlementResponseNetDirection = "zero"
+)
+
+// Defines values for CheckoutSettlementWarningCode.
+const (
+	FinalMeterSnapshotOnly  CheckoutSettlementWarningCode = "final_meter_snapshot_only"
+	RentRefundNotCalculated CheckoutSettlementWarningCode = "rent_refund_not_calculated"
+)
+
 // Defines values for CreateLeaseRequestElectricityBillingCadence.
 const (
 	CreateLeaseRequestElectricityBillingCadenceBimonthly CreateLeaseRequestElectricityBillingCadence = "bimonthly"
@@ -104,11 +144,11 @@ const (
 
 // Defines values for FinancialReportEntryItemCategory.
 const (
-	DepositDeduction   FinancialReportEntryItemCategory = "deposit_deduction"
-	DepositRefund      FinancialReportEntryItemCategory = "deposit_refund"
-	ElectricityPayment FinancialReportEntryItemCategory = "electricity_payment"
-	JournalExpense     FinancialReportEntryItemCategory = "journal_expense"
-	RentPayment        FinancialReportEntryItemCategory = "rent_payment"
+	FinancialReportEntryItemCategoryDepositDeduction   FinancialReportEntryItemCategory = "deposit_deduction"
+	FinancialReportEntryItemCategoryDepositRefund      FinancialReportEntryItemCategory = "deposit_refund"
+	FinancialReportEntryItemCategoryElectricityPayment FinancialReportEntryItemCategory = "electricity_payment"
+	FinancialReportEntryItemCategoryJournalExpense     FinancialReportEntryItemCategory = "journal_expense"
+	FinancialReportEntryItemCategoryRentPayment        FinancialReportEntryItemCategory = "rent_payment"
 )
 
 // Defines values for ForceTerminateRequestDepositHandling.
@@ -276,12 +316,12 @@ const (
 
 // Defines values for ListBillsParamsStatus.
 const (
-	Overdue        ListBillsParamsStatus = "overdue"
-	Paid           ListBillsParamsStatus = "paid"
-	PendingMeter   ListBillsParamsStatus = "pending_meter"
-	PendingPayment ListBillsParamsStatus = "pending_payment"
-	Voided         ListBillsParamsStatus = "voided"
-	WrittenOff     ListBillsParamsStatus = "written_off"
+	ListBillsParamsStatusOverdue        ListBillsParamsStatus = "overdue"
+	ListBillsParamsStatusPaid           ListBillsParamsStatus = "paid"
+	ListBillsParamsStatusPendingMeter   ListBillsParamsStatus = "pending_meter"
+	ListBillsParamsStatusPendingPayment ListBillsParamsStatus = "pending_payment"
+	ListBillsParamsStatusVoided         ListBillsParamsStatus = "voided"
+	ListBillsParamsStatusWrittenOff     ListBillsParamsStatus = "written_off"
 )
 
 // Defines values for ExportBillReceiptParamsFormat.
@@ -295,6 +335,11 @@ const (
 	ListLeasesParamsStatusExpired         ListLeasesParamsStatus = "expired"
 	ListLeasesParamsStatusForceTerminated ListLeasesParamsStatus = "force_terminated"
 	ListLeasesParamsStatusTerminated      ListLeasesParamsStatus = "terminated"
+)
+
+// Defines values for ExportLeaseCheckoutSettlementParamsFormat.
+const (
+	ExportLeaseCheckoutSettlementParamsFormatHtml ExportLeaseCheckoutSettlementParamsFormat = "html"
 )
 
 // Defines values for ExportPropertyFinancialReportCashflowParamsFormat.
@@ -321,7 +366,7 @@ const (
 
 // Defines values for ExportPropertyTenantRosterParamsFormat.
 const (
-	Html ExportPropertyTenantRosterParamsFormat = "html"
+	ExportPropertyTenantRosterParamsFormatHtml ExportPropertyTenantRosterParamsFormat = "html"
 )
 
 // Defines values for ListRepairRequestsParamsStatus.
@@ -449,6 +494,123 @@ type BillResponseType string
 type CancelRepairRequest struct {
 	Reason *string `json:"reason,omitempty"`
 }
+
+// CheckoutSettlementBlocker defines model for CheckoutSettlementBlocker.
+type CheckoutSettlementBlocker struct {
+	Code     CheckoutSettlementBlockerCode `json:"code"`
+	Message  string                        `json:"message"`
+	SourceId *string                       `json:"source_id"`
+}
+
+// CheckoutSettlementBlockerCode defines model for CheckoutSettlementBlocker.Code.
+type CheckoutSettlementBlockerCode string
+
+// CheckoutSettlementFinalizeRequest defines model for CheckoutSettlementFinalizeRequest.
+type CheckoutSettlementFinalizeRequest struct {
+	// CheckoutDate 實際退租日；backend 以此計算並保存結算快照。
+	CheckoutDate openapi_types.Date `json:"checkout_date"`
+	CleaningFee  *int               `json:"cleaning_fee,omitempty"`
+
+	// FinalMeterReading 退租電表讀數；v1 僅作為快照顯示輸入，不由 frontend 計算電費。
+	FinalMeterReading *int `json:"final_meter_reading"`
+	KeyCardLossFee    *int `json:"key_card_loss_fee,omitempty"`
+
+	// Notes 退租結算備註。
+	Notes    *string `json:"notes"`
+	OtherFee *int    `json:"other_fee,omitempty"`
+
+	// OtherFeeReason other_fee 大於 0 時建議提供。
+	OtherFeeReason *string `json:"other_fee_reason"`
+
+	// PreviewToken Preview response token. Finalize rejects mismatched or stale tokens.
+	PreviewToken string `json:"preview_token"`
+
+	// Reason 退租原因。
+	Reason string `json:"reason"`
+}
+
+// CheckoutSettlementInput defines model for CheckoutSettlementInput.
+type CheckoutSettlementInput struct {
+	// CheckoutDate 實際退租日；backend 以此計算並保存結算快照。
+	CheckoutDate openapi_types.Date `json:"checkout_date"`
+	CleaningFee  *int               `json:"cleaning_fee,omitempty"`
+
+	// FinalMeterReading 退租電表讀數；v1 僅作為快照顯示輸入，不由 frontend 計算電費。
+	FinalMeterReading *int `json:"final_meter_reading"`
+	KeyCardLossFee    *int `json:"key_card_loss_fee,omitempty"`
+
+	// Notes 退租結算備註。
+	Notes    *string `json:"notes"`
+	OtherFee *int    `json:"other_fee,omitempty"`
+
+	// OtherFeeReason other_fee 大於 0 時建議提供。
+	OtherFeeReason *string `json:"other_fee_reason"`
+
+	// Reason 退租原因。
+	Reason string `json:"reason"`
+}
+
+// CheckoutSettlementLine defines model for CheckoutSettlementLine.
+type CheckoutSettlementLine struct {
+	// Amount Positive amount. Direction determines whether it adds to refund or charge.
+	Amount      int                             `json:"amount"`
+	Description *string                         `json:"description"`
+	Direction   CheckoutSettlementLineDirection `json:"direction"`
+	Kind        CheckoutSettlementLineKind      `json:"kind"`
+	Label       string                          `json:"label"`
+	SourceRef   *map[string]interface{}         `json:"source_ref"`
+}
+
+// CheckoutSettlementLineDirection defines model for CheckoutSettlementLine.Direction.
+type CheckoutSettlementLineDirection string
+
+// CheckoutSettlementLineKind defines model for CheckoutSettlementLine.Kind.
+type CheckoutSettlementLineKind string
+
+// CheckoutSettlementPreviewRequest defines model for CheckoutSettlementPreviewRequest.
+type CheckoutSettlementPreviewRequest = CheckoutSettlementInput
+
+// CheckoutSettlementResponse defines model for CheckoutSettlementResponse.
+type CheckoutSettlementResponse struct {
+	Blockers          []CheckoutSettlementBlocker `json:"blockers"`
+	CheckoutDate      openapi_types.Date          `json:"checkout_date"`
+	DepositAmount     int                         `json:"deposit_amount"`
+	ExportAvailable   bool                        `json:"export_available"`
+	FinalMeterReading *int                        `json:"final_meter_reading"`
+	FinalizedAt       *time.Time                  `json:"finalized_at"`
+	LeaseId           openapi_types.UUID          `json:"lease_id"`
+	Lines             []CheckoutSettlementLine    `json:"lines"`
+
+	// NetAmount Absolute net amount after refund and charge lines are balanced.
+	NetAmount    int                                    `json:"net_amount"`
+	NetDirection CheckoutSettlementResponseNetDirection `json:"net_direction"`
+	Notes        *string                                `json:"notes"`
+
+	// PreviewToken Present only when there are no blockers and the proposal can be finalized.
+	PreviewToken  *string                     `json:"preview_token"`
+	PropertyId    openapi_types.UUID          `json:"property_id"`
+	PropertyLabel string                      `json:"property_label"`
+	Reason        string                      `json:"reason"`
+	RoomId        openapi_types.UUID          `json:"room_id"`
+	RoomLabel     string                      `json:"room_label"`
+	TenantId      openapi_types.UUID          `json:"tenant_id"`
+	TenantLabel   string                      `json:"tenant_label"`
+	TotalCharge   int                         `json:"total_charge"`
+	TotalRefund   int                         `json:"total_refund"`
+	Warnings      []CheckoutSettlementWarning `json:"warnings"`
+}
+
+// CheckoutSettlementResponseNetDirection defines model for CheckoutSettlementResponse.NetDirection.
+type CheckoutSettlementResponseNetDirection string
+
+// CheckoutSettlementWarning defines model for CheckoutSettlementWarning.
+type CheckoutSettlementWarning struct {
+	Code    CheckoutSettlementWarningCode `json:"code"`
+	Message string                        `json:"message"`
+}
+
+// CheckoutSettlementWarningCode defines model for CheckoutSettlementWarning.Code.
+type CheckoutSettlementWarningCode string
 
 // CreateJournalLogRequest defines model for CreateJournalLogRequest.
 type CreateJournalLogRequest struct {
@@ -1112,6 +1274,15 @@ type ListLeasesParams struct {
 // ListLeasesParamsStatus defines parameters for ListLeases.
 type ListLeasesParamsStatus string
 
+// ExportLeaseCheckoutSettlementParams defines parameters for ExportLeaseCheckoutSettlement.
+type ExportLeaseCheckoutSettlementParams struct {
+	// Format 匯出格式；第一版僅支援 html。
+	Format *ExportLeaseCheckoutSettlementParamsFormat `form:"format,omitempty" json:"format,omitempty"`
+}
+
+// ExportLeaseCheckoutSettlementParamsFormat defines parameters for ExportLeaseCheckoutSettlement.
+type ExportLeaseCheckoutSettlementParamsFormat string
+
 // GetPropertyFinancialReportSummaryParams defines parameters for GetPropertyFinancialReportSummary.
 type GetPropertyFinancialReportSummaryParams struct {
 	Year *int `form:"year,omitempty" json:"year,omitempty"`
@@ -1254,6 +1425,12 @@ type UpdateLeaseJSONRequestBody = UpdateLeaseRequest
 
 // CreateLeaseAttachmentJSONRequestBody defines body for CreateLeaseAttachment for application/json ContentType.
 type CreateLeaseAttachmentJSONRequestBody = RegisterAttachmentRequest
+
+// FinalizeLeaseCheckoutSettlementJSONRequestBody defines body for FinalizeLeaseCheckoutSettlement for application/json ContentType.
+type FinalizeLeaseCheckoutSettlementJSONRequestBody = CheckoutSettlementFinalizeRequest
+
+// PreviewLeaseCheckoutSettlementJSONRequestBody defines body for PreviewLeaseCheckoutSettlement for application/json ContentType.
+type PreviewLeaseCheckoutSettlementJSONRequestBody = CheckoutSettlementPreviewRequest
 
 // UpdateLeaseDepositJSONRequestBody defines body for UpdateLeaseDeposit for application/json ContentType.
 type UpdateLeaseDepositJSONRequestBody = UpdateDepositRequest
@@ -1416,6 +1593,15 @@ type ServerInterface interface {
 	// 登記租約附件
 	// (POST /leases/{id}/attachments)
 	CreateLeaseAttachment(c *gin.Context, id openapi_types.UUID)
+	// Export finalized lease checkout settlement as HTML
+	// (GET /leases/{id}/checkout-settlement/export)
+	ExportLeaseCheckoutSettlement(c *gin.Context, id string, params ExportLeaseCheckoutSettlementParams)
+	// Finalize backend-owned lease checkout settlement
+	// (POST /leases/{id}/checkout-settlement/finalize)
+	FinalizeLeaseCheckoutSettlement(c *gin.Context, id string)
+	// Preview backend-owned lease checkout settlement
+	// (POST /leases/{id}/checkout-settlement/preview)
+	PreviewLeaseCheckoutSettlement(c *gin.Context, id string)
 	// 處理押金（退還或扣款，觸發 DepositRefunded / DepositDeducted event）
 	// (PATCH /leases/{id}/deposit)
 	UpdateLeaseDeposit(c *gin.Context, id string)
@@ -2528,6 +2714,95 @@ func (siw *ServerInterfaceWrapper) CreateLeaseAttachment(c *gin.Context) {
 	}
 
 	siw.Handler.CreateLeaseAttachment(c, id)
+}
+
+// ExportLeaseCheckoutSettlement operation middleware
+func (siw *ServerInterfaceWrapper) ExportLeaseCheckoutSettlement(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Param("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(BearerAuthScopes, []string{})
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ExportLeaseCheckoutSettlementParams
+
+	// ------------- Optional query parameter "format" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "format", c.Request.URL.Query(), &params.Format)
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter format: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ExportLeaseCheckoutSettlement(c, id, params)
+}
+
+// FinalizeLeaseCheckoutSettlement operation middleware
+func (siw *ServerInterfaceWrapper) FinalizeLeaseCheckoutSettlement(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Param("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(BearerAuthScopes, []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.FinalizeLeaseCheckoutSettlement(c, id)
+}
+
+// PreviewLeaseCheckoutSettlement operation middleware
+func (siw *ServerInterfaceWrapper) PreviewLeaseCheckoutSettlement(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Param("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(BearerAuthScopes, []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.PreviewLeaseCheckoutSettlement(c, id)
 }
 
 // UpdateLeaseDeposit operation middleware
@@ -4281,6 +4556,9 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.PATCH(options.BaseURL+"/leases/:id", wrapper.UpdateLease)
 	router.GET(options.BaseURL+"/leases/:id/attachments", wrapper.ListLeaseAttachments)
 	router.POST(options.BaseURL+"/leases/:id/attachments", wrapper.CreateLeaseAttachment)
+	router.GET(options.BaseURL+"/leases/:id/checkout-settlement/export", wrapper.ExportLeaseCheckoutSettlement)
+	router.POST(options.BaseURL+"/leases/:id/checkout-settlement/finalize", wrapper.FinalizeLeaseCheckoutSettlement)
+	router.POST(options.BaseURL+"/leases/:id/checkout-settlement/preview", wrapper.PreviewLeaseCheckoutSettlement)
 	router.PATCH(options.BaseURL+"/leases/:id/deposit", wrapper.UpdateLeaseDeposit)
 	router.POST(options.BaseURL+"/leases/:id/force-terminate", wrapper.ForceTerminateLease)
 	router.POST(options.BaseURL+"/leases/:id/replace", wrapper.ReplaceLease)

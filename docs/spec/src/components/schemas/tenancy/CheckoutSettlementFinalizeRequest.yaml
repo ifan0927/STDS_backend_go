@@ -1,0 +1,9 @@
+allOf:
+  - $ref: ./CheckoutSettlementInput.yaml
+  - type: object
+    required:
+      - preview_token
+    properties:
+      preview_token:
+        type: string
+        description: Preview response token. Finalize rejects mismatched or stale tokens.

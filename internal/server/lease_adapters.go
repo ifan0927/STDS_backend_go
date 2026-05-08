@@ -94,6 +94,34 @@ func (a leaseRepositoryAdapter) FindLeaseByIDForUpdate(ctx context.Context, tx *
 	return toApplicationLease(lease), nil
 }
 
+func (a leaseRepositoryAdapter) FindCheckoutSettlementContextForUpdate(ctx context.Context, tx *sql.Tx, leaseID string) (*applease.CheckoutSettlementContext, error) {
+	context, err := a.repo.FindCheckoutSettlementContextForUpdate(ctx, tx, leaseID)
+	if err != nil {
+		switch err {
+		case dbleases.ErrLeaseNotFound:
+			return nil, applease.ErrLeaseNotFound
+		default:
+			return nil, err
+		}
+	}
+
+	return toApplicationCheckoutSettlementContext(context), nil
+}
+
+func (a leaseRepositoryAdapter) FindCheckoutSettlementContext(ctx context.Context, tx *sql.Tx, leaseID string) (*applease.CheckoutSettlementContext, error) {
+	context, err := a.repo.FindCheckoutSettlementContext(ctx, tx, leaseID)
+	if err != nil {
+		switch err {
+		case dbleases.ErrLeaseNotFound:
+			return nil, applease.ErrLeaseNotFound
+		default:
+			return nil, err
+		}
+	}
+
+	return toApplicationCheckoutSettlementContext(context), nil
+}
+
 func (a leaseRepositoryAdapter) CreateLease(ctx context.Context, tx *sql.Tx, params applease.CreateLeaseParams) (*applease.Lease, error) {
 	lease, err := a.repo.CreateLease(ctx, tx, dbleases.CreateLeaseParams{
 		TenantID:                  params.TenantID,
@@ -119,6 +147,7 @@ func (a leaseRepositoryAdapter) TerminateLease(ctx context.Context, tx *sql.Tx, 
 		LeaseID:           params.LeaseID,
 		EndDate:           params.EndDate,
 		TerminationReason: params.TerminationReason,
+		SettlementDetail:  params.SettlementDetail,
 	})
 	if err != nil {
 		switch err {
@@ -296,6 +325,18 @@ func (a leaseRepositoryAdapter) ActivateTenant(ctx context.Context, tx *sql.Tx, 
 
 func (a leaseRepositoryAdapter) DeactivateTenantIfNoActiveLeases(ctx context.Context, tx *sql.Tx, tenantID string) error {
 	return a.repo.DeactivateTenantIfNoActiveLeases(ctx, tx, tenantID)
+}
+
+func toApplicationCheckoutSettlementContext(context *dbleases.CheckoutSettlementContext) *applease.CheckoutSettlementContext {
+	if context == nil {
+		return nil
+	}
+	return &applease.CheckoutSettlementContext{
+		Lease:        *toApplicationLease(&context.Lease),
+		PropertyName: context.PropertyName,
+		RoomName:     context.RoomName,
+		TenantName:   context.TenantName,
+	}
 }
 
 func toApplicationForceTermination(forceTermination *dbleases.ForceTermination) *applease.ForceTermination {

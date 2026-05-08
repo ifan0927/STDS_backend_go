@@ -22,6 +22,7 @@ type CommandRepository interface {
 	FindTenantByID(ctx context.Context, tx *sql.Tx, tenantID string) (*Tenant, error)
 	FindRoomByIDForUpdate(ctx context.Context, tx *sql.Tx, roomID string) (*Room, error)
 	FindLeaseByIDForUpdate(ctx context.Context, tx *sql.Tx, leaseID string) (*Lease, error)
+	FindCheckoutSettlementContextForUpdate(ctx context.Context, tx *sql.Tx, leaseID string) (*CheckoutSettlementContext, error)
 	CreateLease(ctx context.Context, tx *sql.Tx, params CreateLeaseParams) (*Lease, error)
 	UpdateLeaseConditions(ctx context.Context, tx *sql.Tx, params UpdateLeaseParams) (*Lease, error)
 	SettleDeposit(ctx context.Context, tx *sql.Tx, params SettleDepositParams) (*Lease, error)
@@ -34,6 +35,7 @@ type CommandRepository interface {
 	MarkForceTerminationBillsDone(ctx context.Context, tx *sql.Tx, forceTerminationID string, billIDs []string) error
 	CompleteForceTermination(ctx context.Context, tx *sql.Tx, forceTerminationID string) error
 	FindForceTerminationByID(ctx context.Context, tx *sql.Tx, forceTerminationID string) (*ForceTermination, error)
+	FindCheckoutSettlementContext(ctx context.Context, tx *sql.Tx, leaseID string) (*CheckoutSettlementContext, error)
 	HasLockedRentBillsFromDueDate(ctx context.Context, tx *sql.Tx, leaseID string, dueDate time.Time) (bool, error)
 	VoidRentBillsFromDueDate(ctx context.Context, tx *sql.Tx, leaseID string, dueDate time.Time) error
 	VoidBillsOverlappingOrAfter(ctx context.Context, tx *sql.Tx, leaseID string, boundary time.Time) error
@@ -120,6 +122,14 @@ type Bill struct {
 	PeriodEnd   time.Time
 }
 
+// CheckoutSettlementContext contains lease state plus display labels for checkout settlement.
+type CheckoutSettlementContext struct {
+	Lease        Lease
+	PropertyName string
+	RoomName     string
+	TenantName   string
+}
+
 // ForceTermination is the persisted force-termination progress state.
 type ForceTermination struct {
 	ID              string
@@ -179,6 +189,7 @@ type TerminateLeaseParams struct {
 	LeaseID           string
 	EndDate           time.Time
 	TerminationReason string
+	SettlementDetail  map[string]interface{}
 }
 
 // ForceTerminateLeaseParams contains fields for forced termination.
@@ -468,6 +479,71 @@ FOR UPDATE
 	return lease, nil
 }
 
+func (r *SQLRepository) FindCheckoutSettlementContextForUpdate(ctx context.Context, tx *sql.Tx, leaseID string) (*CheckoutSettlementContext, error) {
+	return r.findCheckoutSettlementContext(ctx, tx, leaseID, true)
+}
+
+func (r *SQLRepository) FindCheckoutSettlementContext(ctx context.Context, tx *sql.Tx, leaseID string) (*CheckoutSettlementContext, error) {
+	return r.findCheckoutSettlementContext(ctx, tx, leaseID, false)
+}
+
+func (r *SQLRepository) findCheckoutSettlementContext(ctx context.Context, tx *sql.Tx, leaseID string, forUpdate bool) (*CheckoutSettlementContext, error) {
+	query := `
+SELECT
+	l.id,
+	l.tenant_id,
+	l.property_id,
+	l.room_id,
+	l.rent_amount,
+	l.start_date,
+	l.end_date,
+	l.rent_billing_cadence,
+	l.electricity_billing_cadence,
+	l.status,
+	l.deposit_amount,
+	l.deposit_refund_amount,
+	l.deposit_deduction_amount,
+	l.deposit_status,
+	l.deposit_deduction_reason,
+	l.notes,
+	l.termination_reason,
+	l.settlement_detail::text,
+	l.created_at,
+	l.updated_at,
+	l.version,
+	p.name,
+	r.name,
+	t.name
+FROM leases l
+JOIN properties p ON p.id = l.property_id AND p.deleted_at IS NULL
+JOIN rooms r ON r.id = l.room_id AND r.deleted_at IS NULL
+JOIN tenants t ON t.id = l.tenant_id AND t.deleted_at IS NULL
+WHERE l.id = $1
+  AND l.deleted_at IS NULL`
+	if forUpdate {
+		query += `
+FOR UPDATE OF l`
+	}
+
+	var propertyName string
+	var roomName string
+	var tenantName string
+	lease, err := scanLeaseWithExtra(tx.QueryRowContext(ctx, query, leaseID), &propertyName, &roomName, &tenantName)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrLeaseNotFound
+		}
+		return nil, fmt.Errorf("find checkout settlement context: %w", err)
+	}
+
+	return &CheckoutSettlementContext{
+		Lease:        *lease,
+		PropertyName: propertyName,
+		RoomName:     roomName,
+		TenantName:   tenantName,
+	}, nil
+}
+
 func (r *SQLRepository) CreateLease(ctx context.Context, tx *sql.Tx, params CreateLeaseParams) (*Lease, error) {
 	const query = `
 INSERT INTO leases (
@@ -532,6 +608,7 @@ UPDATE leases
 SET status = 'terminated',
 	end_date = $2,
 	termination_reason = $3,
+	settlement_detail = COALESCE($4::jsonb, settlement_detail),
 	updated_at = now(),
 	version = version + 1
 WHERE id = $1
@@ -560,7 +637,15 @@ RETURNING
 	version
 `
 
-	lease, err := scanLease(tx.QueryRowContext(ctx, query, params.LeaseID, params.EndDate, params.TerminationReason))
+	var settlementDetail []byte
+	if params.SettlementDetail != nil {
+		var marshalErr error
+		settlementDetail, marshalErr = json.Marshal(params.SettlementDetail)
+		if marshalErr != nil {
+			return nil, fmt.Errorf("marshal settlement detail: %w", marshalErr)
+		}
+	}
+	lease, err := scanLease(tx.QueryRowContext(ctx, query, params.LeaseID, params.EndDate, params.TerminationReason, nullableJSON(settlementDetail)))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrLeaseNotFound
@@ -622,7 +707,7 @@ SELECT id, type, status, period_start, period_end
 FROM bills
 WHERE lease_id = $1
   AND deleted_at IS NULL
-ORDER BY period_start ASC, type ASC
+ORDER BY period_start ASC, type ASC, id ASC
 FOR UPDATE
 `
 
@@ -1107,6 +1192,10 @@ type rowScanner interface {
 }
 
 func scanLease(row rowScanner) (*Lease, error) {
+	return scanLeaseWithExtra(row)
+}
+
+func scanLeaseWithExtra(row rowScanner, extras ...interface{}) (*Lease, error) {
 	var lease Lease
 	var depositRefundAmount sql.NullInt64
 	var depositDeductionAmount sql.NullInt64
@@ -1115,7 +1204,7 @@ func scanLease(row rowScanner) (*Lease, error) {
 	var terminationReason sql.NullString
 	var settlementDetail sql.NullString
 
-	if err := row.Scan(
+	dest := []interface{}{
 		&lease.ID,
 		&lease.TenantID,
 		&lease.PropertyID,
@@ -1137,7 +1226,9 @@ func scanLease(row rowScanner) (*Lease, error) {
 		&lease.CreatedAt,
 		&lease.UpdatedAt,
 		&lease.Version,
-	); err != nil {
+	}
+	dest = append(dest, extras...)
+	if err := row.Scan(dest...); err != nil {
 		return nil, err
 	}
 
@@ -1200,4 +1291,11 @@ func nullIntPtr(value sql.NullInt64) *int {
 	}
 	result := int(value.Int64)
 	return &result
+}
+
+func nullableJSON(value []byte) interface{} {
+	if len(value) == 0 {
+		return nil
+	}
+	return string(value)
 }

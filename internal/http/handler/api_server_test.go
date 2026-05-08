@@ -165,7 +165,7 @@ func TestListBillsForwardsFiltersAndPagination(t *testing.T) {
 	propertyID := "10000000-0000-0000-0000-000000000001"
 	leaseID := "40000000-0000-0000-0000-000000000001"
 	tenantID := openapi_types.UUID([16]byte{0x50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1})
-	status := api.Paid
+	status := api.ListBillsParamsStatusPaid
 	month := "2026-04"
 	page := 2
 	limit := 10
@@ -717,7 +717,7 @@ func TestGetPropertyFinancialReportReturnsDetailResponse(t *testing.T) {
 	if response.IsFinalized == nil || !*response.IsFinalized || response.TotalIncome == nil || *response.TotalIncome != 185000 {
 		t.Fatalf("unexpected financial report response: %+v", response)
 	}
-	if response.Entries == nil || len(*response.Entries) != 1 || (*response.Entries)[0].Category == nil || *(*response.Entries)[0].Category != api.RentPayment {
+	if response.Entries == nil || len(*response.Entries) != 1 || (*response.Entries)[0].Category == nil || *(*response.Entries)[0].Category != api.FinancialReportEntryItemCategoryRentPayment {
 		t.Fatalf("unexpected financial report entries: %+v", response.Entries)
 	}
 }
@@ -777,7 +777,7 @@ func TestExportPropertyTenantRosterReturnsHTMLDocument(t *testing.T) {
 	})
 	asOf := openapi_types.Date{Time: time.Date(2026, 5, 7, 0, 0, 0, 0, time.UTC)}
 	includeVacant := true
-	format := api.Html
+	format := api.ExportPropertyTenantRosterParamsFormatHtml
 
 	server.ExportPropertyTenantRoster(c, "10000000-0000-0000-0000-000000000001", api.ExportPropertyTenantRosterParams{
 		AsOf:          &asOf,

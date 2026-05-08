@@ -1,0 +1,12 @@
+type: object
+required:
+  - code
+  - message
+properties:
+  code:
+    type: string
+    enum:
+      - rent_refund_not_calculated
+      - final_meter_snapshot_only
+  message:
+    type: string

@@ -127,6 +127,9 @@ func New(cfg *config.Config) (*Server, error) {
 	updateDepositService := applease.NewUpdateDepositService(leaseRepositoryAdapter{repo: leaseRepo}, leaseDepositAccounting, txRunner)
 	replaceLeaseService := applease.NewReplaceLeaseService(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
 	terminateLeaseService := applease.NewTerminateLeaseService(leaseRepositoryAdapter{repo: leaseRepo}, leaseDepositAccounting, txRunner)
+	previewCheckoutService := applease.NewPreviewCheckoutSettlementService(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
+	finalizeCheckoutService := applease.NewFinalizeCheckoutSettlementService(leaseRepositoryAdapter{repo: leaseRepo}, leaseDepositAccounting, txRunner)
+	exportCheckoutService := applease.NewExportCheckoutSettlementService(leaseRepositoryAdapter{repo: leaseRepo}, applease.MustNewCheckoutSettlementRenderer(), txRunner)
 	forceTerminateLeaseService := applease.NewForceTerminateLeaseService(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
 	getForceTerminationService := applease.NewGetForceTerminationService(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
 	attachmentService := appattachment.NewService(
@@ -185,6 +188,9 @@ func New(cfg *config.Config) (*Server, error) {
 			UpdateDeposit:       updateDepositService,
 			ReplaceLease:        replaceLeaseService,
 			TerminateLease:      terminateLeaseService,
+			PreviewCheckout:     previewCheckoutService,
+			FinalizeCheckout:    finalizeCheckoutService,
+			ExportCheckout:      exportCheckoutService,
 			ForceTerminateLease: forceTerminateLeaseService,
 			GetForceTermination: getForceTerminationService,
 		},

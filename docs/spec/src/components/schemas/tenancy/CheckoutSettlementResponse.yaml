@@ -1,0 +1,87 @@
+type: object
+required:
+  - lease_id
+  - property_id
+  - tenant_id
+  - room_id
+  - property_label
+  - tenant_label
+  - room_label
+  - checkout_date
+  - reason
+  - lines
+  - blockers
+  - warnings
+  - deposit_amount
+  - total_refund
+  - total_charge
+  - net_amount
+  - net_direction
+  - export_available
+properties:
+  lease_id:
+    type: string
+    format: uuid
+  property_id:
+    type: string
+    format: uuid
+  tenant_id:
+    type: string
+    format: uuid
+  room_id:
+    type: string
+    format: uuid
+  property_label:
+    type: string
+  tenant_label:
+    type: string
+  room_label:
+    type: string
+  checkout_date:
+    type: string
+    format: date
+  reason:
+    type: string
+  final_meter_reading:
+    type: integer
+    nullable: true
+  notes:
+    type: string
+    nullable: true
+  lines:
+    type: array
+    items:
+      $ref: ./CheckoutSettlementLine.yaml
+  blockers:
+    type: array
+    items:
+      $ref: ./CheckoutSettlementBlocker.yaml
+  warnings:
+    type: array
+    items:
+      $ref: ./CheckoutSettlementWarning.yaml
+  deposit_amount:
+    type: integer
+  total_refund:
+    type: integer
+  total_charge:
+    type: integer
+  net_amount:
+    type: integer
+    description: Absolute net amount after refund and charge lines are balanced.
+  net_direction:
+    type: string
+    enum:
+      - refund
+      - payable
+      - zero
+  preview_token:
+    type: string
+    nullable: true
+    description: Present only when there are no blockers and the proposal can be finalized.
+  export_available:
+    type: boolean
+  finalized_at:
+    type: string
+    format: date-time
+    nullable: true

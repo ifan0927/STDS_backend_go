@@ -490,6 +490,30 @@ func (s *leaseRepositoryStub) FindLeaseByIDForUpdate(context.Context, *sql.Tx, s
 	return s.lease, nil
 }
 
+func (s *leaseRepositoryStub) FindCheckoutSettlementContextForUpdate(context.Context, *sql.Tx, string) (*CheckoutSettlementContext, error) {
+	if s.leaseErr != nil {
+		return nil, s.leaseErr
+	}
+	return &CheckoutSettlementContext{
+		Lease:        *s.lease,
+		PropertyName: "Test Property",
+		RoomName:     "101",
+		TenantName:   "Test Tenant",
+	}, nil
+}
+
+func (s *leaseRepositoryStub) FindCheckoutSettlementContext(context.Context, *sql.Tx, string) (*CheckoutSettlementContext, error) {
+	if s.leaseErr != nil {
+		return nil, s.leaseErr
+	}
+	return &CheckoutSettlementContext{
+		Lease:        *s.lease,
+		PropertyName: "Test Property",
+		RoomName:     "101",
+		TenantName:   "Test Tenant",
+	}, nil
+}
+
 func (s *leaseRepositoryStub) CreateLease(_ context.Context, _ *sql.Tx, params CreateLeaseParams) (*Lease, error) {
 	s.createLeaseParams = &params
 	if s.createLeaseErr != nil {
@@ -538,6 +562,9 @@ func (s *leaseRepositoryStub) TerminateLease(_ context.Context, _ *sql.Tx, param
 	s.lease.Status = "terminated"
 	s.lease.EndDate = params.EndDate
 	s.lease.TerminationReason = &params.TerminationReason
+	if params.SettlementDetail != nil {
+		s.lease.SettlementDetail = &params.SettlementDetail
+	}
 	return s.lease, nil
 }
 
