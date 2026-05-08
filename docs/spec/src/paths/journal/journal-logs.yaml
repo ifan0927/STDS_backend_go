@@ -101,6 +101,7 @@ post:
               content: 浴室漏水修繕
               expense_amount: 3500
               expense_description: 水管更換費用
+              expense_accounting_title_id: 70000000-0000-0000-0000-000000000001
           without_expense:
             summary: 一般日誌
             value:
@@ -120,6 +121,9 @@ post:
                 property_id: 10000000-0000-0000-0000-000000000001
                 content: 浴室漏水修繕
                 expense_amount: 3500
+                expense_accounting_title_id: 70000000-0000-0000-0000-000000000001
+                expense_accounting_title_code: '6681'
+                expense_accounting_title_name: 其他支出
                 created_at: '2026-04-15T11:00:00Z'
     '400':
       description: 欄位驗證錯誤
@@ -154,3 +158,14 @@ post:
               value:
                 error_code: FORBIDDEN
                 message: Forbidden.
+    '409':
+      description: 日誌費用所屬月份已月結，不能改變會計影響
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            snapshot_finalized:
+              value:
+                error_code: JOURNAL_EXPENSE_SNAPSHOT_FINALIZED
+                message: Journal expense belongs to a finalized monthly snapshot.

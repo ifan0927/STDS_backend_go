@@ -18,6 +18,12 @@ const (
 	SchedulerKeyScopes = "SchedulerKey.Scopes"
 )
 
+// Defines values for AccountingTitleOptionKind.
+const (
+	Expense AccountingTitleOptionKind = "expense"
+	Income  AccountingTitleOptionKind = "income"
+)
+
 // Defines values for AttachmentResponsePhotoStage.
 const (
 	AttachmentResponsePhotoStageAfter  AttachmentResponsePhotoStage = "after"
@@ -413,6 +419,22 @@ const (
 	ListUsersParamsRoleStaff     ListUsersParamsRole = "staff"
 )
 
+// AccountingTitleOption defines model for AccountingTitleOption.
+type AccountingTitleOption struct {
+	Code *string                    `json:"code,omitempty"`
+	Id   *openapi_types.UUID        `json:"id,omitempty"`
+	Kind *AccountingTitleOptionKind `json:"kind,omitempty"`
+	Name *string                    `json:"name,omitempty"`
+}
+
+// AccountingTitleOptionKind defines model for AccountingTitleOption.Kind.
+type AccountingTitleOptionKind string
+
+// AccountingTitleOptionListResponse defines model for AccountingTitleOptionListResponse.
+type AccountingTitleOptionListResponse struct {
+	Data *[]AccountingTitleOption `json:"data,omitempty"`
+}
+
 // AssignRepairRequest defines model for AssignRepairRequest.
 type AssignRepairRequest struct {
 	// AssignedTo 被指派的員工 user ID
@@ -628,11 +650,14 @@ type CheckoutSettlementWarningCode string
 
 // CreateJournalLogRequest defines model for CreateJournalLogRequest.
 type CreateJournalLogRequest struct {
-	Content            string              `json:"content"`
-	ExpenseAmount      *int                `json:"expense_amount"`
-	ExpenseDescription *string             `json:"expense_description"`
-	PropertyId         openapi_types.UUID  `json:"property_id"`
-	RoomId             *openapi_types.UUID `json:"room_id"`
+	Content string `json:"content"`
+
+	// ExpenseAccountingTitleId Required by new clients when expense_amount is present. Omitted legacy requests use the default journal expense title.
+	ExpenseAccountingTitleId *openapi_types.UUID `json:"expense_accounting_title_id"`
+	ExpenseAmount            *int                `json:"expense_amount"`
+	ExpenseDescription       *string             `json:"expense_description"`
+	PropertyId               openapi_types.UUID  `json:"property_id"`
+	RoomId                   *openapi_types.UUID `json:"room_id"`
 }
 
 // CreateLeaseRequest defines model for CreateLeaseRequest.
@@ -859,15 +884,18 @@ type JournalLogListResponse struct {
 
 // JournalLogResponse defines model for JournalLogResponse.
 type JournalLogResponse struct {
-	AuthorId           *openapi_types.UUID `json:"author_id,omitempty"`
-	Content            *string             `json:"content,omitempty"`
-	CreatedAt          *time.Time          `json:"created_at,omitempty"`
-	ExpenseAmount      *int                `json:"expense_amount"`
-	ExpenseDescription *string             `json:"expense_description"`
-	Id                 *openapi_types.UUID `json:"id,omitempty"`
-	PropertyId         *openapi_types.UUID `json:"property_id,omitempty"`
-	RoomId             *openapi_types.UUID `json:"room_id"`
-	UpdatedAt          *time.Time          `json:"updated_at,omitempty"`
+	AuthorId                   *openapi_types.UUID `json:"author_id,omitempty"`
+	Content                    *string             `json:"content,omitempty"`
+	CreatedAt                  *time.Time          `json:"created_at,omitempty"`
+	ExpenseAccountingTitleCode *string             `json:"expense_accounting_title_code"`
+	ExpenseAccountingTitleId   *openapi_types.UUID `json:"expense_accounting_title_id"`
+	ExpenseAccountingTitleName *string             `json:"expense_accounting_title_name"`
+	ExpenseAmount              *int                `json:"expense_amount"`
+	ExpenseDescription         *string             `json:"expense_description"`
+	Id                         *openapi_types.UUID `json:"id,omitempty"`
+	PropertyId                 *openapi_types.UUID `json:"property_id,omitempty"`
+	RoomId                     *openapi_types.UUID `json:"room_id"`
+	UpdatedAt                  *time.Time          `json:"updated_at,omitempty"`
 }
 
 // LeaseListResponse defines model for LeaseListResponse.
@@ -1253,9 +1281,12 @@ type UpdateDepositRequest struct {
 
 // UpdateJournalLogRequest defines model for UpdateJournalLogRequest.
 type UpdateJournalLogRequest struct {
-	Content            *string `json:"content,omitempty"`
-	ExpenseAmount      *int    `json:"expense_amount,omitempty"`
-	ExpenseDescription *string `json:"expense_description,omitempty"`
+	Content *string `json:"content,omitempty"`
+
+	// ExpenseAccountingTitleId Updates the selected expense accounting title when the journal has an expense amount.
+	ExpenseAccountingTitleId *openapi_types.UUID `json:"expense_accounting_title_id"`
+	ExpenseAmount            *int                `json:"expense_amount,omitempty"`
+	ExpenseDescription       *string             `json:"expense_description,omitempty"`
 }
 
 // UpdateLeaseRequest defines model for UpdateLeaseRequest.
@@ -1711,6 +1742,9 @@ type ServerInterface interface {
 	// 觸發逾期帳單掃描 job
 	// (POST /internal/jobs/overdue-bills/scan)
 	RunOverdueBillsScanJob(c *gin.Context, params RunOverdueBillsScanJobParams)
+	// 日誌費用會計科目選項
+	// (GET /journal-expense-accounting-titles)
+	ListJournalExpenseAccountingTitles(c *gin.Context)
 	// 日誌列表
 	// (GET /journal-logs)
 	ListJournalLogs(c *gin.Context, params ListJournalLogsParams)
@@ -2497,6 +2531,21 @@ func (siw *ServerInterfaceWrapper) RunOverdueBillsScanJob(c *gin.Context) {
 	}
 
 	siw.Handler.RunOverdueBillsScanJob(c, params)
+}
+
+// ListJournalExpenseAccountingTitles operation middleware
+func (siw *ServerInterfaceWrapper) ListJournalExpenseAccountingTitles(c *gin.Context) {
+
+	c.Set(BearerAuthScopes, []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ListJournalExpenseAccountingTitles(c)
 }
 
 // ListJournalLogs operation middleware
@@ -4780,6 +4829,7 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.POST(options.BaseURL+"/internal/jobs/monthly-snapshots/run", wrapper.RunMonthlySnapshotJob)
 	router.POST(options.BaseURL+"/internal/jobs/overdue-bills/reminders", wrapper.RunOverdueBillReminderJob)
 	router.POST(options.BaseURL+"/internal/jobs/overdue-bills/scan", wrapper.RunOverdueBillsScanJob)
+	router.GET(options.BaseURL+"/journal-expense-accounting-titles", wrapper.ListJournalExpenseAccountingTitles)
 	router.GET(options.BaseURL+"/journal-logs", wrapper.ListJournalLogs)
 	router.POST(options.BaseURL+"/journal-logs", wrapper.CreateJournalLog)
 	router.DELETE(options.BaseURL+"/journal-logs/:id", wrapper.DeleteJournalLog)

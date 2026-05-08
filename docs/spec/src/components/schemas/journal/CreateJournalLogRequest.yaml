@@ -18,3 +18,8 @@ properties:
   expense_description:
     type: string
     nullable: true
+  expense_accounting_title_id:
+    type: string
+    format: uuid
+    nullable: true
+    description: Required by new clients when expense_amount is present. Omitted legacy requests use the default journal expense title.

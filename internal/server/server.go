@@ -147,11 +147,12 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 	journalAccounting := journalExpenseAccountingAdapter{repo: billingRepo}
 	journalServices := handler.JournalServices{
-		List:   appjournal.NewListService(journalRepo),
-		Get:    appjournal.NewGetService(journalRepo),
-		Create: appjournal.NewCreateService(journalRepo, journalAccounting, txRunner),
-		Update: appjournal.NewUpdateService(journalRepo, journalAccounting, txRunner),
-		Delete: appjournal.NewDeleteService(journalRepo, txRunner),
+		List:                     appjournal.NewListService(journalRepo),
+		Get:                      appjournal.NewGetService(journalRepo),
+		ListExpenseAccountTitles: appjournal.NewListExpenseAccountingTitlesService(journalRepo),
+		Create:                   appjournal.NewCreateService(journalRepo, journalAccounting, txRunner),
+		Update:                   appjournal.NewUpdateService(journalRepo, journalAccounting, txRunner),
+		Delete:                   appjournal.NewDeleteService(journalRepo, journalAccounting, txRunner),
 	}
 	jobTriggerService := appjobs.NewTriggerService(jobRunStoreAdapter{repo: jobRunsRepo}, newJobRunners(db, txRunner, notificationService), cfg.App.SchedulerJobTimeout, cfg.App.SchedulerMaxRetries)
 	registerLeaseEventSubscribers(bus, leaseRepositoryAdapter{repo: leaseRepo}, txRunner)

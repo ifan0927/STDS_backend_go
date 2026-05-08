@@ -57,6 +57,7 @@ func TestE2EJournalAcceptance(t *testing.T) {
 	scopedClient := newAPIClient(cfg.BaseURL, scopedToken.IDToken)
 
 	t.Run("create list detail update and report expense", func(t *testing.T) {
+		expenseTitle := journalE2EFirstExpenseAccountingTitle(t, ctx, scopedClient)
 		plain := journalE2ECreateLog(t, ctx, scopedClient, journalE2ECreateRequest{
 			PropertyID: assignedProperty.ID,
 			Content:    "E2E property inspection",
@@ -68,18 +69,22 @@ func TestE2EJournalAcceptance(t *testing.T) {
 		expense := 3500
 		description := "Pipe repair"
 		withExpense := journalE2ECreateLog(t, ctx, scopedClient, journalE2ECreateRequest{
-			PropertyID:         assignedProperty.ID,
-			RoomID:             &room.ID,
-			Content:            "E2E bathroom repair",
-			ExpenseAmount:      &expense,
-			ExpenseDescription: &description,
+			PropertyID:               assignedProperty.ID,
+			RoomID:                   &room.ID,
+			Content:                  "E2E bathroom repair",
+			ExpenseAmount:            &expense,
+			ExpenseDescription:       &description,
+			ExpenseAccountingTitleID: &expenseTitle.ID,
 		})
 		journalE2ERequireLog(t, withExpense, journalE2EExpectation{
-			PropertyID:         assignedProperty.ID,
-			RoomID:             &room.ID,
-			Content:            "E2E bathroom repair",
-			ExpenseAmount:      &expense,
-			ExpenseDescription: &description,
+			PropertyID:                 assignedProperty.ID,
+			RoomID:                     &room.ID,
+			Content:                    "E2E bathroom repair",
+			ExpenseAmount:              &expense,
+			ExpenseDescription:         &description,
+			ExpenseAccountingTitleID:   &expenseTitle.ID,
+			ExpenseAccountingTitleCode: &expenseTitle.Code,
+			ExpenseAccountingTitleName: &expenseTitle.Name,
 		})
 
 		list := journalE2EListLogs(t, ctx, scopedClient, assignedProperty.ID)
@@ -88,26 +93,33 @@ func TestE2EJournalAcceptance(t *testing.T) {
 
 		detail := journalE2EGetLog(t, ctx, scopedClient, withExpense.ID)
 		journalE2ERequireLog(t, detail, journalE2EExpectation{
-			PropertyID:         assignedProperty.ID,
-			RoomID:             &room.ID,
-			Content:            "E2E bathroom repair",
-			ExpenseAmount:      &expense,
-			ExpenseDescription: &description,
+			PropertyID:                 assignedProperty.ID,
+			RoomID:                     &room.ID,
+			Content:                    "E2E bathroom repair",
+			ExpenseAmount:              &expense,
+			ExpenseDescription:         &description,
+			ExpenseAccountingTitleID:   &expenseTitle.ID,
+			ExpenseAccountingTitleCode: &expenseTitle.Code,
+			ExpenseAccountingTitleName: &expenseTitle.Name,
 		})
 
 		updatedExpense := 4200
 		updatedDescription := "Pipe repair and cleanup"
 		updated := journalE2EUpdateLog(t, ctx, scopedClient, withExpense.ID, map[string]any{
-			"content":             "E2E bathroom repair updated",
-			"expense_amount":      updatedExpense,
-			"expense_description": updatedDescription,
+			"content":                     "E2E bathroom repair updated",
+			"expense_amount":              updatedExpense,
+			"expense_description":         updatedDescription,
+			"expense_accounting_title_id": expenseTitle.ID,
 		})
 		journalE2ERequireLog(t, updated, journalE2EExpectation{
-			PropertyID:         assignedProperty.ID,
-			RoomID:             &room.ID,
-			Content:            "E2E bathroom repair updated",
-			ExpenseAmount:      &updatedExpense,
-			ExpenseDescription: &updatedDescription,
+			PropertyID:                 assignedProperty.ID,
+			RoomID:                     &room.ID,
+			Content:                    "E2E bathroom repair updated",
+			ExpenseAmount:              &updatedExpense,
+			ExpenseDescription:         &updatedDescription,
+			ExpenseAccountingTitleID:   &expenseTitle.ID,
+			ExpenseAccountingTitleCode: &expenseTitle.Code,
+			ExpenseAccountingTitleName: &expenseTitle.Name,
 		})
 
 		year, month := journalE2ECurrentReportPeriod()
@@ -147,35 +159,73 @@ func TestE2EJournalAcceptance(t *testing.T) {
 }
 
 type journalE2ECreateRequest struct {
-	PropertyID         string
-	RoomID             *string
-	Content            string
-	ExpenseAmount      *int
-	ExpenseDescription *string
+	PropertyID               string
+	RoomID                   *string
+	Content                  string
+	ExpenseAmount            *int
+	ExpenseDescription       *string
+	ExpenseAccountingTitleID *string
 }
 
 type journalE2EExpectation struct {
-	PropertyID         string
-	RoomID             *string
-	Content            string
-	ExpenseAmount      *int
-	ExpenseDescription *string
+	PropertyID                 string
+	RoomID                     *string
+	Content                    string
+	ExpenseAmount              *int
+	ExpenseDescription         *string
+	ExpenseAccountingTitleID   *string
+	ExpenseAccountingTitleCode *string
+	ExpenseAccountingTitleName *string
 }
 
 type journalE2ELogResponse struct {
-	ID                 string  `json:"id"`
-	PropertyID         string  `json:"property_id"`
-	RoomID             *string `json:"room_id"`
-	AuthorID           string  `json:"author_id"`
-	Content            string  `json:"content"`
-	ExpenseAmount      *int    `json:"expense_amount"`
-	ExpenseDescription *string `json:"expense_description"`
-	CreatedAt          string  `json:"created_at"`
-	UpdatedAt          string  `json:"updated_at"`
+	ID                         string  `json:"id"`
+	PropertyID                 string  `json:"property_id"`
+	RoomID                     *string `json:"room_id"`
+	AuthorID                   string  `json:"author_id"`
+	Content                    string  `json:"content"`
+	ExpenseAmount              *int    `json:"expense_amount"`
+	ExpenseDescription         *string `json:"expense_description"`
+	ExpenseAccountingTitleID   *string `json:"expense_accounting_title_id"`
+	ExpenseAccountingTitleCode *string `json:"expense_accounting_title_code"`
+	ExpenseAccountingTitleName *string `json:"expense_accounting_title_name"`
+	CreatedAt                  string  `json:"created_at"`
+	UpdatedAt                  string  `json:"updated_at"`
 }
 
 type journalE2EListResponse struct {
 	Data []journalE2ELogResponse `json:"data"`
+}
+
+type journalE2EAccountingTitle struct {
+	ID   string `json:"id"`
+	Code string `json:"code"`
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+}
+
+type journalE2EAccountingTitleListResponse struct {
+	Data []journalE2EAccountingTitle `json:"data"`
+}
+
+func journalE2EFirstExpenseAccountingTitle(t *testing.T, ctx context.Context, client apiClient) journalE2EAccountingTitle {
+	t.Helper()
+
+	resp, body, err := client.getJSON(ctx, "/api/v1/journal-expense-accounting-titles")
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireStatus(t, resp, body, http.StatusOK)
+
+	var list journalE2EAccountingTitleListResponse
+	decodeJSON(t, body, &list)
+	if len(list.Data) == 0 {
+		t.Fatalf("expected expense accounting title options: %s", string(body))
+	}
+	if list.Data[0].ID == "" || list.Data[0].Code == "" || list.Data[0].Name == "" || list.Data[0].Kind != "expense" {
+		t.Fatalf("unexpected expense accounting title option: %+v", list.Data[0])
+	}
+	return list.Data[0]
 }
 
 func journalE2ECreateLog(t *testing.T, ctx context.Context, client apiClient, request journalE2ECreateRequest) journalE2ELogResponse {
@@ -193,6 +243,9 @@ func journalE2ECreateLog(t *testing.T, ctx context.Context, client apiClient, re
 	}
 	if request.ExpenseDescription != nil {
 		body["expense_description"] = *request.ExpenseDescription
+	}
+	if request.ExpenseAccountingTitleID != nil {
+		body["expense_accounting_title_id"] = *request.ExpenseAccountingTitleID
 	}
 
 	resp, respBody, err := client.postJSON(ctx, "/api/v1/journal-logs", body)
@@ -269,6 +322,15 @@ func journalE2ERequireLog(t *testing.T, log journalE2ELogResponse, expected jour
 	}
 	if !stringPtrEqual(log.ExpenseDescription, expected.ExpenseDescription) {
 		t.Fatalf("expected expense_description %+v, got %+v", expected.ExpenseDescription, log.ExpenseDescription)
+	}
+	if !stringPtrEqual(log.ExpenseAccountingTitleID, expected.ExpenseAccountingTitleID) {
+		t.Fatalf("expected expense_accounting_title_id %+v, got %+v", expected.ExpenseAccountingTitleID, log.ExpenseAccountingTitleID)
+	}
+	if !stringPtrEqual(log.ExpenseAccountingTitleCode, expected.ExpenseAccountingTitleCode) {
+		t.Fatalf("expected expense_accounting_title_code %+v, got %+v", expected.ExpenseAccountingTitleCode, log.ExpenseAccountingTitleCode)
+	}
+	if !stringPtrEqual(log.ExpenseAccountingTitleName, expected.ExpenseAccountingTitleName) {
+		t.Fatalf("expected expense_accounting_title_name %+v, got %+v", expected.ExpenseAccountingTitleName, log.ExpenseAccountingTitleName)
 	}
 }
 

@@ -142,6 +142,62 @@ FOR UPDATE
 	return journalLog, nil
 }
 
+// ListExpenseAccountingTitles returns active expense accounting titles for journal expense selection.
+func (r *SQLRepository) ListExpenseAccountingTitles(ctx context.Context) ([]appjournal.AccountingTitle, error) {
+	const query = `
+SELECT id, code, name, kind
+FROM accounting_titles
+WHERE kind = 'expense'
+  AND is_active = true
+ORDER BY code ASC, name ASC
+`
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list journal expense accounting titles: %w", err)
+	}
+	defer rows.Close()
+
+	titles := []appjournal.AccountingTitle{}
+	for rows.Next() {
+		var title appjournal.AccountingTitle
+		if err := rows.Scan(&title.ID, &title.Code, &title.Name, &title.Kind); err != nil {
+			return nil, fmt.Errorf("scan journal expense accounting title: %w", err)
+		}
+		titles = append(titles, title)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate journal expense accounting titles: %w", err)
+	}
+
+	return titles, nil
+}
+
+// FindExpenseAccountingTitleByID returns one active expense accounting title.
+func (r *SQLRepository) FindExpenseAccountingTitleByID(ctx context.Context, tx *sql.Tx, id string) (*appjournal.AccountingTitle, error) {
+	const query = `
+SELECT id, code, name, kind
+FROM accounting_titles
+WHERE id = $1
+  AND kind = 'expense'
+  AND is_active = true
+LIMIT 1
+`
+	return scanAccountingTitle(tx.QueryRowContext(ctx, query, id), "query journal expense accounting title by id")
+}
+
+// FindExpenseAccountingTitleByCode returns one active expense accounting title by code.
+func (r *SQLRepository) FindExpenseAccountingTitleByCode(ctx context.Context, tx *sql.Tx, code string) (*appjournal.AccountingTitle, error) {
+	const query = `
+SELECT id, code, name, kind
+FROM accounting_titles
+WHERE code = $1
+  AND kind = 'expense'
+  AND is_active = true
+LIMIT 1
+`
+	return scanAccountingTitle(tx.QueryRowContext(ctx, query, code), "query journal expense accounting title by code")
+}
+
 // EnsurePropertyExists verifies that an active property exists for journal writes.
 func (r *SQLRepository) EnsurePropertyExists(ctx context.Context, tx *sql.Tx, id string) error {
 	const query = `
@@ -191,8 +247,11 @@ INSERT INTO journal_logs (
 	author_id,
 	content,
 	expense_amount,
-	expense_description
-) VALUES ($1, $2, $3, $4, $5, $6)
+	expense_description,
+	expense_accounting_title_id,
+	expense_accounting_title_code,
+	expense_accounting_title_name
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 ` + returningJournalLogColumns
 
 	journalLog, err := scanJournalLog(tx.QueryRowContext(ctx, query,
@@ -202,6 +261,9 @@ INSERT INTO journal_logs (
 		params.Content,
 		nullableInt(params.ExpenseAmount),
 		nullableString(params.ExpenseDescription),
+		nullableString(params.ExpenseAccountingTitleID),
+		nullableString(params.ExpenseAccountingTitleCode),
+		nullableString(params.ExpenseAccountingTitleName),
 	))
 	if err != nil {
 		return nil, fmt.Errorf("create journal log: %w", err)
@@ -217,6 +279,9 @@ UPDATE journal_logs
 SET content = $2,
     expense_amount = $3,
     expense_description = $4,
+    expense_accounting_title_id = $5,
+    expense_accounting_title_code = $6,
+    expense_accounting_title_name = $7,
     updated_at = now()
 WHERE id = $1
   AND deleted_at IS NULL
@@ -227,6 +292,9 @@ WHERE id = $1
 		params.Content,
 		nullableInt(params.ExpenseAmount),
 		nullableString(params.ExpenseDescription),
+		nullableString(params.ExpenseAccountingTitleID),
+		nullableString(params.ExpenseAccountingTitleCode),
+		nullableString(params.ExpenseAccountingTitleName),
 	))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -271,6 +339,9 @@ SELECT
 	jl.content,
 	jl.expense_amount,
 	jl.expense_description,
+	jl.expense_accounting_title_id,
+	jl.expense_accounting_title_code,
+	jl.expense_accounting_title_name,
 	jl.created_at,
 	jl.updated_at
 `
@@ -284,6 +355,9 @@ RETURNING
 	content,
 	expense_amount,
 	expense_description,
+	expense_accounting_title_id,
+	expense_accounting_title_code,
+	expense_accounting_title_name,
 	created_at,
 	updated_at
 `
@@ -297,6 +371,9 @@ func scanJournalLog(scanner journalLogScanner) (*appjournal.JournalLog, error) {
 	var roomID sql.NullString
 	var expenseAmount sql.NullInt64
 	var expenseDescription sql.NullString
+	var expenseAccountingTitleID sql.NullString
+	var expenseAccountingTitleCode sql.NullString
+	var expenseAccountingTitleName sql.NullString
 
 	if err := scanner.Scan(
 		&item.ID,
@@ -306,6 +383,9 @@ func scanJournalLog(scanner journalLogScanner) (*appjournal.JournalLog, error) {
 		&item.Content,
 		&expenseAmount,
 		&expenseDescription,
+		&expenseAccountingTitleID,
+		&expenseAccountingTitleCode,
+		&expenseAccountingTitleName,
 		&item.CreatedAt,
 		&item.UpdatedAt,
 	); err != nil {
@@ -322,8 +402,28 @@ func scanJournalLog(scanner journalLogScanner) (*appjournal.JournalLog, error) {
 	if expenseDescription.Valid {
 		item.ExpenseDescription = &expenseDescription.String
 	}
+	if expenseAccountingTitleID.Valid {
+		item.ExpenseAccountingTitleID = &expenseAccountingTitleID.String
+	}
+	if expenseAccountingTitleCode.Valid {
+		item.ExpenseAccountingTitleCode = &expenseAccountingTitleCode.String
+	}
+	if expenseAccountingTitleName.Valid {
+		item.ExpenseAccountingTitleName = &expenseAccountingTitleName.String
+	}
 
 	return &item, nil
+}
+
+func scanAccountingTitle(scanner journalLogScanner, context string) (*appjournal.AccountingTitle, error) {
+	var title appjournal.AccountingTitle
+	if err := scanner.Scan(&title.ID, &title.Code, &title.Name, &title.Kind); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, appjournal.ErrAccountingTitleNotFound
+		}
+		return nil, fmt.Errorf("%s: %w", context, err)
+	}
+	return &title, nil
 }
 
 func nullableString(value *string) any {

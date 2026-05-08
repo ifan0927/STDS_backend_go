@@ -134,11 +134,12 @@ type BillingServices struct {
 
 // JournalServices groups journal log application services used by the transport layer.
 type JournalServices struct {
-	List   *appjournal.ListService
-	Get    *appjournal.GetService
-	Create *appjournal.CreateService
-	Update *appjournal.UpdateService
-	Delete *appjournal.DeleteService
+	List                     *appjournal.ListService
+	Get                      *appjournal.GetService
+	ListExpenseAccountTitles *appjournal.ListExpenseAccountingTitlesService
+	Create                   *appjournal.CreateService
+	Update                   *appjournal.UpdateService
+	Delete                   *appjournal.DeleteService
 }
 
 // RepairServices groups repair request application services used by the transport layer.
@@ -523,6 +524,7 @@ func validateAPIServerDeps(deps APIServerDeps) {
 		{"billing_financial_reports", deps.Billing.FinancialReports},
 		{"journal_list", deps.Journal.List},
 		{"journal_get", deps.Journal.Get},
+		{"journal_accounting_titles", deps.Journal.ListExpenseAccountTitles},
 		{"journal_create", deps.Journal.Create},
 		{"journal_update", deps.Journal.Update},
 		{"journal_delete", deps.Journal.Delete},
@@ -893,6 +895,21 @@ func (s *APIServer) RunOverdueBillsScanJob(c *gin.Context, params api.RunOverdue
 	s.runJob(c, appjobs.JobOverdueBillsScan, params.WindowKey)
 }
 
+// ListJournalExpenseAccountingTitles handles the journal expense accounting title option endpoint.
+func (s *APIServer) ListJournalExpenseAccountingTitles(c *gin.Context) {
+	titles, err := s.journal.ListExpenseAccountTitles.Execute(c.Request.Context())
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	responses := make([]api.AccountingTitleOption, 0, len(titles))
+	for i := range titles {
+		responses = append(responses, toAccountingTitleOption(titles[i]))
+	}
+	c.JSON(http.StatusOK, api.AccountingTitleOptionListResponse{Data: &responses})
+}
+
 // ListJournalLogs handles the journal log listing endpoint.
 func (s *APIServer) ListJournalLogs(c *gin.Context, params api.ListJournalLogsParams) {
 	principal, ok := requestctx.GetPrincipal(c)
@@ -966,15 +983,21 @@ func (s *APIServer) CreateJournalLog(c *gin.Context) {
 		value := request.RoomId.String()
 		roomID = &value
 	}
+	var expenseAccountingTitleID *string
+	if request.ExpenseAccountingTitleId != nil {
+		value := request.ExpenseAccountingTitleId.String()
+		expenseAccountingTitleID = &value
+	}
 	journalLog, err := s.journal.Create.Execute(c.Request.Context(), appjournal.CreateInput{
-		ActorRole:           principal.Role,
-		ActorUserID:         principal.UserID,
-		AssignedPropertyIDs: principal.AssignedPropertyIDs,
-		PropertyID:          request.PropertyId.String(),
-		RoomID:              roomID,
-		Content:             request.Content,
-		ExpenseAmount:       request.ExpenseAmount,
-		ExpenseDescription:  request.ExpenseDescription,
+		ActorRole:                principal.Role,
+		ActorUserID:              principal.UserID,
+		AssignedPropertyIDs:      principal.AssignedPropertyIDs,
+		PropertyID:               request.PropertyId.String(),
+		RoomID:                   roomID,
+		Content:                  request.Content,
+		ExpenseAmount:            request.ExpenseAmount,
+		ExpenseDescription:       request.ExpenseDescription,
+		ExpenseAccountingTitleID: expenseAccountingTitleID,
 	})
 	if err != nil {
 		c.Error(err)
@@ -1023,11 +1046,17 @@ func (s *APIServer) UpdateJournalLog(c *gin.Context, id string) {
 		return
 	}
 
+	var expenseAccountingTitleID *string
+	if request.ExpenseAccountingTitleId != nil {
+		value := request.ExpenseAccountingTitleId.String()
+		expenseAccountingTitleID = &value
+	}
 	journalLog, err := s.journal.Update.Execute(c.Request.Context(), appjournal.UpdateInput{
-		ID:                 id,
-		Content:            request.Content,
-		ExpenseAmount:      request.ExpenseAmount,
-		ExpenseDescription: request.ExpenseDescription,
+		ID:                       id,
+		Content:                  request.Content,
+		ExpenseAmount:            request.ExpenseAmount,
+		ExpenseDescription:       request.ExpenseDescription,
+		ExpenseAccountingTitleID: expenseAccountingTitleID,
 	})
 	if err != nil {
 		c.Error(err)
@@ -3113,11 +3142,13 @@ func toJournalLogResponse(journalLog *appjournal.JournalLog) api.JournalLogRespo
 	updatedAt := journalLog.UpdatedAt
 
 	response := api.JournalLogResponse{
-		Content:            &content,
-		CreatedAt:          &createdAt,
-		ExpenseAmount:      journalLog.ExpenseAmount,
-		ExpenseDescription: journalLog.ExpenseDescription,
-		UpdatedAt:          &updatedAt,
+		Content:                    &content,
+		CreatedAt:                  &createdAt,
+		ExpenseAccountingTitleCode: journalLog.ExpenseAccountingTitleCode,
+		ExpenseAccountingTitleName: journalLog.ExpenseAccountingTitleName,
+		ExpenseAmount:              journalLog.ExpenseAmount,
+		ExpenseDescription:         journalLog.ExpenseDescription,
+		UpdatedAt:                  &updatedAt,
 	}
 	if idOK {
 		response.Id = &id
@@ -3134,7 +3165,29 @@ func toJournalLogResponse(journalLog *appjournal.JournalLog) api.JournalLogRespo
 			response.RoomId = &roomID
 		}
 	}
+	if journalLog.ExpenseAccountingTitleID != nil {
+		titleID, titleOK := parseUUID(*journalLog.ExpenseAccountingTitleID)
+		if titleOK {
+			response.ExpenseAccountingTitleId = &titleID
+		}
+	}
 
+	return response
+}
+
+func toAccountingTitleOption(title appjournal.AccountingTitle) api.AccountingTitleOption {
+	id, idOK := parseUUID(title.ID)
+	code := title.Code
+	name := title.Name
+	kind := api.AccountingTitleOptionKind(title.Kind)
+	response := api.AccountingTitleOption{
+		Code: &code,
+		Kind: &kind,
+		Name: &name,
+	}
+	if idOK {
+		response.Id = &id
+	}
 	return response
 }
 

@@ -176,6 +176,7 @@ func routePolicies(authzRepos AuthorizationRepositories) []routePolicy {
 		{method: "POST", path: "/api/v1/internal/jobs/overdue-bills/reminders", authStrategy: authStrategyScheduler},
 		{method: "POST", path: "/api/v1/internal/jobs/overdue-bills/scan", authStrategy: authStrategyScheduler},
 
+		{method: "GET", path: "/api/v1/journal-expense-accounting-titles", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
 		{method: "GET", path: "/api/v1/journal-logs", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.QueryPropertyID("property_id")},
 		{method: "POST", path: "/api/v1/journal-logs", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
 		{method: "GET", path: "/api/v1/journal-logs/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyIDWithNotFound("id", ownership.FindPropertyIDByJournalLogID, apperr.ErrJournalLogNotFound)},

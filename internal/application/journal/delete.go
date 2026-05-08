@@ -15,13 +15,14 @@ type DeleteInput struct {
 
 // DeleteService soft-deletes journal logs.
 type DeleteService struct {
-	repo     Repository
-	txRunner TransactionRunner
+	repo           Repository
+	accountingRepo ExpenseAccountingRepository
+	txRunner       TransactionRunner
 }
 
 // NewDeleteService returns a DeleteService.
-func NewDeleteService(repo Repository, txRunner TransactionRunner) *DeleteService {
-	return &DeleteService{repo: repo, txRunner: txRunner}
+func NewDeleteService(repo Repository, accountingRepo ExpenseAccountingRepository, txRunner TransactionRunner) *DeleteService {
+	return &DeleteService{repo: repo, accountingRepo: accountingRepo, txRunner: txRunner}
 }
 
 // Execute performs a soft delete.
@@ -35,8 +36,30 @@ func (s *DeleteService) Execute(ctx context.Context, input DeleteInput) error {
 	}
 
 	err = s.txRunner.WithinTransaction(ctx, func(ctx context.Context, tx *sql.Tx, _ *txrunner.EventRecorder) error {
+		current, err := s.repo.FindByIDForUpdate(ctx, tx, id)
+		if err != nil {
+			return mapRepositoryError(err)
+		}
+		if current.ExpenseAmount != nil {
+			if s.accountingRepo == nil {
+				return apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "journal_accounting"})
+			}
+			year, month := journalAccountingPeriod(current.CreatedAt)
+			exists, err := s.accountingRepo.JournalExpenseSnapshotExists(ctx, tx, current.PropertyID, year, month)
+			if err != nil {
+				return mapAccountingRepositoryError(err)
+			}
+			if exists {
+				return ErrJournalExpenseSnapshotFinalized
+			}
+		}
 		if err := s.repo.SoftDelete(ctx, tx, id); err != nil {
 			return mapRepositoryError(err)
+		}
+		if current.ExpenseAmount != nil {
+			if err := s.accountingRepo.SyncExpenseAccountingEntry(ctx, tx, id, nil); err != nil {
+				return mapAccountingRepositoryError(err)
+			}
 		}
 
 		return nil

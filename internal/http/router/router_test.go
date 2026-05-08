@@ -6057,11 +6057,12 @@ func defaultAPIServerDeps(userRepo *fakeUserRepo, authenticator fakeAuthenticato
 			FinancialReports:  fakeBillingFinancialReports{},
 		},
 		Journal: handler.JournalServices{
-			List:   appjournal.NewListService(nil),
-			Get:    appjournal.NewGetService(nil),
-			Create: appjournal.NewCreateService(nil, nil, nil),
-			Update: appjournal.NewUpdateService(nil, nil, nil),
-			Delete: appjournal.NewDeleteService(nil, nil),
+			List:                     appjournal.NewListService(nil),
+			Get:                      appjournal.NewGetService(nil),
+			ListExpenseAccountTitles: appjournal.NewListExpenseAccountingTitlesService(nil),
+			Create:                   appjournal.NewCreateService(nil, nil, nil),
+			Update:                   appjournal.NewUpdateService(nil, nil, nil),
+			Delete:                   appjournal.NewDeleteService(nil, nil, nil),
 		},
 		Repair: handler.RepairServices{
 			Create:   apprepair.NewCreateService(nil, nil),

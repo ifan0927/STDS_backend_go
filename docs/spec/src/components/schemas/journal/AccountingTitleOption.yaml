@@ -1,0 +1,14 @@
+type: object
+properties:
+  id:
+    type: string
+    format: uuid
+  code:
+    type: string
+  name:
+    type: string
+  kind:
+    type: string
+    enum:
+      - expense
+      - income
