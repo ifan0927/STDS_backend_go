@@ -1,0 +1,8 @@
+type: object
+properties:
+  data:
+    type: array
+    items:
+      $ref: ./PropertyTenantLeaseRosterRow.yaml
+  pagination:
+    $ref: ../shared/PaginationResponse.yaml

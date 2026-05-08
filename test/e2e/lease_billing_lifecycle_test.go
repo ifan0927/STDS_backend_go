@@ -147,6 +147,69 @@ func TestE2EQuarterlyRentBillingCadenceAcceptance(t *testing.T) {
 	leaseLifecycleE2ERequireMonthlyElectricityBills(t, bills)
 }
 
+func TestE2EPropertyTenantLeaseRosterAcceptance(t *testing.T) {
+	cfg, err := loadE2EConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+
+	db, err := resetAndMigrateDatabase(ctx, cfg.DatabaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	adminToken, err := issueFirebaseEmulatorToken(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := seedAuthenticatedUser(ctx, db, adminToken.UID, cfg.TestEmail); err != nil {
+		t.Fatal(err)
+	}
+
+	adminClient := newAPIClient(cfg.BaseURL, adminToken.IDToken)
+
+	property := createProperty(t, ctx, adminClient, "E2E Tenant Lease Roster Property")
+	room := createRoom(t, ctx, adminClient, property.ID, "101")
+	tenant := createTenant(t, ctx, adminClient)
+	lease := leaseLifecycleE2ECreateLease(t, ctx, adminClient, leaseLifecycleE2ECreateLeaseParams{
+		PropertyID: property.ID,
+		RoomID:     room.ID,
+		TenantID:   tenant.ID,
+		StartDate:  "2026-05-01",
+		EndDate:    "2026-12-31",
+		RentAmount: 18000,
+		Deposit:    36000,
+		Cadence:    "monthly",
+	})
+	bills := leaseLifecycleE2EListBills(t, ctx, adminClient, lease.ID)
+	nextRent := leaseLifecycleE2EEarliestRentBill(t, bills)
+
+	roster := leaseLifecycleE2EListTenantLeaseRoster(t, ctx, adminClient, property.ID)
+	row := leaseLifecycleE2EFindTenantLeaseRosterRow(t, roster.Data, lease.ID)
+	if row.PropertyID != property.ID || row.RoomID != room.ID || row.RoomLabel != room.Name {
+		t.Fatalf("unexpected room scope in roster row: %+v", row)
+	}
+	if row.LeaseID == nil || *row.LeaseID != lease.ID || row.LeaseStatus == nil || *row.LeaseStatus != "active" {
+		t.Fatalf("unexpected lease fields in roster row: %+v", row)
+	}
+	if row.TenantID == nil || *row.TenantID != tenant.ID || row.TenantLabel == nil || *row.TenantLabel != tenant.Name {
+		t.Fatalf("unexpected tenant fields in roster row: %+v", row)
+	}
+	if row.RentAmount == nil || *row.RentAmount != 18000 || row.RentBillingCadence == nil || *row.RentBillingCadence != "monthly" {
+		t.Fatalf("unexpected rent fields in roster row: %+v", row)
+	}
+	if row.DepositAmount == nil || *row.DepositAmount != 36000 || row.DepositStatus == nil || *row.DepositStatus != "held" {
+		t.Fatalf("unexpected deposit fields in roster row: %+v", row)
+	}
+	if row.NextRentDueDate == nil || *row.NextRentDueDate != nextRent.DueDate || row.NextRentStatus == nil || *row.NextRentStatus != nextRent.Status {
+		t.Fatalf("unexpected next rent fields in roster row: %+v, next rent: %+v", row, nextRent)
+	}
+}
+
 type leaseLifecycleE2ECreateLeaseParams struct {
 	PropertyID                string
 	RoomID                    string
@@ -189,6 +252,10 @@ type leaseLifecycleE2ELeaseListResponse struct {
 	Data []leaseLifecycleE2ELeaseResponse `json:"data"`
 }
 
+type leaseLifecycleE2ETenantLeaseRosterListResponse struct {
+	Data []leaseLifecycleE2ETenantLeaseRosterRow `json:"data"`
+}
+
 type leaseLifecycleE2EBillResponse struct {
 	ID            string  `json:"id"`
 	LeaseID       string  `json:"lease_id"`
@@ -204,6 +271,27 @@ type leaseLifecycleE2EBillResponse struct {
 	PaidAmount    *int    `json:"paid_amount"`
 	PaymentMethod *string `json:"payment_method"`
 	Version       int     `json:"version"`
+}
+
+type leaseLifecycleE2ETenantLeaseRosterRow struct {
+	PropertyID         string  `json:"property_id"`
+	RoomID             string  `json:"room_id"`
+	RoomLabel          string  `json:"room_label"`
+	RoomStatus         string  `json:"room_status"`
+	LeaseID            *string `json:"lease_id"`
+	LeaseStatus        *string `json:"lease_status"`
+	TenantID           *string `json:"tenant_id"`
+	TenantLabel        *string `json:"tenant_label"`
+	TenantPhone        *string `json:"tenant_phone"`
+	StartDate          *string `json:"start_date"`
+	EndDate            *string `json:"end_date"`
+	RentAmount         *int    `json:"rent_amount"`
+	RentBillingCadence *string `json:"rent_billing_cadence"`
+	DepositAmount      *int    `json:"deposit_amount"`
+	DepositStatus      *string `json:"deposit_status"`
+	NextRentDueDate    *string `json:"next_rent_due_date"`
+	NextRentStatus     *string `json:"next_rent_status"`
+	Notes              *string `json:"notes"`
 }
 
 type leaseLifecycleE2EGeneratedBillExpectation struct {
@@ -302,6 +390,50 @@ func leaseLifecycleE2EListBills(t *testing.T, ctx context.Context, client apiCli
 	var list leaseLifecycleE2EBillListResponse
 	decodeJSON(t, body, &list)
 	return list.Data
+}
+
+func leaseLifecycleE2EListTenantLeaseRoster(t *testing.T, ctx context.Context, client apiClient, propertyID string) leaseLifecycleE2ETenantLeaseRosterListResponse {
+	t.Helper()
+
+	resp, body, err := client.getJSON(ctx, fmt.Sprintf("/api/v1/properties/%s/tenant-lease-roster?limit=100", url.PathEscape(propertyID)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireStatus(t, resp, body, http.StatusOK)
+
+	var list leaseLifecycleE2ETenantLeaseRosterListResponse
+	decodeJSON(t, body, &list)
+	return list
+}
+
+func leaseLifecycleE2EFindTenantLeaseRosterRow(t *testing.T, rows []leaseLifecycleE2ETenantLeaseRosterRow, leaseID string) leaseLifecycleE2ETenantLeaseRosterRow {
+	t.Helper()
+
+	for _, row := range rows {
+		if row.LeaseID != nil && *row.LeaseID == leaseID {
+			return row
+		}
+	}
+	t.Fatalf("expected lease %q in tenant lease roster: %+v", leaseID, rows)
+	return leaseLifecycleE2ETenantLeaseRosterRow{}
+}
+
+func leaseLifecycleE2EEarliestRentBill(t *testing.T, bills []leaseLifecycleE2EBillResponse) leaseLifecycleE2EBillResponse {
+	t.Helper()
+
+	var selected *leaseLifecycleE2EBillResponse
+	for i := range bills {
+		if bills[i].Type != "rent" || (bills[i].Status != "pending_payment" && bills[i].Status != "overdue") {
+			continue
+		}
+		if selected == nil || bills[i].DueDate < selected.DueDate {
+			selected = &bills[i]
+		}
+	}
+	if selected == nil {
+		t.Fatalf("expected pending rent bill in %+v", bills)
+	}
+	return *selected
 }
 
 func leaseLifecycleE2ERequireLease(t *testing.T, lease leaseLifecycleE2ELeaseResponse, expected leaseLifecycleE2ECreateLeaseParams) {

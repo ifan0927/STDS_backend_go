@@ -167,6 +167,8 @@ paths:
     $ref: paths/billing/properties_{id}_financial-report_{year}_{month}_send.yaml
   /properties/{id}/tenant-roster:
     $ref: paths/billing/properties_{id}_tenant-roster.yaml
+  /properties/{id}/tenant-lease-roster:
+    $ref: paths/billing/properties_{id}_tenant-lease-roster.yaml
   /journal-logs:
     $ref: paths/journal/journal-logs.yaml
   /journal-logs/{id}:
