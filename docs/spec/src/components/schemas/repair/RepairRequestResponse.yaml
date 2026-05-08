@@ -16,6 +16,15 @@ properties:
     type: string
     format: uuid
     nullable: true
+  property_label:
+    type: string
+  room_label:
+    type: string
+  submitted_by_label:
+    type: string
+  assigned_to_label:
+    type: string
+    nullable: true
   title:
     type: string
   description:

@@ -28,6 +28,10 @@ type Bill struct {
 	TenantID             string
 	RoomID               string
 	PropertyID           string
+	PropertyLabel        string
+	RoomLabel            string
+	TenantLabel          string
+	PeriodLabel          string
 	Type                 string
 	Amount               *int
 	DueDate              time.Time

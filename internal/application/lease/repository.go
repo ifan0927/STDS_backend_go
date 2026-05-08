@@ -101,21 +101,32 @@ type CheckoutSettlementContext struct {
 
 // ForceTermination captures force-termination progress state.
 type ForceTermination struct {
-	ID              string
-	LeaseID         string
-	Status          string
-	InitiatedBy     string
-	Reason          string
-	DepositHandling string
-	Bills           []ForceTerminationBill
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	ID               string
+	LeaseID          string
+	PropertyID       string
+	RoomID           string
+	TenantID         string
+	PropertyLabel    string
+	RoomLabel        string
+	TenantLabel      string
+	InitiatedByLabel string
+	Status           string
+	InitiatedBy      string
+	Reason           string
+	DepositHandling  string
+	Bills            []ForceTerminationBill
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 // ForceTerminationBill captures per-bill force-termination progress.
 type ForceTerminationBill struct {
-	BillID string
-	Status string
+	BillID      string
+	Status      string
+	Type        string
+	PeriodStart time.Time
+	PeriodEnd   time.Time
+	PeriodLabel string
 }
 
 // UpdateLeaseParams contains supported normal lease-condition updates.

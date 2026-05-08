@@ -40,6 +40,9 @@ FROM journal_logs jl
 	listArgs = append(listArgs, query.Limit, query.Offset)
 	listQuery := selectJournalLogColumns + `
 FROM journal_logs jl
+LEFT JOIN properties p ON p.id = jl.property_id
+LEFT JOIN rooms r ON r.id = jl.room_id
+LEFT JOIN users u ON u.id = jl.author_id
 ` + filterSQL + fmt.Sprintf("\nORDER BY jl.created_at DESC, jl.id DESC LIMIT $%d OFFSET $%d", len(listArgs)-1, len(listArgs))
 
 	rows, err := r.db.QueryContext(ctx, listQuery, listArgs...)
@@ -108,6 +111,9 @@ func buildJournalListFilter(query appjournal.ListQuery) (string, []any, bool) {
 func (r *SQLRepository) FindByID(ctx context.Context, id string) (*appjournal.JournalLog, error) {
 	query := selectJournalLogColumns + `
 FROM journal_logs jl
+LEFT JOIN properties p ON p.id = jl.property_id
+LEFT JOIN rooms r ON r.id = jl.room_id
+LEFT JOIN users u ON u.id = jl.author_id
 WHERE jl.id = $1
   AND jl.deleted_at IS NULL
 LIMIT 1
@@ -127,9 +133,12 @@ LIMIT 1
 func (r *SQLRepository) FindByIDForUpdate(ctx context.Context, tx *sql.Tx, id string) (*appjournal.JournalLog, error) {
 	query := selectJournalLogColumns + `
 FROM journal_logs jl
+LEFT JOIN properties p ON p.id = jl.property_id
+LEFT JOIN rooms r ON r.id = jl.room_id
+LEFT JOIN users u ON u.id = jl.author_id
 WHERE jl.id = $1
   AND jl.deleted_at IS NULL
-FOR UPDATE
+FOR UPDATE OF jl
 `
 	journalLog, err := scanJournalLog(tx.QueryRowContext(ctx, query, id))
 	if err != nil {
@@ -336,6 +345,9 @@ SELECT
 	jl.property_id,
 	jl.room_id,
 	jl.author_id,
+	COALESCE(p.name, jl.property_id::text) AS property_label,
+	COALESCE(r.name, jl.room_id::text) AS room_label,
+	COALESCE(u.name, u.email, jl.author_id::text) AS author_label,
 	jl.content,
 	jl.expense_amount,
 	jl.expense_description,
@@ -352,6 +364,9 @@ RETURNING
 	property_id,
 	room_id,
 	author_id,
+	property_id::text AS property_label,
+	room_id::text AS room_label,
+	author_id::text AS author_label,
 	content,
 	expense_amount,
 	expense_description,
@@ -369,6 +384,7 @@ type journalLogScanner interface {
 func scanJournalLog(scanner journalLogScanner) (*appjournal.JournalLog, error) {
 	var item appjournal.JournalLog
 	var roomID sql.NullString
+	var roomLabel sql.NullString
 	var expenseAmount sql.NullInt64
 	var expenseDescription sql.NullString
 	var expenseAccountingTitleID sql.NullString
@@ -380,6 +396,9 @@ func scanJournalLog(scanner journalLogScanner) (*appjournal.JournalLog, error) {
 		&item.PropertyID,
 		&roomID,
 		&item.AuthorID,
+		&item.PropertyLabel,
+		&roomLabel,
+		&item.AuthorLabel,
 		&item.Content,
 		&expenseAmount,
 		&expenseDescription,
@@ -394,6 +413,9 @@ func scanJournalLog(scanner journalLogScanner) (*appjournal.JournalLog, error) {
 
 	if roomID.Valid {
 		item.RoomID = &roomID.String
+	}
+	if roomLabel.Valid {
+		item.RoomLabel = &roomLabel.String
 	}
 	if expenseAmount.Valid {
 		value := int(expenseAmount.Int64)

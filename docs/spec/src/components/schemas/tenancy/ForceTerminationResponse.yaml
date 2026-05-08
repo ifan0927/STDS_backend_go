@@ -6,6 +6,21 @@ properties:
   lease_id:
     type: string
     format: uuid
+  property_id:
+    type: string
+    format: uuid
+  room_id:
+    type: string
+    format: uuid
+  tenant_id:
+    type: string
+    format: uuid
+  property_label:
+    type: string
+  room_label:
+    type: string
+  tenant_label:
+    type: string
   status:
     type: string
     enum:
@@ -14,6 +29,8 @@ properties:
   initiated_by:
     type: string
     format: uuid
+  initiated_by_label:
+    type: string
   reason:
     type: string
   deposit_handling:
@@ -34,6 +51,16 @@ properties:
           enum:
             - pending
             - done
+        type:
+          type: string
+        period_start:
+          type: string
+          format: date
+        period_end:
+          type: string
+          format: date
+        period_label:
+          type: string
   created_at:
     type: string
     format: date-time

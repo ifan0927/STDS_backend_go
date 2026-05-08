@@ -115,6 +115,8 @@ paths:
     $ref: paths/tenancy/tenants_{id}_leases.yaml
   /leases:
     $ref: paths/tenancy/leases.yaml
+  /lease-checkout-reviews:
+    $ref: paths/tenancy/lease-checkout-reviews.yaml
   /leases/{id}:
     $ref: paths/tenancy/leases_{id}.yaml
   /leases/{id}/attachments:

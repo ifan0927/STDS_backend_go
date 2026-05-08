@@ -13,6 +13,13 @@ properties:
   author_id:
     type: string
     format: uuid
+  property_label:
+    type: string
+  room_label:
+    type: string
+    nullable: true
+  author_label:
+    type: string
   content:
     type: string
   expense_amount:

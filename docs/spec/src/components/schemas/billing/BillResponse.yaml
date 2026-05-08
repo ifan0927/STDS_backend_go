@@ -15,6 +15,14 @@ properties:
   property_id:
     type: string
     format: uuid
+  property_label:
+    type: string
+  room_label:
+    type: string
+  tenant_label:
+    type: string
+  period_label:
+    type: string
   type:
     type: string
     enum:

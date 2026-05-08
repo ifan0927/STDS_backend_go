@@ -132,21 +132,32 @@ type CheckoutSettlementContext struct {
 
 // ForceTermination is the persisted force-termination progress state.
 type ForceTermination struct {
-	ID              string
-	LeaseID         string
-	Status          string
-	InitiatedBy     string
-	Reason          string
-	DepositHandling string
-	Bills           []ForceTerminationBill
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	ID               string
+	LeaseID          string
+	PropertyID       string
+	RoomID           string
+	TenantID         string
+	PropertyLabel    string
+	RoomLabel        string
+	TenantLabel      string
+	InitiatedByLabel string
+	Status           string
+	InitiatedBy      string
+	Reason           string
+	DepositHandling  string
+	Bills            []ForceTerminationBill
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 // ForceTerminationBill is the persisted per-bill force-termination progress.
 type ForceTerminationBill struct {
-	BillID string
-	Status string
+	BillID      string
+	Status      string
+	Type        string
+	PeriodStart time.Time
+	PeriodEnd   time.Time
+	PeriodLabel string
 }
 
 // JobLeaseCandidate is the minimal lease state needed by scheduler jobs.
@@ -745,7 +756,7 @@ INSERT INTO force_terminations (
 RETURNING id, lease_id, initiated_by, reason, deposit_handling, status, created_at, updated_at
 `
 
-	forceTermination, err := scanForceTermination(tx.QueryRowContext(ctx, query,
+	forceTermination, err := scanCreatedForceTermination(tx.QueryRowContext(ctx, query,
 		params.LeaseID,
 		params.InitiatedBy,
 		params.Reason,
@@ -861,9 +872,29 @@ WHERE id = $1
 
 func (r *SQLRepository) FindForceTerminationByID(ctx context.Context, tx *sql.Tx, forceTerminationID string) (*ForceTermination, error) {
 	const query = `
-SELECT id, lease_id, initiated_by, reason, deposit_handling, status, created_at, updated_at
-FROM force_terminations
-WHERE id = $1
+SELECT
+	ft.id,
+	ft.lease_id,
+	l.property_id,
+	l.room_id,
+	l.tenant_id,
+	COALESCE(p.name, l.property_id::text) AS property_label,
+	COALESCE(r.name, l.room_id::text) AS room_label,
+	COALESCE(t.name, l.tenant_id::text) AS tenant_label,
+	ft.initiated_by,
+	COALESCE(u.name, u.email, ft.initiated_by::text) AS initiated_by_label,
+	ft.reason,
+	ft.deposit_handling,
+	ft.status,
+	ft.created_at,
+	ft.updated_at
+FROM force_terminations ft
+JOIN leases l ON l.id = ft.lease_id
+LEFT JOIN properties p ON p.id = l.property_id
+LEFT JOIN rooms r ON r.id = l.room_id
+LEFT JOIN tenants t ON t.id = l.tenant_id
+LEFT JOIN users u ON u.id = ft.initiated_by
+WHERE ft.id = $1
 `
 
 	forceTermination, err := scanForceTermination(tx.QueryRowContext(ctx, query, forceTerminationID))
@@ -875,10 +906,17 @@ WHERE id = $1
 	}
 
 	const billsQuery = `
-SELECT bill_id, status
-FROM force_termination_bills
-WHERE force_termination_id = $1
-ORDER BY created_at ASC, bill_id ASC
+SELECT
+	ftb.bill_id,
+	ftb.status,
+	b.type,
+	b.period_start,
+	b.period_end,
+	concat(b.period_start::text, '..', b.period_end::text) AS period_label
+FROM force_termination_bills ftb
+LEFT JOIN bills b ON b.id = ftb.bill_id
+WHERE ftb.force_termination_id = $1
+ORDER BY ftb.created_at ASC, ftb.bill_id ASC
 `
 
 	rows, err := tx.QueryContext(ctx, billsQuery, forceTerminationID)
@@ -892,7 +930,7 @@ ORDER BY created_at ASC, bill_id ASC
 	bills := make([]ForceTerminationBill, 0)
 	for rows.Next() {
 		var bill ForceTerminationBill
-		if err := rows.Scan(&bill.BillID, &bill.Status); err != nil {
+		if err := rows.Scan(&bill.BillID, &bill.Status, &bill.Type, &bill.PeriodStart, &bill.PeriodEnd, &bill.PeriodLabel); err != nil {
 			return nil, fmt.Errorf("scan force termination bill: %w", err)
 		}
 		bills = append(bills, bill)
@@ -1249,6 +1287,31 @@ func scanLeaseWithExtra(row rowScanner, extras ...interface{}) (*Lease, error) {
 }
 
 func scanForceTermination(row rowScanner) (*ForceTermination, error) {
+	var forceTermination ForceTermination
+	if err := row.Scan(
+		&forceTermination.ID,
+		&forceTermination.LeaseID,
+		&forceTermination.PropertyID,
+		&forceTermination.RoomID,
+		&forceTermination.TenantID,
+		&forceTermination.PropertyLabel,
+		&forceTermination.RoomLabel,
+		&forceTermination.TenantLabel,
+		&forceTermination.InitiatedBy,
+		&forceTermination.InitiatedByLabel,
+		&forceTermination.Reason,
+		&forceTermination.DepositHandling,
+		&forceTermination.Status,
+		&forceTermination.CreatedAt,
+		&forceTermination.UpdatedAt,
+	); err != nil {
+		return nil, err
+	}
+
+	return &forceTermination, nil
+}
+
+func scanCreatedForceTermination(row rowScanner) (*ForceTermination, error) {
 	var forceTermination ForceTermination
 	if err := row.Scan(
 		&forceTermination.ID,
