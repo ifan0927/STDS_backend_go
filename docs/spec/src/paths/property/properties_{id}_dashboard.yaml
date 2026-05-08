@@ -40,6 +40,12 @@ get:
                   expected_rent: 50000
                   collected_rent: 40000
                   overdue_bill_count: 2
+                occupancy_summary:
+                  total_rooms: 2
+                  occupied_rooms: 1
+                  vacant_rooms: 1
+                  maintenance_rooms: 0
+                  occupancy_rate: 0.5
                 recent_journals:
                   - id: 60000000-0000-0000-0000-000000000001
                     type: journal_log

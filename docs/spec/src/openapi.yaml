@@ -87,6 +87,8 @@ paths:
     $ref: paths/iam/users_{id}_property-assignments.yaml
   /users/{id}/password-reset:
     $ref: paths/iam/users_{id}_password-reset.yaml
+  /dashboard:
+    $ref: paths/property/dashboard.yaml
   /properties:
     $ref: paths/property/properties.yaml
   /properties/{id}:

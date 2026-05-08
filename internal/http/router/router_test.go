@@ -3362,6 +3362,70 @@ func TestGetPropertyDashboardReturnsAccessibleDashboard(t *testing.T) {
 	}
 }
 
+func TestGetDashboardReturnsScopedHomeDashboard(t *testing.T) {
+	dashboardRepo := &fakeDashboardRepository{
+		homeDashboard: &appproperty.HomeDashboard{
+			PortfolioSummary: appproperty.OccupancySummary{
+				TotalRooms:    2,
+				OccupiedRooms: 1,
+				VacantRooms:   1,
+				OccupancyRate: 0.5,
+			},
+			MonthlyBillingSummary: appproperty.DashboardMonthlySummary{
+				ExpectedRent:     50000,
+				CollectedRent:    40000,
+				OverdueBillCount: 2,
+			},
+			PropertySummaries: []appproperty.HomeDashboardPropertySummary{
+				{
+					PropertyID:   testPropertyID1,
+					PropertyName: "Demo Property",
+					Occupancy: appproperty.OccupancySummary{
+						TotalRooms:    2,
+						OccupiedRooms: 1,
+						VacantRooms:   1,
+						OccupancyRate: 0.5,
+					},
+					MonthlySummary: appproperty.DashboardMonthlySummary{
+						ExpectedRent:     50000,
+						CollectedRent:    40000,
+						OverdueBillCount: 2,
+					},
+				},
+			},
+		},
+	}
+	engine := newTestEngineWithPropertyDashboard(
+		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
+		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{},
+		"",
+		fakeJobRunsRepo{},
+		appproperty.NewDashboardService(dashboardRepo),
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/dashboard", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if dashboardRepo.scope.Role != "organizer" || len(dashboardRepo.scope.AssignedPropertyIDs) != 1 || dashboardRepo.scope.AssignedPropertyIDs[0] != testPropertyID1 {
+		t.Fatalf("unexpected dashboard scope: %+v", dashboardRepo.scope)
+	}
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if payload["portfolio_summary"] == nil || payload["property_summaries"] == nil {
+		t.Fatalf("expected dashboard summaries, got %v", payload)
+	}
+}
+
 func TestGetPropertyDashboardRejectsUnassignedProperty(t *testing.T) {
 	engine := newTestEngineWithPropertyDashboard(
 		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID2}},
@@ -4181,11 +4245,13 @@ type fakePropertyQueryRepo struct {
 }
 
 type fakeDashboardRepository struct {
-	propertyID string
-	year       int
-	month      int
-	dashboard  *appproperty.Dashboard
-	err        error
+	propertyID    string
+	year          int
+	month         int
+	scope         appproperty.DashboardScope
+	dashboard     *appproperty.Dashboard
+	homeDashboard *appproperty.HomeDashboard
+	err           error
 }
 
 func (r *fakeDashboardRepository) GetDashboard(_ context.Context, propertyID string, year int, month int) (*appproperty.Dashboard, error) {
@@ -4200,6 +4266,20 @@ func (r *fakeDashboardRepository) GetDashboard(_ context.Context, propertyID str
 	}
 
 	return r.dashboard, nil
+}
+
+func (r *fakeDashboardRepository) GetHomeDashboard(_ context.Context, scope appproperty.DashboardScope, year int, month int) (*appproperty.HomeDashboard, error) {
+	r.scope = scope
+	r.year = year
+	r.month = month
+	if r.err != nil {
+		return nil, r.err
+	}
+	if r.homeDashboard == nil {
+		return &appproperty.HomeDashboard{}, nil
+	}
+
+	return r.homeDashboard, nil
 }
 
 type fakeTenantRepo struct {

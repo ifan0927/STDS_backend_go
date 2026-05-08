@@ -198,6 +198,7 @@ func routePolicies(authzRepos AuthorizationRepositories) []routePolicy {
 		{method: "POST", path: "/api/v1/leases/:id/checkout-settlement/finalize", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyIDWithNotFound("id", ownership.FindPropertyIDByLeaseID, apperr.ErrLeaseNotFound)},
 		{method: "GET", path: "/api/v1/leases/:id/checkout-settlement/export", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyIDWithNotFound("id", ownership.FindPropertyIDByLeaseID, apperr.ErrLeaseNotFound)},
 
+		{method: "GET", path: "/api/v1/dashboard", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff", "owner"}},
 		{method: "GET", path: "/api/v1/properties", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff", "owner"}},
 		{method: "POST", path: "/api/v1/properties", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
 		{method: "GET", path: "/api/v1/properties/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff", "owner"}, propertyResolver: middleware.ParamPropertyID("id")},

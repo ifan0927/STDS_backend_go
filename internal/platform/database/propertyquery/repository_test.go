@@ -12,6 +12,54 @@ import (
 	"stds_backend/internal/shared/apperr"
 )
 
+func TestListAccessibleReturnsOccupancySummary(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	repo := NewRepository(db)
+	now := time.Date(2026, 4, 20, 10, 0, 0, 0, time.UTC)
+
+	mock.ExpectQuery(`(?s)LEFT JOIN rooms ON rooms.property_id = p.id AND rooms.deleted_at IS NULL\s+WHERE p.deleted_at IS NULL\s+GROUP BY p.id ORDER BY p.created_at DESC`).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "name", "address", "electricity_unit_price", "default_electricity_billing_cadence", "owner_id",
+			"total_rooms", "occupied_rooms", "vacant_rooms", "maintenance_rooms", "occupancy_rate",
+			"created_at", "updated_at", "version",
+		}).AddRow(
+			"10000000-0000-0000-0000-000000000001",
+			"Demo Property",
+			"Demo Address",
+			4.5,
+			"monthly",
+			"90000000-0000-0000-0000-000000000001",
+			4,
+			2,
+			1,
+			1,
+			0.5,
+			now,
+			now,
+			3,
+		))
+
+	properties, err := repo.ListAccessible(context.Background(), "admin", "", nil)
+	if err != nil {
+		t.Fatalf("ListAccessible: %v", err)
+	}
+	if len(properties) != 1 {
+		t.Fatalf("expected 1 property, got %d", len(properties))
+	}
+	if properties[0].Occupancy.TotalRooms != 4 || properties[0].Occupancy.OccupancyRate != 0.5 {
+		t.Fatalf("unexpected occupancy summary: %+v", properties[0].Occupancy)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
 func TestListRoomsByPropertyReturnsActiveRoomsWithStatusFilterAndPagination(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

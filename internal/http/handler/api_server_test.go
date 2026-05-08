@@ -109,6 +109,13 @@ func TestGetPropertyDashboardReturnsDashboardResponse(t *testing.T) {
 				CollectedRent:    40000,
 				OverdueBillCount: 2,
 			},
+			Occupancy: appproperty.OccupancySummary{
+				TotalRooms:       2,
+				OccupiedRooms:    1,
+				VacantRooms:      1,
+				MaintenanceRooms: 0,
+				OccupancyRate:    0.5,
+			},
 			RecentJournals: []appproperty.DashboardRecentJournal{
 				{ID: "60000000-0000-0000-0000-000000000001", Type: "journal_log", Content: "Changed lobby light", CreatedAt: createdAt},
 			},
@@ -138,10 +145,90 @@ func TestGetPropertyDashboardReturnsDashboardResponse(t *testing.T) {
 	if response.MonthlySummary == nil || response.MonthlySummary.ExpectedRent == nil || *response.MonthlySummary.ExpectedRent != 50000 {
 		t.Fatalf("unexpected monthly summary: %+v", response.MonthlySummary)
 	}
+	if response.OccupancySummary == nil || response.OccupancySummary.OccupancyRate == nil || *response.OccupancySummary.OccupancyRate != 0.5 {
+		t.Fatalf("unexpected occupancy summary: %+v", response.OccupancySummary)
+	}
 	if response.Rooms == nil || len(*response.Rooms) != 1 || (*response.Rooms)[0].Status == nil || string(*(*response.Rooms)[0].Status) != "occupied" {
 		t.Fatalf("unexpected rooms: %+v", response.Rooms)
 	}
 	if response.RecentJournals == nil || len(*response.RecentJournals) != 1 || (*response.RecentJournals)[0].Type == nil || *(*response.RecentJournals)[0].Type != "journal_log" {
+		t.Fatalf("unexpected recent journals: %+v", response.RecentJournals)
+	}
+}
+
+func TestGetDashboardReturnsHomeDashboardResponse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	propertyID := "10000000-0000-0000-0000-000000000001"
+	createdAt := time.Date(2026, 4, 29, 10, 0, 0, 0, time.UTC)
+	repo := &recordingDashboardRepository{
+		home: &appproperty.HomeDashboard{
+			PortfolioSummary: appproperty.OccupancySummary{
+				TotalRooms:    2,
+				OccupiedRooms: 1,
+				VacantRooms:   1,
+				OccupancyRate: 0.5,
+			},
+			MonthlyBillingSummary: appproperty.DashboardMonthlySummary{
+				ExpectedRent:     50000,
+				CollectedRent:    40000,
+				OverdueBillCount: 2,
+			},
+			PropertySummaries: []appproperty.HomeDashboardPropertySummary{
+				{
+					PropertyID:   propertyID,
+					PropertyName: "Demo Property",
+					Occupancy: appproperty.OccupancySummary{
+						TotalRooms:    2,
+						OccupiedRooms: 1,
+						VacantRooms:   1,
+						OccupancyRate: 0.5,
+					},
+					MonthlySummary: appproperty.DashboardMonthlySummary{
+						ExpectedRent:     50000,
+						CollectedRent:    40000,
+						OverdueBillCount: 2,
+					},
+				},
+			},
+			RecentJournals: []appproperty.HomeDashboardRecentJournal{
+				{ID: "60000000-0000-0000-0000-000000000001", PropertyID: propertyID, PropertyName: "Demo Property", Type: "journal_log", Content: "Changed lobby light", CreatedAt: createdAt},
+			},
+		},
+	}
+	server := &APIServer{propertyDashboard: appproperty.NewDashboardService(repo)}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/dashboard", nil)
+	requestctx.SetPrincipal(c, requestctx.Principal{
+		Role:                "staff",
+		UserID:              "90000000-0000-0000-0000-000000000001",
+		AssignedPropertyIDs: []string{propertyID},
+	})
+
+	server.GetDashboard(c)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if repo.scope.Role != "staff" || len(repo.scope.AssignedPropertyIDs) != 1 || repo.scope.AssignedPropertyIDs[0] != propertyID {
+		t.Fatalf("unexpected dashboard scope: %+v", repo.scope)
+	}
+
+	var response api.HomeDashboardResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if response.PortfolioSummary == nil || response.PortfolioSummary.TotalRooms == nil || *response.PortfolioSummary.TotalRooms != 2 {
+		t.Fatalf("unexpected portfolio summary: %+v", response.PortfolioSummary)
+	}
+	if response.MonthlyBillingSummary == nil || response.MonthlyBillingSummary.ExpectedRent == nil || *response.MonthlyBillingSummary.ExpectedRent != 50000 {
+		t.Fatalf("unexpected billing summary: %+v", response.MonthlyBillingSummary)
+	}
+	if response.PropertySummaries == nil || len(*response.PropertySummaries) != 1 || (*response.PropertySummaries)[0].PropertyName == nil || *(*response.PropertySummaries)[0].PropertyName != "Demo Property" {
+		t.Fatalf("unexpected property summaries: %+v", response.PropertySummaries)
+	}
+	if response.RecentJournals == nil || len(*response.RecentJournals) != 1 || (*response.RecentJournals)[0].PropertyName == nil || *(*response.RecentJournals)[0].PropertyName != "Demo Property" {
 		t.Fatalf("unexpected recent journals: %+v", response.RecentJournals)
 	}
 }
@@ -1150,7 +1237,9 @@ type recordingDashboardRepository struct {
 	propertyID string
 	year       int
 	month      int
+	scope      appproperty.DashboardScope
 	dashboard  *appproperty.Dashboard
+	home       *appproperty.HomeDashboard
 	err        error
 }
 
@@ -1163,6 +1252,17 @@ func (r *recordingDashboardRepository) GetDashboard(_ context.Context, propertyI
 	}
 
 	return r.dashboard, nil
+}
+
+func (r *recordingDashboardRepository) GetHomeDashboard(_ context.Context, scope appproperty.DashboardScope, year int, month int) (*appproperty.HomeDashboard, error) {
+	r.scope = scope
+	r.year = year
+	r.month = month
+	if r.err != nil {
+		return nil, r.err
+	}
+
+	return r.home, nil
 }
 
 type recordingRepairQueryRepo struct {

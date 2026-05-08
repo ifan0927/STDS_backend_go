@@ -1,0 +1,8 @@
+type: object
+properties:
+  expected_rent:
+    type: integer
+  collected_rent:
+    type: integer
+  overdue_bill_count:
+    type: integer

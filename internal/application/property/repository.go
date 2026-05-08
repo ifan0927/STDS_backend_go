@@ -55,7 +55,43 @@ type Dashboard struct {
 	PropertyID     string
 	Rooms          []DashboardRoom
 	MonthlySummary DashboardMonthlySummary
+	Occupancy      OccupancySummary
 	RecentJournals []DashboardRecentJournal
+}
+
+// HomeDashboard contains the role-scoped dashboard read model for the home page.
+type HomeDashboard struct {
+	PortfolioSummary      OccupancySummary
+	MonthlyBillingSummary DashboardMonthlySummary
+	PropertySummaries     []HomeDashboardPropertySummary
+	RecentJournals        []HomeDashboardRecentJournal
+}
+
+// HomeDashboardPropertySummary contains one property's home dashboard row.
+type HomeDashboardPropertySummary struct {
+	PropertyID     string
+	PropertyName   string
+	Occupancy      OccupancySummary
+	MonthlySummary DashboardMonthlySummary
+}
+
+// HomeDashboardRecentJournal contains one recent activity item for the home dashboard.
+type HomeDashboardRecentJournal struct {
+	ID           string
+	PropertyID   string
+	PropertyName string
+	Type         string
+	Content      string
+	CreatedAt    time.Time
+}
+
+// OccupancySummary contains room status totals and occupied ratio.
+type OccupancySummary struct {
+	TotalRooms       int
+	OccupiedRooms    int
+	VacantRooms      int
+	MaintenanceRooms int
+	OccupancyRate    float64
 }
 
 // DashboardRoom contains one room row in the dashboard.
@@ -153,4 +189,12 @@ type PropertyAccountRepository interface {
 // DashboardRepository defines the read model needed by the property dashboard.
 type DashboardRepository interface {
 	GetDashboard(ctx context.Context, propertyID string, year int, month int) (*Dashboard, error)
+	GetHomeDashboard(ctx context.Context, scope DashboardScope, year int, month int) (*HomeDashboard, error)
+}
+
+// DashboardScope defines role and property visibility for dashboard reads.
+type DashboardScope struct {
+	Role                string
+	UserID              string
+	AssignedPropertyIDs []string
 }

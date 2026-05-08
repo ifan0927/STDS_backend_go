@@ -707,10 +707,11 @@ type DashboardRecentJournalItem struct {
 
 // DashboardResponse defines model for DashboardResponse.
 type DashboardResponse struct {
-	MonthlySummary *DashboardMonthlySummary      `json:"monthly_summary,omitempty"`
-	PropertyId     *openapi_types.UUID           `json:"property_id,omitempty"`
-	RecentJournals *[]DashboardRecentJournalItem `json:"recent_journals,omitempty"`
-	Rooms          *[]DashboardRoomItem          `json:"rooms,omitempty"`
+	MonthlySummary   *DashboardMonthlySummary      `json:"monthly_summary,omitempty"`
+	OccupancySummary *OccupancySummary             `json:"occupancy_summary,omitempty"`
+	PropertyId       *openapi_types.UUID           `json:"property_id,omitempty"`
+	RecentJournals   *[]DashboardRecentJournalItem `json:"recent_journals,omitempty"`
+	Rooms            *[]DashboardRoomItem          `json:"rooms,omitempty"`
 }
 
 // DashboardRoomItem defines model for DashboardRoomItem.
@@ -802,6 +803,39 @@ type ForceTerminationResponseDepositHandling string
 
 // ForceTerminationResponseStatus defines model for ForceTerminationResponse.Status.
 type ForceTerminationResponseStatus string
+
+// HomeDashboardBillingSummary defines model for HomeDashboardBillingSummary.
+type HomeDashboardBillingSummary struct {
+	CollectedRent    *int `json:"collected_rent,omitempty"`
+	ExpectedRent     *int `json:"expected_rent,omitempty"`
+	OverdueBillCount *int `json:"overdue_bill_count,omitempty"`
+}
+
+// HomeDashboardPropertySummary defines model for HomeDashboardPropertySummary.
+type HomeDashboardPropertySummary struct {
+	MonthlyBillingSummary *HomeDashboardBillingSummary `json:"monthly_billing_summary,omitempty"`
+	OccupancySummary      *OccupancySummary            `json:"occupancy_summary,omitempty"`
+	PropertyId            *openapi_types.UUID          `json:"property_id,omitempty"`
+	PropertyName          *string                      `json:"property_name,omitempty"`
+}
+
+// HomeDashboardRecentJournalItem defines model for HomeDashboardRecentJournalItem.
+type HomeDashboardRecentJournalItem struct {
+	Content      *string             `json:"content,omitempty"`
+	CreatedAt    *time.Time          `json:"created_at,omitempty"`
+	Id           *openapi_types.UUID `json:"id,omitempty"`
+	PropertyId   *openapi_types.UUID `json:"property_id,omitempty"`
+	PropertyName *string             `json:"property_name,omitempty"`
+	Type         *string             `json:"type,omitempty"`
+}
+
+// HomeDashboardResponse defines model for HomeDashboardResponse.
+type HomeDashboardResponse struct {
+	MonthlyBillingSummary *HomeDashboardBillingSummary      `json:"monthly_billing_summary,omitempty"`
+	PortfolioSummary      *OccupancySummary                 `json:"portfolio_summary,omitempty"`
+	PropertySummaries     *[]HomeDashboardPropertySummary   `json:"property_summaries,omitempty"`
+	RecentJournals        *[]HomeDashboardRecentJournalItem `json:"recent_journals,omitempty"`
+}
 
 // JournalLogListResponse defines model for JournalLogListResponse.
 type JournalLogListResponse struct {
@@ -905,6 +939,15 @@ type LeaseResponseRentBillingCadence string
 // LeaseResponseStatus defines model for LeaseResponse.Status.
 type LeaseResponseStatus string
 
+// OccupancySummary defines model for OccupancySummary.
+type OccupancySummary struct {
+	MaintenanceRooms *int     `json:"maintenance_rooms,omitempty"`
+	OccupancyRate    *float64 `json:"occupancy_rate,omitempty"`
+	OccupiedRooms    *int     `json:"occupied_rooms,omitempty"`
+	TotalRooms       *int     `json:"total_rooms,omitempty"`
+	VacantRooms      *int     `json:"vacant_rooms,omitempty"`
+}
+
 // PropertyAssignmentRequest defines model for PropertyAssignmentRequest.
 type PropertyAssignmentRequest struct {
 	PropertyIds []openapi_types.UUID `json:"property_ids"`
@@ -929,6 +972,7 @@ type PropertyResponse struct {
 	Id                   *openapi_types.UUID `json:"id,omitempty"`
 	Name                 *string             `json:"name,omitempty"`
 	Notes                *string             `json:"notes"`
+	OccupancySummary     *OccupancySummary   `json:"occupancy_summary,omitempty"`
 	OwnerId              *openapi_types.UUID `json:"owner_id,omitempty"`
 	Subtitle             *string             `json:"subtitle"`
 	UpdatedAt            *time.Time          `json:"updated_at,omitempty"`
@@ -1533,6 +1577,9 @@ type ServerInterface interface {
 	// Export bill receipt as HTML
 	// (GET /bills/{id}/receipt)
 	ExportBillReceipt(c *gin.Context, id string, params ExportBillReceiptParams)
+	// Home dashboard summary read model
+	// (GET /dashboard)
+	GetDashboard(c *gin.Context)
 	// 查詢強制終止進度
 	// (GET /force-terminations/{id})
 	GetForceTermination(c *gin.Context, id openapi_types.UUID)
@@ -2078,6 +2125,21 @@ func (siw *ServerInterfaceWrapper) ExportBillReceipt(c *gin.Context) {
 	}
 
 	siw.Handler.ExportBillReceipt(c, id, params)
+}
+
+// GetDashboard operation middleware
+func (siw *ServerInterfaceWrapper) GetDashboard(c *gin.Context) {
+
+	c.Set(BearerAuthScopes, []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.GetDashboard(c)
 }
 
 // GetForceTermination operation middleware
@@ -4536,6 +4598,7 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.POST(options.BaseURL+"/bills/:id/meter", wrapper.SubmitBillMeter)
 	router.POST(options.BaseURL+"/bills/:id/payment", wrapper.RecordBillPayment)
 	router.GET(options.BaseURL+"/bills/:id/receipt", wrapper.ExportBillReceipt)
+	router.GET(options.BaseURL+"/dashboard", wrapper.GetDashboard)
 	router.GET(options.BaseURL+"/force-terminations/:id", wrapper.GetForceTermination)
 	router.POST(options.BaseURL+"/internal/jobs/force-terminations/compensate", wrapper.RunForceTerminationCompensationJob)
 	router.POST(options.BaseURL+"/internal/jobs/leases/expire", wrapper.RunLeaseExpiryJob)

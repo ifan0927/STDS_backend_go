@@ -9,6 +9,8 @@ properties:
       $ref: ./DashboardRoomItem.yaml
   monthly_summary:
     $ref: ./DashboardMonthlySummary.yaml
+  occupancy_summary:
+    $ref: ./OccupancySummary.yaml
   recent_journals:
     type: array
     items:

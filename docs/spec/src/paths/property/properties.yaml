@@ -30,6 +30,12 @@ get:
                     address: 台北市大安區復興南路一段100號
                     electricity_unit_price: 4.5
                     default_electricity_billing_cadence: monthly
+                    occupancy_summary:
+                      total_rooms: 10
+                      occupied_rooms: 7
+                      vacant_rooms: 2
+                      maintenance_rooms: 1
+                      occupancy_rate: 0.7
     '401':
       description: 未認證
       content:

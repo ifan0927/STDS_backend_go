@@ -1,0 +1,14 @@
+type: object
+properties:
+  portfolio_summary:
+    $ref: ./OccupancySummary.yaml
+  monthly_billing_summary:
+    $ref: ./HomeDashboardBillingSummary.yaml
+  property_summaries:
+    type: array
+    items:
+      $ref: ./HomeDashboardPropertySummary.yaml
+  recent_journals:
+    type: array
+    items:
+      $ref: ./HomeDashboardRecentJournalItem.yaml
