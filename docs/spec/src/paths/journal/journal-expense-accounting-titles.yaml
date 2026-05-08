@@ -1,0 +1,41 @@
+get:
+  operationId: listJournalExpenseAccountingTitles
+  summary: 日誌費用會計科目選項
+  description: |
+    x-required-role: admin, organizer, staff
+
+    Returns active expense accounting titles that can be selected when creating
+    or updating a journal log with expense_amount. The frontend must send the
+    selected id as expense_accounting_title_id; code/name are response snapshots.
+  tags:
+    - Journal
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+  responses:
+    '200':
+      description: 日誌費用會計科目選項
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/journal/AccountingTitleOptionListResponse.yaml
+          examples:
+            success:
+              value:
+                data:
+                  - id: 70000000-0000-0000-0000-000000000001
+                    code: '6681'
+                    name: 其他支出
+                    kind: expense
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            unauthorized:
+              value:
+                error_code: UNAUTHORIZED
+                message: Unauthorized.

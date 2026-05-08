@@ -21,6 +21,16 @@ properties:
   expense_description:
     type: string
     nullable: true
+  expense_accounting_title_id:
+    type: string
+    format: uuid
+    nullable: true
+  expense_accounting_title_code:
+    type: string
+    nullable: true
+  expense_accounting_title_name:
+    type: string
+    nullable: true
   created_at:
     type: string
     format: date-time

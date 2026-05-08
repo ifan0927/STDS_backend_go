@@ -10,6 +10,7 @@ import (
 
 const (
 	CodeValidationJournalContentRequired = "VALIDATION_JOURNAL_CONTENT_REQUIRED"
+	CodeJournalExpenseSnapshotFinalized  = "JOURNAL_EXPENSE_SNAPSHOT_FINALIZED"
 )
 
 var (
@@ -17,6 +18,11 @@ var (
 		CodeValidationJournalContentRequired,
 		http.StatusBadRequest,
 		"Journal content is required.",
+	)
+	ErrJournalExpenseSnapshotFinalized = apperr.New(
+		CodeJournalExpenseSnapshotFinalized,
+		http.StatusConflict,
+		"Journal expense belongs to a finalized monthly snapshot.",
 	)
 )
 
@@ -32,6 +38,8 @@ func mapRepositoryError(err error) error {
 		return apperr.ErrPropertyNotFound
 	case errors.Is(err, ErrRoomNotFound):
 		return apperr.ErrRoomNotFound
+	case errors.Is(err, ErrAccountingTitleNotFound):
+		return apperr.ErrBadRequest.WithDetails(map[string]interface{}{"field": "expense_accounting_title_id"})
 	default:
 		return apperr.ErrInternalServerError.WithCause(err)
 	}

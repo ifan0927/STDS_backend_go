@@ -11,10 +11,11 @@ import (
 
 // UpdateInput is the command payload for journal log updates.
 type UpdateInput struct {
-	ID                 string
-	Content            *string
-	ExpenseAmount      *int
-	ExpenseDescription *string
+	ID                       string
+	Content                  *string
+	ExpenseAmount            *int
+	ExpenseDescription       *string
+	ExpenseAccountingTitleID *string
 }
 
 // UpdateService updates journal logs.
@@ -35,7 +36,7 @@ func (s *UpdateService) Execute(ctx context.Context, input UpdateInput) (*Journa
 	if err != nil {
 		return nil, err
 	}
-	if input.Content == nil && input.ExpenseAmount == nil && input.ExpenseDescription == nil {
+	if input.Content == nil && input.ExpenseAmount == nil && input.ExpenseDescription == nil && input.ExpenseAccountingTitleID == nil {
 		return nil, apperr.ErrBadRequest
 	}
 	if s.txRunner == nil {
@@ -61,28 +62,57 @@ func (s *UpdateService) Execute(ctx context.Context, input UpdateInput) (*Journa
 		}
 
 		state := aggregate.State()
+		var expenseTitle *AccountingTitle
+		if journalExpenseAmountPresent(state.ExpenseAmount) {
+			expenseTitle, err = (&CreateService{repo: s.repo}).resolveExpenseAccountingTitle(ctx, tx, input.ExpenseAccountingTitleID, current)
+			if err != nil {
+				return err
+			}
+		} else if input.ExpenseAccountingTitleID != nil {
+			return apperr.ErrBadRequest.WithDetails(map[string]interface{}{"field": "expense_accounting_title_id"})
+		}
+		accountingChanged := journalExpenseAccountingChanges(current, state.ExpenseAmount, state.ExpenseDescription, expenseTitle)
+		if accountingChanged {
+			if s.accountingRepo == nil {
+				return apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "journal_accounting"})
+			}
+			year, month := journalAccountingPeriod(current.CreatedAt)
+			exists, err := s.accountingRepo.JournalExpenseSnapshotExists(ctx, tx, current.PropertyID, year, month)
+			if err != nil {
+				return mapAccountingRepositoryError(err)
+			}
+			if exists {
+				return ErrJournalExpenseSnapshotFinalized
+			}
+		}
 		journalLog, err := s.repo.Update(ctx, tx, UpdateParams{
-			ID:                 id,
-			Content:            state.Content,
-			ExpenseAmount:      state.ExpenseAmount,
-			ExpenseDescription: state.ExpenseDescription,
+			ID:                         id,
+			Content:                    state.Content,
+			ExpenseAmount:              state.ExpenseAmount,
+			ExpenseDescription:         state.ExpenseDescription,
+			ExpenseAccountingTitleID:   accountingTitleID(expenseTitle),
+			ExpenseAccountingTitleCode: accountingTitleCode(expenseTitle),
+			ExpenseAccountingTitleName: accountingTitleName(expenseTitle),
 		})
 		if err != nil {
 			return mapRepositoryError(err)
 		}
 
-		if current.ExpenseAmount != nil || journalLog.ExpenseAmount != nil {
+		if accountingChanged {
 			if s.accountingRepo == nil {
 				return apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "journal_accounting"})
 			}
 			var entry *ExpenseAccountingEntryParams
 			if journalLog.ExpenseAmount != nil {
+				if expenseTitle == nil {
+					return apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "journal_accounting_title"})
+				}
 				year, month := journalAccountingPeriod(journalLog.CreatedAt)
 				sourceDate := journalLog.CreatedAt.In(journalAccountingLocation)
 				entry = &ExpenseAccountingEntryParams{
 					PropertyID:          journalLog.PropertyID,
 					Category:            accountingCategoryJournalExpense,
-					AccountingTitleCode: accountingTitleCodeJournalExpense,
+					AccountingTitleCode: expenseTitle.Code,
 					Amount:              *journalLog.ExpenseAmount,
 					Description:         journalLog.ExpenseDescription,
 					SourceRef:           map[string]interface{}{"type": "JournalExpenseRecorded", "journal_log_id": journalLog.ID},
@@ -107,6 +137,30 @@ func (s *UpdateService) Execute(ctx context.Context, input UpdateInput) (*Journa
 	return updated, nil
 }
 
+func journalExpenseAccountingChanges(current *JournalLog, nextAmount *int, nextDescription *string, nextTitle *AccountingTitle) bool {
+	if current == nil {
+		return nextAmount != nil
+	}
+	if !journalIntPtrEqual(current.ExpenseAmount, nextAmount) {
+		return true
+	}
+	if !journalStringPtrEqual(current.ExpenseDescription, nextDescription) {
+		return true
+	}
+	if current.ExpenseAmount == nil && nextAmount == nil {
+		return false
+	}
+	currentTitleID := ""
+	if current.ExpenseAccountingTitleID != nil {
+		currentTitleID = *current.ExpenseAccountingTitleID
+	}
+	nextTitleID := ""
+	if nextTitle != nil {
+		nextTitleID = nextTitle.ID
+	}
+	return currentTitleID != nextTitleID
+}
+
 func toDomainState(journalLog *JournalLog) domainjournal.State {
 	if journalLog == nil {
 		return domainjournal.State{}
@@ -121,4 +175,18 @@ func toDomainState(journalLog *JournalLog) domainjournal.State {
 		ExpenseAmount:      journalLog.ExpenseAmount,
 		ExpenseDescription: journalLog.ExpenseDescription,
 	}
+}
+
+func journalIntPtrEqual(left *int, right *int) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	return *left == *right
+}
+
+func journalStringPtrEqual(left *string, right *string) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	return *left == *right
 }

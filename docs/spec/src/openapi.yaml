@@ -169,6 +169,8 @@ paths:
     $ref: paths/billing/properties_{id}_tenant-roster.yaml
   /properties/{id}/tenant-lease-roster:
     $ref: paths/billing/properties_{id}_tenant-lease-roster.yaml
+  /journal-expense-accounting-titles:
+    $ref: paths/journal/journal-expense-accounting-titles.yaml
   /journal-logs:
     $ref: paths/journal/journal-logs.yaml
   /journal-logs/{id}:

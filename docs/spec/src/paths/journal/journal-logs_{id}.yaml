@@ -92,6 +92,7 @@ patch:
           default:
             value:
               content: 浴室漏水修繕（已完成）
+              expense_accounting_title_id: 70000000-0000-0000-0000-000000000001
   responses:
     '200':
       description: 更新成功
@@ -104,6 +105,8 @@ patch:
               value:
                 id: 60000000-0000-0000-0000-000000000001
                 content: 浴室漏水修繕（已完成）
+                expense_accounting_title_code: '6681'
+                expense_accounting_title_name: 其他支出
                 updated_at: '2026-04-15T15:00:00Z'
     '401':
       description: 未認證
@@ -138,6 +141,17 @@ patch:
               value:
                 error_code: JOURNAL_LOG_NOT_FOUND
                 message: Journal log not found.
+    '409':
+      description: 日誌費用所屬月份已月結，不能改變會計影響
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            snapshot_finalized:
+              value:
+                error_code: JOURNAL_EXPENSE_SNAPSHOT_FINALIZED
+                message: Journal expense belongs to a finalized monthly snapshot.
 delete:
   operationId: deleteJournalLog
   summary: 刪除日誌（軟刪除）
@@ -190,3 +204,14 @@ delete:
               value:
                 error_code: JOURNAL_LOG_NOT_FOUND
                 message: Journal log not found.
+    '409':
+      description: 日誌費用所屬月份已月結，不能刪除會計影響
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+          examples:
+            snapshot_finalized:
+              value:
+                error_code: JOURNAL_EXPENSE_SNAPSHOT_FINALIZED
+                message: Journal expense belongs to a finalized monthly snapshot.

@@ -19,6 +19,7 @@ const (
 	testPropertyID = "10000000-0000-0000-0000-000000000001"
 	testRoomID     = "20000000-0000-0000-0000-000000000001"
 	testActorID    = "00000000-0000-0000-0000-000000000002"
+	testTitleID    = "70000000-0000-0000-0000-000000000001"
 )
 
 func TestCreateServiceCreatesAccountingEntryAndPublishesEventWhenExpensePresent(t *testing.T) {
@@ -98,6 +99,52 @@ func TestCreateServiceCreatesAccountingEntryAndPublishesEventWhenExpensePresent(
 	}
 }
 
+func TestCreateServiceUsesRequestedExpenseAccountingTitle(t *testing.T) {
+	amount := 3500
+	requestedTitleID := "70000000-0000-0000-0000-000000000099"
+	requestedTitle := AccountingTitle{ID: requestedTitleID, Code: "6115", Name: "維護修繕費", Kind: "expense"}
+	repo := &journalRepositoryStub{
+		propertyExists: true,
+		titlesByID: map[string]AccountingTitle{
+			requestedTitleID: requestedTitle,
+		},
+		created: &JournalLog{
+			ID:                         testJournalID,
+			PropertyID:                 testPropertyID,
+			AuthorID:                   testActorID,
+			Content:                    "Bathroom repair",
+			ExpenseAmount:              &amount,
+			ExpenseAccountingTitleID:   &requestedTitle.ID,
+			ExpenseAccountingTitleCode: &requestedTitle.Code,
+			ExpenseAccountingTitleName: &requestedTitle.Name,
+			CreatedAt:                  time.Date(2026, 4, 15, 11, 0, 0, 0, time.UTC),
+			UpdatedAt:                  time.Date(2026, 4, 15, 11, 0, 0, 0, time.UTC),
+		},
+	}
+	accountingRepo := &expenseAccountingRepositoryStub{}
+	runner, _, cleanup := newJournalTxRunner(t)
+	defer cleanup()
+	service := NewCreateService(repo, accountingRepo, runner)
+
+	created, err := service.Execute(context.Background(), CreateInput{
+		ActorRole:                "admin",
+		ActorUserID:              testActorID,
+		PropertyID:               testPropertyID,
+		Content:                  "Bathroom repair",
+		ExpenseAmount:            &amount,
+		ExpenseAccountingTitleID: &requestedTitleID,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if accountingRepo.entry.AccountingTitleCode != requestedTitle.Code {
+		t.Fatalf("AccountingTitleCode = %q, want %q", accountingRepo.entry.AccountingTitleCode, requestedTitle.Code)
+	}
+	if created.ExpenseAccountingTitleID == nil || *created.ExpenseAccountingTitleID != requestedTitleID {
+		t.Fatalf("created title id = %+v, want %s", created.ExpenseAccountingTitleID, requestedTitleID)
+	}
+}
+
 func TestCreateServiceDoesNotCreateAccountingEntryOrPublishExpenseEventWithoutExpense(t *testing.T) {
 	repo := &journalRepositoryStub{
 		propertyExists: true,
@@ -164,6 +211,43 @@ func TestCreateServiceRollsBackWhenAccountingEntryFails(t *testing.T) {
 	}
 	if accountingRepo.createCalls != 1 {
 		t.Fatalf("CreateExpenseAccountingEntry calls = %d, want 1", accountingRepo.createCalls)
+	}
+	if len(publisher.events) != 0 {
+		t.Fatalf("published events = %d, want 0", len(publisher.events))
+	}
+}
+
+func TestCreateServiceRejectsExpenseAfterMonthlySnapshot(t *testing.T) {
+	amount := 3500
+	repo := &journalRepositoryStub{
+		propertyExists: true,
+		created: &JournalLog{
+			ID:            testJournalID,
+			PropertyID:    testPropertyID,
+			AuthorID:      testActorID,
+			Content:       "Bathroom repair",
+			ExpenseAmount: &amount,
+			CreatedAt:     time.Date(2026, 4, 15, 11, 0, 0, 0, time.UTC),
+			UpdatedAt:     time.Date(2026, 4, 15, 11, 0, 0, 0, time.UTC),
+		},
+	}
+	accountingRepo := &expenseAccountingRepositoryStub{snapshotExists: true}
+	runner, publisher, cleanup := newJournalTxRunnerExpectRollback(t)
+	defer cleanup()
+	service := NewCreateService(repo, accountingRepo, runner)
+
+	_, err := service.Execute(context.Background(), CreateInput{
+		ActorRole:     "admin",
+		ActorUserID:   testActorID,
+		PropertyID:    testPropertyID,
+		Content:       "Bathroom repair",
+		ExpenseAmount: &amount,
+	})
+	if !errors.Is(err, ErrJournalExpenseSnapshotFinalized) {
+		t.Fatalf("Execute() error = %v, want ErrJournalExpenseSnapshotFinalized", err)
+	}
+	if accountingRepo.createCalls != 0 {
+		t.Fatalf("CreateExpenseAccountingEntry calls = %d, want 0", accountingRepo.createCalls)
 	}
 	if len(publisher.events) != 0 {
 		t.Fatalf("published events = %d, want 0", len(publisher.events))
@@ -404,17 +488,146 @@ func TestUpdateServiceRejectsEmptyContent(t *testing.T) {
 	}
 }
 
-func TestDeleteServiceSoftDeletesJournalLog(t *testing.T) {
-	repo := &journalRepositoryStub{}
+func TestUpdateServiceDoesNotSyncAccountingEntryForContentOnlyExpenseUpdate(t *testing.T) {
+	amount := 3500
+	repo := &journalRepositoryStub{
+		current: &JournalLog{
+			ID:                         testJournalID,
+			PropertyID:                 testPropertyID,
+			AuthorID:                   testActorID,
+			Content:                    "Original",
+			ExpenseAmount:              &amount,
+			ExpenseDescription:         stringPtr("Pipe repair"),
+			ExpenseAccountingTitleID:   stringPtr(testTitleID),
+			ExpenseAccountingTitleCode: stringPtr(accountingTitleCodeJournalExpense),
+			ExpenseAccountingTitleName: stringPtr("其他支出"),
+			CreatedAt:                  time.Date(2026, 4, 15, 11, 0, 0, 0, time.UTC),
+			UpdatedAt:                  time.Now(),
+		},
+	}
 	runner, _, cleanup := newJournalTxRunner(t)
 	defer cleanup()
-	service := NewDeleteService(repo, runner)
+	accountingRepo := &expenseAccountingRepositoryStub{snapshotExists: true}
+	service := NewUpdateService(repo, accountingRepo, runner)
+	content := " Updated content "
+
+	updated, err := service.Execute(context.Background(), UpdateInput{
+		ID:      testJournalID,
+		Content: &content,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if updated.Content != "Updated content" {
+		t.Fatalf("Content = %q, want trimmed content", updated.Content)
+	}
+	if accountingRepo.syncCalls != 0 {
+		t.Fatalf("SyncExpenseAccountingEntry calls = %d, want 0", accountingRepo.syncCalls)
+	}
+}
+
+func TestUpdateServiceRejectsExpenseChangeAfterMonthlySnapshot(t *testing.T) {
+	amount := 3500
+	updatedAmount := 4200
+	repo := &journalRepositoryStub{
+		current: &JournalLog{
+			ID:                         testJournalID,
+			PropertyID:                 testPropertyID,
+			AuthorID:                   testActorID,
+			Content:                    "Original",
+			ExpenseAmount:              &amount,
+			ExpenseAccountingTitleID:   stringPtr(testTitleID),
+			ExpenseAccountingTitleCode: stringPtr(accountingTitleCodeJournalExpense),
+			ExpenseAccountingTitleName: stringPtr("其他支出"),
+			CreatedAt:                  time.Date(2026, 4, 15, 11, 0, 0, 0, time.UTC),
+			UpdatedAt:                  time.Now(),
+		},
+	}
+	runner, _, cleanup := newJournalTxRunnerExpectRollback(t)
+	defer cleanup()
+	service := NewUpdateService(repo, &expenseAccountingRepositoryStub{snapshotExists: true}, runner)
+
+	_, err := service.Execute(context.Background(), UpdateInput{
+		ID:            testJournalID,
+		ExpenseAmount: &updatedAmount,
+	})
+	if !errors.Is(err, ErrJournalExpenseSnapshotFinalized) {
+		t.Fatalf("Execute() error = %v, want ErrJournalExpenseSnapshotFinalized", err)
+	}
+}
+
+func TestDeleteServiceSoftDeletesJournalLog(t *testing.T) {
+	repo := &journalRepositoryStub{
+		current: &JournalLog{
+			ID:         testJournalID,
+			PropertyID: testPropertyID,
+			AuthorID:   testActorID,
+			Content:    "Original",
+			CreatedAt:  time.Now(),
+			UpdatedAt:  time.Now(),
+		},
+	}
+	runner, _, cleanup := newJournalTxRunner(t)
+	defer cleanup()
+	service := NewDeleteService(repo, &expenseAccountingRepositoryStub{}, runner)
 
 	if err := service.Execute(context.Background(), DeleteInput{ID: testJournalID}); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
 	if repo.deletedID != testJournalID {
 		t.Fatalf("deletedID = %s, want %s", repo.deletedID, testJournalID)
+	}
+}
+
+func TestDeleteServiceDeletesLiveExpenseAccountingEntry(t *testing.T) {
+	amount := 3500
+	repo := &journalRepositoryStub{
+		current: &JournalLog{
+			ID:            testJournalID,
+			PropertyID:    testPropertyID,
+			AuthorID:      testActorID,
+			Content:       "Original",
+			ExpenseAmount: &amount,
+			CreatedAt:     time.Date(2026, 4, 15, 11, 0, 0, 0, time.UTC),
+			UpdatedAt:     time.Now(),
+		},
+	}
+	accountingRepo := &expenseAccountingRepositoryStub{}
+	runner, _, cleanup := newJournalTxRunner(t)
+	defer cleanup()
+	service := NewDeleteService(repo, accountingRepo, runner)
+
+	if err := service.Execute(context.Background(), DeleteInput{ID: testJournalID}); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if accountingRepo.syncCalls != 1 || accountingRepo.syncedEntry != nil {
+		t.Fatalf("expected accounting delete sync, calls=%d entry=%+v", accountingRepo.syncCalls, accountingRepo.syncedEntry)
+	}
+}
+
+func TestDeleteServiceRejectsExpenseAfterMonthlySnapshot(t *testing.T) {
+	amount := 3500
+	repo := &journalRepositoryStub{
+		current: &JournalLog{
+			ID:            testJournalID,
+			PropertyID:    testPropertyID,
+			AuthorID:      testActorID,
+			Content:       "Original",
+			ExpenseAmount: &amount,
+			CreatedAt:     time.Date(2026, 4, 15, 11, 0, 0, 0, time.UTC),
+			UpdatedAt:     time.Now(),
+		},
+	}
+	runner, _, cleanup := newJournalTxRunnerExpectRollback(t)
+	defer cleanup()
+	service := NewDeleteService(repo, &expenseAccountingRepositoryStub{snapshotExists: true}, runner)
+
+	err := service.Execute(context.Background(), DeleteInput{ID: testJournalID})
+	if !errors.Is(err, ErrJournalExpenseSnapshotFinalized) {
+		t.Fatalf("Execute() error = %v, want ErrJournalExpenseSnapshotFinalized", err)
+	}
+	if repo.deletedID != "" {
+		t.Fatalf("deletedID = %s, want empty", repo.deletedID)
 	}
 }
 
@@ -432,6 +645,8 @@ type expenseAccountingRepositoryStub struct {
 	syncedEntry        *ExpenseAccountingEntryParams
 	syncedJournalLogID string
 	err                error
+	snapshotExists     bool
+	snapshotErr        error
 	createCalls        int
 	syncCalls          int
 }
@@ -447,6 +662,10 @@ func (s *expenseAccountingRepositoryStub) SyncExpenseAccountingEntry(_ context.C
 	s.syncedJournalLogID = journalLogID
 	s.syncedEntry = params
 	return s.err
+}
+
+func (s *expenseAccountingRepositoryStub) JournalExpenseSnapshotExists(context.Context, *sql.Tx, string, int, int) (bool, error) {
+	return s.snapshotExists, s.snapshotErr
 }
 
 func newJournalTxRunner(t *testing.T) (*txrunner.Runner, *journalPublisherStub, func()) {
@@ -488,6 +707,8 @@ func newJournalTxRunnerWithExpectation(t *testing.T, commit bool) (*txrunner.Run
 type journalRepositoryStub struct {
 	propertyExists bool
 	room           *Room
+	titles         []AccountingTitle
+	titlesByID     map[string]AccountingTitle
 	created        *JournalLog
 	current        *JournalLog
 	listResult     ListResult
@@ -514,6 +735,29 @@ func (s *journalRepositoryStub) FindByIDForUpdate(context.Context, *sql.Tx, stri
 	return s.current, nil
 }
 
+func (s *journalRepositoryStub) ListExpenseAccountingTitles(context.Context) ([]AccountingTitle, error) {
+	if s.titles != nil {
+		return s.titles, nil
+	}
+	return []AccountingTitle{defaultAccountingTitle()}, nil
+}
+
+func (s *journalRepositoryStub) FindExpenseAccountingTitleByID(_ context.Context, _ *sql.Tx, id string) (*AccountingTitle, error) {
+	if s.titlesByID != nil {
+		if title, ok := s.titlesByID[id]; ok {
+			return &title, nil
+		}
+		return nil, ErrAccountingTitleNotFound
+	}
+	title := defaultAccountingTitle()
+	return &title, nil
+}
+
+func (s *journalRepositoryStub) FindExpenseAccountingTitleByCode(context.Context, *sql.Tx, string) (*AccountingTitle, error) {
+	title := defaultAccountingTitle()
+	return &title, nil
+}
+
 func (s *journalRepositoryStub) EnsurePropertyExists(context.Context, *sql.Tx, string) error {
 	if !s.propertyExists {
 		return ErrPropertyNotFound
@@ -536,15 +780,18 @@ func (s *journalRepositoryStub) Create(_ context.Context, _ *sql.Tx, params Crea
 	}
 
 	return &JournalLog{
-		ID:                 testJournalID,
-		PropertyID:         params.PropertyID,
-		RoomID:             params.RoomID,
-		AuthorID:           params.AuthorID,
-		Content:            params.Content,
-		ExpenseAmount:      params.ExpenseAmount,
-		ExpenseDescription: params.ExpenseDescription,
-		CreatedAt:          time.Now(),
-		UpdatedAt:          time.Now(),
+		ID:                         testJournalID,
+		PropertyID:                 params.PropertyID,
+		RoomID:                     params.RoomID,
+		AuthorID:                   params.AuthorID,
+		Content:                    params.Content,
+		ExpenseAmount:              params.ExpenseAmount,
+		ExpenseDescription:         params.ExpenseDescription,
+		ExpenseAccountingTitleID:   params.ExpenseAccountingTitleID,
+		ExpenseAccountingTitleCode: params.ExpenseAccountingTitleCode,
+		ExpenseAccountingTitleName: params.ExpenseAccountingTitleName,
+		CreatedAt:                  time.Now(),
+		UpdatedAt:                  time.Now(),
 	}, nil
 }
 
@@ -554,15 +801,18 @@ func (s *journalRepositoryStub) Update(_ context.Context, _ *sql.Tx, params Upda
 	}
 
 	return &JournalLog{
-		ID:                 params.ID,
-		PropertyID:         s.current.PropertyID,
-		RoomID:             s.current.RoomID,
-		AuthorID:           s.current.AuthorID,
-		Content:            params.Content,
-		ExpenseAmount:      params.ExpenseAmount,
-		ExpenseDescription: params.ExpenseDescription,
-		CreatedAt:          s.current.CreatedAt,
-		UpdatedAt:          time.Now(),
+		ID:                         params.ID,
+		PropertyID:                 s.current.PropertyID,
+		RoomID:                     s.current.RoomID,
+		AuthorID:                   s.current.AuthorID,
+		Content:                    params.Content,
+		ExpenseAmount:              params.ExpenseAmount,
+		ExpenseDescription:         params.ExpenseDescription,
+		ExpenseAccountingTitleID:   params.ExpenseAccountingTitleID,
+		ExpenseAccountingTitleCode: params.ExpenseAccountingTitleCode,
+		ExpenseAccountingTitleName: params.ExpenseAccountingTitleName,
+		CreatedAt:                  s.current.CreatedAt,
+		UpdatedAt:                  time.Now(),
 	}, nil
 }
 
@@ -573,4 +823,13 @@ func (s *journalRepositoryStub) SoftDelete(_ context.Context, _ *sql.Tx, id stri
 
 func stringPtr(value string) *string {
 	return &value
+}
+
+func defaultAccountingTitle() AccountingTitle {
+	return AccountingTitle{
+		ID:   testTitleID,
+		Code: accountingTitleCodeJournalExpense,
+		Name: "其他支出",
+		Kind: "expense",
+	}
 }

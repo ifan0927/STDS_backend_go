@@ -33,6 +33,7 @@ var expectedMigrationVersions = []string{
 	"000015",
 	"000016",
 	"000017",
+	"000018",
 }
 
 func TestRunnerUpAppliesMigrationsAndRecordsVersions(t *testing.T) {
@@ -78,8 +79,8 @@ func TestRunnerDownRollsBackAppliedMigrationsInDescendingOrder(t *testing.T) {
 	defer db.Close()
 
 	migrations := migrationsByVersion(t, "down")
-	appliedVersions := []string{"000012", "000013", "000014", "000015", "000016", "000017"}
-	expectedRollbackOrder := []string{"000017", "000016", "000015", "000014", "000013", "000012"}
+	appliedVersions := []string{"000012", "000013", "000014", "000015", "000016", "000017", "000018"}
+	expectedRollbackOrder := []string{"000018", "000017", "000016", "000015", "000014", "000013", "000012"}
 
 	expectSchemaMigrationsQuery(mock, appliedVersions)
 	for _, version := range expectedRollbackOrder {

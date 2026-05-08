@@ -6,3 +6,8 @@ properties:
     type: integer
   expense_description:
     type: string
+  expense_accounting_title_id:
+    type: string
+    format: uuid
+    nullable: true
+    description: Updates the selected expense accounting title when the journal has an expense amount.

@@ -64,3 +64,7 @@ func (a journalExpenseAccountingAdapter) SyncExpenseAccountingEntry(ctx context.
 		DisplayNote:         params.DisplayNote,
 	})
 }
+
+func (a journalExpenseAccountingAdapter) JournalExpenseSnapshotExists(ctx context.Context, tx *sql.Tx, propertyID string, year int, month int) (bool, error) {
+	return a.repo.MonthlySnapshotExists(ctx, tx, propertyID, year, month)
+}
