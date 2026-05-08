@@ -132,6 +132,7 @@ func (a leaseRepositoryAdapter) CreateLease(ctx context.Context, tx *sql.Tx, par
 		EndDate:                   params.EndDate,
 		RentBillingCadence:        params.RentBillingCadence,
 		ElectricityBillingCadence: params.ElectricityBillingCadence,
+		StartingMeterReading:      params.StartingMeterReading,
 		DepositAmount:             params.DepositAmount,
 		Notes:                     params.Notes,
 	})
@@ -383,6 +384,7 @@ func toApplicationLease(lease *dbleases.Lease) *applease.Lease {
 		EndDate:                   lease.EndDate,
 		RentBillingCadence:        lease.RentBillingCadence,
 		ElectricityBillingCadence: lease.ElectricityBillingCadence,
+		StartingMeterReading:      lease.StartingMeterReading,
 		Status:                    lease.Status,
 		DepositAmount:             lease.DepositAmount,
 		DepositRefundAmount:       lease.DepositRefundAmount,

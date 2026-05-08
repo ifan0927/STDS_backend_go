@@ -37,6 +37,7 @@ type CreateLeaseInput struct {
 	DepositAmount             int
 	RentBillingCadence        string
 	ElectricityBillingCadence *string
+	StartingMeterReading      int
 }
 
 // CreateLeaseService creates a lease and pre-generates bills.
@@ -66,6 +67,9 @@ func (s *CreateLeaseService) Execute(ctx context.Context, input CreateLeaseInput
 	}
 	if input.EndDate.IsZero() {
 		return nil, errValidationEndDateRequired
+	}
+	if input.StartingMeterReading < 0 {
+		return nil, errValidationStartingMeterReadingInvalid
 	}
 
 	actorRole := strings.ToLower(strings.TrimSpace(input.ActorRole))
@@ -136,6 +140,7 @@ func (s *CreateLeaseService) Execute(ctx context.Context, input CreateLeaseInput
 			EndDate:                   state.EndDate,
 			RentBillingCadence:        state.RentBillingCadence,
 			ElectricityBillingCadence: state.ElectricityBillingCadence,
+			StartingMeterReading:      input.StartingMeterReading,
 			DepositAmount:             state.DepositAmount,
 		})
 		if err != nil {

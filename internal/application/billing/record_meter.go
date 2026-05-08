@@ -58,7 +58,7 @@ func (s *RecordMeterService) Execute(ctx context.Context, input RecordMeterInput
 			return mapRepositoryError(err)
 		}
 
-		previousReading, err := s.repo.FindPreviousElectricityReading(ctx, tx, current.RoomID, current.PeriodStart)
+		previousReading, err := s.repo.FindPreviousElectricityReading(ctx, tx, current.LeaseID, current.PeriodStart)
 		if err != nil {
 			return mapRepositoryError(err)
 		}

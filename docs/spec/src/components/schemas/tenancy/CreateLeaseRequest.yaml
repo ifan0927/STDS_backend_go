@@ -6,6 +6,7 @@ required:
   - start_date
   - end_date
   - deposit_amount
+  - starting_meter_reading
 properties:
   tenant_id:
     type: string
@@ -37,3 +38,8 @@ properties:
       - monthly
       - bimonthly
     description: 可省略；若未提供則套用 Property 的 default_electricity_billing_cadence
+  starting_meter_reading:
+    type: integer
+    minimum: 0
+    description: Move-in starting meter reading. Backend uses it as the previous reading baseline for the first electricity bill in this lease.
+    x-go-type: '*int'

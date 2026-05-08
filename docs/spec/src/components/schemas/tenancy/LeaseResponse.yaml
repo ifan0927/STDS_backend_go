@@ -38,6 +38,10 @@ properties:
     enum:
       - monthly
       - bimonthly
+  starting_meter_reading:
+    type: integer
+    nullable: true
+    description: Move-in starting meter reading. Existing or legacy leases may be null.
   status:
     type: string
     enum:

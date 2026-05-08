@@ -27,6 +27,7 @@ type Lease struct {
 	EndDate                   time.Time
 	RentBillingCadence        string
 	ElectricityBillingCadence string
+	StartingMeterReading      *int
 	Status                    string
 	DepositAmount             int
 	DepositRefundAmount       *int
@@ -162,6 +163,7 @@ SELECT
 	l.end_date,
 	l.rent_billing_cadence,
 	l.electricity_billing_cadence,
+	l.starting_meter_reading,
 	l.status,
 	l.deposit_amount,
 	l.deposit_refund_amount,
@@ -247,6 +249,7 @@ SELECT
 	l.end_date,
 	l.rent_billing_cadence,
 	l.electricity_billing_cadence,
+	l.starting_meter_reading,
 	l.status,
 	l.deposit_amount,
 	l.deposit_refund_amount,
@@ -415,6 +418,7 @@ func scanLease(row rowScanner) (*Lease, error) {
 	var lease Lease
 	var depositRefundAmount sql.NullInt64
 	var depositDeductionAmount sql.NullInt64
+	var startingMeterReading sql.NullInt64
 	var depositDeductionReason sql.NullString
 	var notes sql.NullString
 	var terminationReason sql.NullString
@@ -433,6 +437,7 @@ func scanLease(row rowScanner) (*Lease, error) {
 		&lease.EndDate,
 		&lease.RentBillingCadence,
 		&lease.ElectricityBillingCadence,
+		&startingMeterReading,
 		&lease.Status,
 		&lease.DepositAmount,
 		&depositRefundAmount,
@@ -451,6 +456,7 @@ func scanLease(row rowScanner) (*Lease, error) {
 
 	lease.DepositRefundAmount = nullIntPtr(depositRefundAmount)
 	lease.DepositDeductionAmount = nullIntPtr(depositDeductionAmount)
+	lease.StartingMeterReading = nullIntPtr(startingMeterReading)
 	lease.DepositDeductionReason = nullStringPtr(depositDeductionReason)
 	lease.Notes = nullStringPtr(notes)
 	lease.TerminationReason = nullStringPtr(terminationReason)

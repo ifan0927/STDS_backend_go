@@ -186,6 +186,7 @@ type terminationE2ELeaseResponse struct {
 	StartDate                 string `json:"start_date"`
 	EndDate                   string `json:"end_date"`
 	ElectricityBillingCadence string `json:"electricity_billing_cadence"`
+	StartingMeterReading      *int   `json:"starting_meter_reading"`
 	Status                    string `json:"status"`
 	DepositAmount             int    `json:"deposit_amount"`
 	DepositStatus             string `json:"deposit_status"`
@@ -284,6 +285,7 @@ func terminationE2ECreateLease(t *testing.T, ctx context.Context, client apiClie
 		"end_date":                    "2026-08-31",
 		"deposit_amount":              36000,
 		"electricity_billing_cadence": "monthly",
+		"starting_meter_reading":      50,
 	}
 	resp, body, err := client.postJSON(ctx, "/api/v1/leases", request)
 	if err != nil {

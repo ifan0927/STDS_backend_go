@@ -168,8 +168,8 @@ func TestRecordMeterServiceRecordsMeterAndPublishesEventAfterCommit(t *testing.T
 	if bill == nil || bill.Status != domainbilling.StatusPendingPayment || bill.Amount == nil || *bill.Amount != 585 {
 		t.Fatalf("unexpected bill: %+v", bill)
 	}
-	if repo.previousLookupRoomID != testRoomID || !repo.previousLookupBeforePeriodStart.Equal(repo.billForUpdate.PeriodStart) {
-		t.Fatalf("previous lookup = room %q before %v, want room %q before %v", repo.previousLookupRoomID, repo.previousLookupBeforePeriodStart, testRoomID, repo.billForUpdate.PeriodStart)
+	if repo.previousLookupLeaseID != testLeaseID || !repo.previousLookupBeforePeriodStart.Equal(repo.billForUpdate.PeriodStart) {
+		t.Fatalf("previous lookup = lease %q before %v, want lease %q before %v", repo.previousLookupLeaseID, repo.previousLookupBeforePeriodStart, testLeaseID, repo.billForUpdate.PeriodStart)
 	}
 	if repo.previousLookupTx == nil {
 		t.Fatal("expected previous reading lookup to receive transaction")
@@ -585,7 +585,7 @@ type billingRepositoryStub struct {
 	previousReading                 int
 	previousErr                     error
 	previousLookupTx                *sql.Tx
-	previousLookupRoomID            string
+	previousLookupLeaseID           string
 	previousLookupBeforePeriodStart time.Time
 	electricityUnitPrice            *float64
 	unitPriceLookupTx               *sql.Tx
@@ -621,9 +621,9 @@ func (s *billingRepositoryStub) FindBillByIDForUpdate(_ context.Context, _ *sql.
 	return s.billForUpdate, nil
 }
 
-func (s *billingRepositoryStub) FindPreviousElectricityReading(_ context.Context, tx *sql.Tx, roomID string, beforePeriodStart time.Time) (int, error) {
+func (s *billingRepositoryStub) FindPreviousElectricityReading(_ context.Context, tx *sql.Tx, leaseID string, beforePeriodStart time.Time) (int, error) {
 	s.previousLookupTx = tx
-	s.previousLookupRoomID = roomID
+	s.previousLookupLeaseID = leaseID
 	s.previousLookupBeforePeriodStart = beforePeriodStart
 	if s.previousErr != nil {
 		return 0, s.previousErr

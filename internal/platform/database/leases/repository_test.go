@@ -94,6 +94,7 @@ func TestFindLeaseByIDForUpdateScansNullableFieldsAndSettlementDetail(t *testing
 	end_date,
 	rent_billing_cadence,
 	electricity_billing_cadence,
+	starting_meter_reading,
 	status,
 	deposit_amount,
 	deposit_refund_amount,
@@ -112,7 +113,7 @@ WHERE id = $1
 FOR UPDATE`)).
 		WithArgs("lease-1").
 		WillReturnRows(newLeaseRows().AddRow(
-			"lease-1", "tenant-1", "property-1", "room-1", 25000, startDate, endDate, "monthly", "monthly",
+			"lease-1", "tenant-1", "property-1", "room-1", 25000, startDate, endDate, "monthly", "monthly", nil,
 			"terminated", 50000, 30000, 20000, "settled", "cleaning", "renewal candidate",
 			"tenant requested move-out", `{"deductions":[{"type":"cleaning","amount":20000}],"refund":30000}`,
 			now, now, 7,
@@ -168,10 +169,11 @@ func TestCreateLeasePersistsHeldDepositStatusAndNotes(t *testing.T) {
 	end_date,
 	rent_billing_cadence,
 	electricity_billing_cadence,
+	starting_meter_reading,
 	deposit_amount,
 	deposit_status,
 	notes
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'held', $10)
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'held', $11)
 RETURNING
 	id,
 	tenant_id,
@@ -182,6 +184,7 @@ RETURNING
 	end_date,
 	rent_billing_cadence,
 	electricity_billing_cadence,
+	starting_meter_reading,
 	status,
 	deposit_amount,
 	deposit_refund_amount,
@@ -194,9 +197,9 @@ RETURNING
 	created_at,
 	updated_at,
 	version`)).
-		WithArgs("tenant-1", "room-1", "property-1", 25000, startDate, endDate, "monthly", "monthly", 50000, &notes).
+		WithArgs("tenant-1", "room-1", "property-1", 25000, startDate, endDate, "monthly", "monthly", 1250, 50000, &notes).
 		WillReturnRows(newLeaseRows().AddRow(
-			"lease-1", "tenant-1", "property-1", "room-1", 25000, startDate, endDate, "monthly", "monthly",
+			"lease-1", "tenant-1", "property-1", "room-1", 25000, startDate, endDate, "monthly", "monthly", 1250,
 			"active", 50000, nil, nil, "held", nil, notes, nil, nil, now, now, 1,
 		))
 
@@ -209,6 +212,7 @@ RETURNING
 		EndDate:                   endDate,
 		RentBillingCadence:        "monthly",
 		ElectricityBillingCadence: "monthly",
+		StartingMeterReading:      1250,
 		DepositAmount:             50000,
 		Notes:                     &notes,
 	})
@@ -248,10 +252,11 @@ func TestCreateLeasePersistsAndReturnsRentBillingCadence(t *testing.T) {
 	end_date,
 	rent_billing_cadence,
 	electricity_billing_cadence,
+	starting_meter_reading,
 	deposit_amount,
 	deposit_status,
 	notes
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'held', $10)
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'held', $11)
 RETURNING
 	id,
 	tenant_id,
@@ -262,6 +267,7 @@ RETURNING
 	end_date,
 	rent_billing_cadence,
 	electricity_billing_cadence,
+	starting_meter_reading,
 	status,
 	deposit_amount,
 	deposit_refund_amount,
@@ -274,9 +280,9 @@ RETURNING
 	created_at,
 	updated_at,
 	version`)).
-		WithArgs("tenant-1", "room-1", "property-1", 54000, startDate, endDate, "quarterly", "monthly", 50000, nil).
+		WithArgs("tenant-1", "room-1", "property-1", 54000, startDate, endDate, "quarterly", "monthly", 1300, 50000, nil).
 		WillReturnRows(newLeaseRowsWithRentCadence().AddRow(
-			"lease-1", "tenant-1", "property-1", "room-1", 54000, startDate, endDate, "quarterly", "monthly",
+			"lease-1", "tenant-1", "property-1", "room-1", 54000, startDate, endDate, "quarterly", "monthly", 1300,
 			"active", 50000, nil, nil, "held", nil, nil, nil, nil, now, now, 1,
 		))
 
@@ -289,6 +295,7 @@ RETURNING
 		EndDate:                   endDate,
 		RentBillingCadence:        "quarterly",
 		ElectricityBillingCadence: "monthly",
+		StartingMeterReading:      1300,
 		DepositAmount:             50000,
 	})
 	if err != nil {
@@ -411,6 +418,7 @@ RETURNING
 	end_date,
 	rent_billing_cadence,
 	electricity_billing_cadence,
+	starting_meter_reading,
 	status,
 	deposit_amount,
 	deposit_refund_amount,
@@ -425,7 +433,7 @@ RETURNING
 	version`)).
 		WithArgs("lease-1", endDate, "tenant requested", nil).
 		WillReturnRows(newLeaseRows().AddRow(
-			"lease-1", "tenant-1", "property-1", "room-1", 25000, startDate, endDate, "monthly", "monthly",
+			"lease-1", "tenant-1", "property-1", "room-1", 25000, startDate, endDate, "monthly", "monthly", nil,
 			"terminated", 50000, nil, nil, "held", nil, nil, "tenant requested", nil, now, now, 2,
 		))
 
@@ -483,6 +491,7 @@ RETURNING
 	end_date,
 	rent_billing_cadence,
 	electricity_billing_cadence,
+	starting_meter_reading,
 	status,
 	deposit_amount,
 	deposit_refund_amount,
@@ -497,7 +506,7 @@ RETURNING
 	version`)).
 		WithArgs("lease-1", endDate, "tenant requested", `{"ExportAvailable":true,"LeaseID":"lease-1","NetAmount":45000,"NetDirection":"refund"}`).
 		WillReturnRows(newLeaseRows().AddRow(
-			"lease-1", "tenant-1", "property-1", "room-1", 25000, startDate, endDate, "monthly", "monthly",
+			"lease-1", "tenant-1", "property-1", "room-1", 25000, startDate, endDate, "monthly", "monthly", nil,
 			"terminated", 50000, nil, nil, "held", nil, nil, "tenant requested",
 			`{"ExportAvailable":true,"LeaseID":"lease-1","NetAmount":45000,"NetDirection":"refund"}`,
 			now, now, 2,
@@ -548,6 +557,7 @@ RETURNING
 	end_date,
 	rent_billing_cadence,
 	electricity_billing_cadence,
+	starting_meter_reading,
 	status,
 	deposit_amount,
 	deposit_refund_amount,
@@ -562,7 +572,7 @@ RETURNING
 	version`)).
 		WithArgs("lease-1", "breach", "forfeited").
 		WillReturnRows(newLeaseRows().AddRow(
-			"lease-1", "tenant-1", "property-1", "room-1", 25000, startDate, endDate, "monthly", "monthly",
+			"lease-1", "tenant-1", "property-1", "room-1", 25000, startDate, endDate, "monthly", "monthly", nil,
 			"force_terminated", 50000, nil, nil, "forfeited", nil, nil, "breach", nil, now, now, 3,
 		))
 
@@ -611,6 +621,7 @@ RETURNING
 	end_date,
 	rent_billing_cadence,
 	electricity_billing_cadence,
+	starting_meter_reading,
 	status,
 	deposit_amount,
 	deposit_refund_amount,
@@ -625,7 +636,7 @@ RETURNING
 	version`)).
 		WithArgs("lease-1", 28000).
 		WillReturnRows(newLeaseRows().AddRow(
-			"lease-1", "tenant-1", "property-1", "room-1", 28000, startDate, endDate, "monthly", "monthly",
+			"lease-1", "tenant-1", "property-1", "room-1", 28000, startDate, endDate, "monthly", "monthly", nil,
 			"active", 50000, nil, nil, "held", nil, nil, nil, nil, now, now, 4,
 		))
 
@@ -677,6 +688,7 @@ RETURNING
 	end_date,
 	rent_billing_cadence,
 	electricity_billing_cadence,
+	starting_meter_reading,
 	status,
 	deposit_amount,
 	deposit_refund_amount,
@@ -691,7 +703,7 @@ RETURNING
 	version`)).
 		WithArgs("lease-1", 30000, 20000, reason).
 		WillReturnRows(newLeaseRows().AddRow(
-			"lease-1", "tenant-1", "property-1", "room-1", 25000, startDate, endDate, "monthly", "monthly",
+			"lease-1", "tenant-1", "property-1", "room-1", 25000, startDate, endDate, "monthly", "monthly", nil,
 			"terminated", 50000, 30000, 20000, "settled", reason, nil, nil, nil, now, now, 5,
 		))
 
@@ -1197,6 +1209,7 @@ func newLeaseRows() *sqlmock.Rows {
 		"end_date",
 		"rent_billing_cadence",
 		"electricity_billing_cadence",
+		"starting_meter_reading",
 		"status",
 		"deposit_amount",
 		"deposit_refund_amount",
@@ -1223,6 +1236,7 @@ func newLeaseRowsWithRentCadence() *sqlmock.Rows {
 		"end_date",
 		"rent_billing_cadence",
 		"electricity_billing_cadence",
+		"starting_meter_reading",
 		"status",
 		"deposit_amount",
 		"deposit_refund_amount",

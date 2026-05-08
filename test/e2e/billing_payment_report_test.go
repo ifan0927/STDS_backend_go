@@ -87,11 +87,11 @@ func TestE2EBillingPaymentAndFinancialReportAcceptance(t *testing.T) {
 	if electricityBill.Status != "pending_payment" {
 		t.Fatalf("expected electricity bill status pending_payment, got %q", electricityBill.Status)
 	}
-	if electricityBill.Amount == nil || *electricityBill.Amount != 540 {
-		t.Fatalf("expected electricity amount 540, got %+v", electricityBill.Amount)
+	if electricityBill.Amount == nil || *electricityBill.Amount != 315 {
+		t.Fatalf("expected electricity amount 315, got %+v", electricityBill.Amount)
 	}
-	if electricityBill.MeterPreviousReading == nil || *electricityBill.MeterPreviousReading != 0 {
-		t.Fatalf("expected meter_previous_reading 0, got %+v", electricityBill.MeterPreviousReading)
+	if electricityBill.MeterPreviousReading == nil || *electricityBill.MeterPreviousReading != 50 {
+		t.Fatalf("expected meter_previous_reading 50, got %+v", electricityBill.MeterPreviousReading)
 	}
 	if electricityBill.MeterCurrentReading == nil || *electricityBill.MeterCurrentReading != 120 {
 		t.Fatalf("expected meter_current_reading 120, got %+v", electricityBill.MeterCurrentReading)
@@ -136,6 +136,7 @@ type billingFlowE2ELeaseResponse struct {
 	StartDate                 string `json:"start_date"`
 	EndDate                   string `json:"end_date"`
 	ElectricityBillingCadence string `json:"electricity_billing_cadence"`
+	StartingMeterReading      *int   `json:"starting_meter_reading"`
 	DepositAmount             int    `json:"deposit_amount"`
 	DepositStatus             string `json:"deposit_status"`
 	Status                    string `json:"status"`
@@ -246,6 +247,7 @@ func billingFlowE2ECreateLease(t *testing.T, ctx context.Context, client apiClie
 		"end_date":                    endDate.Format("2006-01-02"),
 		"deposit_amount":              36000,
 		"electricity_billing_cadence": "monthly",
+		"starting_meter_reading":      50,
 	}
 	resp, body, err := client.postJSON(ctx, "/api/v1/leases", request)
 	if err != nil {
@@ -257,6 +259,9 @@ func billingFlowE2ECreateLease(t *testing.T, ctx context.Context, client apiClie
 	decodeJSON(t, body, &lease)
 	if lease.ID == "" {
 		t.Fatalf("expected lease id in response: %s", string(body))
+	}
+	if lease.StartingMeterReading == nil || *lease.StartingMeterReading != 50 {
+		t.Fatalf("expected starting_meter_reading 50, got %+v", lease.StartingMeterReading)
 	}
 	if lease.TenantID != tenantID {
 		t.Fatalf("expected lease tenant_id %q, got %q", tenantID, lease.TenantID)

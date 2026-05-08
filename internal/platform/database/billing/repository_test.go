@@ -337,19 +337,9 @@ func TestFindByIDAccessibleComputesPreviousReadingWhenMissing(t *testing.T) {
 			periodStart, time.Date(2026, 4, 30, 0, 0, 0, 0, time.UTC), now, "pending_meter",
 			nil, nil, nil, nil, nil, nil, nil, nil, 0, now, now, 1,
 		))
-	mock.ExpectQuery(regexp.QuoteMeta(`
-SELECT meter_current_reading
-FROM bills
-WHERE room_id = $1
-  AND type = 'electricity'
-  AND meter_current_reading IS NOT NULL
-  AND period_end < $2
-  AND deleted_at IS NULL
-ORDER BY period_end DESC, due_date DESC, created_at DESC
-LIMIT 1
-`)).
-		WithArgs("room-1", periodStart).
-		WillReturnRows(sqlmock.NewRows([]string{"meter_current_reading"}).AddRow(1250))
+	mock.ExpectQuery(`(?s)SELECT COALESCE\(previous\.meter_current_reading, l\.starting_meter_reading, 0\)\s+FROM leases l\s+LEFT JOIN LATERAL.*WHERE l.id = \$1\s+AND l.deleted_at IS NULL`).
+		WithArgs("lease-1", periodStart).
+		WillReturnRows(sqlmock.NewRows([]string{"reading"}).AddRow(1250))
 
 	bill, err := repo.FindByIDAccessible(context.Background(), "bill-1", Scope{Role: "admin"})
 	if err != nil {
@@ -364,7 +354,7 @@ LIMIT 1
 	}
 }
 
-func TestFindByIDAccessiblePreservesNilPreviousReadingWhenNoHistory(t *testing.T) {
+func TestFindByIDAccessibleUsesZeroPreviousReadingWhenLegacyLeaseHasNoBaseline(t *testing.T) {
 	db, mock, repo := newBillingRepoTest(t)
 	defer closeBillingDB(t, db)
 
@@ -377,16 +367,16 @@ func TestFindByIDAccessiblePreservesNilPreviousReadingWhenNoHistory(t *testing.T
 			periodStart, time.Date(2026, 4, 30, 0, 0, 0, 0, time.UTC), now, "pending_meter",
 			nil, nil, nil, nil, nil, nil, nil, nil, 0, now, now, 1,
 		))
-	mock.ExpectQuery(`(?s)SELECT meter_current_reading\s+FROM bills.*period_end < \$2.*LIMIT 1`).
-		WithArgs("room-1", periodStart).
-		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery(`(?s)SELECT COALESCE\(previous\.meter_current_reading, l\.starting_meter_reading, 0\)\s+FROM leases l\s+LEFT JOIN LATERAL.*WHERE l.id = \$1\s+AND l.deleted_at IS NULL`).
+		WithArgs("lease-1", periodStart).
+		WillReturnRows(sqlmock.NewRows([]string{"reading"}).AddRow(0))
 
 	bill, err := repo.FindByIDAccessible(context.Background(), "bill-1", Scope{Role: "admin"})
 	if err != nil {
 		t.Fatalf("FindByIDAccessible: %v", err)
 	}
-	if bill.MeterPreviousReading != nil {
-		t.Fatalf("MeterPreviousReading = %v, want nil", bill.MeterPreviousReading)
+	if bill.MeterPreviousReading == nil || *bill.MeterPreviousReading != 0 {
+		t.Fatalf("MeterPreviousReading = %v, want 0", bill.MeterPreviousReading)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -394,26 +384,16 @@ func TestFindByIDAccessiblePreservesNilPreviousReadingWhenNoHistory(t *testing.T
 	}
 }
 
-func TestFindPreviousMeterReadingChoosesLatestSameRoomCompletedElectricityBill(t *testing.T) {
+func TestFindPreviousMeterReadingChoosesLatestSameLeaseCompletedElectricityBill(t *testing.T) {
 	db, mock, repo := newBillingRepoTest(t)
 	defer closeBillingDB(t, db)
 
 	periodStart := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
-	mock.ExpectQuery(regexp.QuoteMeta(`
-SELECT meter_current_reading
-FROM bills
-WHERE room_id = $1
-  AND type = 'electricity'
-  AND meter_current_reading IS NOT NULL
-  AND period_end < $2
-  AND deleted_at IS NULL
-ORDER BY period_end DESC, due_date DESC, created_at DESC
-LIMIT 1
-`)).
-		WithArgs("room-1", periodStart).
-		WillReturnRows(sqlmock.NewRows([]string{"meter_current_reading"}).AddRow(1250))
+	mock.ExpectQuery(`(?s)SELECT COALESCE\(previous\.meter_current_reading, l\.starting_meter_reading, 0\)\s+FROM leases l\s+LEFT JOIN LATERAL.*WHERE l.id = \$1\s+AND l.deleted_at IS NULL`).
+		WithArgs("lease-1", periodStart).
+		WillReturnRows(sqlmock.NewRows([]string{"reading"}).AddRow(1250))
 
-	reading, err := repo.FindPreviousMeterReading(context.Background(), "room-1", periodStart)
+	reading, err := repo.FindPreviousMeterReading(context.Background(), "lease-1", periodStart)
 	if err != nil {
 		t.Fatalf("FindPreviousMeterReading: %v", err)
 	}
@@ -426,29 +406,18 @@ LIMIT 1
 	}
 }
 
-func TestFindPreviousMeterReadingForUpdateUsesTransaction(t *testing.T) {
+func TestFindPreviousMeterReadingForUpdateUsesLeaseBaselineInsideTransaction(t *testing.T) {
 	db, mock, repo := newBillingRepoTest(t)
 	defer closeBillingDB(t, db)
 
 	tx := beginBillingTx(t, db, mock)
 	periodStart := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
-	mock.ExpectQuery(regexp.QuoteMeta(`
-SELECT meter_current_reading
-FROM bills
-WHERE room_id = $1
-  AND type = 'electricity'
-  AND meter_current_reading IS NOT NULL
-  AND period_end < $2
-  AND deleted_at IS NULL
-ORDER BY period_end DESC, due_date DESC, created_at DESC
-LIMIT 1
-FOR UPDATE
-`)).
-		WithArgs("room-1", periodStart).
-		WillReturnRows(sqlmock.NewRows([]string{"meter_current_reading"}).AddRow(1250))
+	mock.ExpectQuery(`(?s)SELECT COALESCE\(previous\.meter_current_reading, l\.starting_meter_reading, 0\)\s+FROM leases l\s+LEFT JOIN LATERAL.*WHERE l.id = \$1\s+AND l.deleted_at IS NULL\s+FOR UPDATE OF l`).
+		WithArgs("lease-1", periodStart).
+		WillReturnRows(sqlmock.NewRows([]string{"reading"}).AddRow(1250))
 	mock.ExpectCommit()
 
-	reading, err := repo.FindPreviousMeterReadingForUpdate(context.Background(), tx, "room-1", periodStart)
+	reading, err := repo.FindPreviousMeterReadingForUpdate(context.Background(), tx, "lease-1", periodStart)
 	if err != nil {
 		t.Fatalf("FindPreviousMeterReadingForUpdate: %v", err)
 	}
@@ -471,15 +440,12 @@ func TestListPropertyPendingMetersFiltersPendingMeterAndReturnsPeriodBounds(t *t
 	periodStart := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
 	periodEnd := time.Date(2026, 4, 30, 0, 0, 0, 0, time.UTC)
 	now := time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC)
-	mock.ExpectQuery(`(?s)FROM bills b\s+JOIN properties p ON p.id = b.property_id AND p.deleted_at IS NULL.*WHERE b.property_id = \$1\s+AND b.type = 'electricity'\s+AND b.status = 'pending_meter'\s+AND b.deleted_at IS NULL`).
+	mock.ExpectQuery(`(?s)FROM bills b\s+JOIN properties p ON p.id = b.property_id AND p.deleted_at IS NULL\s+JOIN leases l ON l.id = b.lease_id AND l.deleted_at IS NULL.*LEFT JOIN LATERAL.*WHERE b.property_id = \$1\s+AND b.type = 'electricity'\s+AND b.status = 'pending_meter'\s+AND b.deleted_at IS NULL`).
 		WithArgs("property-1").
 		WillReturnRows(billRows().AddRow(
 			"bill-1", "lease-1", "tenant-1", "room-1", "property-1", "Property", "Room", "Tenant", "2026-04-01..2026-04-30", "electricity", nil,
-			periodStart, periodEnd, now, "pending_meter", nil, nil, nil, nil, nil, nil, nil, nil, 0, now, now, 1,
+			periodStart, periodEnd, now, "pending_meter", nil, nil, nil, 1250, nil, nil, nil, nil, 0, now, now, 1,
 		))
-	mock.ExpectQuery(`(?s)SELECT meter_current_reading\s+FROM bills\s+WHERE room_id = \$1\s+AND type = 'electricity'\s+AND meter_current_reading IS NOT NULL\s+AND period_end < \$2\s+AND deleted_at IS NULL\s+ORDER BY period_end DESC, due_date DESC, created_at DESC\s+LIMIT 1`).
-		WithArgs("room-1", periodStart).
-		WillReturnRows(sqlmock.NewRows([]string{"meter_current_reading"}).AddRow(1250))
 
 	bills, err := repo.ListPropertyPendingMeters(context.Background(), Scope{Role: "admin"}, "property-1")
 	if err != nil {
