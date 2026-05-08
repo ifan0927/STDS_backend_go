@@ -13,8 +13,22 @@ import (
 
 // UpdateRoomInput is the command payload for updating a room.
 type UpdateRoomInput struct {
-	ID   string
-	Name *string
+	ID                string
+	Name              *string
+	Size              *float64
+	ClearSize         bool
+	Floor             *string
+	ClearFloor        bool
+	RoomType          *string
+	ClearRoomType     bool
+	Facilities        *map[string]interface{}
+	ClearFacilities   bool
+	DefaultRentAmount *int
+	ClearDefaultRent  bool
+	Notes             *string
+	ClearNotes        bool
+	Zone              *string
+	ClearZone         bool
 }
 
 // UpdateRoomService updates room fields while enforcing mutation rules.
@@ -37,7 +51,7 @@ func (s *UpdateRoomService) Execute(ctx context.Context, input UpdateRoomInput) 
 	if roomID == "" {
 		return nil, apperr.ErrBadRequest.WithDetails(map[string]interface{}{"field": "id"})
 	}
-	if input.Name == nil {
+	if input.Name == nil && input.Size == nil && !input.ClearSize && input.Floor == nil && !input.ClearFloor && input.RoomType == nil && !input.ClearRoomType && input.Facilities == nil && !input.ClearFacilities && input.DefaultRentAmount == nil && !input.ClearDefaultRent && input.Notes == nil && !input.ClearNotes && input.Zone == nil && !input.ClearZone {
 		return nil, apperr.ErrBadRequest
 	}
 
@@ -54,24 +68,54 @@ func (s *UpdateRoomService) Execute(ctx context.Context, input UpdateRoomInput) 
 		}
 
 		aggregate, err := domainproperty.RehydrateRoom(domainproperty.RoomState{
-			ID:         current.ID,
-			PropertyID: current.PropertyID,
-			Name:       current.Name,
-			Status:     current.Status,
+			ID:                current.ID,
+			PropertyID:        current.PropertyID,
+			Name:              current.Name,
+			Status:            current.Status,
+			Size:              current.Size,
+			Floor:             current.Floor,
+			RoomType:          current.RoomType,
+			Facilities:        current.Facilities,
+			DefaultRentAmount: current.DefaultRentAmount,
+			Notes:             current.Notes,
+			Zone:              current.Zone,
 		})
 		if err != nil {
 			return apperr.ErrInternalServerError.WithCause(err)
 		}
 
-		if err := aggregate.UpdateRoom(domainproperty.RoomUpdateInput{Name: input.Name}); err != nil {
+		if err := aggregate.UpdateRoom(domainproperty.RoomUpdateInput{
+			Name:              input.Name,
+			Size:              input.Size,
+			ClearSize:         input.ClearSize,
+			Floor:             input.Floor,
+			ClearFloor:        input.ClearFloor,
+			RoomType:          input.RoomType,
+			ClearRoomType:     input.ClearRoomType,
+			Facilities:        input.Facilities,
+			ClearFacilities:   input.ClearFacilities,
+			DefaultRentAmount: input.DefaultRentAmount,
+			ClearDefaultRent:  input.ClearDefaultRent,
+			Notes:             input.Notes,
+			ClearNotes:        input.ClearNotes,
+			Zone:              input.Zone,
+			ClearZone:         input.ClearZone,
+		}); err != nil {
 			return mapDomainError(err)
 		}
 
 		state := aggregate.RoomState()
 		room, err := s.propertyRepo.UpdateRoom(ctx, tx, UpdateRoomParams{
-			ID:     state.ID,
-			Name:   state.Name,
-			Status: nil,
+			ID:                state.ID,
+			Name:              state.Name,
+			Status:            nil,
+			Size:              state.Size,
+			Floor:             state.Floor,
+			RoomType:          state.RoomType,
+			Facilities:        state.Facilities,
+			DefaultRentAmount: state.DefaultRentAmount,
+			Notes:             state.Notes,
+			Zone:              state.Zone,
 		})
 		if err != nil {
 			switch {

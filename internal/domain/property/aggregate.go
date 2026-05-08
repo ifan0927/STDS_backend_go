@@ -1,6 +1,9 @@
 package property
 
-import "strings"
+import (
+	"reflect"
+	"strings"
+)
 
 const (
 	BillingCadenceMonthly   = "monthly"
@@ -14,24 +17,50 @@ const (
 type State struct {
 	ID                               string
 	Name                             string
+	Subtitle                         *string
 	Address                          string
 	ElectricityUnitPrice             *float64
 	DefaultElectricityBillingCadence string
 	OwnerID                          string
+	ContactPhone                     *string
+	ContactEmail                     *string
+	Notes                            *string
+	Facilities                       *map[string]interface{}
 	Version                          int
 }
 
 // RoomState is the persisted room state used by room command rules.
 type RoomState struct {
-	ID         string
-	PropertyID string
-	Name       string
-	Status     string
+	ID                string
+	PropertyID        string
+	Name              string
+	Status            string
+	Size              *float64
+	Floor             *string
+	RoomType          *string
+	Facilities        *map[string]interface{}
+	DefaultRentAmount *int
+	Notes             *string
+	Zone              *string
 }
 
 // RoomUpdateInput is the aggregate patch for room mutations.
 type RoomUpdateInput struct {
-	Name *string
+	Name              *string
+	Size              *float64
+	ClearSize         bool
+	Floor             *string
+	ClearFloor        bool
+	RoomType          *string
+	ClearRoomType     bool
+	Facilities        *map[string]interface{}
+	ClearFacilities   bool
+	DefaultRentAmount *int
+	ClearDefaultRent  bool
+	Notes             *string
+	ClearNotes        bool
+	Zone              *string
+	ClearZone         bool
 }
 
 // RoomAggregate owns room command rules.
@@ -43,9 +72,19 @@ type RoomAggregate struct {
 type UpdateInput struct {
 	ActorRole                        string
 	Name                             *string
+	Subtitle                         *string
+	ClearSubtitle                    bool
 	Address                          *string
 	ElectricityUnitPrice             *float64
 	DefaultElectricityBillingCadence *string
+	ContactPhone                     *string
+	ClearContactPhone                bool
+	ContactEmail                     *string
+	ClearContactEmail                bool
+	Notes                            *string
+	ClearNotes                       bool
+	Facilities                       *map[string]interface{}
+	ClearFacilities                  bool
 }
 
 // Aggregate owns property command business rules.
@@ -86,6 +125,11 @@ func (a *Aggregate) Update(input UpdateInput) error {
 		}
 		a.state.Name = name
 	}
+	if input.Subtitle != nil {
+		a.state.Subtitle = normalizeOptionalString(*input.Subtitle)
+	} else if input.ClearSubtitle {
+		a.state.Subtitle = nil
+	}
 
 	if input.Address != nil {
 		address := strings.TrimSpace(*input.Address)
@@ -112,6 +156,26 @@ func (a *Aggregate) Update(input UpdateInput) error {
 			return ErrInvalidBillingCadence
 		}
 		a.state.DefaultElectricityBillingCadence = cadence
+	}
+	if input.ContactPhone != nil {
+		a.state.ContactPhone = normalizeOptionalString(*input.ContactPhone)
+	} else if input.ClearContactPhone {
+		a.state.ContactPhone = nil
+	}
+	if input.ContactEmail != nil {
+		a.state.ContactEmail = normalizeOptionalString(*input.ContactEmail)
+	} else if input.ClearContactEmail {
+		a.state.ContactEmail = nil
+	}
+	if input.Notes != nil {
+		a.state.Notes = normalizeOptionalString(*input.Notes)
+	} else if input.ClearNotes {
+		a.state.Notes = nil
+	}
+	if input.Facilities != nil {
+		a.state.Facilities = cloneMapPtr(input.Facilities)
+	} else if input.ClearFacilities {
+		a.state.Facilities = nil
 	}
 
 	return nil
@@ -144,7 +208,14 @@ func (a *Aggregate) State() State {
 		return State{}
 	}
 
-	return a.state
+	snapshot := a.state
+	snapshot.Subtitle = cloneStringPtr(a.state.Subtitle)
+	snapshot.ElectricityUnitPrice = cloneFloat64Ptr(a.state.ElectricityUnitPrice)
+	snapshot.ContactPhone = cloneStringPtr(a.state.ContactPhone)
+	snapshot.ContactEmail = cloneStringPtr(a.state.ContactEmail)
+	snapshot.Notes = cloneStringPtr(a.state.Notes)
+	snapshot.Facilities = cloneMapPtr(a.state.Facilities)
+	return snapshot
 }
 
 func normalizeState(state State, requireElectricityPrice bool) (State, error) {
@@ -152,6 +223,7 @@ func normalizeState(state State, requireElectricityPrice bool) (State, error) {
 	if state.Name == "" {
 		return State{}, ErrNameRequired
 	}
+	state.Subtitle = normalizeOptionalStringPtr(state.Subtitle)
 
 	state.Address = strings.TrimSpace(state.Address)
 	if state.Address == "" {
@@ -175,6 +247,10 @@ func normalizeState(state State, requireElectricityPrice bool) (State, error) {
 	if state.OwnerID == "" {
 		return State{}, ErrOwnerIDRequired
 	}
+	state.ContactPhone = normalizeOptionalStringPtr(state.ContactPhone)
+	state.ContactEmail = normalizeOptionalStringPtr(state.ContactEmail)
+	state.Notes = normalizeOptionalStringPtr(state.Notes)
+	state.Facilities = cloneMapPtr(state.Facilities)
 
 	return state, nil
 }
@@ -214,7 +290,15 @@ func (a *RoomAggregate) RoomState() RoomState {
 		return RoomState{}
 	}
 
-	return a.state
+	snapshot := a.state
+	snapshot.Size = cloneFloat64Ptr(a.state.Size)
+	snapshot.Floor = cloneStringPtr(a.state.Floor)
+	snapshot.RoomType = cloneStringPtr(a.state.RoomType)
+	snapshot.Facilities = cloneMapPtr(a.state.Facilities)
+	snapshot.DefaultRentAmount = cloneIntPtr(a.state.DefaultRentAmount)
+	snapshot.Notes = cloneStringPtr(a.state.Notes)
+	snapshot.Zone = cloneStringPtr(a.state.Zone)
+	return snapshot
 }
 
 // UpdateRoom applies room mutation rules.
@@ -229,6 +313,43 @@ func (a *RoomAggregate) UpdateRoom(input RoomUpdateInput) error {
 			return ErrRoomNameRequired
 		}
 		a.state.Name = name
+	}
+	if input.Size != nil {
+		size := *input.Size
+		a.state.Size = &size
+	} else if input.ClearSize {
+		a.state.Size = nil
+	}
+	if input.Floor != nil {
+		a.state.Floor = normalizeOptionalString(*input.Floor)
+	} else if input.ClearFloor {
+		a.state.Floor = nil
+	}
+	if input.RoomType != nil {
+		a.state.RoomType = normalizeOptionalString(*input.RoomType)
+	} else if input.ClearRoomType {
+		a.state.RoomType = nil
+	}
+	if input.Facilities != nil {
+		a.state.Facilities = cloneMapPtr(input.Facilities)
+	} else if input.ClearFacilities {
+		a.state.Facilities = nil
+	}
+	if input.DefaultRentAmount != nil {
+		defaultRentAmount := *input.DefaultRentAmount
+		a.state.DefaultRentAmount = &defaultRentAmount
+	} else if input.ClearDefaultRent {
+		a.state.DefaultRentAmount = nil
+	}
+	if input.Notes != nil {
+		a.state.Notes = normalizeOptionalString(*input.Notes)
+	} else if input.ClearNotes {
+		a.state.Notes = nil
+	}
+	if input.Zone != nil {
+		a.state.Zone = normalizeOptionalString(*input.Zone)
+	} else if input.ClearZone {
+		a.state.Zone = nil
 	}
 
 	return nil
@@ -281,6 +402,11 @@ func normalizeRoomState(state RoomState, requireStatus bool) (RoomState, error) 
 	state.PropertyID = strings.TrimSpace(state.PropertyID)
 	state.Name = strings.TrimSpace(state.Name)
 	state.Status = strings.TrimSpace(state.Status)
+	state.Floor = normalizeOptionalStringPtr(state.Floor)
+	state.RoomType = normalizeOptionalStringPtr(state.RoomType)
+	state.Facilities = cloneMapPtr(state.Facilities)
+	state.Notes = normalizeOptionalStringPtr(state.Notes)
+	state.Zone = normalizeOptionalStringPtr(state.Zone)
 
 	if state.Name == "" {
 		return RoomState{}, ErrRoomNameRequired
@@ -298,5 +424,112 @@ func normalizeRoomState(state RoomState, requireStatus bool) (RoomState, error) 
 		return state, nil
 	default:
 		return RoomState{}, ErrBadRoomStatus
+	}
+}
+
+func normalizeOptionalStringPtr(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	return normalizeOptionalString(*value)
+}
+
+func normalizeOptionalString(value string) *string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
+}
+
+func cloneStringPtr(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func cloneIntPtr(value *int) *int {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func cloneFloat64Ptr(value *float64) *float64 {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func cloneMapPtr(value *map[string]interface{}) *map[string]interface{} {
+	if value == nil {
+		return nil
+	}
+	cloned := make(map[string]interface{}, len(*value))
+	for key, item := range *value {
+		cloned[key] = deepCloneValue(item)
+	}
+	return &cloned
+}
+
+func deepCloneValue(value interface{}) interface{} {
+	if value == nil {
+		return nil
+	}
+	return deepCloneReflectValue(reflect.ValueOf(value)).Interface()
+}
+
+func deepCloneReflectValue(value reflect.Value) reflect.Value {
+	if !value.IsValid() {
+		return value
+	}
+	switch value.Kind() {
+	case reflect.Interface:
+		if value.IsNil() {
+			return reflect.Zero(value.Type())
+		}
+		cloned := deepCloneReflectValue(value.Elem())
+		wrapped := reflect.New(value.Type()).Elem()
+		wrapped.Set(cloned)
+		return wrapped
+	case reflect.Ptr:
+		if value.IsNil() {
+			return reflect.Zero(value.Type())
+		}
+		cloned := reflect.New(value.Type().Elem())
+		cloned.Elem().Set(deepCloneReflectValue(value.Elem()))
+		return cloned
+	case reflect.Map:
+		if value.IsNil() {
+			return reflect.Zero(value.Type())
+		}
+		cloned := reflect.MakeMapWithSize(value.Type(), value.Len())
+		iter := value.MapRange()
+		for iter.Next() {
+			cloned.SetMapIndex(deepCloneReflectValue(iter.Key()), deepCloneReflectValue(iter.Value()))
+		}
+		return cloned
+	case reflect.Slice:
+		if value.IsNil() {
+			return reflect.Zero(value.Type())
+		}
+		cloned := reflect.MakeSlice(value.Type(), value.Len(), value.Len())
+		for index := 0; index < value.Len(); index++ {
+			cloned.Index(index).Set(deepCloneReflectValue(value.Index(index)))
+		}
+		return cloned
+	case reflect.Array:
+		cloned := reflect.New(value.Type()).Elem()
+		for index := 0; index < value.Len(); index++ {
+			cloned.Index(index).Set(deepCloneReflectValue(value.Index(index)))
+		}
+		return cloned
+	default:
+		return value
 	}
 }

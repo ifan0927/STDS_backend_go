@@ -14,10 +14,14 @@ type tenantRepositoryAdapter struct {
 
 func (a tenantRepositoryAdapter) Create(ctx context.Context, tx *sql.Tx, params apptenant.CreateTenantParams) (*apptenant.Tenant, error) {
 	tenant, err := a.repo.Create(ctx, tx, dbtenants.CreateTenantParams{
-		Name:     params.Name,
-		Email:    params.Email,
-		Phone:    params.Phone,
-		Contacts: params.Contacts,
+		Name:       params.Name,
+		Email:      params.Email,
+		Phone:      params.Phone,
+		Contacts:   params.Contacts,
+		BirthDate:  params.BirthDate,
+		NationalID: params.NationalID,
+		Address:    params.Address,
+		Occupation: params.Occupation,
 	})
 	if err != nil {
 		return nil, err
@@ -40,12 +44,16 @@ func (a tenantRepositoryAdapter) FindByID(ctx context.Context, tx *sql.Tx, id st
 
 func (a tenantRepositoryAdapter) Update(ctx context.Context, tx *sql.Tx, params apptenant.UpdateTenantParams) (*apptenant.Tenant, error) {
 	tenant, err := a.repo.Update(ctx, tx, dbtenants.UpdateTenantParams{
-		ID:       params.ID,
-		Name:     params.Name,
-		Email:    params.Email,
-		Phone:    params.Phone,
-		Contacts: params.Contacts,
-		Version:  params.Version,
+		ID:         params.ID,
+		Name:       params.Name,
+		Email:      params.Email,
+		Phone:      params.Phone,
+		Contacts:   params.Contacts,
+		BirthDate:  params.BirthDate,
+		NationalID: params.NationalID,
+		Address:    params.Address,
+		Occupation: params.Occupation,
+		Version:    params.Version,
 	})
 	if err != nil {
 		if err == dbtenants.ErrNotFound {

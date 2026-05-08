@@ -33,6 +33,32 @@ func TestNewNormalizesState(t *testing.T) {
 	}
 }
 
+func TestPropertyStateDefensivelyCopiesFacilities(t *testing.T) {
+	electricityUnitPrice := 4.5
+	facilities := map[string]interface{}{
+		"nested": map[string]interface{}{"elevator": true},
+	}
+	aggregate, err := New(State{
+		Name:                             "Property A",
+		Address:                          "Address A",
+		ElectricityUnitPrice:             &electricityUnitPrice,
+		DefaultElectricityBillingCadence: BillingCadenceMonthly,
+		OwnerID:                          "owner-1",
+		Facilities:                       &facilities,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	state := aggregate.State()
+	(*state.Facilities)["nested"].(map[string]interface{})["elevator"] = false
+
+	nextState := aggregate.State()
+	if (*nextState.Facilities)["nested"].(map[string]interface{})["elevator"] != true {
+		t.Fatalf("expected aggregate facilities to remain unchanged, got %#v", nextState.Facilities)
+	}
+}
+
 func TestUpdateRejectsStaffElectricityPriceMutation(t *testing.T) {
 	electricityUnitPrice := 4.0
 	aggregate, err := Rehydrate(State{

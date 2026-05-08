@@ -23,6 +23,28 @@ func TestNewRoomNormalizesNameAndDefaultsVacant(t *testing.T) {
 	}
 }
 
+func TestRoomStateDefensivelyCopiesFacilities(t *testing.T) {
+	facilities := map[string]interface{}{
+		"nested": map[string]interface{}{"balcony": true},
+	}
+	aggregate, err := NewRoom(RoomState{
+		PropertyID: "property-1",
+		Name:       "101 Room",
+		Facilities: &facilities,
+	})
+	if err != nil {
+		t.Fatalf("NewRoom: %v", err)
+	}
+
+	state := aggregate.RoomState()
+	(*state.Facilities)["nested"].(map[string]interface{})["balcony"] = false
+
+	nextState := aggregate.RoomState()
+	if (*nextState.Facilities)["nested"].(map[string]interface{})["balcony"] != true {
+		t.Fatalf("expected room facilities to remain unchanged, got %#v", nextState.Facilities)
+	}
+}
+
 func TestRehydrateRoomRejectsMissingStatus(t *testing.T) {
 	_, err := RehydrateRoom(RoomState{
 		ID:         "room-1",

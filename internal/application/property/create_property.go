@@ -15,10 +15,15 @@ import (
 // CreatePropertyInput is the command payload for creating a property.
 type CreatePropertyInput struct {
 	Name                             string
+	Subtitle                         *string
 	Address                          string
 	ElectricityUnitPrice             float64
 	DefaultElectricityBillingCadence string
 	OwnerID                          string
+	ContactPhone                     *string
+	ContactEmail                     *string
+	Notes                            *string
+	Facilities                       *map[string]interface{}
 }
 
 // CreatePropertyService creates properties in a transaction and publishes the
@@ -44,10 +49,15 @@ func NewCreatePropertyService(propertyRepo Repository, propertyAccountRepo Prope
 func (s *CreatePropertyService) Execute(ctx context.Context, input CreatePropertyInput) (*Property, error) {
 	aggregate, err := domainproperty.New(domainproperty.State{
 		Name:                             input.Name,
+		Subtitle:                         input.Subtitle,
 		Address:                          input.Address,
 		ElectricityUnitPrice:             &input.ElectricityUnitPrice,
 		DefaultElectricityBillingCadence: input.DefaultElectricityBillingCadence,
 		OwnerID:                          input.OwnerID,
+		ContactPhone:                     input.ContactPhone,
+		ContactEmail:                     input.ContactEmail,
+		Notes:                            input.Notes,
+		Facilities:                       input.Facilities,
 	})
 	if err != nil {
 		switch {
@@ -67,10 +77,15 @@ func (s *CreatePropertyService) Execute(ctx context.Context, input CreatePropert
 		}
 		property, err := s.propertyRepo.Create(ctx, tx, CreatePropertyParams{
 			Name:                             state.Name,
+			Subtitle:                         state.Subtitle,
 			Address:                          state.Address,
 			ElectricityUnitPrice:             electricityUnitPrice,
 			DefaultElectricityBillingCadence: state.DefaultElectricityBillingCadence,
 			OwnerID:                          state.OwnerID,
+			ContactPhone:                     state.ContactPhone,
+			ContactEmail:                     state.ContactEmail,
+			Notes:                            state.Notes,
+			Facilities:                       state.Facilities,
 		})
 		if err != nil {
 			return apperr.ErrInternalServerError.WithCause(err)

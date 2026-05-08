@@ -66,34 +66,26 @@ func TestCreatePersistsPropertyInTransaction(t *testing.T) {
 	tx := beginPropertyTx(t, db, mock)
 	createdAt := time.Date(2026, 4, 29, 10, 0, 0, 0, time.UTC)
 	updatedAt := createdAt.Add(time.Minute)
+	subtitle := "North wing"
+	contactPhone := "02-1234-5678"
+	contactEmail := "owner@example.com"
+	notes := "Managed property"
+	facilities := map[string]interface{}{"elevator": true}
 
-	mock.ExpectQuery(regexp.QuoteMeta(`
-INSERT INTO properties (
-	name,
-	address,
-	electricity_unit_price,
-	default_electricity_billing_cadence,
-	owner_id
-) VALUES ($1, $2, $3, $4, $5)
-RETURNING
-	id,
-	name,
-	address,
-	electricity_unit_price,
-	default_electricity_billing_cadence,
-	owner_id,
-	created_at,
-	updated_at,
-	version
-`)).
-		WithArgs("Green Villa", "Taipei", 4.5, "monthly", "owner-1").
+	mock.ExpectQuery("INSERT INTO properties").
+		WithArgs("Green Villa", &subtitle, "Taipei", 4.5, "monthly", "owner-1", &contactPhone, &contactEmail, &notes, `{"elevator":true}`).
 		WillReturnRows(propertyRows().AddRow(
 			"property-1",
 			"Green Villa",
+			subtitle,
 			"Taipei",
 			4.5,
 			"monthly",
 			"owner-1",
+			contactPhone,
+			contactEmail,
+			notes,
+			`{"elevator":true}`,
 			createdAt,
 			updatedAt,
 			1,
@@ -101,10 +93,15 @@ RETURNING
 
 	property, err := repo.Create(context.Background(), tx, CreatePropertyParams{
 		Name:                             "Green Villa",
+		Subtitle:                         &subtitle,
 		Address:                          "Taipei",
 		ElectricityUnitPrice:             4.5,
 		DefaultElectricityBillingCadence: "monthly",
 		OwnerID:                          "owner-1",
+		ContactPhone:                     &contactPhone,
+		ContactEmail:                     &contactEmail,
+		Notes:                            &notes,
+		Facilities:                       &facilities,
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -117,6 +114,12 @@ RETURNING
 	}
 	if property.DefaultElectricityBillingCadence != "monthly" {
 		t.Fatalf("DefaultElectricityBillingCadence = %q, want monthly", property.DefaultElectricityBillingCadence)
+	}
+	if property.Subtitle == nil || *property.Subtitle != subtitle || property.ContactEmail == nil || *property.ContactEmail != contactEmail {
+		t.Fatalf("unexpected optional fields: %+v", property)
+	}
+	if property.Facilities == nil || (*property.Facilities)["elevator"] != true {
+		t.Fatalf("unexpected facilities: %#v", property.Facilities)
 	}
 	if property.CreatedAt != createdAt || property.UpdatedAt != updatedAt || property.Version != 1 {
 		t.Fatalf("unexpected audit fields: %+v", property)
@@ -138,30 +141,20 @@ func TestFindByIDScansNullableElectricityUnitPrice(t *testing.T) {
 	createdAt := time.Date(2026, 4, 29, 10, 0, 0, 0, time.UTC)
 	updatedAt := createdAt.Add(time.Minute)
 
-	mock.ExpectQuery(regexp.QuoteMeta(`
-SELECT
-	id,
-	name,
-	address,
-	electricity_unit_price,
-	default_electricity_billing_cadence,
-	owner_id,
-	created_at,
-	updated_at,
-	version
-FROM properties
-WHERE id = $1
-  AND deleted_at IS NULL
-LIMIT 1
-`)).
+	mock.ExpectQuery("SELECT").
 		WithArgs("property-1").
 		WillReturnRows(propertyRows().AddRow(
 			"property-1",
 			"Green Villa",
+			nil,
 			"Taipei",
 			nil,
 			"bimonthly",
 			"owner-1",
+			nil,
+			nil,
+			nil,
+			nil,
 			createdAt,
 			updatedAt,
 			3,
@@ -195,22 +188,7 @@ func TestFindByIDMapsNoRowsToNotFound(t *testing.T) {
 	defer closePropertyDB(t, db)
 	tx := beginPropertyTx(t, db, mock)
 
-	mock.ExpectQuery(regexp.QuoteMeta(`
-SELECT
-	id,
-	name,
-	address,
-	electricity_unit_price,
-	default_electricity_billing_cadence,
-	owner_id,
-	created_at,
-	updated_at,
-	version
-FROM properties
-WHERE id = $1
-  AND deleted_at IS NULL
-LIMIT 1
-`)).
+	mock.ExpectQuery("SELECT").
 		WithArgs("property-404").
 		WillReturnError(sql.ErrNoRows)
 
@@ -235,37 +213,20 @@ func TestUpdatePersistsPropertyWithNullableElectricityUnitPrice(t *testing.T) {
 	createdAt := time.Date(2026, 4, 29, 10, 0, 0, 0, time.UTC)
 	updatedAt := createdAt.Add(time.Minute)
 
-	mock.ExpectQuery(regexp.QuoteMeta(`
-UPDATE properties
-SET name = $2,
-	address = $3,
-	electricity_unit_price = $4,
-	default_electricity_billing_cadence = $5,
-	owner_id = $6,
-	updated_at = now(),
-	version = version + 1
-WHERE id = $1
-  AND version = $7
-  AND deleted_at IS NULL
-RETURNING
-	id,
-	name,
-	address,
-	electricity_unit_price,
-	default_electricity_billing_cadence,
-	owner_id,
-	created_at,
-	updated_at,
-	version
-`)).
-		WithArgs("property-1", "Green Villa Updated", "New Taipei", nil, "bimonthly", "owner-2", 3).
+	mock.ExpectQuery("UPDATE properties").
+		WithArgs("property-1", "Green Villa Updated", nil, "New Taipei", nil, "bimonthly", "owner-2", nil, nil, nil, nil, 3).
 		WillReturnRows(propertyRows().AddRow(
 			"property-1",
 			"Green Villa Updated",
+			nil,
 			"New Taipei",
 			nil,
 			"bimonthly",
 			"owner-2",
+			nil,
+			nil,
+			nil,
+			nil,
 			createdAt,
 			updatedAt,
 			4,
@@ -308,30 +269,8 @@ func TestUpdateMapsNoRowsToNotFound(t *testing.T) {
 	tx := beginPropertyTx(t, db, mock)
 	unitPrice := 5.25
 
-	mock.ExpectQuery(regexp.QuoteMeta(`
-UPDATE properties
-SET name = $2,
-	address = $3,
-	electricity_unit_price = $4,
-	default_electricity_billing_cadence = $5,
-	owner_id = $6,
-	updated_at = now(),
-	version = version + 1
-WHERE id = $1
-  AND version = $7
-  AND deleted_at IS NULL
-RETURNING
-	id,
-	name,
-	address,
-	electricity_unit_price,
-	default_electricity_billing_cadence,
-	owner_id,
-	created_at,
-	updated_at,
-	version
-`)).
-		WithArgs("property-404", "Green Villa", "Taipei", &unitPrice, "monthly", "owner-1", 9).
+	mock.ExpectQuery("UPDATE properties").
+		WithArgs("property-404", "Green Villa", nil, "Taipei", &unitPrice, "monthly", "owner-1", nil, nil, nil, nil, 9).
 		WillReturnError(sql.ErrNoRows)
 
 	_, err := repo.Update(context.Background(), tx, UpdatePropertyParams{
@@ -426,32 +365,40 @@ func TestCreateRoomPersistsRoomInTransaction(t *testing.T) {
 	tx := beginPropertyTx(t, db, mock)
 	createdAt := time.Date(2026, 4, 29, 10, 0, 0, 0, time.UTC)
 	updatedAt := createdAt.Add(time.Minute)
+	size := 12.5
+	floor := "2F"
+	roomType := "suite"
+	facilities := map[string]interface{}{"balcony": true}
+	defaultRent := 18000
+	notes := "Bright room"
+	zone := "A"
 
-	mock.ExpectQuery(regexp.QuoteMeta(`
-INSERT INTO rooms (
-	property_id,
-	name
-) VALUES ($1, $2)
-RETURNING
-	id,
-	property_id,
-	name,
-	status,
-	created_at,
-	updated_at
-`)).
-		WithArgs("property-1", "Room A").
-		WillReturnRows(roomRows().AddRow("room-1", "property-1", "Room A", "vacant", createdAt, updatedAt))
+	mock.ExpectQuery("INSERT INTO rooms").
+		WithArgs("property-1", "Room A", &size, &floor, &roomType, `{"balcony":true}`, &defaultRent, &notes, &zone).
+		WillReturnRows(roomRows().AddRow("room-1", "property-1", "Room A", "vacant", size, floor, roomType, `{"balcony":true}`, defaultRent, notes, zone, createdAt, updatedAt))
 
 	room, err := repo.CreateRoom(context.Background(), tx, CreateRoomParams{
-		PropertyID: "property-1",
-		Name:       "Room A",
+		PropertyID:        "property-1",
+		Name:              "Room A",
+		Size:              &size,
+		Floor:             &floor,
+		RoomType:          &roomType,
+		Facilities:        &facilities,
+		DefaultRentAmount: &defaultRent,
+		Notes:             &notes,
+		Zone:              &zone,
 	})
 	if err != nil {
 		t.Fatalf("CreateRoom: %v", err)
 	}
 	if room.ID != "room-1" || room.PropertyID != "property-1" || room.Name != "Room A" || room.Status != "vacant" {
 		t.Fatalf("unexpected room: %+v", room)
+	}
+	if room.Size == nil || *room.Size != size || room.DefaultRentAmount == nil || *room.DefaultRentAmount != defaultRent {
+		t.Fatalf("unexpected room writable fields: %+v", room)
+	}
+	if room.Facilities == nil || (*room.Facilities)["balcony"] != true {
+		t.Fatalf("unexpected room facilities: %#v", room.Facilities)
 	}
 
 	mock.ExpectCommit()
@@ -470,21 +417,9 @@ func TestFindRoomByIDReturnsRoom(t *testing.T) {
 	createdAt := time.Date(2026, 4, 29, 10, 0, 0, 0, time.UTC)
 	updatedAt := createdAt.Add(time.Minute)
 
-	mock.ExpectQuery(regexp.QuoteMeta(`
-SELECT
-	id,
-	property_id,
-	name,
-	status,
-	created_at,
-	updated_at
-FROM rooms
-WHERE id = $1
-  AND deleted_at IS NULL
-LIMIT 1
-`)).
+	mock.ExpectQuery("SELECT").
 		WithArgs("room-1").
-		WillReturnRows(roomRows().AddRow("room-1", "property-1", "Room A", "occupied", createdAt, updatedAt))
+		WillReturnRows(roomRows().AddRow("room-1", "property-1", "Room A", "occupied", nil, nil, nil, nil, nil, nil, nil, createdAt, updatedAt))
 
 	room, err := repo.FindRoomByID(context.Background(), tx, "room-1")
 	if err != nil {
@@ -510,23 +445,9 @@ func TestUpdateRoomUsesEmptyStatusWhenStatusIsNil(t *testing.T) {
 	createdAt := time.Date(2026, 4, 29, 10, 0, 0, 0, time.UTC)
 	updatedAt := createdAt.Add(time.Minute)
 
-	mock.ExpectQuery(regexp.QuoteMeta(`
-UPDATE rooms
-SET name = $2,
-	status = CASE WHEN $3 = '' THEN status ELSE $3 END,
-	updated_at = now()
-WHERE id = $1
-  AND deleted_at IS NULL
-RETURNING
-	id,
-	property_id,
-	name,
-	status,
-	created_at,
-	updated_at
-`)).
-		WithArgs("room-1", "Room A Updated", "").
-		WillReturnRows(roomRows().AddRow("room-1", "property-1", "Room A Updated", "occupied", createdAt, updatedAt))
+	mock.ExpectQuery("UPDATE rooms").
+		WithArgs("room-1", "Room A Updated", "", nil, nil, nil, nil, nil, nil, nil).
+		WillReturnRows(roomRows().AddRow("room-1", "property-1", "Room A Updated", "occupied", nil, nil, nil, nil, nil, nil, nil, createdAt, updatedAt))
 
 	room, err := repo.UpdateRoom(context.Background(), tx, UpdateRoomParams{
 		ID:   "room-1",
@@ -556,23 +477,9 @@ func TestUpdateRoomUsesProvidedStatusWhenStatusIsNonNil(t *testing.T) {
 	updatedAt := createdAt.Add(time.Minute)
 	status := "maintenance"
 
-	mock.ExpectQuery(regexp.QuoteMeta(`
-UPDATE rooms
-SET name = $2,
-	status = CASE WHEN $3 = '' THEN status ELSE $3 END,
-	updated_at = now()
-WHERE id = $1
-  AND deleted_at IS NULL
-RETURNING
-	id,
-	property_id,
-	name,
-	status,
-	created_at,
-	updated_at
-`)).
-		WithArgs("room-1", "Room A", "maintenance").
-		WillReturnRows(roomRows().AddRow("room-1", "property-1", "Room A", "maintenance", createdAt, updatedAt))
+	mock.ExpectQuery("UPDATE rooms").
+		WithArgs("room-1", "Room A", "maintenance", nil, nil, nil, nil, nil, nil, nil).
+		WillReturnRows(roomRows().AddRow("room-1", "property-1", "Room A", "maintenance", nil, nil, nil, nil, nil, nil, nil, createdAt, updatedAt))
 
 	room, err := repo.UpdateRoom(context.Background(), tx, UpdateRoomParams{
 		ID:     "room-1",
@@ -600,22 +507,8 @@ func TestUpdateRoomMapsNoRowsToNotFound(t *testing.T) {
 	defer closePropertyDB(t, db)
 	tx := beginPropertyTx(t, db, mock)
 
-	mock.ExpectQuery(regexp.QuoteMeta(`
-UPDATE rooms
-SET name = $2,
-	status = CASE WHEN $3 = '' THEN status ELSE $3 END,
-	updated_at = now()
-WHERE id = $1
-  AND deleted_at IS NULL
-RETURNING
-	id,
-	property_id,
-	name,
-	status,
-	created_at,
-	updated_at
-`)).
-		WithArgs("room-404", "Room Missing", "").
+	mock.ExpectQuery("UPDATE rooms").
+		WithArgs("room-404", "Room Missing", "", nil, nil, nil, nil, nil, nil, nil).
 		WillReturnError(sql.ErrNoRows)
 
 	_, err := repo.UpdateRoom(context.Background(), tx, UpdateRoomParams{
@@ -836,10 +729,15 @@ func propertyRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"id",
 		"name",
+		"subtitle",
 		"address",
 		"electricity_unit_price",
 		"default_electricity_billing_cadence",
 		"owner_id",
+		"contact_phone",
+		"contact_email",
+		"notes",
+		"facilities",
 		"created_at",
 		"updated_at",
 		"version",
@@ -852,6 +750,13 @@ func roomRows() *sqlmock.Rows {
 		"property_id",
 		"name",
 		"status",
+		"size",
+		"floor",
+		"room_type",
+		"facilities",
+		"default_rent_amount",
+		"notes",
+		"zone",
 		"created_at",
 		"updated_at",
 	})

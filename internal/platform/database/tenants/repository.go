@@ -38,20 +38,28 @@ type Tenant struct {
 
 // CreateTenantParams contains the writable fields required to persist a tenant.
 type CreateTenantParams struct {
-	Name     string
-	Email    *string
-	Phone    *string
-	Contacts []map[string]interface{}
+	Name       string
+	Email      *string
+	Phone      *string
+	Contacts   []map[string]interface{}
+	BirthDate  *time.Time
+	NationalID *string
+	Address    *string
+	Occupation *string
 }
 
 // UpdateTenantParams contains the writable fields required to persist a tenant update.
 type UpdateTenantParams struct {
-	ID       string
-	Name     string
-	Email    *string
-	Phone    *string
-	Contacts []map[string]interface{}
-	Version  int
+	ID         string
+	Name       string
+	Email      *string
+	Phone      *string
+	Contacts   []map[string]interface{}
+	BirthDate  *time.Time
+	NationalID *string
+	Address    *string
+	Occupation *string
+	Version    int
 }
 
 // SQLRepository reads and writes tenants from PostgreSQL.
@@ -76,8 +84,12 @@ INSERT INTO tenants (
 	name,
 	email,
 	phone,
-	contacts
-) VALUES ($1, $2, $3, $4::jsonb)
+	contacts,
+	birth_date,
+	national_id,
+	address,
+	occupation
+) VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8)
 RETURNING
 	id,
 	name,
@@ -94,7 +106,7 @@ RETURNING
 	version
 `
 
-	tenant, err := scanTenant(tx.QueryRowContext(ctx, query, params.Name, params.Email, params.Phone, contactsJSON))
+	tenant, err := scanTenant(tx.QueryRowContext(ctx, query, params.Name, params.Email, params.Phone, contactsJSON, params.BirthDate, params.NationalID, params.Address, params.Occupation))
 	if err != nil {
 		return nil, fmt.Errorf("create tenant: %w", err)
 	}
@@ -149,10 +161,14 @@ SET name = $2,
 	email = $3,
 	phone = $4,
 	contacts = $5::jsonb,
+	birth_date = $6,
+	national_id = $7,
+	address = $8,
+	occupation = $9,
 	updated_at = now(),
 	version = version + 1
 WHERE id = $1
-  AND version = $6
+  AND version = $10
   AND deleted_at IS NULL
 RETURNING
 	id,
@@ -170,7 +186,7 @@ RETURNING
 	version
 `
 
-	tenant, err := scanTenant(tx.QueryRowContext(ctx, query, params.ID, params.Name, params.Email, params.Phone, contactsJSON, params.Version))
+	tenant, err := scanTenant(tx.QueryRowContext(ctx, query, params.ID, params.Name, params.Email, params.Phone, contactsJSON, params.BirthDate, params.NationalID, params.Address, params.Occupation, params.Version))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound

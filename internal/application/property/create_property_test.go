@@ -23,10 +23,10 @@ func TestCreatePropertyServiceCreatesProperty(t *testing.T) {
 
 	mock.ExpectBegin()
 	mock.ExpectQuery("INSERT INTO properties").
-		WithArgs("Property A", "Address A", 4.5, "monthly", "owner-1").
+		WithArgs("Property A", nil, "Address A", 4.5, "monthly", "owner-1", nil, nil, nil, nil).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "address", "electricity_unit_price", "default_electricity_billing_cadence", "owner_id", "created_at", "updated_at", "version",
-		}).AddRow("property-1", "Property A", "Address A", 4.5, "monthly", "owner-1", time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), 1))
+			"id", "name", "subtitle", "address", "electricity_unit_price", "default_electricity_billing_cadence", "owner_id", "contact_phone", "contact_email", "notes", "facilities", "created_at", "updated_at", "version",
+		}).AddRow("property-1", "Property A", nil, "Address A", 4.5, "monthly", "owner-1", nil, nil, nil, nil, time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), 1))
 	mock.ExpectExec("INSERT INTO property_accounts").
 		WithArgs("property-1").
 		WillReturnResult(sqlmock.NewResult(1, 1))
@@ -74,10 +74,15 @@ func (a sqlPropertyAccountRepositoryAdapter) CreatePropertyAccount(ctx context.C
 func (a sqlPropertyRepositoryAdapter) Create(ctx context.Context, tx *sql.Tx, params CreatePropertyParams) (*Property, error) {
 	property, err := a.repo.Create(ctx, tx, dbproperties.CreatePropertyParams{
 		Name:                             params.Name,
+		Subtitle:                         params.Subtitle,
 		Address:                          params.Address,
 		ElectricityUnitPrice:             params.ElectricityUnitPrice,
 		DefaultElectricityBillingCadence: params.DefaultElectricityBillingCadence,
 		OwnerID:                          params.OwnerID,
+		ContactPhone:                     params.ContactPhone,
+		ContactEmail:                     params.ContactEmail,
+		Notes:                            params.Notes,
+		Facilities:                       params.Facilities,
 	})
 	if err != nil {
 		return nil, err
@@ -86,10 +91,15 @@ func (a sqlPropertyRepositoryAdapter) Create(ctx context.Context, tx *sql.Tx, pa
 	return &Property{
 		ID:                               property.ID,
 		Name:                             property.Name,
+		Subtitle:                         property.Subtitle,
 		Address:                          property.Address,
 		ElectricityUnitPrice:             property.ElectricityUnitPrice,
 		DefaultElectricityBillingCadence: property.DefaultElectricityBillingCadence,
 		OwnerID:                          property.OwnerID,
+		ContactPhone:                     property.ContactPhone,
+		ContactEmail:                     property.ContactEmail,
+		Notes:                            property.Notes,
+		Facilities:                       property.Facilities,
 		CreatedAt:                        property.CreatedAt,
 		UpdatedAt:                        property.UpdatedAt,
 		Version:                          property.Version,

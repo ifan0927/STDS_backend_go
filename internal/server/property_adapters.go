@@ -42,10 +42,15 @@ func (a propertyAccountRepositoryAdapter) CreatePropertyAccount(ctx context.Cont
 func (a propertyRepositoryAdapter) Create(ctx context.Context, tx *sql.Tx, params appproperty.CreatePropertyParams) (*appproperty.Property, error) {
 	property, err := a.repo.Create(ctx, tx, dbproperties.CreatePropertyParams{
 		Name:                             params.Name,
+		Subtitle:                         params.Subtitle,
 		Address:                          params.Address,
 		ElectricityUnitPrice:             params.ElectricityUnitPrice,
 		DefaultElectricityBillingCadence: params.DefaultElectricityBillingCadence,
 		OwnerID:                          params.OwnerID,
+		ContactPhone:                     params.ContactPhone,
+		ContactEmail:                     params.ContactEmail,
+		Notes:                            params.Notes,
+		Facilities:                       params.Facilities,
 	})
 	if err != nil {
 		return nil, err
@@ -70,10 +75,15 @@ func (a propertyRepositoryAdapter) Update(ctx context.Context, tx *sql.Tx, param
 	property, err := a.repo.Update(ctx, tx, dbproperties.UpdatePropertyParams{
 		ID:                               params.ID,
 		Name:                             params.Name,
+		Subtitle:                         params.Subtitle,
 		Address:                          params.Address,
 		ElectricityUnitPrice:             params.ElectricityUnitPrice,
 		DefaultElectricityBillingCadence: params.DefaultElectricityBillingCadence,
 		OwnerID:                          params.OwnerID,
+		ContactPhone:                     params.ContactPhone,
+		ContactEmail:                     params.ContactEmail,
+		Notes:                            params.Notes,
+		Facilities:                       params.Facilities,
 		Version:                          params.Version,
 	})
 	if err != nil {
@@ -100,8 +110,15 @@ func (a propertyRepositoryAdapter) SoftDelete(ctx context.Context, tx *sql.Tx, i
 
 func (a propertyRepositoryAdapter) CreateRoom(ctx context.Context, tx *sql.Tx, params appproperty.CreateRoomParams) (*appproperty.Room, error) {
 	room, err := a.repo.CreateRoom(ctx, tx, dbproperties.CreateRoomParams{
-		PropertyID: params.PropertyID,
-		Name:       params.Name,
+		PropertyID:        params.PropertyID,
+		Name:              params.Name,
+		Size:              params.Size,
+		Floor:             params.Floor,
+		RoomType:          params.RoomType,
+		Facilities:        params.Facilities,
+		DefaultRentAmount: params.DefaultRentAmount,
+		Notes:             params.Notes,
+		Zone:              params.Zone,
 	})
 	if err != nil {
 		return nil, err
@@ -124,9 +141,16 @@ func (a propertyRepositoryAdapter) FindRoomByID(ctx context.Context, tx *sql.Tx,
 
 func (a propertyRepositoryAdapter) UpdateRoom(ctx context.Context, tx *sql.Tx, params appproperty.UpdateRoomParams) (*appproperty.Room, error) {
 	room, err := a.repo.UpdateRoom(ctx, tx, dbproperties.UpdateRoomParams{
-		ID:     params.ID,
-		Name:   params.Name,
-		Status: params.Status,
+		ID:                params.ID,
+		Name:              params.Name,
+		Status:            params.Status,
+		Size:              params.Size,
+		Floor:             params.Floor,
+		RoomType:          params.RoomType,
+		Facilities:        params.Facilities,
+		DefaultRentAmount: params.DefaultRentAmount,
+		Notes:             params.Notes,
+		Zone:              params.Zone,
 	})
 	if err != nil {
 		if err == dbproperties.ErrNotFound {
@@ -165,10 +189,15 @@ func toApplicationProperty(property *dbproperties.Property) *appproperty.Propert
 	return &appproperty.Property{
 		ID:                               property.ID,
 		Name:                             property.Name,
+		Subtitle:                         property.Subtitle,
 		Address:                          property.Address,
 		ElectricityUnitPrice:             property.ElectricityUnitPrice,
 		DefaultElectricityBillingCadence: property.DefaultElectricityBillingCadence,
 		OwnerID:                          property.OwnerID,
+		ContactPhone:                     property.ContactPhone,
+		ContactEmail:                     property.ContactEmail,
+		Notes:                            property.Notes,
+		Facilities:                       property.Facilities,
 		CreatedAt:                        property.CreatedAt,
 		UpdatedAt:                        property.UpdatedAt,
 		Version:                          property.Version,
@@ -177,12 +206,19 @@ func toApplicationProperty(property *dbproperties.Property) *appproperty.Propert
 
 func toApplicationRoom(room *dbproperties.Room) *appproperty.Room {
 	return &appproperty.Room{
-		ID:         room.ID,
-		PropertyID: room.PropertyID,
-		Name:       room.Name,
-		Status:     room.Status,
-		CreatedAt:  room.CreatedAt,
-		UpdatedAt:  room.UpdatedAt,
+		ID:                room.ID,
+		PropertyID:        room.PropertyID,
+		Name:              room.Name,
+		Status:            room.Status,
+		Size:              room.Size,
+		Floor:             room.Floor,
+		RoomType:          room.RoomType,
+		Facilities:        room.Facilities,
+		DefaultRentAmount: room.DefaultRentAmount,
+		Notes:             room.Notes,
+		Zone:              room.Zone,
+		CreatedAt:         room.CreatedAt,
+		UpdatedAt:         room.UpdatedAt,
 	}
 }
 

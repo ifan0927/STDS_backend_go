@@ -19,29 +19,8 @@ func TestCreateUsesTransactionAndMarshalsNilContactsAsEmptyArray(t *testing.T) {
 	tx := beginTenantTx(t, db, mock)
 	now := time.Date(2026, 4, 20, 10, 0, 0, 0, time.UTC)
 
-	mock.ExpectQuery(regexp.QuoteMeta(`
-INSERT INTO tenants (
-	name,
-	email,
-	phone,
-	contacts
-) VALUES ($1, $2, $3, $4::jsonb)
-RETURNING
-	id,
-	name,
-	email,
-	phone,
-	contacts::text,
-	birth_date,
-	national_id,
-	address,
-	occupation,
-	status,
-	created_at,
-	updated_at,
-	version
-`)).
-		WithArgs("Tenant A", nil, nil, "[]").
+	mock.ExpectQuery("INSERT INTO tenants").
+		WithArgs("Tenant A", nil, nil, "[]", nil, nil, nil, nil).
 		WillReturnRows(tenantRows().AddRow(
 			"tenant-1",
 			"Tenant A",
@@ -214,39 +193,22 @@ func TestUpdateUsesVersionConditionAndContactsJSON(t *testing.T) {
 	now := time.Date(2026, 4, 20, 10, 0, 0, 0, time.UTC)
 	email := "tenant@example.com"
 	phone := "0912-345-678"
+	birthDate := time.Date(1992, 3, 4, 0, 0, 0, 0, time.UTC)
+	nationalID := "A123456789"
+	address := "Taipei"
+	occupation := "Engineer"
 
-	mock.ExpectQuery(regexp.QuoteMeta(`
-UPDATE tenants
-SET name = $2,
-	email = $3,
-	phone = $4,
-	contacts = $5::jsonb,
-	updated_at = now(),
-	version = version + 1
-WHERE id = $1
-  AND version = $6
-  AND deleted_at IS NULL
-RETURNING
-	id,
-	name,
-	email,
-	phone,
-	contacts::text,
-	birth_date,
-	national_id,
-	address,
-	occupation,
-	status,
-	created_at,
-	updated_at,
-	version
-`)).
+	mock.ExpectQuery("UPDATE tenants").
 		WithArgs(
 			"tenant-1",
 			"Tenant Updated",
 			&email,
 			&phone,
 			`[{"name":"Emergency","phone":"0987-654-321"}]`,
+			&birthDate,
+			&nationalID,
+			&address,
+			&occupation,
 			4,
 		).
 		WillReturnRows(tenantRows().AddRow(
@@ -255,10 +217,10 @@ RETURNING
 			email,
 			phone,
 			`[{"name":"Emergency","phone":"0987-654-321"}]`,
-			nil,
-			nil,
-			nil,
-			nil,
+			birthDate,
+			nationalID,
+			address,
+			occupation,
 			"active",
 			now,
 			now,
@@ -273,7 +235,11 @@ RETURNING
 		Contacts: []map[string]interface{}{
 			{"name": "Emergency", "phone": "0987-654-321"},
 		},
-		Version: 4,
+		BirthDate:  &birthDate,
+		NationalID: &nationalID,
+		Address:    &address,
+		Occupation: &occupation,
+		Version:    4,
 	})
 	if err != nil {
 		t.Fatalf("Update: %v", err)
@@ -283,6 +249,9 @@ RETURNING
 	}
 	if len(tenant.Contacts) != 1 || tenant.Contacts[0]["phone"] != "0987-654-321" {
 		t.Fatalf("expected decoded contacts, got %#v", tenant.Contacts)
+	}
+	if tenant.BirthDate == nil || !tenant.BirthDate.Equal(birthDate) || tenant.NationalID == nil || *tenant.NationalID != nationalID {
+		t.Fatalf("unexpected tenant v1 fields: %+v", tenant)
 	}
 
 	mock.ExpectCommit()
@@ -300,33 +269,8 @@ func TestUpdateMapsNoRowsToErrNotFound(t *testing.T) {
 
 	tx := beginTenantTx(t, db, mock)
 
-	mock.ExpectQuery(regexp.QuoteMeta(`
-UPDATE tenants
-SET name = $2,
-	email = $3,
-	phone = $4,
-	contacts = $5::jsonb,
-	updated_at = now(),
-	version = version + 1
-WHERE id = $1
-  AND version = $6
-  AND deleted_at IS NULL
-RETURNING
-	id,
-	name,
-	email,
-	phone,
-	contacts::text,
-	birth_date,
-	national_id,
-	address,
-	occupation,
-	status,
-	created_at,
-	updated_at,
-	version
-`)).
-		WithArgs("missing-tenant", "Tenant Updated", nil, nil, "[]", 2).
+	mock.ExpectQuery("UPDATE tenants").
+		WithArgs("missing-tenant", "Tenant Updated", nil, nil, "[]", nil, nil, nil, nil, 2).
 		WillReturnError(sql.ErrNoRows)
 
 	_, err := repo.Update(context.Background(), tx, UpdateTenantParams{

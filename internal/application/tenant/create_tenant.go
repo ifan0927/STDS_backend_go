@@ -3,6 +3,7 @@ package tenant
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	domaintenant "stds_backend/internal/domain/tenant"
 	"stds_backend/internal/platform/database/txrunner"
@@ -11,10 +12,14 @@ import (
 
 // CreateTenantInput is the command payload for creating a tenant.
 type CreateTenantInput struct {
-	Name     string
-	Email    string
-	Phone    *string
-	Contacts *[]map[string]interface{}
+	Name       string
+	Email      string
+	Phone      *string
+	Contacts   *[]map[string]interface{}
+	BirthDate  *time.Time
+	NationalID *string
+	Address    *string
+	Occupation *string
 }
 
 // CreateTenantService creates tenants in a transaction.
@@ -40,11 +45,15 @@ func (s *CreateTenantService) Execute(ctx context.Context, input CreateTenantInp
 	}
 
 	aggregate, err := domaintenant.New(domaintenant.State{
-		Name:     input.Name,
-		Email:    &email,
-		Phone:    input.Phone,
-		Contacts: contacts,
-		Status:   domaintenant.StatusActive,
+		Name:       input.Name,
+		Email:      &email,
+		Phone:      input.Phone,
+		Contacts:   contacts,
+		BirthDate:  input.BirthDate,
+		NationalID: input.NationalID,
+		Address:    input.Address,
+		Occupation: input.Occupation,
+		Status:     domaintenant.StatusActive,
 	})
 	if err != nil {
 		return nil, mapDomainError(err)
@@ -54,10 +63,14 @@ func (s *CreateTenantService) Execute(ctx context.Context, input CreateTenantInp
 	var created *Tenant
 	err = s.txRunner.WithinTransaction(ctx, func(ctx context.Context, tx *sql.Tx, _ *txrunner.EventRecorder) error {
 		tenant, err := s.tenantRepo.Create(ctx, tx, CreateTenantParams{
-			Name:     state.Name,
-			Email:    state.Email,
-			Phone:    state.Phone,
-			Contacts: state.Contacts,
+			Name:       state.Name,
+			Email:      state.Email,
+			Phone:      state.Phone,
+			Contacts:   state.Contacts,
+			BirthDate:  state.BirthDate,
+			NationalID: state.NationalID,
+			Address:    state.Address,
+			Occupation: state.Occupation,
 		})
 		if err != nil {
 			return apperr.ErrInternalServerError.WithCause(err)

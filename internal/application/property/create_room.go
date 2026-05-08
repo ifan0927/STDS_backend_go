@@ -13,8 +13,15 @@ import (
 
 // CreateRoomInput is the command payload for creating a room.
 type CreateRoomInput struct {
-	PropertyID string
-	Name       string
+	PropertyID        string
+	Name              string
+	Size              *float64
+	Floor             *string
+	RoomType          *string
+	Facilities        *map[string]interface{}
+	DefaultRentAmount *int
+	Notes             *string
+	Zone              *string
 }
 
 // CreateRoomService creates rooms within a property.
@@ -39,9 +46,16 @@ func (s *CreateRoomService) Execute(ctx context.Context, input CreateRoomInput) 
 	}
 
 	aggregate, err := domainproperty.NewRoom(domainproperty.RoomState{
-		PropertyID: propertyID,
-		Name:       input.Name,
-		Status:     domainproperty.RoomStatusVacant,
+		PropertyID:        propertyID,
+		Name:              input.Name,
+		Status:            domainproperty.RoomStatusVacant,
+		Size:              input.Size,
+		Floor:             input.Floor,
+		RoomType:          input.RoomType,
+		Facilities:        input.Facilities,
+		DefaultRentAmount: input.DefaultRentAmount,
+		Notes:             input.Notes,
+		Zone:              input.Zone,
 	})
 	if err != nil {
 		return nil, mapDomainError(err)
@@ -59,8 +73,15 @@ func (s *CreateRoomService) Execute(ctx context.Context, input CreateRoomInput) 
 		}
 
 		room, err := s.propertyRepo.CreateRoom(ctx, tx, CreateRoomParams{
-			PropertyID: propertyID,
-			Name:       aggregate.RoomState().Name,
+			PropertyID:        propertyID,
+			Name:              aggregate.RoomState().Name,
+			Size:              aggregate.RoomState().Size,
+			Floor:             aggregate.RoomState().Floor,
+			RoomType:          aggregate.RoomState().RoomType,
+			Facilities:        aggregate.RoomState().Facilities,
+			DefaultRentAmount: aggregate.RoomState().DefaultRentAmount,
+			Notes:             aggregate.RoomState().Notes,
+			Zone:              aggregate.RoomState().Zone,
 		})
 		if err != nil {
 			return apperr.ErrInternalServerError.WithCause(err)

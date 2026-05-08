@@ -8,6 +8,9 @@ required:
 properties:
   name:
     type: string
+  subtitle:
+    type: string
+    nullable: true
   address:
     type: string
   electricity_unit_price:
@@ -25,3 +28,17 @@ properties:
   owner_id:
     type: string
     format: uuid
+  contact_phone:
+    type: string
+    nullable: true
+  contact_email:
+    type: string
+    format: email
+    nullable: true
+  notes:
+    type: string
+    nullable: true
+  facilities:
+    type: object
+    additionalProperties: true
+    nullable: true

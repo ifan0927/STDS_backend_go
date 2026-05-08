@@ -706,6 +706,83 @@ func TestUpdateTenantReturnsUpdatedTenant(t *testing.T) {
 	}
 }
 
+func TestUpdateTenantClearsNullableFieldsWithExplicitNull(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+
+	tenantID := "30000000-0000-0000-0000-000000000001"
+	birthDate := time.Date(1990, 1, 2, 0, 0, 0, 0, time.UTC)
+	nationalID := "A123456789"
+	address := "Address A"
+	occupation := "Engineer"
+	updateParams := apptenant.UpdateTenantParams{}
+	updateTenantRepo := fakeTenantRepo{
+		current: &apptenant.Tenant{
+			ID:         tenantID,
+			Name:       "Tenant A",
+			Contacts:   []map[string]interface{}{},
+			BirthDate:  &birthDate,
+			NationalID: &nationalID,
+			Address:    &address,
+			Occupation: &occupation,
+			Status:     "active",
+			Version:    1,
+		},
+		updateParams: &updateParams,
+	}
+
+	engine := newTestEngineWithTenantServices(
+		fakeUserRepo{role: "admin"},
+		fakeAuthenticator{role: "admin"},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{},
+		"",
+		fakeJobRunsRepo{},
+		fakePropertyQueryRepo{},
+		fakeTenantQueryRepo{},
+		apptenant.NewCreateTenantService(fakeTenantRepo{}, dbtxrunner.New(db, nil)),
+		apptenant.NewUpdateTenantService(updateTenantRepo, dbtxrunner.New(db, nil)),
+	)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/tenants/"+tenantID, strings.NewReader(`{
+		"birth_date":null,
+		"national_id":null,
+		"address":null,
+		"occupation":null
+	}`))
+	req.Header.Set("Authorization", "Bearer valid-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if updateParams.BirthDate != nil {
+		t.Fatalf("expected birth_date to be cleared, got %v", updateParams.BirthDate)
+	}
+	if updateParams.NationalID != nil {
+		t.Fatalf("expected national_id to be cleared, got %v", *updateParams.NationalID)
+	}
+	if updateParams.Address != nil {
+		t.Fatalf("expected address to be cleared, got %v", *updateParams.Address)
+	}
+	if updateParams.Occupation != nil {
+		t.Fatalf("expected occupation to be cleared, got %v", *updateParams.Occupation)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
 func TestListTenantLeasesReturnsLeaseHistory(t *testing.T) {
 	leasesCall := &listTenantLeasesCall{}
 	engine := newTestEngineWithQueryRepos(
@@ -1505,7 +1582,7 @@ func TestExportLeaseCheckoutSettlementReturnsHTMLDocument(t *testing.T) {
 	}
 }
 
-func TestUpdateLeaseRejectsRentBillingCadencePatch(t *testing.T) {
+func TestUpdateLeaseRejectsPatchWithoutSupportedFields(t *testing.T) {
 	engine := newTestEngineWithAllQueryRepos(
 		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
 		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}},
@@ -1534,7 +1611,7 @@ func TestUpdateLeaseRejectsRentBillingCadencePatch(t *testing.T) {
 	if resp.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("expected 422, got %d: %s", resp.Code, resp.Body.String())
 	}
-	assertErrorField(t, resp.Body.Bytes(), "LEASE_UNSUPPORTED_UPDATE", "rent_billing_cadence")
+	assertErrorField(t, resp.Body.Bytes(), "LEASE_UNSUPPORTED_UPDATE", "rent_amount")
 }
 
 func TestListUsersReturnsActiveUsers(t *testing.T) {
@@ -2348,6 +2425,99 @@ func TestUpdateRoomReturnsUpdatedRoom(t *testing.T) {
 	}
 }
 
+func TestUpdateRoomClearsNullableFieldsWithExplicitNull(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+
+	size := 12.5
+	floor := "2"
+	roomType := "suite"
+	facilities := map[string]interface{}{"bed": true}
+	defaultRent := 12000
+	notes := "Room note"
+	zone := "A"
+	updateParams := appproperty.UpdateRoomParams{}
+	propertyRepo := fakePropertyRepo{
+		roomByID: map[string]*appproperty.Room{
+			testRoomID1: {
+				ID:                testRoomID1,
+				PropertyID:        testPropertyID1,
+				Name:              "101 Room",
+				Status:            "vacant",
+				Size:              &size,
+				Floor:             &floor,
+				RoomType:          &roomType,
+				Facilities:        &facilities,
+				DefaultRentAmount: &defaultRent,
+				Notes:             &notes,
+				Zone:              &zone,
+			},
+		},
+		updateRoomParams: &updateParams,
+	}
+
+	repo := fakeUserRepo{role: "admin"}
+	engine := newTestEngineWithRoomServices(repo, fakeAuthenticator{role: "admin"}, propertyRepo, fakeResourceOwnershipRepo{propertyByRoomID: map[string]string{testRoomID1: testPropertyID1}}, "", fakeJobRunsRepo{}, fakePropertyQueryRepo{},
+		appproperty.NewCreatePropertyService(propertyRepo, fakePropertyAccountRepo{}, dbtxrunner.New(db, nil)),
+		appproperty.NewUpdatePropertyService(propertyRepo, dbtxrunner.New(db, nil)),
+		appproperty.NewDeletePropertyService(propertyRepo, dbtxrunner.New(db, nil)),
+		appproperty.NewCreateRoomService(propertyRepo, dbtxrunner.New(db, nil)),
+		appproperty.NewUpdateRoomService(propertyRepo, dbtxrunner.New(db, nil)),
+		appproperty.NewDeleteRoomService(propertyRepo, dbtxrunner.New(db, nil)),
+		appproperty.NewSetRoomMaintenanceService(propertyRepo, dbtxrunner.New(db, nil)),
+	)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/rooms/"+testRoomID1, strings.NewReader(`{
+		"size":null,
+		"floor":null,
+		"room_type":null,
+		"facilities":null,
+		"default_rent_amount":null,
+		"notes":null,
+		"zone":null
+	}`))
+	req.Header.Set("Authorization", "Bearer valid-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if updateParams.Size != nil {
+		t.Fatalf("expected size to be cleared, got %v", *updateParams.Size)
+	}
+	if updateParams.Floor != nil {
+		t.Fatalf("expected floor to be cleared, got %v", *updateParams.Floor)
+	}
+	if updateParams.RoomType != nil {
+		t.Fatalf("expected room_type to be cleared, got %v", *updateParams.RoomType)
+	}
+	if updateParams.Facilities != nil {
+		t.Fatalf("expected facilities to be cleared, got %#v", *updateParams.Facilities)
+	}
+	if updateParams.DefaultRentAmount != nil {
+		t.Fatalf("expected default_rent_amount to be cleared, got %v", *updateParams.DefaultRentAmount)
+	}
+	if updateParams.Notes != nil {
+		t.Fatalf("expected notes to be cleared, got %v", *updateParams.Notes)
+	}
+	if updateParams.Zone != nil {
+		t.Fatalf("expected zone to be cleared, got %v", *updateParams.Zone)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
 func TestDeleteRoomRejectsMaintenanceRoom(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -2596,16 +2766,21 @@ func TestCreatePropertyAcceptsDecimalElectricityPrice(t *testing.T) {
 
 	mock.ExpectBegin()
 	mock.ExpectQuery("INSERT INTO properties").
-		WithArgs("Property A", "Address A", 4.5, "monthly", "00000000-0000-0000-0000-000000000010").
+		WithArgs("Property A", nil, "Address A", 4.5, "monthly", "00000000-0000-0000-0000-000000000010", nil, nil, nil, nil).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "address", "electricity_unit_price", "default_electricity_billing_cadence", "owner_id", "created_at", "updated_at", "version",
+			"id", "name", "subtitle", "address", "electricity_unit_price", "default_electricity_billing_cadence", "owner_id", "contact_phone", "contact_email", "notes", "facilities", "created_at", "updated_at", "version",
 		}).AddRow(
 			"property-new",
 			"Property A",
+			nil,
 			"Address A",
 			4.5,
 			"monthly",
 			"00000000-0000-0000-0000-000000000010",
+			nil,
+			nil,
+			nil,
+			nil,
 			time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
 			time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
 			1,
@@ -2718,6 +2893,92 @@ func TestUpdatePropertyRejectsStaffElectricityPriceMutation(t *testing.T) {
 	}
 	if payload["error_code"] != "FORBIDDEN_ELECTRICITY_PRICE_UPDATE" {
 		t.Fatalf("expected FORBIDDEN_ELECTRICITY_PRICE_UPDATE, got %v", payload["error_code"])
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestUpdatePropertyClearsNullableFieldsWithExplicitNull(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+
+	subtitle := "Property subtitle"
+	contactPhone := "02-1234-5678"
+	contactEmail := "owner@example.com"
+	notes := "Property note"
+	facilities := map[string]interface{}{"parking": true}
+	updateParams := appproperty.UpdatePropertyParams{}
+	propertyRepo := fakePropertyRepo{
+		propertyByID: map[string]*appproperty.Property{
+			testPropertyID1: {
+				ID:                               testPropertyID1,
+				Name:                             "Property A",
+				Subtitle:                         &subtitle,
+				Address:                          "Address A",
+				ElectricityUnitPrice:             ptrFloat64(4.0),
+				DefaultElectricityBillingCadence: "monthly",
+				OwnerID:                          "owner-1",
+				ContactPhone:                     &contactPhone,
+				ContactEmail:                     &contactEmail,
+				Notes:                            &notes,
+				Facilities:                       &facilities,
+				Version:                          1,
+			},
+		},
+		updateParams: &updateParams,
+	}
+	updatePropertyService := appproperty.NewUpdatePropertyService(propertyRepo, dbtxrunner.New(db, nil))
+	engine := newTestEngineWithCreatePropertyService(
+		fakeUserRepo{role: "admin"},
+		fakeAuthenticator{role: "admin"},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{},
+		"",
+		fakeJobRunsRepo{},
+		fakePropertyQueryRepo{},
+		appproperty.NewCreatePropertyService(fakePropertyRepo{}, fakePropertyAccountRepo{}, dbtxrunner.New(nil, nil)),
+		updatePropertyService,
+		appproperty.NewDeletePropertyService(fakePropertyRepo{}, dbtxrunner.New(nil, nil)),
+	)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/properties/"+testPropertyID1, strings.NewReader(`{
+		"subtitle":null,
+		"contact_phone":null,
+		"contact_email":null,
+		"notes":null,
+		"facilities":null
+	}`))
+	req.Header.Set("Authorization", "Bearer valid-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if updateParams.Subtitle != nil {
+		t.Fatalf("expected subtitle to be cleared, got %v", *updateParams.Subtitle)
+	}
+	if updateParams.ContactPhone != nil {
+		t.Fatalf("expected contact_phone to be cleared, got %v", *updateParams.ContactPhone)
+	}
+	if updateParams.ContactEmail != nil {
+		t.Fatalf("expected contact_email to be cleared, got %v", *updateParams.ContactEmail)
+	}
+	if updateParams.Notes != nil {
+		t.Fatalf("expected notes to be cleared, got %v", *updateParams.Notes)
+	}
+	if updateParams.Facilities != nil {
+		t.Fatalf("expected facilities to be cleared, got %#v", *updateParams.Facilities)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -4322,6 +4583,8 @@ type fakePropertyRepo struct {
 	propertyByID      map[string]*appproperty.Property
 	occupiedRoomIDs   map[string][]string
 	roomByID          map[string]*appproperty.Room
+	updateParams      *appproperty.UpdatePropertyParams
+	updateRoomParams  *appproperty.UpdateRoomParams
 }
 
 type fakePropertyAccountRepo struct{}
@@ -4380,12 +4643,13 @@ func (r *fakeDashboardRepository) GetHomeDashboard(_ context.Context, scope appp
 }
 
 type fakeTenantRepo struct {
-	created   *apptenant.Tenant
-	current   *apptenant.Tenant
-	updated   *apptenant.Tenant
-	createErr error
-	findErr   error
-	updateErr error
+	created      *apptenant.Tenant
+	current      *apptenant.Tenant
+	updated      *apptenant.Tenant
+	updateParams *apptenant.UpdateTenantParams
+	createErr    error
+	findErr      error
+	updateErr    error
 }
 
 type fakeTenantQueryRepo struct {
@@ -5011,13 +5275,22 @@ func (f fakePropertyRepo) FindByID(_ context.Context, _ *sql.Tx, id string) (*ap
 }
 
 func (f fakePropertyRepo) Update(_ context.Context, _ *sql.Tx, params appproperty.UpdatePropertyParams) (*appproperty.Property, error) {
+	if f.updateParams != nil {
+		*f.updateParams = params
+	}
+
 	return &appproperty.Property{
 		ID:                               params.ID,
 		Name:                             params.Name,
+		Subtitle:                         params.Subtitle,
 		Address:                          params.Address,
 		ElectricityUnitPrice:             params.ElectricityUnitPrice,
 		DefaultElectricityBillingCadence: params.DefaultElectricityBillingCadence,
 		OwnerID:                          params.OwnerID,
+		ContactPhone:                     params.ContactPhone,
+		ContactEmail:                     params.ContactEmail,
+		Notes:                            params.Notes,
+		Facilities:                       params.Facilities,
 		CreatedAt:                        time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
 		UpdatedAt:                        time.Date(2026, 4, 16, 11, 0, 0, 0, time.UTC),
 		Version:                          params.Version + 1,
@@ -5063,18 +5336,29 @@ func (f fakePropertyRepo) FindRoomByID(_ context.Context, _ *sql.Tx, id string) 
 }
 
 func (f fakePropertyRepo) UpdateRoom(_ context.Context, _ *sql.Tx, params appproperty.UpdateRoomParams) (*appproperty.Room, error) {
+	if f.updateRoomParams != nil {
+		*f.updateRoomParams = params
+	}
+
 	status := "vacant"
 	if params.Status != nil {
 		status = *params.Status
 	}
 
 	return &appproperty.Room{
-		ID:         params.ID,
-		PropertyID: testPropertyID1,
-		Name:       params.Name,
-		Status:     status,
-		CreatedAt:  time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
-		UpdatedAt:  time.Date(2026, 4, 16, 11, 0, 0, 0, time.UTC),
+		ID:                params.ID,
+		PropertyID:        testPropertyID1,
+		Name:              params.Name,
+		Status:            status,
+		Size:              params.Size,
+		Floor:             params.Floor,
+		RoomType:          params.RoomType,
+		Facilities:        params.Facilities,
+		DefaultRentAmount: params.DefaultRentAmount,
+		Notes:             params.Notes,
+		Zone:              params.Zone,
+		CreatedAt:         time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+		UpdatedAt:         time.Date(2026, 4, 16, 11, 0, 0, 0, time.UTC),
 	}, nil
 }
 
@@ -5100,10 +5384,15 @@ func (f fakePropertyRepo) CreateRepairRequest(_ context.Context, _ *sql.Tx, para
 func (a testSQLPropertyRepositoryAdapter) Create(ctx context.Context, tx *sql.Tx, params appproperty.CreatePropertyParams) (*appproperty.Property, error) {
 	property, err := a.repo.Create(ctx, tx, dbproperties.CreatePropertyParams{
 		Name:                             params.Name,
+		Subtitle:                         params.Subtitle,
 		Address:                          params.Address,
 		ElectricityUnitPrice:             params.ElectricityUnitPrice,
 		DefaultElectricityBillingCadence: params.DefaultElectricityBillingCadence,
 		OwnerID:                          params.OwnerID,
+		ContactPhone:                     params.ContactPhone,
+		ContactEmail:                     params.ContactEmail,
+		Notes:                            params.Notes,
+		Facilities:                       params.Facilities,
 	})
 	if err != nil {
 		return nil, err
@@ -5112,10 +5401,15 @@ func (a testSQLPropertyRepositoryAdapter) Create(ctx context.Context, tx *sql.Tx
 	return &appproperty.Property{
 		ID:                               property.ID,
 		Name:                             property.Name,
+		Subtitle:                         property.Subtitle,
 		Address:                          property.Address,
 		ElectricityUnitPrice:             property.ElectricityUnitPrice,
 		DefaultElectricityBillingCadence: property.DefaultElectricityBillingCadence,
 		OwnerID:                          property.OwnerID,
+		ContactPhone:                     property.ContactPhone,
+		ContactEmail:                     property.ContactEmail,
+		Notes:                            property.Notes,
+		Facilities:                       property.Facilities,
 		CreatedAt:                        property.CreatedAt,
 		UpdatedAt:                        property.UpdatedAt,
 		Version:                          property.Version,
@@ -5135,10 +5429,15 @@ func (a testSQLPropertyRepositoryAdapter) FindByID(ctx context.Context, tx *sql.
 	return &appproperty.Property{
 		ID:                               property.ID,
 		Name:                             property.Name,
+		Subtitle:                         property.Subtitle,
 		Address:                          property.Address,
 		ElectricityUnitPrice:             property.ElectricityUnitPrice,
 		DefaultElectricityBillingCadence: property.DefaultElectricityBillingCadence,
 		OwnerID:                          property.OwnerID,
+		ContactPhone:                     property.ContactPhone,
+		ContactEmail:                     property.ContactEmail,
+		Notes:                            property.Notes,
+		Facilities:                       property.Facilities,
 		CreatedAt:                        property.CreatedAt,
 		UpdatedAt:                        property.UpdatedAt,
 		Version:                          property.Version,
@@ -5149,10 +5448,15 @@ func (a testSQLPropertyRepositoryAdapter) Update(ctx context.Context, tx *sql.Tx
 	property, err := a.repo.Update(ctx, tx, dbproperties.UpdatePropertyParams{
 		ID:                               params.ID,
 		Name:                             params.Name,
+		Subtitle:                         params.Subtitle,
 		Address:                          params.Address,
 		ElectricityUnitPrice:             params.ElectricityUnitPrice,
 		DefaultElectricityBillingCadence: params.DefaultElectricityBillingCadence,
 		OwnerID:                          params.OwnerID,
+		ContactPhone:                     params.ContactPhone,
+		ContactEmail:                     params.ContactEmail,
+		Notes:                            params.Notes,
+		Facilities:                       params.Facilities,
 		Version:                          params.Version,
 	})
 	if err != nil {
@@ -5162,10 +5466,15 @@ func (a testSQLPropertyRepositoryAdapter) Update(ctx context.Context, tx *sql.Tx
 	return &appproperty.Property{
 		ID:                               property.ID,
 		Name:                             property.Name,
+		Subtitle:                         property.Subtitle,
 		Address:                          property.Address,
 		ElectricityUnitPrice:             property.ElectricityUnitPrice,
 		DefaultElectricityBillingCadence: property.DefaultElectricityBillingCadence,
 		OwnerID:                          property.OwnerID,
+		ContactPhone:                     property.ContactPhone,
+		ContactEmail:                     property.ContactEmail,
+		Notes:                            property.Notes,
+		Facilities:                       property.Facilities,
 		CreatedAt:                        property.CreatedAt,
 		UpdatedAt:                        property.UpdatedAt,
 		Version:                          property.Version,
@@ -5182,20 +5491,34 @@ func (a testSQLPropertyRepositoryAdapter) SoftDelete(ctx context.Context, tx *sq
 
 func (a testSQLPropertyRepositoryAdapter) CreateRoom(ctx context.Context, tx *sql.Tx, params appproperty.CreateRoomParams) (*appproperty.Room, error) {
 	room, err := a.repo.CreateRoom(ctx, tx, dbproperties.CreateRoomParams{
-		PropertyID: params.PropertyID,
-		Name:       params.Name,
+		PropertyID:        params.PropertyID,
+		Name:              params.Name,
+		Size:              params.Size,
+		Floor:             params.Floor,
+		RoomType:          params.RoomType,
+		Facilities:        params.Facilities,
+		DefaultRentAmount: params.DefaultRentAmount,
+		Notes:             params.Notes,
+		Zone:              params.Zone,
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	return &appproperty.Room{
-		ID:         room.ID,
-		PropertyID: room.PropertyID,
-		Name:       room.Name,
-		Status:     room.Status,
-		CreatedAt:  room.CreatedAt,
-		UpdatedAt:  room.UpdatedAt,
+		ID:                room.ID,
+		PropertyID:        room.PropertyID,
+		Name:              room.Name,
+		Status:            room.Status,
+		Size:              room.Size,
+		Floor:             room.Floor,
+		RoomType:          room.RoomType,
+		Facilities:        room.Facilities,
+		DefaultRentAmount: room.DefaultRentAmount,
+		Notes:             room.Notes,
+		Zone:              room.Zone,
+		CreatedAt:         room.CreatedAt,
+		UpdatedAt:         room.UpdatedAt,
 	}, nil
 }
 
@@ -5206,32 +5529,53 @@ func (a testSQLPropertyRepositoryAdapter) FindRoomByID(ctx context.Context, tx *
 	}
 
 	return &appproperty.Room{
-		ID:         room.ID,
-		PropertyID: room.PropertyID,
-		Name:       room.Name,
-		Status:     room.Status,
-		CreatedAt:  room.CreatedAt,
-		UpdatedAt:  room.UpdatedAt,
+		ID:                room.ID,
+		PropertyID:        room.PropertyID,
+		Name:              room.Name,
+		Status:            room.Status,
+		Size:              room.Size,
+		Floor:             room.Floor,
+		RoomType:          room.RoomType,
+		Facilities:        room.Facilities,
+		DefaultRentAmount: room.DefaultRentAmount,
+		Notes:             room.Notes,
+		Zone:              room.Zone,
+		CreatedAt:         room.CreatedAt,
+		UpdatedAt:         room.UpdatedAt,
 	}, nil
 }
 
 func (a testSQLPropertyRepositoryAdapter) UpdateRoom(ctx context.Context, tx *sql.Tx, params appproperty.UpdateRoomParams) (*appproperty.Room, error) {
 	room, err := a.repo.UpdateRoom(ctx, tx, dbproperties.UpdateRoomParams{
-		ID:     params.ID,
-		Name:   params.Name,
-		Status: params.Status,
+		ID:                params.ID,
+		Name:              params.Name,
+		Status:            params.Status,
+		Size:              params.Size,
+		Floor:             params.Floor,
+		RoomType:          params.RoomType,
+		Facilities:        params.Facilities,
+		DefaultRentAmount: params.DefaultRentAmount,
+		Notes:             params.Notes,
+		Zone:              params.Zone,
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	return &appproperty.Room{
-		ID:         room.ID,
-		PropertyID: room.PropertyID,
-		Name:       room.Name,
-		Status:     room.Status,
-		CreatedAt:  room.CreatedAt,
-		UpdatedAt:  room.UpdatedAt,
+		ID:                room.ID,
+		PropertyID:        room.PropertyID,
+		Name:              room.Name,
+		Status:            room.Status,
+		Size:              room.Size,
+		Floor:             room.Floor,
+		RoomType:          room.RoomType,
+		Facilities:        room.Facilities,
+		DefaultRentAmount: room.DefaultRentAmount,
+		Notes:             room.Notes,
+		Zone:              room.Zone,
+		CreatedAt:         room.CreatedAt,
+		UpdatedAt:         room.UpdatedAt,
 	}, nil
 }
 
@@ -5428,22 +5772,31 @@ func (f fakeTenantRepo) FindByID(_ context.Context, _ *sql.Tx, _ string) (*appte
 	}, nil
 }
 
-func (f fakeTenantRepo) Update(_ context.Context, _ *sql.Tx, _ apptenant.UpdateTenantParams) (*apptenant.Tenant, error) {
+func (f fakeTenantRepo) Update(_ context.Context, _ *sql.Tx, params apptenant.UpdateTenantParams) (*apptenant.Tenant, error) {
 	if f.updateErr != nil {
 		return nil, f.updateErr
+	}
+	if f.updateParams != nil {
+		*f.updateParams = params
 	}
 	if f.updated != nil {
 		return f.updated, nil
 	}
 
 	return &apptenant.Tenant{
-		ID:        "30000000-0000-0000-0000-000000000001",
-		Name:      "Tenant A",
-		Status:    "active",
-		Contacts:  []map[string]interface{}{},
-		Version:   2,
-		CreatedAt: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
-		UpdatedAt: time.Date(2026, 4, 17, 10, 0, 0, 0, time.UTC),
+		ID:         params.ID,
+		Name:       params.Name,
+		Email:      params.Email,
+		Phone:      params.Phone,
+		Contacts:   params.Contacts,
+		BirthDate:  params.BirthDate,
+		NationalID: params.NationalID,
+		Address:    params.Address,
+		Occupation: params.Occupation,
+		Status:     "active",
+		Version:    2,
+		CreatedAt:  time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+		UpdatedAt:  time.Date(2026, 4, 17, 10, 0, 0, 0, time.UTC),
 	}, nil
 }
 

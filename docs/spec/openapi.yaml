@@ -7268,8 +7268,8 @@ components:
           type: string
           nullable: true
         facilities:
-          type: array
-          items: {}
+          type: object
+          additionalProperties: true
           nullable: true
         occupancy_summary:
           $ref: '#/components/schemas/OccupancySummary'
@@ -7299,6 +7299,9 @@ components:
       properties:
         name:
           type: string
+        subtitle:
+          type: string
+          nullable: true
         address:
           type: string
         electricity_unit_price:
@@ -7316,11 +7319,28 @@ components:
         owner_id:
           type: string
           format: uuid
+        contact_phone:
+          type: string
+          nullable: true
+        contact_email:
+          type: string
+          format: email
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        facilities:
+          type: object
+          additionalProperties: true
+          nullable: true
     UpdatePropertyRequest:
       type: object
       properties:
         name:
           type: string
+        subtitle:
+          type: string
+          nullable: true
         address:
           type: string
         electricity_unit_price:
@@ -7335,6 +7355,20 @@ components:
             - monthly
             - bimonthly
           description: 僅影響之後新建的 Lease，不回頭修改既有 Lease
+        contact_phone:
+          type: string
+          nullable: true
+        contact_email:
+          type: string
+          format: email
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        facilities:
+          type: object
+          additionalProperties: true
+          nullable: true
     AttachmentResponse:
       type: object
       properties:
@@ -7441,11 +7475,57 @@ components:
       properties:
         name:
           type: string
+        size:
+          type: number
+          format: double
+          nullable: true
+        floor:
+          type: string
+          nullable: true
+        room_type:
+          type: string
+          nullable: true
+        facilities:
+          type: object
+          additionalProperties: true
+          nullable: true
+        default_rent_amount:
+          type: integer
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        zone:
+          type: string
+          nullable: true
     UpdateRoomRequest:
       type: object
       properties:
         name:
           type: string
+        size:
+          type: number
+          format: double
+          nullable: true
+        floor:
+          type: string
+          nullable: true
+        room_type:
+          type: string
+          nullable: true
+        facilities:
+          type: object
+          additionalProperties: true
+          nullable: true
+        default_rent_amount:
+          type: integer
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        zone:
+          type: string
+          nullable: true
     SetMaintenanceRequest:
       type: object
       required:
@@ -7579,6 +7659,26 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/DashboardRecentJournalItem'
+    TenantContact:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        email:
+          type: string
+          format: email
+          nullable: true
+        relation:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
     TenantResponse:
       type: object
       properties:
@@ -7597,7 +7697,7 @@ components:
         contacts:
           type: array
           items:
-            type: object
+            $ref: '#/components/schemas/TenantContact'
         birth_date:
           type: string
           format: date
@@ -7649,7 +7749,20 @@ components:
         contacts:
           type: array
           items:
-            type: object
+            $ref: '#/components/schemas/TenantContact'
+        birth_date:
+          type: string
+          format: date
+          nullable: true
+        national_id:
+          type: string
+          nullable: true
+        address:
+          type: string
+          nullable: true
+        occupation:
+          type: string
+          nullable: true
     UpdateTenantRequest:
       type: object
       properties:
@@ -7663,7 +7776,20 @@ components:
         contacts:
           type: array
           items:
-            type: object
+            $ref: '#/components/schemas/TenantContact'
+        birth_date:
+          type: string
+          format: date
+          nullable: true
+        national_id:
+          type: string
+          nullable: true
+        address:
+          type: string
+          nullable: true
+        occupation:
+          type: string
+          nullable: true
     LeaseResponse:
       type: object
       properties:
@@ -7806,6 +7932,9 @@ components:
           minimum: 0
           description: Move-in starting meter reading. Backend uses it as the previous reading baseline for the first electricity bill in this lease.
           x-go-type: '*int'
+        notes:
+          type: string
+          nullable: true
     LeaseCheckoutReviewResponse:
       type: object
       properties:
@@ -7893,14 +8022,6 @@ components:
       properties:
         rent_amount:
           type: integer
-        rent_billing_cadence:
-          type: string
-          enum:
-            - monthly
-            - quarterly
-            - semiannual
-            - annual
-          description: 不支援透過 PATCH 修改；若需更動 rent cadence，請使用 Lease replacement。
         end_date:
           type: string
           format: date

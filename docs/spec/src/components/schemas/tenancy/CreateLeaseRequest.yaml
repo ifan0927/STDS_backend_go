@@ -43,3 +43,6 @@ properties:
     minimum: 0
     description: Move-in starting meter reading. Backend uses it as the previous reading baseline for the first electricity bill in this lease.
     x-go-type: '*int'
+  notes:
+    type: string
+    nullable: true

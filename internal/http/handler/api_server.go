@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -1209,6 +1210,7 @@ func (s *APIServer) CreateLease(c *gin.Context) {
 		RentBillingCadence:        rentCadence,
 		ElectricityBillingCadence: cadence,
 		StartingMeterReading:      *request.StartingMeterReading,
+		Notes:                     request.Notes,
 	})
 	if err != nil {
 		c.Error(err)
@@ -1269,19 +1271,12 @@ func (s *APIServer) UpdateLease(c *gin.Context, id string) {
 		value := request.EndDate.Time
 		endDate = &value
 	}
-	var rentCadence *string
-	if request.RentBillingCadence != nil {
-		value := string(*request.RentBillingCadence)
-		rentCadence = &value
-	}
-
 	lease, err := s.updateLeaseSvc.Execute(c.Request.Context(), applease.UpdateLeaseInput{
 		ActorRole:           principal.Role,
 		AssignedPropertyIDs: principal.AssignedPropertyIDs,
 		LeaseID:             id,
 		RentAmount:          request.RentAmount,
 		EndDate:             endDate,
-		RentBillingCadence:  rentCadence,
 	})
 	if err != nil {
 		c.Error(err)
@@ -1571,10 +1566,15 @@ func (s *APIServer) CreateProperty(c *gin.Context) {
 
 	property, err := s.createPropertySvc.Execute(c.Request.Context(), appproperty.CreatePropertyInput{
 		Name:                             request.Name,
+		Subtitle:                         request.Subtitle,
 		Address:                          request.Address,
 		ElectricityUnitPrice:             request.ElectricityUnitPrice,
 		DefaultElectricityBillingCadence: string(request.DefaultElectricityBillingCadence),
 		OwnerID:                          request.OwnerId.String(),
+		ContactPhone:                     request.ContactPhone,
+		ContactEmail:                     emailPtrToStringPtr(request.ContactEmail),
+		Notes:                            request.Notes,
+		Facilities:                       request.Facilities,
 	})
 	if err != nil {
 		c.Error(err)
@@ -1631,7 +1631,8 @@ func (s *APIServer) UpdateProperty(c *gin.Context, id string) {
 	}
 
 	var request api.UpdatePropertyRequest
-	if err := c.ShouldBindJSON(&request); err != nil {
+	fields, err := bindJSONWithFields(c, &request)
+	if err != nil {
 		c.Error(apperr.ErrBadRequest.WithCause(err))
 		return
 	}
@@ -1646,9 +1647,19 @@ func (s *APIServer) UpdateProperty(c *gin.Context, id string) {
 		ID:                               id,
 		ActorRole:                        principal.Role,
 		Name:                             request.Name,
+		Subtitle:                         request.Subtitle,
+		ClearSubtitle:                    jsonFieldIsNull(fields, "subtitle"),
 		Address:                          request.Address,
 		ElectricityUnitPrice:             request.ElectricityUnitPrice,
 		DefaultElectricityBillingCadence: cadence,
+		ContactPhone:                     request.ContactPhone,
+		ClearContactPhone:                jsonFieldIsNull(fields, "contact_phone"),
+		ContactEmail:                     emailPtrToStringPtr(request.ContactEmail),
+		ClearContactEmail:                jsonFieldIsNull(fields, "contact_email"),
+		Notes:                            request.Notes,
+		ClearNotes:                       jsonFieldIsNull(fields, "notes"),
+		Facilities:                       request.Facilities,
+		ClearFacilities:                  jsonFieldIsNull(fields, "facilities"),
 	})
 	if err != nil {
 		c.Error(err)
@@ -2094,8 +2105,15 @@ func (s *APIServer) CreatePropertyRoom(c *gin.Context, id string) {
 	}
 
 	room, err := s.createRoomSvc.Execute(c.Request.Context(), appproperty.CreateRoomInput{
-		PropertyID: id,
-		Name:       request.Name,
+		PropertyID:        id,
+		Name:              request.Name,
+		Size:              request.Size,
+		Floor:             request.Floor,
+		RoomType:          request.RoomType,
+		Facilities:        request.Facilities,
+		DefaultRentAmount: request.DefaultRentAmount,
+		Notes:             request.Notes,
+		Zone:              request.Zone,
 	})
 	if err != nil {
 		c.Error(err)
@@ -2387,14 +2405,29 @@ func (s *APIServer) CreateRoomAttachment(c *gin.Context, id openapi_types.UUID) 
 // UpdateRoom handles room updates.
 func (s *APIServer) UpdateRoom(c *gin.Context, id string) {
 	var request api.UpdateRoomRequest
-	if err := c.ShouldBindJSON(&request); err != nil {
+	fields, err := bindJSONWithFields(c, &request)
+	if err != nil {
 		c.Error(apperr.ErrBadRequest.WithCause(err))
 		return
 	}
 
 	room, err := s.updateRoomSvc.Execute(c.Request.Context(), appproperty.UpdateRoomInput{
-		ID:   id,
-		Name: request.Name,
+		ID:                id,
+		Name:              request.Name,
+		Size:              request.Size,
+		ClearSize:         jsonFieldIsNull(fields, "size"),
+		Floor:             request.Floor,
+		ClearFloor:        jsonFieldIsNull(fields, "floor"),
+		RoomType:          request.RoomType,
+		ClearRoomType:     jsonFieldIsNull(fields, "room_type"),
+		Facilities:        request.Facilities,
+		ClearFacilities:   jsonFieldIsNull(fields, "facilities"),
+		DefaultRentAmount: request.DefaultRentAmount,
+		ClearDefaultRent:  jsonFieldIsNull(fields, "default_rent_amount"),
+		Notes:             request.Notes,
+		ClearNotes:        jsonFieldIsNull(fields, "notes"),
+		Zone:              request.Zone,
+		ClearZone:         jsonFieldIsNull(fields, "zone"),
 	})
 	if err != nil {
 		c.Error(err)
@@ -2523,10 +2556,14 @@ func (s *APIServer) CreateTenant(c *gin.Context) {
 	}
 
 	tenant, err := s.createTenantSvc.Execute(c.Request.Context(), apptenant.CreateTenantInput{
-		Name:     request.Name,
-		Email:    string(request.Email),
-		Phone:    phone,
-		Contacts: request.Contacts,
+		Name:       request.Name,
+		Email:      string(request.Email),
+		Phone:      phone,
+		Contacts:   tenantContactsToMaps(request.Contacts),
+		BirthDate:  datePtrToTimePtr(request.BirthDate),
+		NationalID: request.NationalId,
+		Address:    request.Address,
+		Occupation: request.Occupation,
 	})
 	if err != nil {
 		c.Error(err)
@@ -2571,7 +2608,8 @@ func (s *APIServer) GetTenant(c *gin.Context, id string) {
 // UpdateTenant handles tenant updates.
 func (s *APIServer) UpdateTenant(c *gin.Context, id string) {
 	var request api.UpdateTenantRequest
-	if err := c.ShouldBindJSON(&request); err != nil {
+	fields, err := bindJSONWithFields(c, &request)
+	if err != nil {
 		c.Error(apperr.ErrBadRequest.WithCause(err))
 		return
 	}
@@ -2583,11 +2621,19 @@ func (s *APIServer) UpdateTenant(c *gin.Context, id string) {
 	}
 
 	tenant, err := s.updateTenantSvc.Execute(c.Request.Context(), apptenant.UpdateTenantInput{
-		ID:       id,
-		Name:     request.Name,
-		Email:    email,
-		Phone:    request.Phone,
-		Contacts: request.Contacts,
+		ID:              id,
+		Name:            request.Name,
+		Email:           email,
+		Phone:           request.Phone,
+		Contacts:        tenantContactsToMaps(request.Contacts),
+		BirthDate:       datePtrToTimePtr(request.BirthDate),
+		ClearBirthDate:  jsonFieldIsNull(fields, "birth_date"),
+		NationalID:      request.NationalId,
+		ClearNationalID: jsonFieldIsNull(fields, "national_id"),
+		Address:         request.Address,
+		ClearAddress:    jsonFieldIsNull(fields, "address"),
+		Occupation:      request.Occupation,
+		ClearOccupation: jsonFieldIsNull(fields, "occupation"),
 	})
 	if err != nil {
 		c.Error(err)
@@ -2966,6 +3012,104 @@ func parseUUID(value string) (openapi_types.UUID, bool) {
 	}
 
 	return parsed, true
+}
+
+func emailPtrToStringPtr(value *openapi_types.Email) *string {
+	if value == nil {
+		return nil
+	}
+	result := string(*value)
+	return &result
+}
+
+func bindJSONWithFields(c *gin.Context, target any) (map[string]json.RawMessage, error) {
+	body, err := c.GetRawData()
+	if err != nil {
+		return nil, err
+	}
+
+	fields := map[string]json.RawMessage{}
+	if err := json.Unmarshal(body, &fields); err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(body, target); err != nil {
+		return nil, err
+	}
+
+	return fields, nil
+}
+
+func jsonFieldIsNull(fields map[string]json.RawMessage, name string) bool {
+	value, ok := fields[name]
+	if !ok {
+		return false
+	}
+
+	return strings.TrimSpace(string(value)) == "null"
+}
+
+func datePtrToTimePtr(value *openapi_types.Date) *time.Time {
+	if value == nil {
+		return nil
+	}
+	result := value.Time
+	return &result
+}
+
+func tenantContactsToMaps(value *[]api.TenantContact) *[]map[string]interface{} {
+	if value == nil {
+		return nil
+	}
+	contacts := make([]map[string]interface{}, 0, len(*value))
+	for _, contact := range *value {
+		item := map[string]interface{}{}
+		if contact.Name != nil {
+			item["name"] = *contact.Name
+		}
+		if contact.Phone != nil {
+			item["phone"] = *contact.Phone
+		}
+		if contact.Email != nil {
+			item["email"] = string(*contact.Email)
+		}
+		if contact.Relation != nil {
+			item["relation"] = *contact.Relation
+		}
+		if contact.Notes != nil {
+			item["notes"] = *contact.Notes
+		}
+		contacts = append(contacts, item)
+	}
+	return &contacts
+}
+
+func tenantMapsToContacts(value []map[string]interface{}) *[]api.TenantContact {
+	contacts := make([]api.TenantContact, 0, len(value))
+	for _, item := range value {
+		contact := api.TenantContact{}
+		contact.Name = optionalStringFromMap(item, "name")
+		contact.Phone = optionalStringFromMap(item, "phone")
+		if email := optionalStringFromMap(item, "email"); email != nil {
+			value := openapi_types.Email(*email)
+			contact.Email = &value
+		}
+		contact.Relation = optionalStringFromMap(item, "relation")
+		contact.Notes = optionalStringFromMap(item, "notes")
+		contacts = append(contacts, contact)
+	}
+	return &contacts
+}
+
+func optionalStringFromMap(values map[string]interface{}, key string) *string {
+	raw, ok := values[key]
+	if !ok || raw == nil {
+		return nil
+	}
+	value, ok := raw.(string)
+	if !ok {
+		return nil
+	}
+	return &value
 }
 
 func isValidMonth(month int) bool {
@@ -3568,11 +3712,19 @@ func toPropertyResponse(property *dbpropertyquery.Property) api.PropertyResponse
 
 	response := api.PropertyResponse{
 		Address:          &address,
+		ContactPhone:     property.ContactPhone,
 		CreatedAt:        &createdAt,
 		Name:             &name,
+		Notes:            property.Notes,
 		OccupancySummary: toDBPropertyOccupancySummaryResponse(property.Occupancy),
+		Facilities:       property.Facilities,
+		Subtitle:         property.Subtitle,
 		UpdatedAt:        &updatedAt,
 		Version:          &version,
+	}
+	if property.ContactEmail != nil {
+		email := openapi_types.Email(*property.ContactEmail)
+		response.ContactEmail = &email
 	}
 	if property.DefaultElectricityBillingCadence != "" {
 		cadence := api.PropertyResponseDefaultElectricityBillingCadence(property.DefaultElectricityBillingCadence)
@@ -3627,10 +3779,15 @@ func toCreatedPropertyResponse(property *appproperty.Property) api.PropertyRespo
 	queryShape := &dbpropertyquery.Property{
 		ID:                               property.ID,
 		Name:                             property.Name,
+		Subtitle:                         property.Subtitle,
 		Address:                          property.Address,
 		ElectricityUnitPrice:             property.ElectricityUnitPrice,
 		DefaultElectricityBillingCadence: property.DefaultElectricityBillingCadence,
 		OwnerID:                          property.OwnerID,
+		ContactPhone:                     property.ContactPhone,
+		ContactEmail:                     property.ContactEmail,
+		Notes:                            property.Notes,
+		Facilities:                       property.Facilities,
 		CreatedAt:                        property.CreatedAt,
 		UpdatedAt:                        property.UpdatedAt,
 		Version:                          property.Version,
@@ -3641,12 +3798,19 @@ func toCreatedPropertyResponse(property *appproperty.Property) api.PropertyRespo
 
 func toCreatedRoomResponse(room *appproperty.Room) api.RoomResponse {
 	queryShape := &dbpropertyquery.Room{
-		ID:         room.ID,
-		PropertyID: room.PropertyID,
-		Name:       room.Name,
-		Status:     room.Status,
-		CreatedAt:  room.CreatedAt,
-		UpdatedAt:  room.UpdatedAt,
+		ID:                room.ID,
+		PropertyID:        room.PropertyID,
+		Name:              room.Name,
+		Status:            room.Status,
+		Size:              room.Size,
+		Floor:             room.Floor,
+		RoomType:          room.RoomType,
+		Facilities:        room.Facilities,
+		DefaultRentAmount: room.DefaultRentAmount,
+		Notes:             room.Notes,
+		Zone:              room.Zone,
+		CreatedAt:         room.CreatedAt,
+		UpdatedAt:         room.UpdatedAt,
 	}
 
 	return toRoomResponse(queryShape)
@@ -3662,7 +3826,7 @@ func toTenantResponse(tenant *dbtenantquery.Tenant) api.TenantResponse {
 
 	response := api.TenantResponse{
 		Address:    tenant.Address,
-		Contacts:   &tenant.Contacts,
+		Contacts:   tenantMapsToContacts(tenant.Contacts),
 		CreatedAt:  &createdAt,
 		Name:       &name,
 		NationalId: tenant.NationalID,

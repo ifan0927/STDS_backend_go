@@ -338,18 +338,10 @@ const (
 	TenantResponseStatusInactive TenantResponseStatus = "inactive"
 )
 
-// Defines values for UpdateLeaseRequestRentBillingCadence.
-const (
-	UpdateLeaseRequestRentBillingCadenceAnnual     UpdateLeaseRequestRentBillingCadence = "annual"
-	UpdateLeaseRequestRentBillingCadenceMonthly    UpdateLeaseRequestRentBillingCadence = "monthly"
-	UpdateLeaseRequestRentBillingCadenceQuarterly  UpdateLeaseRequestRentBillingCadence = "quarterly"
-	UpdateLeaseRequestRentBillingCadenceSemiannual UpdateLeaseRequestRentBillingCadence = "semiannual"
-)
-
 // Defines values for UpdatePropertyRequestDefaultElectricityBillingCadence.
 const (
-	UpdatePropertyRequestDefaultElectricityBillingCadenceBimonthly UpdatePropertyRequestDefaultElectricityBillingCadence = "bimonthly"
-	UpdatePropertyRequestDefaultElectricityBillingCadenceMonthly   UpdatePropertyRequestDefaultElectricityBillingCadence = "monthly"
+	Bimonthly UpdatePropertyRequestDefaultElectricityBillingCadence = "bimonthly"
+	Monthly   UpdatePropertyRequestDefaultElectricityBillingCadence = "monthly"
 )
 
 // Defines values for UpdateUserRequestRole.
@@ -719,6 +711,7 @@ type CreateLeaseRequest struct {
 	// ElectricityBillingCadence 可省略；若未提供則套用 Property 的 default_electricity_billing_cadence
 	ElectricityBillingCadence *CreateLeaseRequestElectricityBillingCadence `json:"electricity_billing_cadence,omitempty"`
 	EndDate                   openapi_types.Date                           `json:"end_date"`
+	Notes                     *string                                      `json:"notes"`
 	RentAmount                int                                          `json:"rent_amount"`
 
 	// RentBillingCadence 可省略；預設 monthly。rent_amount 為每個租金計費週期的金額。
@@ -739,15 +732,20 @@ type CreateLeaseRequestRentBillingCadence string
 
 // CreatePropertyRequest defines model for CreatePropertyRequest.
 type CreatePropertyRequest struct {
-	Address string `json:"address"`
+	Address      string               `json:"address"`
+	ContactEmail *openapi_types.Email `json:"contact_email"`
+	ContactPhone *string              `json:"contact_phone"`
 
 	// DefaultElectricityBillingCadence 物業預設電費計費 cadence，僅影響新建 Lease
 	DefaultElectricityBillingCadence CreatePropertyRequestDefaultElectricityBillingCadence `json:"default_electricity_billing_cadence"`
 
 	// ElectricityUnitPrice 台幣正數/度，可接受小數（例如 4.5）
-	ElectricityUnitPrice float64            `json:"electricity_unit_price"`
-	Name                 string             `json:"name"`
-	OwnerId              openapi_types.UUID `json:"owner_id"`
+	ElectricityUnitPrice float64                 `json:"electricity_unit_price"`
+	Facilities           *map[string]interface{} `json:"facilities"`
+	Name                 string                  `json:"name"`
+	Notes                *string                 `json:"notes"`
+	OwnerId              openapi_types.UUID      `json:"owner_id"`
+	Subtitle             *string                 `json:"subtitle"`
 }
 
 // CreatePropertyRequestDefaultElectricityBillingCadence 物業預設電費計費 cadence，僅影響新建 Lease
@@ -763,15 +761,26 @@ type CreateRepairRequestRequest struct {
 
 // CreateRoomRequest defines model for CreateRoomRequest.
 type CreateRoomRequest struct {
-	Name string `json:"name"`
+	DefaultRentAmount *int                    `json:"default_rent_amount"`
+	Facilities        *map[string]interface{} `json:"facilities"`
+	Floor             *string                 `json:"floor"`
+	Name              string                  `json:"name"`
+	Notes             *string                 `json:"notes"`
+	RoomType          *string                 `json:"room_type"`
+	Size              *float64                `json:"size"`
+	Zone              *string                 `json:"zone"`
 }
 
 // CreateTenantRequest defines model for CreateTenantRequest.
 type CreateTenantRequest struct {
-	Contacts *[]map[string]interface{} `json:"contacts,omitempty"`
-	Email    openapi_types.Email       `json:"email"`
-	Name     string                    `json:"name"`
-	Phone    *string                   `json:"phone,omitempty"`
+	Address    *string             `json:"address"`
+	BirthDate  *openapi_types.Date `json:"birth_date"`
+	Contacts   *[]TenantContact    `json:"contacts,omitempty"`
+	Email      openapi_types.Email `json:"email"`
+	Name       string              `json:"name"`
+	NationalId *string             `json:"national_id"`
+	Occupation *string             `json:"occupation"`
+	Phone      *string             `json:"phone,omitempty"`
 }
 
 // CreateUserRequest defines model for CreateUserRequest.
@@ -1201,16 +1210,16 @@ type PropertyResponse struct {
 	DefaultElectricityBillingCadence *PropertyResponseDefaultElectricityBillingCadence `json:"default_electricity_billing_cadence,omitempty"`
 
 	// ElectricityUnitPrice 台幣正數/度，可接受小數
-	ElectricityUnitPrice *float64            `json:"electricity_unit_price"`
-	Facilities           *[]interface{}      `json:"facilities"`
-	Id                   *openapi_types.UUID `json:"id,omitempty"`
-	Name                 *string             `json:"name,omitempty"`
-	Notes                *string             `json:"notes"`
-	OccupancySummary     *OccupancySummary   `json:"occupancy_summary,omitempty"`
-	OwnerId              *openapi_types.UUID `json:"owner_id,omitempty"`
-	Subtitle             *string             `json:"subtitle"`
-	UpdatedAt            *time.Time          `json:"updated_at,omitempty"`
-	Version              *int                `json:"version,omitempty"`
+	ElectricityUnitPrice *float64                `json:"electricity_unit_price"`
+	Facilities           *map[string]interface{} `json:"facilities"`
+	Id                   *openapi_types.UUID     `json:"id,omitempty"`
+	Name                 *string                 `json:"name,omitempty"`
+	Notes                *string                 `json:"notes"`
+	OccupancySummary     *OccupancySummary       `json:"occupancy_summary,omitempty"`
+	OwnerId              *openapi_types.UUID     `json:"owner_id,omitempty"`
+	Subtitle             *string                 `json:"subtitle"`
+	UpdatedAt            *time.Time              `json:"updated_at,omitempty"`
+	Version              *int                    `json:"version,omitempty"`
 }
 
 // PropertyResponseDefaultElectricityBillingCadence defines model for PropertyResponse.DefaultElectricityBillingCadence.
@@ -1372,6 +1381,15 @@ type SetMaintenanceResponse struct {
 	Room          RoomResponse          `json:"room"`
 }
 
+// TenantContact defines model for TenantContact.
+type TenantContact struct {
+	Email    *openapi_types.Email `json:"email"`
+	Name     *string              `json:"name"`
+	Notes    *string              `json:"notes"`
+	Phone    *string              `json:"phone"`
+	Relation *string              `json:"relation"`
+}
+
 // TenantListResponse defines model for TenantListResponse.
 type TenantListResponse struct {
 	Data       *[]TenantResponse   `json:"data,omitempty"`
@@ -1380,19 +1398,19 @@ type TenantListResponse struct {
 
 // TenantResponse defines model for TenantResponse.
 type TenantResponse struct {
-	Address    *string                   `json:"address"`
-	BirthDate  *openapi_types.Date       `json:"birth_date"`
-	Contacts   *[]map[string]interface{} `json:"contacts,omitempty"`
-	CreatedAt  *time.Time                `json:"created_at,omitempty"`
-	Email      *openapi_types.Email      `json:"email"`
-	Id         *openapi_types.UUID       `json:"id,omitempty"`
-	Name       *string                   `json:"name,omitempty"`
-	NationalId *string                   `json:"national_id"`
-	Occupation *string                   `json:"occupation"`
-	Phone      *string                   `json:"phone"`
-	Status     *TenantResponseStatus     `json:"status,omitempty"`
-	UpdatedAt  *time.Time                `json:"updated_at,omitempty"`
-	Version    *int                      `json:"version,omitempty"`
+	Address    *string               `json:"address"`
+	BirthDate  *openapi_types.Date   `json:"birth_date"`
+	Contacts   *[]TenantContact      `json:"contacts,omitempty"`
+	CreatedAt  *time.Time            `json:"created_at,omitempty"`
+	Email      *openapi_types.Email  `json:"email"`
+	Id         *openapi_types.UUID   `json:"id,omitempty"`
+	Name       *string               `json:"name,omitempty"`
+	NationalId *string               `json:"national_id"`
+	Occupation *string               `json:"occupation"`
+	Phone      *string               `json:"phone"`
+	Status     *TenantResponseStatus `json:"status,omitempty"`
+	UpdatedAt  *time.Time            `json:"updated_at,omitempty"`
+	Version    *int                  `json:"version,omitempty"`
 }
 
 // TenantResponseStatus defines model for TenantResponse.Status.
@@ -1439,24 +1457,23 @@ type UpdateJournalLogRequest struct {
 type UpdateLeaseRequest struct {
 	EndDate    *openapi_types.Date `json:"end_date,omitempty"`
 	RentAmount *int                `json:"rent_amount,omitempty"`
-
-	// RentBillingCadence 不支援透過 PATCH 修改；若需更動 rent cadence，請使用 Lease replacement。
-	RentBillingCadence *UpdateLeaseRequestRentBillingCadence `json:"rent_billing_cadence,omitempty"`
 }
-
-// UpdateLeaseRequestRentBillingCadence 不支援透過 PATCH 修改；若需更動 rent cadence，請使用 Lease replacement。
-type UpdateLeaseRequestRentBillingCadence string
 
 // UpdatePropertyRequest defines model for UpdatePropertyRequest.
 type UpdatePropertyRequest struct {
-	Address *string `json:"address,omitempty"`
+	Address      *string              `json:"address,omitempty"`
+	ContactEmail *openapi_types.Email `json:"contact_email"`
+	ContactPhone *string              `json:"contact_phone"`
 
 	// DefaultElectricityBillingCadence 僅影響之後新建的 Lease，不回頭修改既有 Lease
 	DefaultElectricityBillingCadence *UpdatePropertyRequestDefaultElectricityBillingCadence `json:"default_electricity_billing_cadence,omitempty"`
 
 	// ElectricityUnitPrice 台幣正數/度，可接受小數（例如 4.5）
-	ElectricityUnitPrice *float64 `json:"electricity_unit_price,omitempty"`
-	Name                 *string  `json:"name,omitempty"`
+	ElectricityUnitPrice *float64                `json:"electricity_unit_price,omitempty"`
+	Facilities           *map[string]interface{} `json:"facilities"`
+	Name                 *string                 `json:"name,omitempty"`
+	Notes                *string                 `json:"notes"`
+	Subtitle             *string                 `json:"subtitle"`
 }
 
 // UpdatePropertyRequestDefaultElectricityBillingCadence 僅影響之後新建的 Lease，不回頭修改既有 Lease
@@ -1470,15 +1487,26 @@ type UpdateRepairRequestRequest struct {
 
 // UpdateRoomRequest defines model for UpdateRoomRequest.
 type UpdateRoomRequest struct {
-	Name *string `json:"name,omitempty"`
+	DefaultRentAmount *int                    `json:"default_rent_amount"`
+	Facilities        *map[string]interface{} `json:"facilities"`
+	Floor             *string                 `json:"floor"`
+	Name              *string                 `json:"name,omitempty"`
+	Notes             *string                 `json:"notes"`
+	RoomType          *string                 `json:"room_type"`
+	Size              *float64                `json:"size"`
+	Zone              *string                 `json:"zone"`
 }
 
 // UpdateTenantRequest defines model for UpdateTenantRequest.
 type UpdateTenantRequest struct {
-	Contacts *[]map[string]interface{} `json:"contacts,omitempty"`
-	Email    *openapi_types.Email      `json:"email,omitempty"`
-	Name     *string                   `json:"name,omitempty"`
-	Phone    *string                   `json:"phone,omitempty"`
+	Address    *string              `json:"address"`
+	BirthDate  *openapi_types.Date  `json:"birth_date"`
+	Contacts   *[]TenantContact     `json:"contacts,omitempty"`
+	Email      *openapi_types.Email `json:"email,omitempty"`
+	Name       *string              `json:"name,omitempty"`
+	NationalId *string              `json:"national_id"`
+	Occupation *string              `json:"occupation"`
+	Phone      *string              `json:"phone,omitempty"`
 }
 
 // UpdateUserRequest defines model for UpdateUserRequest.
