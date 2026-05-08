@@ -221,6 +221,7 @@ type leaseLifecycleE2ECreateLeaseParams struct {
 	Cadence                   string
 	RentCadence               string
 	ElectricityBillingCadence string
+	StartingMeterReading      int
 }
 
 type leaseLifecycleE2ELeaseResponse struct {
@@ -233,6 +234,7 @@ type leaseLifecycleE2ELeaseResponse struct {
 	StartDate                 string  `json:"start_date"`
 	EndDate                   string  `json:"end_date"`
 	ElectricityBillingCadence string  `json:"electricity_billing_cadence"`
+	StartingMeterReading      *int    `json:"starting_meter_reading"`
 	Status                    string  `json:"status"`
 	DepositAmount             int     `json:"deposit_amount"`
 	DepositStatus             string  `json:"deposit_status"`
@@ -313,6 +315,7 @@ func leaseLifecycleE2ECreateLease(t *testing.T, ctx context.Context, client apiC
 		"end_date":                    params.EndDate,
 		"deposit_amount":              params.Deposit,
 		"electricity_billing_cadence": leaseLifecycleE2EElectricityCadence(params),
+		"starting_meter_reading":      leaseLifecycleE2EStartingMeterReading(params),
 	}
 	if params.RentCadence != "" {
 		request["rent_billing_cadence"] = params.RentCadence
@@ -336,6 +339,13 @@ func leaseLifecycleE2EElectricityCadence(params leaseLifecycleE2ECreateLeasePara
 		return params.ElectricityBillingCadence
 	}
 	return params.Cadence
+}
+
+func leaseLifecycleE2EStartingMeterReading(params leaseLifecycleE2ECreateLeaseParams) int {
+	if params.StartingMeterReading != 0 {
+		return params.StartingMeterReading
+	}
+	return 50
 }
 
 func leaseLifecycleE2EGetLease(t *testing.T, ctx context.Context, client apiClient, leaseID string) leaseLifecycleE2ELeaseResponse {
@@ -462,6 +472,9 @@ func leaseLifecycleE2ERequireLease(t *testing.T, lease leaseLifecycleE2ELeaseRes
 	}
 	if lease.ElectricityBillingCadence != leaseLifecycleE2EElectricityCadence(expected) {
 		t.Fatalf("expected electricity_billing_cadence %q, got %q", leaseLifecycleE2EElectricityCadence(expected), lease.ElectricityBillingCadence)
+	}
+	if lease.StartingMeterReading == nil || *lease.StartingMeterReading != leaseLifecycleE2EStartingMeterReading(expected) {
+		t.Fatalf("expected starting_meter_reading %d, got %+v", leaseLifecycleE2EStartingMeterReading(expected), lease.StartingMeterReading)
 	}
 	if lease.RentAmount != expected.RentAmount {
 		t.Fatalf("expected rent_amount %d, got %d", expected.RentAmount, lease.RentAmount)

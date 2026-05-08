@@ -982,7 +982,8 @@ func TestCreateLeaseReturnsCreatedLease(t *testing.T) {
 		"rent_billing_cadence":"quarterly",
 		"start_date":"2026-05-01",
 		"end_date":"2026-12-31",
-		"deposit_amount":36000
+		"deposit_amount":36000,
+		"starting_meter_reading":1250
 	}`))
 	req.Header.Set("Authorization", "Bearer valid-token")
 	req.Header.Set("Content-Type", "application/json")
@@ -1027,6 +1028,9 @@ func TestCreateLeaseReturnsCreatedLease(t *testing.T) {
 	}
 	if createParams.DepositAmount != 36000 {
 		t.Fatalf("expected deposit_amount 36000, got %d", createParams.DepositAmount)
+	}
+	if createParams.StartingMeterReading != 1250 {
+		t.Fatalf("expected starting_meter_reading 1250, got %d", createParams.StartingMeterReading)
 	}
 	if !createParams.StartDate.Equal(time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)) {
 		t.Fatalf("expected start_date 2026-05-01, got %s", createParams.StartDate)
@@ -1073,7 +1077,8 @@ func TestCreateLeaseRejectsInvalidRentBillingCadence(t *testing.T) {
 		"rent_billing_cadence":"weekly",
 		"start_date":"2026-05-01",
 		"end_date":"2026-12-31",
-		"deposit_amount":36000
+		"deposit_amount":36000,
+		"starting_meter_reading":1250
 	}`))
 	req.Header.Set("Authorization", "Bearer valid-token")
 	req.Header.Set("Content-Type", "application/json")
@@ -1109,7 +1114,8 @@ func TestCreateLeaseRejectsMissingTenantID(t *testing.T) {
 		"rent_amount":18000,
 		"start_date":"2026-05-01",
 		"end_date":"2026-12-31",
-		"deposit_amount":36000
+		"deposit_amount":36000,
+		"starting_meter_reading":1250
 	}`))
 	req.Header.Set("Authorization", "Bearer valid-token")
 	req.Header.Set("Content-Type", "application/json")
@@ -1128,6 +1134,39 @@ func TestCreateLeaseRejectsMissingTenantID(t *testing.T) {
 	if payload["error_code"] != "VALIDATION_TENANT_ID_REQUIRED" {
 		t.Fatalf("expected VALIDATION_TENANT_ID_REQUIRED, got %v", payload["error_code"])
 	}
+}
+
+func TestCreateLeaseRejectsMissingStartingMeterReading(t *testing.T) {
+	engine := newTestEngineWithAllQueryRepos(
+		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
+		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{},
+		"",
+		fakeJobRunsRepo{},
+		fakePropertyQueryRepo{},
+		fakeLeaseQueryRepo{},
+		fakeTenantQueryRepo{},
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/leases", strings.NewReader(`{
+		"tenant_id":"30000000-0000-0000-0000-000000000001",
+		"room_id":"20000000-0000-0000-0000-000000000001",
+		"rent_amount":18000,
+		"start_date":"2026-05-01",
+		"end_date":"2026-12-31",
+		"deposit_amount":36000
+	}`))
+	req.Header.Set("Authorization", "Bearer valid-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", resp.Code, resp.Body.String())
+	}
+	assertErrorField(t, resp.Body.Bytes(), "BAD_REQUEST", "starting_meter_reading")
 }
 
 func TestCreateLeaseRejectsUnassignedRoomProperty(t *testing.T) {
@@ -1170,7 +1209,8 @@ func TestCreateLeaseRejectsUnassignedRoomProperty(t *testing.T) {
 		"rent_amount":18000,
 		"start_date":"2026-05-01",
 		"end_date":"2026-12-31",
-		"deposit_amount":36000
+		"deposit_amount":36000,
+		"starting_meter_reading":1250
 	}`))
 	req.Header.Set("Authorization", "Bearer valid-token")
 	req.Header.Set("Content-Type", "application/json")
@@ -5448,9 +5488,11 @@ func (f fakeLeaseRepo) CreateLease(_ context.Context, _ *sql.Tx, params applease
 		return nil, f.createErr
 	}
 	if f.createdLease != nil {
+		f.createdLease.StartingMeterReading = &params.StartingMeterReading
 		return f.createdLease, nil
 	}
 
+	startingMeterReading := params.StartingMeterReading
 	return &applease.Lease{
 		ID:                        "40000000-0000-0000-0000-000000000001",
 		TenantID:                  "30000000-0000-0000-0000-000000000001",
@@ -5461,6 +5503,7 @@ func (f fakeLeaseRepo) CreateLease(_ context.Context, _ *sql.Tx, params applease
 		EndDate:                   time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
 		RentBillingCadence:        params.RentBillingCadence,
 		ElectricityBillingCadence: "monthly",
+		StartingMeterReading:      &startingMeterReading,
 		Status:                    "active",
 		DepositAmount:             36000,
 		DepositStatus:             "held",

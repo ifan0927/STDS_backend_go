@@ -57,6 +57,7 @@ type Lease struct {
 	EndDate                   time.Time
 	RentBillingCadence        string
 	ElectricityBillingCadence string
+	StartingMeterReading      *int
 	Status                    string
 	DepositAmount             int
 	DepositRefundAmount       *int
@@ -95,6 +96,7 @@ type CreateLeaseParams struct {
 	EndDate                   time.Time
 	RentBillingCadence        string
 	ElectricityBillingCadence string
+	StartingMeterReading      int
 	DepositAmount             int
 	Notes                     *string
 }
@@ -461,6 +463,7 @@ SELECT
 	end_date,
 	rent_billing_cadence,
 	electricity_billing_cadence,
+	starting_meter_reading,
 	status,
 	deposit_amount,
 	deposit_refund_amount,
@@ -510,6 +513,7 @@ SELECT
 	l.end_date,
 	l.rent_billing_cadence,
 	l.electricity_billing_cadence,
+	l.starting_meter_reading,
 	l.status,
 	l.deposit_amount,
 	l.deposit_refund_amount,
@@ -566,10 +570,11 @@ INSERT INTO leases (
 	end_date,
 	rent_billing_cadence,
 	electricity_billing_cadence,
+	starting_meter_reading,
 	deposit_amount,
 	deposit_status,
 	notes
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'held', $10)
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'held', $11)
 RETURNING
 	id,
 	tenant_id,
@@ -580,6 +585,7 @@ RETURNING
 	end_date,
 	rent_billing_cadence,
 	electricity_billing_cadence,
+	starting_meter_reading,
 	status,
 	deposit_amount,
 	deposit_refund_amount,
@@ -603,6 +609,7 @@ RETURNING
 		params.EndDate,
 		params.RentBillingCadence,
 		params.ElectricityBillingCadence,
+		params.StartingMeterReading,
 		params.DepositAmount,
 		params.Notes,
 	))
@@ -634,6 +641,7 @@ RETURNING
 	end_date,
 	rent_billing_cadence,
 	electricity_billing_cadence,
+	starting_meter_reading,
 	status,
 	deposit_amount,
 	deposit_refund_amount,
@@ -687,6 +695,7 @@ RETURNING
 	end_date,
 	rent_billing_cadence,
 	electricity_billing_cadence,
+	starting_meter_reading,
 	status,
 	deposit_amount,
 	deposit_refund_amount,
@@ -961,6 +970,7 @@ RETURNING
 	end_date,
 	rent_billing_cadence,
 	electricity_billing_cadence,
+	starting_meter_reading,
 	status,
 	deposit_amount,
 	deposit_refund_amount,
@@ -1007,6 +1017,7 @@ RETURNING
 	end_date,
 	rent_billing_cadence,
 	electricity_billing_cadence,
+	starting_meter_reading,
 	status,
 	deposit_amount,
 	deposit_refund_amount,
@@ -1237,6 +1248,7 @@ func scanLeaseWithExtra(row rowScanner, extras ...interface{}) (*Lease, error) {
 	var lease Lease
 	var depositRefundAmount sql.NullInt64
 	var depositDeductionAmount sql.NullInt64
+	var startingMeterReading sql.NullInt64
 	var depositDeductionReason sql.NullString
 	var notes sql.NullString
 	var terminationReason sql.NullString
@@ -1252,6 +1264,7 @@ func scanLeaseWithExtra(row rowScanner, extras ...interface{}) (*Lease, error) {
 		&lease.EndDate,
 		&lease.RentBillingCadence,
 		&lease.ElectricityBillingCadence,
+		&startingMeterReading,
 		&lease.Status,
 		&lease.DepositAmount,
 		&depositRefundAmount,
@@ -1272,6 +1285,7 @@ func scanLeaseWithExtra(row rowScanner, extras ...interface{}) (*Lease, error) {
 
 	lease.DepositRefundAmount = nullIntPtr(depositRefundAmount)
 	lease.DepositDeductionAmount = nullIntPtr(depositDeductionAmount)
+	lease.StartingMeterReading = nullIntPtr(startingMeterReading)
 	lease.DepositDeductionReason = nullStringPtr(depositDeductionReason)
 	lease.Notes = nullStringPtr(notes)
 	lease.TerminationReason = nullStringPtr(terminationReason)

@@ -2444,7 +2444,8 @@ paths:
         BR-03：押金不得為負
         BR-12：目標房間必須為 vacant（取悲觀鎖後檢查）
         rent_billing_cadence 可於建約時指定；未提供時預設 monthly。rent_amount 為每個租金計費週期的金額。
-        electricity_billing_cadence 可於建約時覆寫，未提供時套用 Property 預設值
+        electricity_billing_cadence 可於建約時覆寫，未提供時套用 Property 預設值。
+        starting_meter_reading 由 backend 保存為此 lease 第一張電費帳單的 previous reading baseline。
       tags:
         - Leasing
       x-required-role:
@@ -2469,6 +2470,7 @@ paths:
                   end_date: '2027-04-30'
                   deposit_amount: 36000
                   electricity_billing_cadence: monthly
+                  starting_meter_reading: 1250
       responses:
         '201':
           description: 租約建立成功（LeaseCreated event 已發出，帳單已預產）
@@ -2487,6 +2489,7 @@ paths:
                     start_date: '2026-05-01'
                     end_date: '2027-04-30'
                     electricity_billing_cadence: monthly
+                    starting_meter_reading: 1250
                     deposit_amount: 36000
                     deposit_status: held
                     status: active
@@ -7702,6 +7705,10 @@ components:
           enum:
             - monthly
             - bimonthly
+        starting_meter_reading:
+          type: integer
+          nullable: true
+          description: Move-in starting meter reading. Existing or legacy leases may be null.
         status:
           type: string
           enum:
@@ -7762,6 +7769,7 @@ components:
         - start_date
         - end_date
         - deposit_amount
+        - starting_meter_reading
       properties:
         tenant_id:
           type: string
@@ -7793,6 +7801,11 @@ components:
             - monthly
             - bimonthly
           description: 可省略；若未提供則套用 Property 的 default_electricity_billing_cadence
+        starting_meter_reading:
+          type: integer
+          minimum: 0
+          description: Move-in starting meter reading. Backend uses it as the previous reading baseline for the first electricity bill in this lease.
+          x-go-type: '*int'
     LeaseCheckoutReviewResponse:
       type: object
       properties:

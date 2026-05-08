@@ -708,7 +708,7 @@ func (r *SQLRepository) ListAccessible(ctx context.Context, scope Scope, filter 
 }
 
 // FindByIDAccessible returns one visible bill. Pending electricity bills with a NULL
-// previous reading receive the previous completed bill reading when one exists.
+// previous reading receive the previous completed lease reading or lease baseline.
 func (r *SQLRepository) FindByIDAccessible(ctx context.Context, billID string, scope Scope) (*Bill, error) {
 	filter := BillFilter{Limit: 1}
 	query, args, ok := buildAccessibleBillQuery(scope, filter, true, &billID)
@@ -725,7 +725,7 @@ func (r *SQLRepository) FindByIDAccessible(ctx context.Context, billID string, s
 	}
 
 	if bill.Type == "electricity" && bill.MeterPreviousReading == nil {
-		previous, err := r.FindPreviousMeterReading(ctx, bill.RoomID, bill.PeriodStart)
+		previous, err := r.FindPreviousMeterReading(ctx, bill.LeaseID, bill.PeriodStart)
 		if err != nil {
 			if !errors.Is(err, ErrNotFound) {
 				return nil, err
@@ -789,34 +789,40 @@ FOR UPDATE OF b
 	return bill, nil
 }
 
-// FindPreviousMeterReading returns the prior completed electricity reading for a room.
-func (r *SQLRepository) FindPreviousMeterReading(ctx context.Context, roomID string, periodStart time.Time) (int, error) {
-	return r.findPreviousMeterReading(ctx, r.db, roomID, periodStart, false)
+// FindPreviousMeterReading returns the prior completed electricity reading for a lease, or the lease baseline.
+func (r *SQLRepository) FindPreviousMeterReading(ctx context.Context, leaseID string, periodStart time.Time) (int, error) {
+	return r.findPreviousMeterReading(ctx, r.db, leaseID, periodStart, false)
 }
 
 // FindPreviousMeterReadingForUpdate returns the prior completed electricity reading inside a transaction.
-func (r *SQLRepository) FindPreviousMeterReadingForUpdate(ctx context.Context, tx *sql.Tx, roomID string, periodStart time.Time) (int, error) {
-	return r.findPreviousMeterReading(ctx, tx, roomID, periodStart, true)
+func (r *SQLRepository) FindPreviousMeterReadingForUpdate(ctx context.Context, tx *sql.Tx, leaseID string, periodStart time.Time) (int, error) {
+	return r.findPreviousMeterReading(ctx, tx, leaseID, periodStart, true)
 }
 
-func (r *SQLRepository) findPreviousMeterReading(ctx context.Context, queryer rowQueryer, roomID string, periodStart time.Time, forUpdate bool) (int, error) {
+func (r *SQLRepository) findPreviousMeterReading(ctx context.Context, queryer rowQueryer, leaseID string, periodStart time.Time, forUpdate bool) (int, error) {
 	query := `
-SELECT meter_current_reading
-FROM bills
-WHERE room_id = $1
-  AND type = 'electricity'
-  AND meter_current_reading IS NOT NULL
-  AND period_end < $2
-  AND deleted_at IS NULL
-ORDER BY period_end DESC, due_date DESC, created_at DESC
-LIMIT 1
+SELECT COALESCE(previous.meter_current_reading, l.starting_meter_reading, 0)
+FROM leases l
+LEFT JOIN LATERAL (
+	SELECT b.meter_current_reading
+	FROM bills b
+	WHERE b.lease_id = l.id
+	  AND b.type = 'electricity'
+	  AND b.meter_current_reading IS NOT NULL
+	  AND b.period_end < $2
+	  AND b.deleted_at IS NULL
+	ORDER BY b.period_end DESC, b.due_date DESC, b.created_at DESC
+	LIMIT 1
+) previous ON true
+WHERE l.id = $1
+  AND l.deleted_at IS NULL
 `
 	if forUpdate {
-		query += "FOR UPDATE\n"
+		query += "FOR UPDATE OF l\n"
 	}
 
 	var reading int
-	if err := queryer.QueryRowContext(ctx, query, roomID, periodStart).Scan(&reading); err != nil {
+	if err := queryer.QueryRowContext(ctx, query, leaseID, periodStart).Scan(&reading); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return 0, ErrNotFound
 		}
@@ -848,7 +854,7 @@ SELECT
 	b.payment_method,
 	b.paid_at,
 	b.paid_amount,
-	b.meter_previous_reading,
+	COALESCE(b.meter_previous_reading, previous.meter_current_reading, l.starting_meter_reading, 0),
 	b.meter_current_reading,
 	b.meter_unit_price,
 	b.meter_recorded_at,
@@ -859,8 +865,20 @@ SELECT
 	b.version
 FROM bills b
 JOIN properties p ON p.id = b.property_id AND p.deleted_at IS NULL
+JOIN leases l ON l.id = b.lease_id AND l.deleted_at IS NULL
 LEFT JOIN rooms r ON r.id = b.room_id
 LEFT JOIN tenants t ON t.id = b.tenant_id
+LEFT JOIN LATERAL (
+	SELECT previous_bill.meter_current_reading
+	FROM bills previous_bill
+	WHERE previous_bill.lease_id = b.lease_id
+	  AND previous_bill.type = 'electricity'
+	  AND previous_bill.meter_current_reading IS NOT NULL
+	  AND previous_bill.period_end < b.period_start
+	  AND previous_bill.deleted_at IS NULL
+	ORDER BY previous_bill.period_end DESC, previous_bill.due_date DESC, previous_bill.created_at DESC
+	LIMIT 1
+) previous ON true
 WHERE b.property_id = $1
   AND b.type = 'electricity'
   AND b.status = 'pending_meter'

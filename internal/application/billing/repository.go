@@ -106,7 +106,7 @@ type Repository interface {
 	ListBills(ctx context.Context, query ListBillsQuery) (ListBillsResult, error)
 	FindBillByID(ctx context.Context, query GetBillQuery) (*Bill, error)
 	FindBillByIDForUpdate(ctx context.Context, tx *sql.Tx, billID string) (*Bill, error)
-	FindPreviousElectricityReading(ctx context.Context, tx *sql.Tx, roomID string, beforePeriodStart time.Time) (int, error)
+	FindPreviousElectricityReading(ctx context.Context, tx *sql.Tx, leaseID string, beforePeriodStart time.Time) (int, error)
 	FindPropertyElectricityUnitPrice(ctx context.Context, tx *sql.Tx, propertyID string) (*float64, error)
 	UpdateBillMeter(ctx context.Context, tx *sql.Tx, params UpdateMeterParams) (*Bill, error)
 	UpdateBillPayment(ctx context.Context, tx *sql.Tx, params UpdatePaymentParams) (*Bill, error)

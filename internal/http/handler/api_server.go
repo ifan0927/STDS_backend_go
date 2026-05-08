@@ -1192,6 +1192,10 @@ func (s *APIServer) CreateLease(c *gin.Context) {
 	if request.RentBillingCadence != nil {
 		rentCadence = string(*request.RentBillingCadence)
 	}
+	if request.StartingMeterReading == nil {
+		c.Error(apperr.ErrBadRequest.WithDetails(map[string]interface{}{"field": "starting_meter_reading"}))
+		return
+	}
 
 	lease, err := s.createLeaseSvc.Execute(c.Request.Context(), applease.CreateLeaseInput{
 		ActorRole:                 principal.Role,
@@ -1204,6 +1208,7 @@ func (s *APIServer) CreateLease(c *gin.Context) {
 		DepositAmount:             request.DepositAmount,
 		RentBillingCadence:        rentCadence,
 		ElectricityBillingCadence: cadence,
+		StartingMeterReading:      *request.StartingMeterReading,
 	})
 	if err != nil {
 		c.Error(err)
@@ -3738,6 +3743,7 @@ func toTenantLeaseResponse(lease *dbtenantquery.Lease) api.LeaseResponse {
 		UpdatedAt:                 &updatedAt,
 		Version:                   &version,
 	}
+	response.StartingMeterReading = lease.StartingMeterReading
 	if ok {
 		response.Id = &id
 	}
@@ -3765,6 +3771,7 @@ func toLeaseResponse(lease *dbleasequery.Lease) api.LeaseResponse {
 		EndDate:                   lease.EndDate,
 		RentBillingCadence:        lease.RentBillingCadence,
 		ElectricityBillingCadence: lease.ElectricityBillingCadence,
+		StartingMeterReading:      lease.StartingMeterReading,
 		Status:                    lease.Status,
 		DepositAmount:             lease.DepositAmount,
 		DepositRefundAmount:       lease.DepositRefundAmount,
@@ -3855,6 +3862,7 @@ func toCreatedLeaseResponse(lease *applease.Lease) api.LeaseResponse {
 		EndDate:                   lease.EndDate,
 		RentBillingCadence:        lease.RentBillingCadence,
 		ElectricityBillingCadence: lease.ElectricityBillingCadence,
+		StartingMeterReading:      lease.StartingMeterReading,
 		Status:                    lease.Status,
 		DepositAmount:             lease.DepositAmount,
 		DepositRefundAmount:       lease.DepositRefundAmount,

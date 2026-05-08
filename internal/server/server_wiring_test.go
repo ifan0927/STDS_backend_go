@@ -264,6 +264,7 @@ func TestLeaseMappingsPreserveContractFields(t *testing.T) {
 	notes := "renewal"
 	terminationReason := "tenant_request"
 	settlementDetail := map[string]interface{}{"refund": float64(1000)}
+	startingMeterReading := 1250
 
 	lease := toApplicationLease(&dbleases.Lease{
 		ID:                        "lease-1",
@@ -274,6 +275,7 @@ func TestLeaseMappingsPreserveContractFields(t *testing.T) {
 		StartDate:                 startDate,
 		EndDate:                   endDate,
 		ElectricityBillingCadence: "monthly",
+		StartingMeterReading:      &startingMeterReading,
 		Status:                    "terminated",
 		DepositAmount:             36000,
 		DepositRefundAmount:       &refundAmount,
@@ -296,6 +298,7 @@ func TestLeaseMappingsPreserveContractFields(t *testing.T) {
 		StartDate:                 startDate,
 		EndDate:                   endDate,
 		ElectricityBillingCadence: "monthly",
+		StartingMeterReading:      &startingMeterReading,
 		Status:                    "terminated",
 		DepositAmount:             36000,
 		DepositRefundAmount:       &refundAmount,

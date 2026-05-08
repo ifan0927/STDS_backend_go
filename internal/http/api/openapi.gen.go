@@ -725,7 +725,10 @@ type CreateLeaseRequest struct {
 	RentBillingCadence *CreateLeaseRequestRentBillingCadence `json:"rent_billing_cadence,omitempty"`
 	RoomId             openapi_types.UUID                    `json:"room_id"`
 	StartDate          openapi_types.Date                    `json:"start_date"`
-	TenantId           openapi_types.UUID                    `json:"tenant_id"`
+
+	// StartingMeterReading Move-in starting meter reading. Backend uses it as the previous reading baseline for the first electricity bill in this lease.
+	StartingMeterReading *int               `json:"starting_meter_reading"`
+	TenantId             openapi_types.UUID `json:"tenant_id"`
 }
 
 // CreateLeaseRequestElectricityBillingCadence 可省略；若未提供則套用 Property 的 default_electricity_billing_cadence
@@ -1099,12 +1102,15 @@ type LeaseResponse struct {
 	RoomLabel                 *string                                 `json:"room_label,omitempty"`
 	SettlementDetail          *map[string]interface{}                 `json:"settlement_detail"`
 	StartDate                 *openapi_types.Date                     `json:"start_date,omitempty"`
-	Status                    *LeaseResponseStatus                    `json:"status,omitempty"`
-	TenantId                  *openapi_types.UUID                     `json:"tenant_id,omitempty"`
-	TenantLabel               *string                                 `json:"tenant_label,omitempty"`
-	TerminationReason         *string                                 `json:"termination_reason"`
-	UpdatedAt                 *time.Time                              `json:"updated_at,omitempty"`
-	Version                   *int                                    `json:"version,omitempty"`
+
+	// StartingMeterReading Move-in starting meter reading. Existing or legacy leases may be null.
+	StartingMeterReading *int                 `json:"starting_meter_reading"`
+	Status               *LeaseResponseStatus `json:"status,omitempty"`
+	TenantId             *openapi_types.UUID  `json:"tenant_id,omitempty"`
+	TenantLabel          *string              `json:"tenant_label,omitempty"`
+	TerminationReason    *string              `json:"termination_reason"`
+	UpdatedAt            *time.Time           `json:"updated_at,omitempty"`
+	Version              *int                 `json:"version,omitempty"`
 }
 
 // LeaseResponseDepositStatus defines model for LeaseResponse.DepositStatus.

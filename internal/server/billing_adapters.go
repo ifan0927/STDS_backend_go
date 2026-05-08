@@ -375,12 +375,9 @@ func (a billingRepositoryAdapter) FindBillByIDForUpdate(ctx context.Context, tx 
 	return toAppBill(*bill), nil
 }
 
-func (a billingRepositoryAdapter) FindPreviousElectricityReading(ctx context.Context, tx *sql.Tx, roomID string, beforePeriodStart time.Time) (int, error) {
-	reading, err := a.repo.FindPreviousMeterReadingForUpdate(ctx, tx, roomID, beforePeriodStart)
+func (a billingRepositoryAdapter) FindPreviousElectricityReading(ctx context.Context, tx *sql.Tx, leaseID string, beforePeriodStart time.Time) (int, error) {
+	reading, err := a.repo.FindPreviousMeterReadingForUpdate(ctx, tx, leaseID, beforePeriodStart)
 	if err != nil {
-		if errors.Is(err, dbbilling.ErrNotFound) {
-			return 0, nil
-		}
 		return 0, mapBillingRepositoryError(err)
 	}
 

@@ -9,32 +9,33 @@ import (
 )
 
 const (
-	codeValidationTenantIDRequired    = "VALIDATION_TENANT_ID_REQUIRED"
-	codeValidationRoomIDRequired      = "VALIDATION_ROOM_ID_REQUIRED"
-	codeValidationStartDateRequired   = "VALIDATION_START_DATE_REQUIRED"
-	codeValidationEndDateRequired     = "VALIDATION_END_DATE_REQUIRED"
-	codeLeaseInvalidDateRange         = "LEASE_INVALID_DATE_RANGE"
-	codeLeaseRentAmountNonPositive    = "LEASE_RENT_AMOUNT_NON_POSITIVE"
-	codeLeaseDepositNegative          = "LEASE_DEPOSIT_NEGATIVE"
-	codeSettlementNegative            = "LEASE_SETTLEMENT_NEGATIVE"
-	codeLeaseUnsupportedUpdate        = "LEASE_UNSUPPORTED_UPDATE"
-	codeDepositDeductionReason        = "DEPOSIT_DEDUCTION_REASON_REQUIRED"
-	codeDepositSettlementMismatch     = "DEPOSIT_SETTLEMENT_AMOUNT_MISMATCH"
-	codeDepositNotHeld                = "DEPOSIT_NOT_HELD"
-	codeLeaseHasUnpaidBills           = "LEASE_HAS_UNPAID_BILLS"
-	codeCheckoutSettlementBlocked     = "CHECKOUT_SETTLEMENT_BLOCKED"
-	codeCheckoutSettlementStale       = "CHECKOUT_SETTLEMENT_STALE"
-	codeCheckoutSettlementNotFound    = "CHECKOUT_SETTLEMENT_NOT_FOUND"
-	codeForbiddenForceTermination     = "FORBIDDEN_FORCE_TERMINATION"
-	codeForceTerminationReason        = "FORCE_TERMINATION_REASON_REQUIRED"
-	codeForceTerminationDeposit       = "FORCE_TERMINATION_DEPOSIT_HANDLING_REQUIRED"
-	codeLeaseUpdateLockedBills        = "LEASE_UPDATE_HAS_LOCKED_FUTURE_BILLS"
-	codeLeaseNotActive                = "LEASE_NOT_ACTIVE"
-	codeRoomNotVacant                 = "ROOM_NOT_VACANT"
-	codeReplacementNotBoundary        = "LEASE_REPLACEMENT_NOT_AT_BILLING_BOUNDARY"
-	codeReplacementUnsettledBills     = "LEASE_REPLACEMENT_HAS_UNSETTLED_BILLS"
-	codeReplacementScopeMismatch      = "LEASE_REPLACEMENT_SCOPE_MISMATCH"
-	codeReplacementDepositUnsupported = "LEASE_REPLACEMENT_DEPOSIT_HANDLING_UNSUPPORTED"
+	codeValidationTenantIDRequired     = "VALIDATION_TENANT_ID_REQUIRED"
+	codeValidationRoomIDRequired       = "VALIDATION_ROOM_ID_REQUIRED"
+	codeValidationStartDateRequired    = "VALIDATION_START_DATE_REQUIRED"
+	codeValidationEndDateRequired      = "VALIDATION_END_DATE_REQUIRED"
+	codeValidationStartingMeterReading = "VALIDATION_STARTING_METER_READING"
+	codeLeaseInvalidDateRange          = "LEASE_INVALID_DATE_RANGE"
+	codeLeaseRentAmountNonPositive     = "LEASE_RENT_AMOUNT_NON_POSITIVE"
+	codeLeaseDepositNegative           = "LEASE_DEPOSIT_NEGATIVE"
+	codeSettlementNegative             = "LEASE_SETTLEMENT_NEGATIVE"
+	codeLeaseUnsupportedUpdate         = "LEASE_UNSUPPORTED_UPDATE"
+	codeDepositDeductionReason         = "DEPOSIT_DEDUCTION_REASON_REQUIRED"
+	codeDepositSettlementMismatch      = "DEPOSIT_SETTLEMENT_AMOUNT_MISMATCH"
+	codeDepositNotHeld                 = "DEPOSIT_NOT_HELD"
+	codeLeaseHasUnpaidBills            = "LEASE_HAS_UNPAID_BILLS"
+	codeCheckoutSettlementBlocked      = "CHECKOUT_SETTLEMENT_BLOCKED"
+	codeCheckoutSettlementStale        = "CHECKOUT_SETTLEMENT_STALE"
+	codeCheckoutSettlementNotFound     = "CHECKOUT_SETTLEMENT_NOT_FOUND"
+	codeForbiddenForceTermination      = "FORBIDDEN_FORCE_TERMINATION"
+	codeForceTerminationReason         = "FORCE_TERMINATION_REASON_REQUIRED"
+	codeForceTerminationDeposit        = "FORCE_TERMINATION_DEPOSIT_HANDLING_REQUIRED"
+	codeLeaseUpdateLockedBills         = "LEASE_UPDATE_HAS_LOCKED_FUTURE_BILLS"
+	codeLeaseNotActive                 = "LEASE_NOT_ACTIVE"
+	codeRoomNotVacant                  = "ROOM_NOT_VACANT"
+	codeReplacementNotBoundary         = "LEASE_REPLACEMENT_NOT_AT_BILLING_BOUNDARY"
+	codeReplacementUnsettledBills      = "LEASE_REPLACEMENT_HAS_UNSETTLED_BILLS"
+	codeReplacementScopeMismatch       = "LEASE_REPLACEMENT_SCOPE_MISMATCH"
+	codeReplacementDepositUnsupported  = "LEASE_REPLACEMENT_DEPOSIT_HANDLING_UNSUPPORTED"
 )
 
 var (
@@ -57,6 +58,11 @@ var (
 		codeValidationEndDateRequired,
 		http.StatusBadRequest,
 		"end_date is required.",
+	)
+	errValidationStartingMeterReadingInvalid = apperr.New(
+		codeValidationStartingMeterReading,
+		http.StatusBadRequest,
+		"starting_meter_reading must be greater than or equal to zero.",
 	)
 	errLeaseInvalidDateRange = apperr.New(
 		codeLeaseInvalidDateRange,

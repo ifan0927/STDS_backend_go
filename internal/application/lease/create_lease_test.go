@@ -50,16 +50,19 @@ func TestCreateLeaseServiceCreatesLeaseAndPreGeneratesBills(t *testing.T) {
 			Version:                   1,
 		},
 	}
+	startingMeterReading := 1250
+	repo.createdLease.StartingMeterReading = &startingMeterReading
 
 	service := NewCreateLeaseService(repo, dbtxrunner.New(db, publisher))
 	lease, err := service.Execute(context.Background(), CreateLeaseInput{
-		TenantID:      "tenant-1",
-		RoomID:        "room-1",
-		RentAmount:    18000,
-		StartDate:     time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC),
-		EndDate:       time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC),
-		DepositAmount: 36000,
-		ActorRole:     "admin",
+		TenantID:             "tenant-1",
+		RoomID:               "room-1",
+		RentAmount:           18000,
+		StartDate:            time.Date(2026, 5, 15, 0, 0, 0, 0, time.UTC),
+		EndDate:              time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC),
+		DepositAmount:        36000,
+		StartingMeterReading: 1250,
+		ActorRole:            "admin",
 	})
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
@@ -67,6 +70,12 @@ func TestCreateLeaseServiceCreatesLeaseAndPreGeneratesBills(t *testing.T) {
 
 	if lease.ID != "lease-1" {
 		t.Fatalf("expected lease-1, got %q", lease.ID)
+	}
+	if repo.createLeaseParams == nil || repo.createLeaseParams.StartingMeterReading != 1250 {
+		t.Fatalf("unexpected starting meter reading params: %+v", repo.createLeaseParams)
+	}
+	if lease.StartingMeterReading == nil || *lease.StartingMeterReading != 1250 {
+		t.Fatalf("unexpected starting meter reading: %+v", lease.StartingMeterReading)
 	}
 	if len(repo.createdBills) != 6 {
 		t.Fatalf("expected 6 created bills, got %d", len(repo.createdBills))
@@ -323,6 +332,20 @@ func TestCreateLeaseServiceRejectsBusinessRuleViolationsAndMissingReferences(t *
 		}
 		if err := mock.ExpectationsWereMet(); err != nil {
 			t.Fatalf("ExpectationsWereMet: %v", err)
+		}
+	})
+
+	t.Run("negative starting meter reading", func(t *testing.T) {
+		service := NewCreateLeaseService(nil, nil)
+		_, err := service.Execute(context.Background(), CreateLeaseInput{
+			TenantID:             "tenant-1",
+			RoomID:               "room-1",
+			StartDate:            time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+			EndDate:              time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC),
+			StartingMeterReading: -1,
+		})
+		if !errors.Is(err, errValidationStartingMeterReadingInvalid) {
+			t.Fatalf("expected errValidationStartingMeterReadingInvalid, got %v", err)
 		}
 	})
 
