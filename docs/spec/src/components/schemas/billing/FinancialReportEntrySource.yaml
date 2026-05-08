@@ -1,0 +1,18 @@
+type: object
+properties:
+  type:
+    type: string
+    enum:
+      - bill
+      - journal_log
+      - lease
+  id:
+    type: string
+    format: uuid
+  detail:
+    type: string
+    enum:
+      - payment
+      - journal_expense
+      - deposit_refund
+      - deposit_deduction

@@ -836,6 +836,77 @@ func TestExportMonthlyCashflowFallsBackFromDisplayNoteToDescriptionThenSourceRef
 	}
 }
 
+func TestFinancialReportEntrySourceFromRefNormalizesKnownSourceRefs(t *testing.T) {
+	tests := []struct {
+		name       string
+		category   string
+		sourceRef  []byte
+		wantType   string
+		wantID     string
+		wantDetail string
+	}{
+		{
+			name:       "bill payment",
+			category:   AccountingCategoryRentPayment,
+			sourceRef:  []byte(`{"type":"BillPaid","bill_id":"10000000-0000-0000-0000-000000000011"}`),
+			wantType:   "bill",
+			wantID:     "10000000-0000-0000-0000-000000000011",
+			wantDetail: "payment",
+		},
+		{
+			name:       "journal expense",
+			category:   "journal_expense",
+			sourceRef:  []byte(`{"type":"JournalExpenseRecorded","journal_log_id":"10000000-0000-0000-0000-000000000012"}`),
+			wantType:   "journal_log",
+			wantID:     "10000000-0000-0000-0000-000000000012",
+			wantDetail: "journal_expense",
+		},
+		{
+			name:       "deposit refund",
+			category:   "deposit_refund",
+			sourceRef:  []byte(`{"type":"DepositRefunded","lease_id":"10000000-0000-0000-0000-000000000013"}`),
+			wantType:   "lease",
+			wantID:     "10000000-0000-0000-0000-000000000013",
+			wantDetail: "deposit_refund",
+		},
+		{
+			name:       "deposit deduction",
+			category:   "deposit_deduction",
+			sourceRef:  []byte(`{"type":"DepositDeducted","lease_id":"10000000-0000-0000-0000-000000000014"}`),
+			wantType:   "lease",
+			wantID:     "10000000-0000-0000-0000-000000000014",
+			wantDetail: "deposit_deduction",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			source := FinancialReportEntrySourceFromRef(tc.category, tc.sourceRef)
+			if source == nil {
+				t.Fatal("source = nil")
+			}
+			if source.Type != tc.wantType || source.ID != tc.wantID || source.Detail == nil || *source.Detail != tc.wantDetail {
+				t.Fatalf("source = %+v, want type %q id %q detail %q", source, tc.wantType, tc.wantID, tc.wantDetail)
+			}
+		})
+	}
+}
+
+func TestFinancialReportEntrySourceFromRefIgnoresUnknownOrMalformedSourceRefs(t *testing.T) {
+	tests := [][]byte{
+		nil,
+		[]byte(`null`),
+		[]byte(`{"type":"Unknown"}`),
+		[]byte(`not json`),
+	}
+
+	for _, sourceRef := range tests {
+		if source := FinancialReportEntrySourceFromRef("rent_payment", sourceRef); source != nil {
+			t.Fatalf("source = %+v, want nil for %s", source, sourceRef)
+		}
+	}
+}
+
 func TestExportMonthlyCashflowUsesSnapshotRowsForHistoricalMonth(t *testing.T) {
 	repo := &reportRepositoryStub{
 		snapshotCashflow: &MonthlyCashflow{

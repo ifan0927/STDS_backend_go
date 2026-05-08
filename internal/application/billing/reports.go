@@ -158,9 +158,26 @@ type FinancialReportSummary struct {
 
 // FinancialReportEntry is the application read model for one report entry.
 type FinancialReportEntry struct {
-	Category    string
-	Description *string
-	Amount      int
+	ID                  string
+	Category            string
+	AccountingTitleID   *string
+	AccountingTitleCode *string
+	AccountingTitleName *string
+	SourceDate          *time.Time
+	RoomLabel           *string
+	TenantLabel         *string
+	PeriodLabel         *string
+	DisplayNote         *string
+	Description         *string
+	Amount              int
+	Source              *FinancialReportEntrySource
+}
+
+// FinancialReportEntrySource is a frontend-safe source pointer for one report row.
+type FinancialReportEntrySource struct {
+	Type   string
+	ID     string
+	Detail *string
 }
 
 // FinancialReport is the application read model for a property monthly report.
@@ -1602,6 +1619,60 @@ func cashflowSourceRefNote(sourceRef json.RawMessage) string {
 		return reason
 	}
 	return ""
+}
+
+// FinancialReportEntrySourceFromRef normalizes internal accounting source refs for API display.
+func FinancialReportEntrySourceFromRef(category string, sourceRef json.RawMessage) *FinancialReportEntrySource {
+	if len(sourceRef) == 0 || string(sourceRef) == "null" {
+		return nil
+	}
+
+	var values map[string]string
+	if err := json.Unmarshal(sourceRef, &values); err != nil {
+		return nil
+	}
+
+	if billID := strings.TrimSpace(values["bill_id"]); billID != "" {
+		detail := "payment"
+		return &FinancialReportEntrySource{
+			Type:   "bill",
+			ID:     billID,
+			Detail: &detail,
+		}
+	}
+
+	if journalLogID := strings.TrimSpace(values["journal_log_id"]); journalLogID != "" {
+		detail := "journal_expense"
+		return &FinancialReportEntrySource{
+			Type:   "journal_log",
+			ID:     journalLogID,
+			Detail: &detail,
+		}
+	}
+
+	if leaseID := strings.TrimSpace(values["lease_id"]); leaseID != "" {
+		detail := depositSourceDetail(category, values["type"])
+		return &FinancialReportEntrySource{
+			Type:   "lease",
+			ID:     leaseID,
+			Detail: detail,
+		}
+	}
+
+	return nil
+}
+
+func depositSourceDetail(category string, sourceType string) *string {
+	switch {
+	case category == "deposit_refund" || sourceType == "DepositRefunded":
+		detail := "deposit_refund"
+		return &detail
+	case category == "deposit_deduction" || sourceType == "DepositDeducted":
+		detail := "deposit_deduction"
+		return &detail
+	default:
+		return nil
+	}
 }
 
 func absValue(value int) int {

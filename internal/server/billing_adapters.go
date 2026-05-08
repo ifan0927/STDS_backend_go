@@ -777,9 +777,19 @@ func toAppFinancialReport(report dbbilling.FinancialReport) *appbilling.Financia
 	entries := make([]appbilling.FinancialReportEntry, 0, len(report.Entries))
 	for i := range report.Entries {
 		entries = append(entries, appbilling.FinancialReportEntry{
-			Category:    report.Entries[i].Category,
-			Description: report.Entries[i].Description,
-			Amount:      report.Entries[i].Amount,
+			ID:                  report.Entries[i].ID,
+			Category:            report.Entries[i].Category,
+			AccountingTitleID:   report.Entries[i].AccountingTitleID,
+			AccountingTitleCode: report.Entries[i].AccountingTitleCode,
+			AccountingTitleName: report.Entries[i].AccountingTitleName,
+			SourceDate:          report.Entries[i].SourceDate,
+			RoomLabel:           report.Entries[i].RoomLabel,
+			TenantLabel:         report.Entries[i].TenantLabel,
+			PeriodLabel:         report.Entries[i].PeriodLabel,
+			DisplayNote:         report.Entries[i].DisplayNote,
+			Description:         report.Entries[i].Description,
+			Amount:              report.Entries[i].Amount,
+			Source:              appbilling.FinancialReportEntrySourceFromRef(report.Entries[i].Category, report.Entries[i].SourceRef),
 		})
 	}
 
@@ -879,9 +889,19 @@ func toHandlerFinancialReport(report appbilling.FinancialReport) *handler.Billin
 	entries := make([]handler.BillingFinancialReportEntry, 0, len(report.Entries))
 	for i := range report.Entries {
 		entries = append(entries, handler.BillingFinancialReportEntry{
-			Category:    report.Entries[i].Category,
-			Description: report.Entries[i].Description,
-			Amount:      report.Entries[i].Amount,
+			ID:                  report.Entries[i].ID,
+			Category:            report.Entries[i].Category,
+			AccountingTitleID:   report.Entries[i].AccountingTitleID,
+			AccountingTitleCode: report.Entries[i].AccountingTitleCode,
+			AccountingTitleName: report.Entries[i].AccountingTitleName,
+			SourceDate:          report.Entries[i].SourceDate,
+			RoomLabel:           report.Entries[i].RoomLabel,
+			TenantLabel:         report.Entries[i].TenantLabel,
+			PeriodLabel:         report.Entries[i].PeriodLabel,
+			DisplayNote:         report.Entries[i].DisplayNote,
+			Description:         report.Entries[i].Description,
+			Amount:              report.Entries[i].Amount,
+			Source:              toHandlerFinancialReportEntrySource(report.Entries[i].Source),
 		})
 	}
 
@@ -894,6 +914,17 @@ func toHandlerFinancialReport(report appbilling.FinancialReport) *handler.Billin
 		Net:          report.Net,
 		IsFinalized:  report.IsFinalized,
 		Entries:      entries,
+	}
+}
+
+func toHandlerFinancialReportEntrySource(source *appbilling.FinancialReportEntrySource) *handler.BillingFinancialReportEntrySource {
+	if source == nil {
+		return nil
+	}
+	return &handler.BillingFinancialReportEntrySource{
+		Type:   source.Type,
+		ID:     source.ID,
+		Detail: source.Detail,
 	}
 }
 

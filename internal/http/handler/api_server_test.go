@@ -909,6 +909,19 @@ func TestGetPropertyFinancialReportReturnsDetailResponse(t *testing.T) {
 	if response.Entries == nil || len(*response.Entries) != 1 || (*response.Entries)[0].Category == nil || *(*response.Entries)[0].Category != api.FinancialReportEntryItemCategoryRentPayment {
 		t.Fatalf("unexpected financial report entries: %+v", response.Entries)
 	}
+	entry := (*response.Entries)[0]
+	if entry.EntryId == nil || entry.EntryId.String() != "10000000-0000-0000-0000-000000000101" {
+		t.Fatalf("entry_id = %+v, want 10000000-0000-0000-0000-000000000101", entry.EntryId)
+	}
+	if entry.AccountingTitleCode == nil || *entry.AccountingTitleCode != "4603" || entry.AccountingTitleName == nil || *entry.AccountingTitleName != "租金收入" {
+		t.Fatalf("accounting title = %+v/%+v, want 4603 租金收入", entry.AccountingTitleCode, entry.AccountingTitleName)
+	}
+	if entry.SourceDate == nil || entry.SourceDate.Time.Format("2006-01-02") != "2026-04-24" || entry.RoomLabel == nil || *entry.RoomLabel != "101" || entry.TenantLabel == nil || *entry.TenantLabel != "王小明" || entry.PeriodLabel == nil || *entry.PeriodLabel != "2026-04" || entry.DisplayNote == nil || *entry.DisplayNote != "101 王小明 2026-04 rent" {
+		t.Fatalf("display fields = %+v", entry)
+	}
+	if entry.Source == nil || entry.Source.Type == nil || *entry.Source.Type != api.FinancialReportEntrySourceTypeBill || entry.Source.Id == nil || entry.Source.Id.String() != "10000000-0000-0000-0000-000000000201" || entry.Source.Detail == nil || *entry.Source.Detail != api.Payment {
+		t.Fatalf("source = %+v, want bill payment source", entry.Source)
+	}
 }
 
 func TestSendPropertyFinancialReportReturnsReportResponse(t *testing.T) {
@@ -1592,6 +1605,15 @@ func testPropertyMeterHistoryRow() BillingPropertyMeterHistoryRow {
 
 func testFinancialReport() BillingFinancialReport {
 	description := "101 room April rent"
+	sourceDate := time.Date(2026, 4, 24, 0, 0, 0, 0, time.UTC)
+	roomLabel := "101"
+	tenantLabel := "王小明"
+	periodLabel := "2026-04"
+	displayNote := "101 王小明 2026-04 rent"
+	accountingTitleID := "10000000-0000-0000-0000-000000000301"
+	accountingTitleCode := "4603"
+	accountingTitleName := "租金收入"
+	sourceDetail := "payment"
 	return BillingFinancialReport{
 		PropertyID:   "10000000-0000-0000-0000-000000000001",
 		Year:         2026,
@@ -1601,7 +1623,25 @@ func testFinancialReport() BillingFinancialReport {
 		Net:          173000,
 		IsFinalized:  true,
 		Entries: []BillingFinancialReportEntry{
-			{Category: "rent_payment", Description: &description, Amount: 18000},
+			{
+				ID:                  "10000000-0000-0000-0000-000000000101",
+				Category:            "rent_payment",
+				AccountingTitleID:   &accountingTitleID,
+				AccountingTitleCode: &accountingTitleCode,
+				AccountingTitleName: &accountingTitleName,
+				SourceDate:          &sourceDate,
+				RoomLabel:           &roomLabel,
+				TenantLabel:         &tenantLabel,
+				PeriodLabel:         &periodLabel,
+				DisplayNote:         &displayNote,
+				Description:         &description,
+				Amount:              18000,
+				Source: &BillingFinancialReportEntrySource{
+					Type:   "bill",
+					ID:     "10000000-0000-0000-0000-000000000201",
+					Detail: &sourceDetail,
+				},
+			},
 		},
 	}
 }

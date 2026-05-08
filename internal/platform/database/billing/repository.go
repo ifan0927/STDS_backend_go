@@ -160,12 +160,20 @@ type FinancialReport struct {
 
 // FinancialReportEntry is one financial report detail entry.
 type FinancialReportEntry struct {
-	ID          string
-	Category    string
-	Description *string
-	Amount      int
-	SourceRef   json.RawMessage
-	CreatedAt   time.Time
+	ID                  string
+	Category            string
+	AccountingTitleID   *string
+	AccountingTitleCode *string
+	AccountingTitleName *string
+	SourceDate          *time.Time
+	RoomLabel           *string
+	TenantLabel         *string
+	PeriodLabel         *string
+	DisplayNote         *string
+	Description         *string
+	Amount              int
+	SourceRef           json.RawMessage
+	CreatedAt           time.Time
 }
 
 // MonthlyCashflow is one monthly cashflow export source read model.
@@ -1960,6 +1968,11 @@ SELECT
 	mse.accounting_title_id,
 	mse.accounting_title_code,
 	mse.accounting_title_name,
+	mse.source_date,
+	mse.room_label,
+	mse.tenant_label,
+	mse.period_label,
+	mse.display_note,
 	mse.description,
 	mse.amount,
 	mse.source_ref,
@@ -2022,6 +2035,11 @@ SELECT
 	ae.accounting_title_id,
 	ae.accounting_title_code,
 	ae.accounting_title_name,
+	ae.source_date,
+	ae.room_label,
+	ae.tenant_label,
+	ae.period_label,
+	ae.display_note,
 	ae.description,
 	ae.amount,
 	ae.source_ref,
@@ -2709,6 +2727,11 @@ func scanFinalizedFinancialReportRow(row rowScanner) (FinancialReportEntry, bool
 	var accountingTitleID sql.NullString
 	var accountingTitleCode sql.NullString
 	var accountingTitleName sql.NullString
+	var sourceDate sql.NullTime
+	var roomLabel sql.NullString
+	var tenantLabel sql.NullString
+	var periodLabel sql.NullString
+	var displayNote sql.NullString
 	var description sql.NullString
 	var amount sql.NullInt64
 	var sourceRef sql.NullString
@@ -2726,6 +2749,11 @@ func scanFinalizedFinancialReportRow(row rowScanner) (FinancialReportEntry, bool
 		&accountingTitleID,
 		&accountingTitleCode,
 		&accountingTitleName,
+		&sourceDate,
+		&roomLabel,
+		&tenantLabel,
+		&periodLabel,
+		&displayNote,
 		&description,
 		&amount,
 		&sourceRef,
@@ -2739,6 +2767,30 @@ func scanFinalizedFinancialReportRow(row rowScanner) (FinancialReportEntry, bool
 	}
 	if category.Valid {
 		entry.Category = category.String
+	}
+	if accountingTitleID.Valid {
+		entry.AccountingTitleID = &accountingTitleID.String
+	}
+	if accountingTitleCode.Valid {
+		entry.AccountingTitleCode = &accountingTitleCode.String
+	}
+	if accountingTitleName.Valid {
+		entry.AccountingTitleName = &accountingTitleName.String
+	}
+	if sourceDate.Valid {
+		entry.SourceDate = &sourceDate.Time
+	}
+	if roomLabel.Valid {
+		entry.RoomLabel = &roomLabel.String
+	}
+	if tenantLabel.Valid {
+		entry.TenantLabel = &tenantLabel.String
+	}
+	if periodLabel.Valid {
+		entry.PeriodLabel = &periodLabel.String
+	}
+	if displayNote.Valid {
+		entry.DisplayNote = &displayNote.String
 	}
 	if description.Valid {
 		entry.Description = &description.String
@@ -2765,6 +2817,11 @@ func scanLiveFinancialReportRow(row rowScanner, report *FinancialReport) (Financ
 	var accountingTitleID sql.NullString
 	var accountingTitleCode sql.NullString
 	var accountingTitleName sql.NullString
+	var sourceDate sql.NullTime
+	var roomLabel sql.NullString
+	var tenantLabel sql.NullString
+	var periodLabel sql.NullString
+	var displayNote sql.NullString
 	var description sql.NullString
 	var amount sql.NullInt64
 	var sourceRef sql.NullString
@@ -2779,6 +2836,11 @@ func scanLiveFinancialReportRow(row rowScanner, report *FinancialReport) (Financ
 		&accountingTitleID,
 		&accountingTitleCode,
 		&accountingTitleName,
+		&sourceDate,
+		&roomLabel,
+		&tenantLabel,
+		&periodLabel,
+		&displayNote,
 		&description,
 		&amount,
 		&sourceRef,
@@ -2792,6 +2854,30 @@ func scanLiveFinancialReportRow(row rowScanner, report *FinancialReport) (Financ
 	}
 	if category.Valid {
 		entry.Category = category.String
+	}
+	if accountingTitleID.Valid {
+		entry.AccountingTitleID = &accountingTitleID.String
+	}
+	if accountingTitleCode.Valid {
+		entry.AccountingTitleCode = &accountingTitleCode.String
+	}
+	if accountingTitleName.Valid {
+		entry.AccountingTitleName = &accountingTitleName.String
+	}
+	if sourceDate.Valid {
+		entry.SourceDate = &sourceDate.Time
+	}
+	if roomLabel.Valid {
+		entry.RoomLabel = &roomLabel.String
+	}
+	if tenantLabel.Valid {
+		entry.TenantLabel = &tenantLabel.String
+	}
+	if periodLabel.Valid {
+		entry.PeriodLabel = &periodLabel.String
+	}
+	if displayNote.Valid {
+		entry.DisplayNote = &displayNote.String
 	}
 	if description.Valid {
 		entry.Description = &description.String

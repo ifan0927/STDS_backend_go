@@ -122,8 +122,9 @@ func TestE2EBillingPaymentAndFinancialReportAcceptance(t *testing.T) {
 	if report.TotalIncome < expectedIncome {
 		t.Fatalf("expected total_income at least %d, got %d", expectedIncome, report.TotalIncome)
 	}
-	billingFlowE2ERequireReportEntry(t, report, "rent_payment", *rentBill.Amount)
+	rentEntry := billingFlowE2ERequireReportEntry(t, report, "rent_payment", *rentBill.Amount)
 	billingFlowE2ERequireReportEntry(t, report, "electricity_payment", *electricityBill.Amount)
+	billingFlowE2ERequireReportEntryDisplaySource(t, rentEntry, rentBill.ID, paidAt)
 }
 
 type billingFlowE2ELeaseResponse struct {
@@ -209,9 +210,25 @@ type billingFlowE2EFinancialReportResponse struct {
 }
 
 type billingFlowE2EFinancialReportEntry struct {
-	Category    string `json:"category"`
-	Description string `json:"description"`
-	Amount      int    `json:"amount"`
+	EntryID             string                                  `json:"entry_id"`
+	Category            string                                  `json:"category"`
+	AccountingTitleID   string                                  `json:"accounting_title_id"`
+	AccountingTitleCode string                                  `json:"accounting_title_code"`
+	AccountingTitleName string                                  `json:"accounting_title_name"`
+	SourceDate          string                                  `json:"source_date"`
+	RoomLabel           string                                  `json:"room_label"`
+	TenantLabel         string                                  `json:"tenant_label"`
+	PeriodLabel         string                                  `json:"period_label"`
+	DisplayNote         string                                  `json:"display_note"`
+	Description         string                                  `json:"description"`
+	Amount              int                                     `json:"amount"`
+	Source              *billingFlowE2EFinancialReportSourceRef `json:"source"`
+}
+
+type billingFlowE2EFinancialReportSourceRef struct {
+	Type   string `json:"type"`
+	ID     string `json:"id"`
+	Detail string `json:"detail"`
 }
 
 func billingFlowE2ECreateLease(t *testing.T, ctx context.Context, client apiClient, tenantID string, roomID string, year int, month int) billingFlowE2ELeaseResponse {
@@ -435,15 +452,37 @@ func billingFlowE2EGetFinancialReport(t *testing.T, ctx context.Context, client 
 	return report
 }
 
-func billingFlowE2ERequireReportEntry(t *testing.T, report billingFlowE2EFinancialReportResponse, category string, amount int) {
+func billingFlowE2ERequireReportEntry(t *testing.T, report billingFlowE2EFinancialReportResponse, category string, amount int) billingFlowE2EFinancialReportEntry {
 	t.Helper()
 
 	for _, entry := range report.Entries {
 		if entry.Category == category && entry.Amount == amount {
-			return
+			return entry
 		}
 	}
 	t.Fatalf("expected report entry category %q amount %d in %+v", category, amount, report.Entries)
+	return billingFlowE2EFinancialReportEntry{}
+}
+
+func billingFlowE2ERequireReportEntryDisplaySource(t *testing.T, entry billingFlowE2EFinancialReportEntry, billID string, paidAt time.Time) {
+	t.Helper()
+
+	if entry.EntryID == "" {
+		t.Fatalf("expected entry_id on report entry: %+v", entry)
+	}
+	if entry.AccountingTitleID == "" || entry.AccountingTitleCode == "" || entry.AccountingTitleName == "" {
+		t.Fatalf("expected accounting title fields on report entry: %+v", entry)
+	}
+	wantSourceDate := paidAt.In(time.FixedZone("Asia/Taipei", 8*60*60)).Format("2006-01-02")
+	if entry.SourceDate != wantSourceDate {
+		t.Fatalf("source_date = %q, want %q", entry.SourceDate, wantSourceDate)
+	}
+	if entry.PeriodLabel == "" || entry.DisplayNote == "" {
+		t.Fatalf("expected period_label and display_note on report entry: %+v", entry)
+	}
+	if entry.Source == nil || entry.Source.Type != "bill" || entry.Source.ID != billID || entry.Source.Detail != "payment" {
+		t.Fatalf("source = %+v, want bill payment source for %s", entry.Source, billID)
+	}
 }
 
 func billingFlowE2EReportPaymentTime() (int, int, time.Time) {
