@@ -38,6 +38,9 @@ func (a leaseDepositAccountingAdapter) CreateDepositAccountingEntry(ctx context.
 		SourceRef:           params.SourceRef,
 		Year:                params.Year,
 		Month:               params.Month,
+		SourceDate:          params.SourceDate,
+		TenantLabel:         params.TenantLabel,
+		DisplayNote:         params.DisplayNote,
 	})
 }
 

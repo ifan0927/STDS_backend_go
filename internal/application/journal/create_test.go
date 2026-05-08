@@ -76,6 +76,13 @@ func TestCreateServiceCreatesAccountingEntryAndPublishesEventWhenExpensePresent(
 	if accountingRepo.entry.SourceRef["type"] != "JournalExpenseRecorded" || accountingRepo.entry.SourceRef["journal_log_id"] != testJournalID {
 		t.Fatalf("accounting SourceRef = %#v", accountingRepo.entry.SourceRef)
 	}
+	wantSourceDate := createdAt.In(journalAccountingLocation)
+	if accountingRepo.entry.SourceDate == nil || !accountingRepo.entry.SourceDate.Equal(wantSourceDate) {
+		t.Fatalf("accounting SourceDate = %v, want %s", accountingRepo.entry.SourceDate, wantSourceDate)
+	}
+	if accountingRepo.entry.DisplayNote == nil || *accountingRepo.entry.DisplayNote != description {
+		t.Fatalf("accounting DisplayNote = %v, want %s", accountingRepo.entry.DisplayNote, description)
+	}
 	if len(publisher.events) != 1 {
 		t.Fatalf("published events = %d, want 1", len(publisher.events))
 	}
@@ -334,6 +341,13 @@ func TestUpdateServiceUpdatesMutableFields(t *testing.T) {
 	}
 	if accountingRepo.syncedEntry.Year != 2026 || accountingRepo.syncedEntry.Month != 5 {
 		t.Fatalf("syncedEntry Year/Month = %d/%d, want 2026/5", accountingRepo.syncedEntry.Year, accountingRepo.syncedEntry.Month)
+	}
+	wantSourceDate := repo.current.CreatedAt.In(journalAccountingLocation)
+	if accountingRepo.syncedEntry.SourceDate == nil || !accountingRepo.syncedEntry.SourceDate.Equal(wantSourceDate) {
+		t.Fatalf("syncedEntry SourceDate = %v, want %s", accountingRepo.syncedEntry.SourceDate, wantSourceDate)
+	}
+	if accountingRepo.syncedEntry.DisplayNote == nil || *accountingRepo.syncedEntry.DisplayNote != description {
+		t.Fatalf("syncedEntry DisplayNote = %v, want %s", accountingRepo.syncedEntry.DisplayNote, description)
 	}
 }
 

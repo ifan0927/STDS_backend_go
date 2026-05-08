@@ -618,6 +618,11 @@ func (a billingAccountingRepositoryAdapter) CreateAccountingEntry(ctx context.Co
 		SourceRef:           params.SourceRef,
 		Year:                params.Year,
 		Month:               params.Month,
+		SourceDate:          params.SourceDate,
+		RoomLabel:           params.RoomLabel,
+		TenantLabel:         params.TenantLabel,
+		PeriodLabel:         params.PeriodLabel,
+		DisplayNote:         params.DisplayNote,
 	})
 }
 
@@ -845,6 +850,11 @@ func toAppMonthlyCashflow(cashflow *dbbilling.MonthlyCashflow) *appbilling.Month
 			AccountingTitleID:   cashflow.Rows[i].AccountingTitleID,
 			AccountingTitleCode: cashflow.Rows[i].AccountingTitleCode,
 			AccountingTitleName: cashflow.Rows[i].AccountingTitleName,
+			SourceDate:          cashflow.Rows[i].SourceDate,
+			RoomLabel:           cashflow.Rows[i].RoomLabel,
+			TenantLabel:         cashflow.Rows[i].TenantLabel,
+			PeriodLabel:         cashflow.Rows[i].PeriodLabel,
+			DisplayNote:         cashflow.Rows[i].DisplayNote,
 			Description:         cashflow.Rows[i].Description,
 			Amount:              cashflow.Rows[i].Amount,
 			SourceRef:           cashflow.Rows[i].SourceRef,

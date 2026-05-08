@@ -621,6 +621,8 @@ func TestExportBillReceiptRendererFailureMapsInternalError(t *testing.T) {
 
 func TestExportMonthlyCashflowUsesCurrentMonthLiveRowsAndRunningBalance(t *testing.T) {
 	description := "101 2026-05 rent"
+	sourceDate := time.Date(2026, 5, 2, 0, 0, 0, 0, time.UTC)
+	displayNote := "101 王小明 2026-05 租金"
 	repo := &reportRepositoryStub{
 		liveCashflow: &MonthlyCashflow{
 			PropertyID:   testPropertyID,
@@ -633,6 +635,8 @@ func TestExportMonthlyCashflowUsesCurrentMonthLiveRowsAndRunningBalance(t *testi
 					AccountingTitleCode: stringPtr("4603"),
 					AccountingTitleName: stringPtr("租金收入"),
 					Description:         &description,
+					SourceDate:          &sourceDate,
+					DisplayNote:         &displayNote,
 					Amount:              18000,
 					SourceRef:           []byte(`{"bill_id":"bill-1"}`),
 					CreatedAt:           time.Date(2026, 5, 3, 10, 0, 0, 0, time.UTC),
@@ -686,7 +690,7 @@ func TestExportMonthlyCashflowUsesCurrentMonthLiveRowsAndRunningBalance(t *testi
 	if len(view.Rows) != 2 || view.Rows[0].BalanceLabel != "NT$ 19,000" || view.Rows[1].BalanceLabel != "NT$ 16,500" {
 		t.Fatalf("unexpected rows: %+v", view.Rows)
 	}
-	if view.Rows[0].SubjectLabel != "租金收入" || view.Rows[0].Note != "101 2026-05 rent" {
+	if view.Rows[0].DateLabel != "05/02" || view.Rows[0].SubjectLabel != "租金收入" || view.Rows[0].Note != "101 王小明 2026-05 租金" {
 		t.Fatalf("unexpected first row: %+v", view.Rows[0])
 	}
 	if view.Rows[1].SubjectLabel != "其他支出" {
@@ -734,6 +738,60 @@ func TestExportMonthlyCashflowFallsBackToCategorySubjectForOldRows(t *testing.T)
 	}
 	if len(view.Rows) != 1 || view.Rows[0].SubjectLabel != "押金退還" {
 		t.Fatalf("unexpected fallback row: %+v", view.Rows)
+	}
+	if view.Rows[0].DateLabel != "05/06" {
+		t.Fatalf("fallback date = %q, want created_at date", view.Rows[0].DateLabel)
+	}
+}
+
+func TestExportMonthlyCashflowFallsBackFromDisplayNoteToDescriptionThenSourceRefReason(t *testing.T) {
+	description := "journal description"
+	repo := &reportRepositoryStub{
+		liveCashflow: &MonthlyCashflow{
+			PropertyID:   testPropertyID,
+			PropertyName: "Demo Property",
+			Year:         2026,
+			Month:        5,
+			Rows: []MonthlyCashflowEntry{
+				{
+					Category:    "journal_expense",
+					Description: &description,
+					Amount:      -1000,
+					CreatedAt:   time.Date(2026, 5, 6, 10, 0, 0, 0, time.UTC),
+				},
+				{
+					Category:  "deposit_refund",
+					Amount:    -2000,
+					SourceRef: []byte(`{"reason":"押金退還原因"}`),
+					CreatedAt: time.Date(2026, 5, 7, 10, 0, 0, 0, time.UTC),
+				},
+			},
+		},
+	}
+	renderer := &recordingReportRenderer{html: []byte("<html>cashflow</html>")}
+	service := NewExportMonthlyCashflowService(repo, renderer, fixedClock{now: time.Date(2026, 5, 8, 16, 0, 0, 0, time.UTC)})
+
+	_, err := service.Execute(context.Background(), ExportMonthlyCashflowInput{
+		ActorRole:  "staff",
+		PropertyID: testPropertyID,
+		Year:       2026,
+		Month:      5,
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	view, ok := renderer.data.(monthlyCashflowView)
+	if !ok {
+		t.Fatalf("renderer data = %T, want monthlyCashflowView", renderer.data)
+	}
+	if len(view.Rows) != 2 {
+		t.Fatalf("rows = %d, want 2", len(view.Rows))
+	}
+	if view.Rows[0].Note != "journal description" {
+		t.Fatalf("first row note = %q, want description fallback", view.Rows[0].Note)
+	}
+	if view.Rows[1].Note != "押金退還原因" {
+		t.Fatalf("second row note = %q, want source_ref.reason fallback", view.Rows[1].Note)
 	}
 }
 

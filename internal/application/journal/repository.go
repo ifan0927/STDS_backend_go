@@ -72,6 +72,8 @@ type ExpenseAccountingEntryParams struct {
 	SourceRef           map[string]interface{}
 	Year                int
 	Month               int
+	SourceDate          *time.Time
+	DisplayNote         *string
 }
 
 // UpdateParams contains mutable journal log fields.

@@ -340,6 +340,22 @@ func TestRecordPaymentServiceRecordsPaymentAndPublishesEventAfterCommit(t *testi
 	if accountingRepo.entry.SourceRef["type"] != "BillPaid" || accountingRepo.entry.SourceRef["bill_id"] != testBillID {
 		t.Fatalf("unexpected source ref: %+v", accountingRepo.entry.SourceRef)
 	}
+	if accountingRepo.entry.SourceDate == nil {
+		t.Fatal("expected accounting source date")
+	}
+	wantSourceDate := accountingSourceDate(paidAt)
+	if !accountingRepo.entry.SourceDate.Equal(wantSourceDate) {
+		t.Fatalf("accounting source date = %s, want %s", accountingRepo.entry.SourceDate, wantSourceDate)
+	}
+	if accountingRepo.entry.RoomLabel != nil || accountingRepo.entry.TenantLabel != nil {
+		t.Fatalf("unexpected unavailable labels: room=%v tenant=%v", accountingRepo.entry.RoomLabel, accountingRepo.entry.TenantLabel)
+	}
+	if accountingRepo.entry.PeriodLabel == nil || *accountingRepo.entry.PeriodLabel != "2026-03-15 至 2026-04-14" {
+		t.Fatalf("period label = %v, want 2026-03-15 至 2026-04-14", accountingRepo.entry.PeriodLabel)
+	}
+	if accountingRepo.entry.DisplayNote == nil || *accountingRepo.entry.DisplayNote != "租金：2026-03-15 至 2026-04-14" {
+		t.Fatalf("display note = %v, want rent period note", accountingRepo.entry.DisplayNote)
+	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("ExpectationsWereMet: %v", err)
@@ -374,6 +390,16 @@ func TestRecordPaymentServiceAllowsOverdueBill(t *testing.T) {
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestAccountingSourceDateUsesTaiwanReportDate(t *testing.T) {
+	sourceDate := accountingSourceDate(time.Date(2026, 4, 30, 16, 30, 0, 0, time.UTC))
+	if sourceDate.Year() != 2026 || sourceDate.Month() != time.May || sourceDate.Day() != 1 {
+		t.Fatalf("source date = %s, want 2026-05-01 in Taiwan", sourceDate)
+	}
+	if sourceDate.Location().String() != taiwanReportLocation.String() {
+		t.Fatalf("source date location = %s, want %s", sourceDate.Location(), taiwanReportLocation)
 	}
 }
 
@@ -507,6 +533,9 @@ func TestRecordPaymentServiceRollsBackWhenAccountingEntryFails(t *testing.T) {
 	}
 	if accountingRepo.entry.Category != AccountingCategoryElectricityPayment || accountingRepo.entry.AccountingTitleCode != AccountingTitleCodeElectricityPayment || accountingRepo.entry.Amount != 585 {
 		t.Fatalf("unexpected accounting entry: %+v", accountingRepo.entry)
+	}
+	if accountingRepo.entry.DisplayNote == nil || *accountingRepo.entry.DisplayNote != "電費：2026-03-15 至 2026-04-14" {
+		t.Fatalf("display note = %v, want electricity period note", accountingRepo.entry.DisplayNote)
 	}
 	if len(publisher.events) != 0 {
 		t.Fatalf("expected no committed events, got %d", len(publisher.events))

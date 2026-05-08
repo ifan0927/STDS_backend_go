@@ -32,6 +32,7 @@ var expectedMigrationVersions = []string{
 	"000014",
 	"000015",
 	"000016",
+	"000017",
 }
 
 func TestRunnerUpAppliesMigrationsAndRecordsVersions(t *testing.T) {
@@ -77,8 +78,8 @@ func TestRunnerDownRollsBackAppliedMigrationsInDescendingOrder(t *testing.T) {
 	defer db.Close()
 
 	migrations := migrationsByVersion(t, "down")
-	appliedVersions := []string{"000012", "000013", "000014", "000015", "000016"}
-	expectedRollbackOrder := []string{"000016", "000015", "000014", "000013", "000012"}
+	appliedVersions := []string{"000012", "000013", "000014", "000015", "000016", "000017"}
+	expectedRollbackOrder := []string{"000017", "000016", "000015", "000014", "000013", "000012"}
 
 	expectSchemaMigrationsQuery(mock, appliedVersions)
 	for _, version := range expectedRollbackOrder {
@@ -143,6 +144,46 @@ func TestAccountingTitleMigrationSeedsRuntimeTitlesAndBackfillsCategories(t *tes
 	for _, snippet := range requiredSnippets {
 		if !strings.Contains(sql, snippet) {
 			t.Fatalf("000016 migration missing %q", snippet)
+		}
+	}
+}
+
+func TestAccountingEntryDisplayFieldsMigrationAddsNullableFields(t *testing.T) {
+	migrations := migrationsByVersion(t, "up")
+	sql := migrations["000017"].SQL
+
+	requiredSnippets := []string{
+		"ALTER TABLE accounting_entries",
+		"ADD COLUMN IF NOT EXISTS source_date DATE",
+		"ADD COLUMN IF NOT EXISTS room_label TEXT",
+		"ADD COLUMN IF NOT EXISTS tenant_label TEXT",
+		"ADD COLUMN IF NOT EXISTS period_label TEXT",
+		"ADD COLUMN IF NOT EXISTS display_note TEXT",
+		"ALTER TABLE monthly_snapshot_entries",
+	}
+	for _, snippet := range requiredSnippets {
+		if !strings.Contains(sql, snippet) {
+			t.Fatalf("000017 migration missing %q", snippet)
+		}
+	}
+
+	downSQL := migrationsByVersion(t, "down")["000017"].SQL
+	requiredDownSnippets := []string{
+		"ALTER TABLE monthly_snapshot_entries",
+		"DROP COLUMN IF EXISTS display_note",
+		"DROP COLUMN IF EXISTS period_label",
+		"DROP COLUMN IF EXISTS tenant_label",
+		"DROP COLUMN IF EXISTS room_label",
+		"DROP COLUMN IF EXISTS source_date",
+		"ALTER TABLE accounting_entries\n    DROP COLUMN IF EXISTS display_note",
+		"ALTER TABLE accounting_entries\n    DROP COLUMN IF EXISTS display_note,\n    DROP COLUMN IF EXISTS period_label",
+		"ALTER TABLE accounting_entries\n    DROP COLUMN IF EXISTS display_note,\n    DROP COLUMN IF EXISTS period_label,\n    DROP COLUMN IF EXISTS tenant_label",
+		"ALTER TABLE accounting_entries\n    DROP COLUMN IF EXISTS display_note,\n    DROP COLUMN IF EXISTS period_label,\n    DROP COLUMN IF EXISTS tenant_label,\n    DROP COLUMN IF EXISTS room_label",
+		"ALTER TABLE accounting_entries\n    DROP COLUMN IF EXISTS display_note,\n    DROP COLUMN IF EXISTS period_label,\n    DROP COLUMN IF EXISTS tenant_label,\n    DROP COLUMN IF EXISTS room_label,\n    DROP COLUMN IF EXISTS source_date",
+	}
+	for _, snippet := range requiredDownSnippets {
+		if !strings.Contains(downSQL, snippet) {
+			t.Fatalf("000017 down migration missing %q", snippet)
 		}
 	}
 }

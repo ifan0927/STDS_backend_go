@@ -567,8 +567,11 @@ func TestInsertAccountingEntryWritesTitleLinkage(t *testing.T) {
 
 	tx := beginBillingTx(t, db, mock)
 	description := "bill payment"
-	mock.ExpectExec(`(?s)INSERT INTO accounting_entries \(\s+property_account_id,\s+category,\s+accounting_title_id,\s+accounting_title_code,\s+accounting_title_name,\s+amount,\s+description,\s+source_ref,\s+year,\s+month\s+\).*FROM accounting_titles at\s+WHERE at.code = \$8\s+AND at.is_active = true`).
-		WithArgs("account-1", "rent_payment", 12000, description, `{"bill_id":"bill-1"}`, 2026, 4, "4603").
+	sourceDate := time.Date(2026, 4, 24, 0, 0, 0, 0, time.UTC)
+	periodLabel := "2026-04-01 至 2026-04-30"
+	displayNote := "租金：2026-04-01 至 2026-04-30"
+	mock.ExpectExec(`(?s)INSERT INTO accounting_entries \(\s+property_account_id,\s+category,\s+accounting_title_id,\s+accounting_title_code,\s+accounting_title_name,\s+amount,\s+description,\s+source_ref,\s+year,\s+month,\s+source_date,\s+room_label,\s+tenant_label,\s+period_label,\s+display_note\s+\).*FROM accounting_titles at\s+WHERE at.code = \$8\s+AND at.is_active = true`).
+		WithArgs("account-1", "rent_payment", 12000, description, `{"bill_id":"bill-1"}`, 2026, 4, "4603", "2026-04-24", nil, nil, periodLabel, displayNote).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
@@ -581,6 +584,9 @@ func TestInsertAccountingEntryWritesTitleLinkage(t *testing.T) {
 		SourceRef:           map[string]any{"bill_id": "bill-1"},
 		Year:                2026,
 		Month:               4,
+		SourceDate:          &sourceDate,
+		PeriodLabel:         &periodLabel,
+		DisplayNote:         &displayNote,
 	})
 	if err != nil {
 		t.Fatalf("InsertAccountingEntry: %v", err)
@@ -600,11 +606,12 @@ func TestReplaceJournalExpenseAccountingEntryDeletesExistingAndInsertsReplacemen
 
 	tx := beginBillingTx(t, db, mock)
 	description := "updated repair expense"
+	sourceDate := time.Date(2026, 5, 2, 0, 0, 0, 0, time.UTC)
 	mock.ExpectExec(`(?s)DELETE FROM accounting_entries\s+WHERE category = 'journal_expense'\s+AND source_ref->>'journal_log_id' = \$1`).
 		WithArgs("journal-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(`(?s)INSERT INTO accounting_entries \(\s+property_account_id,\s+category,\s+accounting_title_id,\s+accounting_title_code,\s+accounting_title_name,\s+amount,\s+description,\s+source_ref,\s+year,\s+month\s+\).*FROM accounting_titles at\s+WHERE at.code = \$8\s+AND at.is_active = true`).
-		WithArgs("account-1", "journal_expense", 4200, description, `{"journal_log_id":"journal-1","type":"JournalExpenseRecorded"}`, 2026, 5, "6681").
+	mock.ExpectExec(`(?s)INSERT INTO accounting_entries \(\s+property_account_id,\s+category,\s+accounting_title_id,\s+accounting_title_code,\s+accounting_title_name,\s+amount,\s+description,\s+source_ref,\s+year,\s+month,\s+source_date,\s+room_label,\s+tenant_label,\s+period_label,\s+display_note\s+\).*FROM accounting_titles at\s+WHERE at.code = \$8\s+AND at.is_active = true`).
+		WithArgs("account-1", "journal_expense", 4200, description, `{"journal_log_id":"journal-1","type":"JournalExpenseRecorded"}`, 2026, 5, "6681", "2026-05-02", nil, nil, nil, description).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
@@ -617,6 +624,8 @@ func TestReplaceJournalExpenseAccountingEntryDeletesExistingAndInsertsReplacemen
 		SourceRef:           map[string]any{"type": "JournalExpenseRecorded", "journal_log_id": "journal-1"},
 		Year:                2026,
 		Month:               5,
+		SourceDate:          &sourceDate,
+		DisplayNote:         &description,
 	})
 	if err != nil {
 		t.Fatalf("ReplaceJournalExpenseAccountingEntry: %v", err)
@@ -793,11 +802,12 @@ func TestGetMonthlyCashflowFinalizedMapsSnapshotRows(t *testing.T) {
 	defer closeBillingDB(t, db)
 
 	createdAt := time.Date(2026, 4, 30, 23, 0, 0, 0, time.UTC)
+	sourceDate := time.Date(2026, 4, 29, 0, 0, 0, 0, time.UTC)
 	mock.ExpectQuery(`(?s)FROM monthly_snapshots ms\s+JOIN properties p ON p.id = ms.property_id AND p.deleted_at IS NULL\s+LEFT JOIN monthly_snapshot_entries mse ON mse.snapshot_id = ms.id\s+WHERE ms.property_id = \$1\s+AND ms.year = \$2\s+AND ms.month = \$3`).
 		WithArgs("property-1", 2026, 4).
 		WillReturnRows(monthlyCashflowRows().
-			AddRow("property-1", "Demo Property", 2026, 4, "entry-1", "rent_payment", "title-4603", "4603", "租金收入", "rent", 12000, []byte(`{"bill_id":"bill-1"}`), createdAt).
-			AddRow("property-1", "Demo Property", 2026, 4, "entry-2", "journal_expense", "title-6681", "6681", "其他支出", nil, -1500, []byte(`{"journal_log_id":"journal-1"}`), createdAt))
+			AddRow("property-1", "Demo Property", 2026, 4, "entry-1", "rent_payment", "title-4603", "4603", "租金收入", sourceDate, "101", "王小明", "2026-04", "101 王小明 2026-04 rent", "rent", 12000, []byte(`{"bill_id":"bill-1"}`), createdAt).
+			AddRow("property-1", "Demo Property", 2026, 4, "entry-2", "journal_expense", "title-6681", "6681", "其他支出", nil, nil, nil, nil, "水電修繕", nil, -1500, []byte(`{"journal_log_id":"journal-1"}`), createdAt))
 
 	cashflow, err := repo.GetMonthlyCashflow(context.Background(), Scope{Role: "admin"}, "property-1", 2026, 4, false)
 	if err != nil {
@@ -815,8 +825,14 @@ func TestGetMonthlyCashflowFinalizedMapsSnapshotRows(t *testing.T) {
 	if cashflow.Rows[0].AccountingTitleCode == nil || *cashflow.Rows[0].AccountingTitleCode != "4603" || cashflow.Rows[0].AccountingTitleName == nil || *cashflow.Rows[0].AccountingTitleName != "租金收入" {
 		t.Fatalf("first row title = %+v/%+v, want 4603 租金收入", cashflow.Rows[0].AccountingTitleCode, cashflow.Rows[0].AccountingTitleName)
 	}
+	if cashflow.Rows[0].SourceDate == nil || !cashflow.Rows[0].SourceDate.Equal(sourceDate) || cashflow.Rows[0].RoomLabel == nil || *cashflow.Rows[0].RoomLabel != "101" || cashflow.Rows[0].TenantLabel == nil || *cashflow.Rows[0].TenantLabel != "王小明" || cashflow.Rows[0].PeriodLabel == nil || *cashflow.Rows[0].PeriodLabel != "2026-04" || cashflow.Rows[0].DisplayNote == nil || *cashflow.Rows[0].DisplayNote != "101 王小明 2026-04 rent" {
+		t.Fatalf("first row display fields = %+v", cashflow.Rows[0])
+	}
 	if cashflow.Rows[1].AccountingTitleCode == nil || *cashflow.Rows[1].AccountingTitleCode != "6681" || cashflow.Rows[1].AccountingTitleName == nil || *cashflow.Rows[1].AccountingTitleName != "其他支出" {
 		t.Fatalf("second row title = %+v/%+v, want 6681 其他支出", cashflow.Rows[1].AccountingTitleCode, cashflow.Rows[1].AccountingTitleName)
+	}
+	if cashflow.Rows[1].DisplayNote == nil || *cashflow.Rows[1].DisplayNote != "水電修繕" {
+		t.Fatalf("second row display note = %+v, want 水電修繕", cashflow.Rows[1].DisplayNote)
 	}
 	if string(cashflow.Rows[1].SourceRef) != `{"journal_log_id":"journal-1"}` {
 		t.Fatalf("source_ref = %s", cashflow.Rows[1].SourceRef)
@@ -832,10 +848,11 @@ func TestGetMonthlyCashflowLiveMapsAccountingRows(t *testing.T) {
 	defer closeBillingDB(t, db)
 
 	createdAt := time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC)
+	sourceDate := time.Date(2026, 5, 4, 0, 0, 0, 0, time.UTC)
 	mock.ExpectQuery(`(?s)FROM property_accounts pa\s+JOIN properties p ON p.id = pa.property_id AND p.deleted_at IS NULL\s+LEFT JOIN accounting_entries ae ON ae.property_account_id = pa.id\s+AND ae.year = \$2\s+AND ae.month = \$3\s+WHERE pa.property_id = \$1\s+AND pa.deleted_at IS NULL`).
 		WithArgs("property-1", 2026, 5).
 		WillReturnRows(monthlyCashflowRows().
-			AddRow("property-1", "Demo Property", 2026, 5, "entry-1", "electricity_payment", "title-4605", "4605", "房客電費收入", nil, 860, []byte(`{"bill_id":"bill-2"}`), createdAt))
+			AddRow("property-1", "Demo Property", 2026, 5, "entry-1", "electricity_payment", "title-4605", "4605", "房客電費收入", sourceDate, "102", "李小華", "2026-05", "102 李小華 2026-05 electricity", nil, 860, []byte(`{"bill_id":"bill-2"}`), createdAt))
 
 	cashflow, err := repo.GetMonthlyCashflow(context.Background(), Scope{Role: "admin"}, "property-1", 2026, 5, true)
 	if err != nil {
@@ -849,6 +866,9 @@ func TestGetMonthlyCashflowLiveMapsAccountingRows(t *testing.T) {
 	}
 	if cashflow.Rows[0].AccountingTitleCode == nil || *cashflow.Rows[0].AccountingTitleCode != "4605" || cashflow.Rows[0].AccountingTitleName == nil || *cashflow.Rows[0].AccountingTitleName != "房客電費收入" {
 		t.Fatalf("row title = %+v/%+v, want 4605 房客電費收入", cashflow.Rows[0].AccountingTitleCode, cashflow.Rows[0].AccountingTitleName)
+	}
+	if cashflow.Rows[0].SourceDate == nil || !cashflow.Rows[0].SourceDate.Equal(sourceDate) || cashflow.Rows[0].DisplayNote == nil || *cashflow.Rows[0].DisplayNote != "102 李小華 2026-05 electricity" {
+		t.Fatalf("row display fields = %+v", cashflow.Rows[0])
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -1226,6 +1246,11 @@ func TestCreateMonthlySnapshotCopiesTitleLinkageAndEntryCreatedAt(t *testing.T) 
 	accounting_title_id,
 	accounting_title_code,
 	accounting_title_name,
+	source_date,
+	room_label,
+	tenant_label,
+	period_label,
+	display_note,
 	description,
 	amount,
 	source_ref,
@@ -1237,6 +1262,11 @@ SELECT
 	ae.accounting_title_id,
 	ae.accounting_title_code,
 	ae.accounting_title_name,
+	ae.source_date,
+	ae.room_label,
+	ae.tenant_label,
+	ae.period_label,
+	ae.display_note,
 	ae.description,
 	ae.amount,
 	ae.source_ref,
@@ -1382,6 +1412,11 @@ func monthlyCashflowRows() *sqlmock.Rows {
 		"accounting_title_id",
 		"accounting_title_code",
 		"accounting_title_name",
+		"source_date",
+		"room_label",
+		"tenant_label",
+		"period_label",
+		"display_note",
 		"description",
 		"amount",
 		"source_ref",

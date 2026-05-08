@@ -22,6 +22,8 @@ const (
 	depositAccountingTitleCodeDeduction = "4601"
 )
 
+var depositAccountingLocation = time.FixedZone("Asia/Taipei", 8*60*60)
+
 // UpdateDepositInput is the command payload for deposit settlement.
 type UpdateDepositInput struct {
 	ActorRole           string
@@ -170,7 +172,9 @@ func recordDepositAccountingEntries(ctx context.Context, tx *sql.Tx, repo Deposi
 		return apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "deposit_accounting"})
 	}
 
+	sourceDate := depositAccountingSourceDate(occurredAt)
 	if refundAmount > 0 {
+		displayNote := "押金退款"
 		if err := repo.CreateDepositAccountingEntry(ctx, tx, DepositAccountingEntryParams{
 			PropertyID:          lease.PropertyID,
 			Category:            depositAccountingCategoryRefund,
@@ -180,8 +184,10 @@ func recordDepositAccountingEntries(ctx context.Context, tx *sql.Tx, repo Deposi
 				"type":     "DepositRefunded",
 				"lease_id": lease.ID,
 			},
-			Year:  occurredAt.Year(),
-			Month: int(occurredAt.Month()),
+			Year:        sourceDate.Year(),
+			Month:       int(sourceDate.Month()),
+			SourceDate:  &sourceDate,
+			DisplayNote: &displayNote,
 		}); err != nil {
 			return mapDepositAccountingError(err)
 		}
@@ -200,14 +206,20 @@ func recordDepositAccountingEntries(ctx context.Context, tx *sql.Tx, repo Deposi
 				"lease_id": lease.ID,
 				"reason":   deductionReason,
 			},
-			Year:  occurredAt.Year(),
-			Month: int(occurredAt.Month()),
+			Year:        sourceDate.Year(),
+			Month:       int(sourceDate.Month()),
+			SourceDate:  &sourceDate,
+			DisplayNote: &description,
 		}); err != nil {
 			return mapDepositAccountingError(err)
 		}
 	}
 
 	return nil
+}
+
+func depositAccountingSourceDate(value time.Time) time.Time {
+	return value.In(depositAccountingLocation)
 }
 
 func mapDepositAccountingError(err error) error {

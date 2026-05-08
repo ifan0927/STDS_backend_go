@@ -100,6 +100,11 @@ type CreateAccountingEntryParams struct {
 	SourceRef           map[string]any
 	Year                int
 	Month               int
+	SourceDate          *time.Time
+	RoomLabel           *string
+	TenantLabel         *string
+	PeriodLabel         *string
+	DisplayNote         *string
 }
 
 // FinancialReportSummary is one monthly financial report summary row.
@@ -151,6 +156,11 @@ type MonthlyCashflowEntry struct {
 	AccountingTitleID   *string
 	AccountingTitleCode *string
 	AccountingTitleName *string
+	SourceDate          *time.Time
+	RoomLabel           *string
+	TenantLabel         *string
+	PeriodLabel         *string
+	DisplayNote         *string
 	Description         *string
 	Amount              int
 	SourceRef           json.RawMessage
@@ -535,6 +545,11 @@ INSERT INTO monthly_snapshot_entries (
 	accounting_title_id,
 	accounting_title_code,
 	accounting_title_name,
+	source_date,
+	room_label,
+	tenant_label,
+	period_label,
+	display_note,
 	description,
 	amount,
 	source_ref,
@@ -546,6 +561,11 @@ SELECT
 	ae.accounting_title_id,
 	ae.accounting_title_code,
 	ae.accounting_title_name,
+	ae.source_date,
+	ae.room_label,
+	ae.tenant_label,
+	ae.period_label,
+	ae.display_note,
 	ae.description,
 	ae.amount,
 	ae.source_ref,
@@ -1071,7 +1091,12 @@ INSERT INTO accounting_entries (
 	description,
 	source_ref,
 	year,
-	month
+	month,
+	source_date,
+	room_label,
+	tenant_label,
+	period_label,
+	display_note
 )
 SELECT
 	$1,
@@ -1083,7 +1108,12 @@ SELECT
 	$4,
 	$5::jsonb,
 	$6,
-	$7
+	$7,
+	$9::date,
+	$10,
+	$11,
+	$12,
+	$13
 FROM accounting_titles at
 WHERE at.code = $8
   AND at.is_active = true
@@ -1098,6 +1128,11 @@ WHERE at.code = $8
 		params.Year,
 		params.Month,
 		params.AccountingTitleCode,
+		nullableDate(params.SourceDate),
+		nullableString(params.RoomLabel),
+		nullableString(params.TenantLabel),
+		nullableString(params.PeriodLabel),
+		nullableString(params.DisplayNote),
 	)
 	if err != nil {
 		return fmt.Errorf("insert accounting entry: %w", err)
@@ -1812,6 +1847,11 @@ SELECT
 	mse.accounting_title_id,
 	mse.accounting_title_code,
 	mse.accounting_title_name,
+	mse.source_date,
+	mse.room_label,
+	mse.tenant_label,
+	mse.period_label,
+	mse.display_note,
 	mse.description,
 	mse.amount,
 	mse.source_ref,
@@ -1876,6 +1916,11 @@ SELECT
 	ae.accounting_title_id,
 	ae.accounting_title_code,
 	ae.accounting_title_name,
+	ae.source_date,
+	ae.room_label,
+	ae.tenant_label,
+	ae.period_label,
+	ae.display_note,
 	ae.description,
 	ae.amount,
 	ae.source_ref,
@@ -2504,6 +2549,11 @@ func scanMonthlyCashflowRow(row rowScanner) (MonthlyCashflowEntry, bool, *Monthl
 	var accountingTitleID sql.NullString
 	var accountingTitleCode sql.NullString
 	var accountingTitleName sql.NullString
+	var sourceDate sql.NullTime
+	var roomLabel sql.NullString
+	var tenantLabel sql.NullString
+	var periodLabel sql.NullString
+	var displayNote sql.NullString
 	var description sql.NullString
 	var amount sql.NullInt64
 	var sourceRef sql.NullString
@@ -2519,6 +2569,11 @@ func scanMonthlyCashflowRow(row rowScanner) (MonthlyCashflowEntry, bool, *Monthl
 		&accountingTitleID,
 		&accountingTitleCode,
 		&accountingTitleName,
+		&sourceDate,
+		&roomLabel,
+		&tenantLabel,
+		&periodLabel,
+		&displayNote,
 		&description,
 		&amount,
 		&sourceRef,
@@ -2541,6 +2596,21 @@ func scanMonthlyCashflowRow(row rowScanner) (MonthlyCashflowEntry, bool, *Monthl
 	}
 	if accountingTitleName.Valid {
 		entry.AccountingTitleName = &accountingTitleName.String
+	}
+	if sourceDate.Valid {
+		entry.SourceDate = &sourceDate.Time
+	}
+	if roomLabel.Valid {
+		entry.RoomLabel = &roomLabel.String
+	}
+	if tenantLabel.Valid {
+		entry.TenantLabel = &tenantLabel.String
+	}
+	if periodLabel.Valid {
+		entry.PeriodLabel = &periodLabel.String
+	}
+	if displayNote.Valid {
+		entry.DisplayNote = &displayNote.String
 	}
 	if description.Valid {
 		entry.Description = &description.String
@@ -2679,4 +2749,11 @@ func nullableString(value *string) any {
 		return nil
 	}
 	return *value
+}
+
+func nullableDate(value *time.Time) any {
+	if value == nil {
+		return nil
+	}
+	return value.Format("2006-01-02")
 }

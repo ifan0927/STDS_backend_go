@@ -92,6 +92,9 @@ func (s *RecordPaymentService) Execute(ctx context.Context, input RecordPaymentI
 		if err != nil {
 			return apperr.ErrInternalServerError.WithCause(err)
 		}
+		sourceDate := accountingSourceDate(*state.PaidAt)
+		periodLabel := formatAccountingPeriodLabel(updatedBill.PeriodStart, updatedBill.PeriodEnd)
+		displayNote := formatBillAccountingDisplayNote(updatedBill.Type, periodLabel)
 		if err := s.accountingRepo.CreateAccountingEntry(ctx, tx, AccountingEntryParams{
 			PropertyID:          updatedBill.PropertyID,
 			Category:            category,
@@ -101,8 +104,11 @@ func (s *RecordPaymentService) Execute(ctx context.Context, input RecordPaymentI
 				"type":    "BillPaid",
 				"bill_id": updatedBill.ID,
 			},
-			Year:  state.PaidAt.Year(),
-			Month: int(state.PaidAt.Month()),
+			Year:        state.PaidAt.Year(),
+			Month:       int(state.PaidAt.Month()),
+			SourceDate:  &sourceDate,
+			PeriodLabel: &periodLabel,
+			DisplayNote: &displayNote,
 		}); err != nil {
 			return mapAccountingRepositoryError(err)
 		}
@@ -128,4 +134,19 @@ func (s *RecordPaymentService) Execute(ctx context.Context, input RecordPaymentI
 	}
 
 	return updated, nil
+}
+
+func formatAccountingPeriodLabel(start time.Time, end time.Time) string {
+	return start.Format("2006-01-02") + " 至 " + end.Format("2006-01-02")
+}
+
+func accountingSourceDate(value time.Time) time.Time {
+	return value.In(taiwanReportLocation)
+}
+
+func formatBillAccountingDisplayNote(billType string, periodLabel string) string {
+	if billType == domainbilling.TypeElectricity {
+		return "電費：" + periodLabel
+	}
+	return "租金：" + periodLabel
 }
