@@ -4426,7 +4426,7 @@ func (fakeBillingPropertyMeters) ListPropertyPendingMeters(_ context.Context, _ 
 	return nil, nil
 }
 
-func (fakeBillingPropertyMeters) ListPropertyMeterHistory(_ context.Context, _ handler.BillingPropertyMeterHistoryInput) ([]handler.BillingBill, error) {
+func (fakeBillingPropertyMeters) ListPropertyMeterHistory(_ context.Context, _ handler.BillingPropertyMeterHistoryInput) ([]handler.BillingPropertyMeterHistoryRow, error) {
 	return nil, nil
 }
 

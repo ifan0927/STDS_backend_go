@@ -236,6 +236,13 @@ const (
 	LeaseResponseStatusTerminated      LeaseResponseStatus = "terminated"
 )
 
+// Defines values for PropertyMeterHistoryRowStatus.
+const (
+	Overdue        PropertyMeterHistoryRowStatus = "overdue"
+	Paid           PropertyMeterHistoryRowStatus = "paid"
+	PendingPayment PropertyMeterHistoryRowStatus = "pending_payment"
+)
+
 // Defines values for PropertyResponseDefaultElectricityBillingCadence.
 const (
 	PropertyResponseDefaultElectricityBillingCadenceBimonthly PropertyResponseDefaultElectricityBillingCadence = "bimonthly"
@@ -984,6 +991,36 @@ type PropertyAssignmentRequest struct {
 type PropertyListResponse struct {
 	Data *[]PropertyResponse `json:"data,omitempty"`
 }
+
+// PropertyMeterHistoryResponse defines model for PropertyMeterHistoryResponse.
+type PropertyMeterHistoryResponse struct {
+	Data *[]PropertyMeterHistoryRow `json:"data,omitempty"`
+}
+
+// PropertyMeterHistoryRow defines model for PropertyMeterHistoryRow.
+type PropertyMeterHistoryRow struct {
+	Amount          *int                           `json:"amount"`
+	BillId          *openapi_types.UUID            `json:"bill_id,omitempty"`
+	CurrentReading  *int                           `json:"current_reading,omitempty"`
+	DueDate         *openapi_types.Date            `json:"due_date,omitempty"`
+	LeaseId         *openapi_types.UUID            `json:"lease_id,omitempty"`
+	MeterRecordedAt *time.Time                     `json:"meter_recorded_at"`
+	PeriodEnd       *openapi_types.Date            `json:"period_end,omitempty"`
+	PeriodLabel     *string                        `json:"period_label,omitempty"`
+	PeriodStart     *openapi_types.Date            `json:"period_start,omitempty"`
+	PreviousReading *int                           `json:"previous_reading,omitempty"`
+	PropertyId      *openapi_types.UUID            `json:"property_id,omitempty"`
+	RoomId          *openapi_types.UUID            `json:"room_id,omitempty"`
+	RoomLabel       *string                        `json:"room_label,omitempty"`
+	Status          *PropertyMeterHistoryRowStatus `json:"status,omitempty"`
+	TenantId        *openapi_types.UUID            `json:"tenant_id,omitempty"`
+	TenantLabel     *string                        `json:"tenant_label,omitempty"`
+	UnitPrice       *float64                       `json:"unit_price,omitempty"`
+	Usage           *int                           `json:"usage,omitempty"`
+}
+
+// PropertyMeterHistoryRowStatus defines model for PropertyMeterHistoryRow.Status.
+type PropertyMeterHistoryRowStatus string
 
 // PropertyResponse defines model for PropertyResponse.
 type PropertyResponse struct {
