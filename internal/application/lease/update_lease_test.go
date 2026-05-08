@@ -463,6 +463,15 @@ func TestUpdateDepositServiceCreatesRefundAccountingEntry(t *testing.T) {
 	if entry.Category != depositAccountingCategoryRefund || entry.AccountingTitleCode != depositAccountingTitleCodeRefund || entry.Amount != -refundAmount {
 		t.Fatalf("accounting entry = %+v", entry)
 	}
+	if entry.SourceDate == nil {
+		t.Fatal("expected source date")
+	}
+	if entry.TenantLabel != nil {
+		t.Fatalf("tenant label = %v, want nil because only tenant ID is available", entry.TenantLabel)
+	}
+	if entry.DisplayNote == nil || *entry.DisplayNote != "押金退款" {
+		t.Fatalf("display note = %v, want 押金退款", entry.DisplayNote)
+	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("ExpectationsWereMet: %v", err)
@@ -519,9 +528,47 @@ func TestUpdateDepositServiceCreatesDeductionAccountingEntry(t *testing.T) {
 	if entry.Description == nil || *entry.Description != reason {
 		t.Fatalf("description = %v, want %q", entry.Description, reason)
 	}
+	if entry.SourceDate == nil {
+		t.Fatal("expected source date")
+	}
+	if entry.TenantLabel != nil {
+		t.Fatalf("tenant label = %v, want nil because only tenant ID is available", entry.TenantLabel)
+	}
+	if entry.DisplayNote == nil || *entry.DisplayNote != reason {
+		t.Fatalf("display note = %v, want %q", entry.DisplayNote, reason)
+	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestRecordDepositAccountingEntriesUsesTaiwanSourceDate(t *testing.T) {
+	accountingRepo := &depositAccountingRepositoryStub{}
+	occurredAt := time.Date(2026, 4, 30, 16, 30, 0, 0, time.UTC)
+
+	err := recordDepositAccountingEntries(context.Background(), nil, accountingRepo, &Lease{
+		ID:         updateLeaseTestLeaseID,
+		PropertyID: "property-1",
+	}, 36000, 0, "", occurredAt)
+	if err != nil {
+		t.Fatalf("recordDepositAccountingEntries: %v", err)
+	}
+	if len(accountingRepo.entries) != 1 {
+		t.Fatalf("entries = %d, want 1", len(accountingRepo.entries))
+	}
+	sourceDate := accountingRepo.entries[0].SourceDate
+	if sourceDate == nil {
+		t.Fatal("expected source date")
+	}
+	if sourceDate.Year() != 2026 || sourceDate.Month() != time.May || sourceDate.Day() != 1 {
+		t.Fatalf("source date = %s, want 2026-05-01 in Taiwan", sourceDate)
+	}
+	if sourceDate.Location().String() != depositAccountingLocation.String() {
+		t.Fatalf("source date location = %s, want %s", sourceDate.Location(), depositAccountingLocation)
+	}
+	if accountingRepo.entries[0].Year != 2026 || accountingRepo.entries[0].Month != 5 {
+		t.Fatalf("accounting period = %d/%d, want 2026/5", accountingRepo.entries[0].Year, accountingRepo.entries[0].Month)
 	}
 }
 

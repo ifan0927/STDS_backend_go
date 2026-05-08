@@ -134,6 +134,9 @@ type DepositAccountingEntryParams struct {
 	SourceRef           map[string]interface{}
 	Year                int
 	Month               int
+	SourceDate          *time.Time
+	TenantLabel         *string
+	DisplayNote         *string
 }
 
 // TerminateLeaseParams contains fields for predecessor termination.

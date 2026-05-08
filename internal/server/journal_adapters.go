@@ -32,6 +32,8 @@ func (a journalExpenseAccountingAdapter) CreateExpenseAccountingEntry(ctx contex
 		SourceRef:           params.SourceRef,
 		Year:                params.Year,
 		Month:               params.Month,
+		SourceDate:          params.SourceDate,
+		DisplayNote:         params.DisplayNote,
 	})
 }
 
@@ -58,5 +60,7 @@ func (a journalExpenseAccountingAdapter) SyncExpenseAccountingEntry(ctx context.
 		SourceRef:           params.SourceRef,
 		Year:                params.Year,
 		Month:               params.Month,
+		SourceDate:          params.SourceDate,
+		DisplayNote:         params.DisplayNote,
 	})
 }

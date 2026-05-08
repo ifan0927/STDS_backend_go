@@ -111,6 +111,11 @@ type AccountingEntryParams struct {
 	SourceRef           map[string]interface{}
 	Year                int
 	Month               int
+	SourceDate          *time.Time
+	RoomLabel           *string
+	TenantLabel         *string
+	PeriodLabel         *string
+	DisplayNote         *string
 }
 
 // AccountingRepository defines persistence required to complete bill payment.

@@ -342,6 +342,12 @@ CREATE TABLE accounting_entries (
     accounting_title_id   UUID        REFERENCES accounting_titles(id),
     accounting_title_code VARCHAR(20),
     accounting_title_name VARCHAR(100),
+    -- display fields：報表列穩定顯示事實；source_date 為顯示日期，label/note 不在月結後回查 mutable source tables
+    source_date         DATE,
+    room_label          TEXT,
+    tenant_label        TEXT,
+    period_label        TEXT,
+    display_note        TEXT,
     amount              INTEGER      NOT NULL,
     description         TEXT,
     -- source_ref：來源事件與 ID（BillPaid / JournalExpenseRecorded / DepositRefunded / DepositDeducted）
@@ -397,6 +403,12 @@ CREATE TABLE monthly_snapshot_entries (
     accounting_title_id   UUID        REFERENCES accounting_titles(id),
     accounting_title_code VARCHAR(20),
     accounting_title_name VARCHAR(100),
+    -- snapshot copy 保護 finalized historical report 的日期、標籤與備註不受來源資料異動影響
+    source_date     DATE,
+    room_label      TEXT,
+    tenant_label    TEXT,
+    period_label    TEXT,
+    display_note    TEXT,
     description     TEXT,
     amount          INTEGER      NOT NULL,
     source_ref      JSONB,

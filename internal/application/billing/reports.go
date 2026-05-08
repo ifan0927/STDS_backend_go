@@ -202,6 +202,11 @@ type MonthlyCashflowEntry struct {
 	AccountingTitleID   *string
 	AccountingTitleCode *string
 	AccountingTitleName *string
+	SourceDate          *time.Time
+	RoomLabel           *string
+	TenantLabel         *string
+	PeriodLabel         *string
+	DisplayNote         *string
 	Description         *string
 	Amount              int
 	SourceRef           json.RawMessage
@@ -1445,7 +1450,7 @@ func newMonthlyCashflowView(cashflow MonthlyCashflow, openingBalance int) monthl
 		totalIncome += income
 		totalExpense += expense
 		view.Rows = append(view.Rows, monthlyCashflowViewRow{
-			DateLabel:    row.CreatedAt.In(taiwanReportLocation).Format("01/02"),
+			DateLabel:    cashflowDateLabel(row),
 			SubjectLabel: cashflowSubjectLabel(row),
 			IncomeLabel:  optionalMoneyLabel(income),
 			ExpenseLabel: optionalMoneyLabel(expense),
@@ -1508,7 +1513,17 @@ func cashflowCategoryLabel(category string) string {
 	}
 }
 
+func cashflowDateLabel(row MonthlyCashflowEntry) string {
+	if row.SourceDate != nil {
+		return row.SourceDate.In(taiwanReportLocation).Format("01/02")
+	}
+	return row.CreatedAt.In(taiwanReportLocation).Format("01/02")
+}
+
 func cashflowNote(row MonthlyCashflowEntry) string {
+	if displayNote := stringValue(row.DisplayNote); displayNote != "" {
+		return displayNote
+	}
 	if description := stringValue(row.Description); description != "" {
 		return description
 	}
