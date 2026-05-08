@@ -4299,17 +4299,29 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BillListResponse'
+                $ref: '#/components/schemas/PropertyMeterHistoryResponse'
               examples:
                 success:
                   value:
                     data:
-                      - id: 50000000-0000-0000-0000-000000000002
+                      - bill_id: 50000000-0000-0000-0000-000000000002
+                        property_id: 10000000-0000-0000-0000-000000000001
                         room_id: 20000000-0000-0000-0000-000000000002
+                        room_label: '101'
+                        tenant_id: 30000000-0000-0000-0000-000000000002
+                        tenant_label: 王小明
+                        lease_id: 40000000-0000-0000-0000-000000000002
+                        period_start: '2026-04-01'
+                        period_end: '2026-04-30'
+                        period_label: 2026-04-01..2026-04-30
                         due_date: '2026-04-01'
-                        meter_previous_reading: 1120
-                        meter_current_reading: 1250
+                        previous_reading: 1120
+                        current_reading: 1250
+                        usage: 130
+                        unit_price: 5
                         amount: 650
+                        status: paid
+                        meter_recorded_at: '2026-04-24T10:00:00Z'
         '401':
           description: 未認證
           content:
@@ -8004,6 +8016,68 @@ components:
           type: string
           format: date-time
           description: Payment timestamp. Optional; defaults to the server time.
+    PropertyMeterHistoryRow:
+      type: object
+      properties:
+        bill_id:
+          type: string
+          format: uuid
+        property_id:
+          type: string
+          format: uuid
+        room_id:
+          type: string
+          format: uuid
+        room_label:
+          type: string
+        tenant_id:
+          type: string
+          format: uuid
+        tenant_label:
+          type: string
+        lease_id:
+          type: string
+          format: uuid
+        period_start:
+          type: string
+          format: date
+        period_end:
+          type: string
+          format: date
+        period_label:
+          type: string
+        due_date:
+          type: string
+          format: date
+        previous_reading:
+          type: integer
+        current_reading:
+          type: integer
+        usage:
+          type: integer
+        unit_price:
+          type: number
+          format: double
+        amount:
+          type: integer
+          nullable: true
+        status:
+          type: string
+          enum:
+            - pending_payment
+            - paid
+            - overdue
+        meter_recorded_at:
+          type: string
+          format: date-time
+          nullable: true
+    PropertyMeterHistoryResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/PropertyMeterHistoryRow'
     FinancialReportSummaryItem:
       type: object
       properties:

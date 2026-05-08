@@ -461,7 +461,7 @@ func TestListPropertyMeterHistoryReturnsBillPeriodsForYear(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	meters := &recordingPropertyMeters{
-		historyBills: []BillingBill{testBillingBill()},
+		historyRows: []BillingPropertyMeterHistoryRow{testPropertyMeterHistoryRow()},
 	}
 	server := &APIServer{billing: BillingServices{PropertyMeters: meters}}
 	recorder := httptest.NewRecorder()
@@ -486,19 +486,22 @@ func TestListPropertyMeterHistoryReturnsBillPeriodsForYear(t *testing.T) {
 		t.Fatalf("Year = %v, want 2026", meters.historyInput.Year)
 	}
 
-	var response api.BillListResponse
+	var response api.PropertyMeterHistoryResponse
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("json.Unmarshal: %v", err)
 	}
 	if response.Data == nil || len(*response.Data) != 1 {
-		t.Fatalf("expected one meter history bill, got %+v", response.Data)
+		t.Fatalf("expected one meter history row, got %+v", response.Data)
 	}
-	bill := (*response.Data)[0]
-	if bill.PeriodStart == nil || bill.PeriodEnd == nil {
-		t.Fatalf("expected bill period in response: %+v", bill)
+	row := (*response.Data)[0]
+	if row.BillId == nil || row.RoomLabel == nil || *row.RoomLabel != "101" || row.TenantLabel == nil || *row.TenantLabel != "王小明" {
+		t.Fatalf("unexpected meter history labels: %+v", row)
 	}
-	if bill.Amount == nil || *bill.Amount != 12000 {
-		t.Fatalf("unexpected meter history bill response: %+v", bill)
+	if row.PreviousReading == nil || *row.PreviousReading != 1120 || row.CurrentReading == nil || *row.CurrentReading != 1250 || row.Usage == nil || *row.Usage != 130 {
+		t.Fatalf("unexpected meter history readings: %+v", row)
+	}
+	if row.UnitPrice == nil || *row.UnitPrice != 5 || row.Amount == nil || *row.Amount != 650 {
+		t.Fatalf("unexpected meter history amount: %+v", row)
 	}
 }
 
@@ -1140,7 +1143,7 @@ type recordingPropertyMeters struct {
 	pendingInput BillingPropertyMetersInput
 	historyInput BillingPropertyMeterHistoryInput
 	pendingBills []BillingBill
-	historyBills []BillingBill
+	historyRows  []BillingPropertyMeterHistoryRow
 }
 
 func (m *recordingPropertyMeters) ListPropertyPendingMeters(_ context.Context, input BillingPropertyMetersInput) ([]BillingBill, error) {
@@ -1148,9 +1151,9 @@ func (m *recordingPropertyMeters) ListPropertyPendingMeters(_ context.Context, i
 	return m.pendingBills, nil
 }
 
-func (m *recordingPropertyMeters) ListPropertyMeterHistory(_ context.Context, input BillingPropertyMeterHistoryInput) ([]BillingBill, error) {
+func (m *recordingPropertyMeters) ListPropertyMeterHistory(_ context.Context, input BillingPropertyMeterHistoryInput) ([]BillingPropertyMeterHistoryRow, error) {
 	m.historyInput = input
-	return m.historyBills, nil
+	return m.historyRows, nil
 }
 
 type recordingRoomMeters struct {
@@ -1456,6 +1459,31 @@ func testPendingMeterBill() BillingBill {
 	bill.Amount = nil
 	bill.MeterPreviousReading = &previousReading
 	return bill
+}
+
+func testPropertyMeterHistoryRow() BillingPropertyMeterHistoryRow {
+	amount := 650
+	recordedAt := time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC)
+	return BillingPropertyMeterHistoryRow{
+		BillID:          "30000000-0000-0000-0000-000000000001",
+		PropertyID:      "10000000-0000-0000-0000-000000000001",
+		RoomID:          "20000000-0000-0000-0000-000000000001",
+		RoomLabel:       "101",
+		TenantID:        "50000000-0000-0000-0000-000000000001",
+		TenantLabel:     "王小明",
+		LeaseID:         "40000000-0000-0000-0000-000000000001",
+		PeriodStart:     time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+		PeriodEnd:       time.Date(2026, 4, 30, 0, 0, 0, 0, time.UTC),
+		PeriodLabel:     "2026-04-01..2026-04-30",
+		DueDate:         time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+		PreviousReading: 1120,
+		CurrentReading:  1250,
+		Usage:           130,
+		UnitPrice:       5,
+		Amount:          &amount,
+		Status:          "paid",
+		MeterRecordedAt: &recordedAt,
+	}
 }
 
 func testFinancialReport() BillingFinancialReport {

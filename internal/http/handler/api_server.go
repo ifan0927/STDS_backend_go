@@ -169,7 +169,7 @@ type BillingPaymentService interface {
 
 type BillingPropertyMeterService interface {
 	ListPropertyPendingMeters(ctx context.Context, input BillingPropertyMetersInput) ([]BillingBill, error)
-	ListPropertyMeterHistory(ctx context.Context, input BillingPropertyMeterHistoryInput) ([]BillingBill, error)
+	ListPropertyMeterHistory(ctx context.Context, input BillingPropertyMeterHistoryInput) ([]BillingPropertyMeterHistoryRow, error)
 }
 
 type BillingRoomMeterService interface {
@@ -342,6 +342,27 @@ type BillingBill struct {
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
 	Version              int
+}
+
+type BillingPropertyMeterHistoryRow struct {
+	BillID          string
+	PropertyID      string
+	RoomID          string
+	RoomLabel       string
+	TenantID        string
+	TenantLabel     string
+	LeaseID         string
+	PeriodStart     time.Time
+	PeriodEnd       time.Time
+	PeriodLabel     string
+	DueDate         time.Time
+	PreviousReading int
+	CurrentReading  int
+	Usage           int
+	UnitPrice       float64
+	Amount          *int
+	Status          string
+	MeterRecordedAt *time.Time
 }
 
 type BillingFinancialReportSummary struct {
@@ -1794,7 +1815,7 @@ func (s *APIServer) ListPropertyMeterHistory(c *gin.Context, id string, params a
 		return
 	}
 
-	bills, err := s.billing.PropertyMeters.ListPropertyMeterHistory(c.Request.Context(), BillingPropertyMeterHistoryInput{
+	rows, err := s.billing.PropertyMeters.ListPropertyMeterHistory(c.Request.Context(), BillingPropertyMeterHistoryInput{
 		ActorRole:           principal.Role,
 		ActorUserID:         principal.UserID,
 		AssignedPropertyIDs: principal.AssignedPropertyIDs,
@@ -1806,7 +1827,7 @@ func (s *APIServer) ListPropertyMeterHistory(c *gin.Context, id string, params a
 		return
 	}
 
-	c.JSON(http.StatusOK, toBillListResponse(bills))
+	c.JSON(http.StatusOK, toPropertyMeterHistoryResponse(rows))
 }
 
 func writeHTMLDocument(c *gin.Context, document *reporthtml.Document) {
@@ -2781,6 +2802,60 @@ func toBillListResponse(bills []BillingBill) api.BillListResponse {
 	}
 
 	return api.BillListResponse{Data: &items}
+}
+
+func toPropertyMeterHistoryResponse(rows []BillingPropertyMeterHistoryRow) api.PropertyMeterHistoryResponse {
+	items := make([]api.PropertyMeterHistoryRow, 0, len(rows))
+	for i := range rows {
+		items = append(items, toPropertyMeterHistoryRowResponse(rows[i]))
+	}
+
+	return api.PropertyMeterHistoryResponse{Data: &items}
+}
+
+func toPropertyMeterHistoryRowResponse(row BillingPropertyMeterHistoryRow) api.PropertyMeterHistoryRow {
+	billID, billOK := parseUUID(row.BillID)
+	propertyID, propertyOK := parseUUID(row.PropertyID)
+	roomID, roomOK := parseUUID(row.RoomID)
+	tenantID, tenantOK := parseUUID(row.TenantID)
+	leaseID, leaseOK := parseUUID(row.LeaseID)
+	status := api.PropertyMeterHistoryRowStatus(row.Status)
+	periodStart := openapi_types.Date{Time: row.PeriodStart}
+	periodEnd := openapi_types.Date{Time: row.PeriodEnd}
+	dueDate := openapi_types.Date{Time: row.DueDate}
+
+	response := api.PropertyMeterHistoryRow{
+		Amount:          row.Amount,
+		CurrentReading:  &row.CurrentReading,
+		DueDate:         &dueDate,
+		MeterRecordedAt: row.MeterRecordedAt,
+		PeriodEnd:       &periodEnd,
+		PeriodLabel:     &row.PeriodLabel,
+		PeriodStart:     &periodStart,
+		PreviousReading: &row.PreviousReading,
+		RoomLabel:       &row.RoomLabel,
+		Status:          &status,
+		TenantLabel:     &row.TenantLabel,
+		UnitPrice:       &row.UnitPrice,
+		Usage:           &row.Usage,
+	}
+	if billOK {
+		response.BillId = &billID
+	}
+	if propertyOK {
+		response.PropertyId = &propertyID
+	}
+	if roomOK {
+		response.RoomId = &roomID
+	}
+	if tenantOK {
+		response.TenantId = &tenantID
+	}
+	if leaseOK {
+		response.LeaseId = &leaseID
+	}
+
+	return response
 }
 
 func toPaginationResponse(pagination queryparams.Pagination, total int) *api.PaginationResponse {

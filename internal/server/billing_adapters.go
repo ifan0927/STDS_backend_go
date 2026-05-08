@@ -146,8 +146,8 @@ func (a billingPropertyMeterServiceAdapter) ListPropertyPendingMeters(ctx contex
 	return toHandlerBills(bills), nil
 }
 
-func (a billingPropertyMeterServiceAdapter) ListPropertyMeterHistory(ctx context.Context, input handler.BillingPropertyMeterHistoryInput) ([]handler.BillingBill, error) {
-	bills, err := a.meterHistory.Execute(ctx, appbilling.ListPropertyMeterHistoryInput{
+func (a billingPropertyMeterServiceAdapter) ListPropertyMeterHistory(ctx context.Context, input handler.BillingPropertyMeterHistoryInput) ([]handler.BillingPropertyMeterHistoryRow, error) {
+	rows, err := a.meterHistory.Execute(ctx, appbilling.ListPropertyMeterHistoryInput{
 		ActorRole:           input.ActorRole,
 		ActorUserID:         input.ActorUserID,
 		AssignedPropertyIDs: input.AssignedPropertyIDs,
@@ -158,7 +158,7 @@ func (a billingPropertyMeterServiceAdapter) ListPropertyMeterHistory(ctx context
 		return nil, err
 	}
 
-	return toHandlerBills(bills), nil
+	return toHandlerPropertyMeterHistoryRows(rows), nil
 }
 
 type billingRoomMeterServiceAdapter struct {
@@ -422,8 +422,8 @@ func (a billingReportRepositoryAdapter) ListPendingMeterBills(ctx context.Contex
 	return toAppBills(bills), nil
 }
 
-func (a billingReportRepositoryAdapter) ListPropertyMeterHistory(ctx context.Context, query appbilling.MeterHistoryQuery) ([]appbilling.Bill, error) {
-	bills, err := a.repo.ListPropertyMeterHistory(ctx, dbbilling.Scope{
+func (a billingReportRepositoryAdapter) ListPropertyMeterHistory(ctx context.Context, query appbilling.MeterHistoryQuery) ([]appbilling.PropertyMeterHistoryRow, error) {
+	rows, err := a.repo.ListPropertyMeterHistory(ctx, dbbilling.Scope{
 		Role:                query.ActorRole,
 		UserID:              query.ActorUserID,
 		AssignedPropertyIDs: query.AssignedPropertyIDs,
@@ -432,7 +432,7 @@ func (a billingReportRepositoryAdapter) ListPropertyMeterHistory(ctx context.Con
 		return nil, mapBillingReportRepositoryError(err)
 	}
 
-	return toAppBills(bills), nil
+	return toAppPropertyMeterHistoryRows(rows), nil
 }
 
 func (a billingReportRepositoryAdapter) ListRoomMeterHistory(ctx context.Context, query appbilling.MeterHistoryQuery) ([]appbilling.Bill, error) {
@@ -693,6 +693,34 @@ func toAppBill(bill dbbilling.Bill) *appbilling.Bill {
 	}
 }
 
+func toAppPropertyMeterHistoryRows(rows []dbbilling.PropertyMeterHistoryRow) []appbilling.PropertyMeterHistoryRow {
+	result := make([]appbilling.PropertyMeterHistoryRow, 0, len(rows))
+	for i := range rows {
+		result = append(result, appbilling.PropertyMeterHistoryRow{
+			BillID:          rows[i].BillID,
+			PropertyID:      rows[i].PropertyID,
+			RoomID:          rows[i].RoomID,
+			RoomLabel:       rows[i].RoomLabel,
+			TenantID:        rows[i].TenantID,
+			TenantLabel:     rows[i].TenantLabel,
+			LeaseID:         rows[i].LeaseID,
+			PeriodStart:     rows[i].PeriodStart,
+			PeriodEnd:       rows[i].PeriodEnd,
+			PeriodLabel:     rows[i].PeriodLabel,
+			DueDate:         rows[i].DueDate,
+			PreviousReading: rows[i].PreviousReading,
+			CurrentReading:  rows[i].CurrentReading,
+			Usage:           rows[i].Usage,
+			UnitPrice:       rows[i].UnitPrice,
+			Amount:          rows[i].Amount,
+			Status:          rows[i].Status,
+			MeterRecordedAt: rows[i].MeterRecordedAt,
+		})
+	}
+
+	return result
+}
+
 func toAppFinancialReportSummaries(summaries []dbbilling.FinancialReportSummary) []appbilling.FinancialReportSummary {
 	result := make([]appbilling.FinancialReportSummary, 0, len(summaries))
 	for i := range summaries {
@@ -765,6 +793,34 @@ func toHandlerBill(bill appbilling.Bill) *handler.BillingBill {
 		UpdatedAt:            bill.UpdatedAt,
 		Version:              bill.Version,
 	}
+}
+
+func toHandlerPropertyMeterHistoryRows(rows []appbilling.PropertyMeterHistoryRow) []handler.BillingPropertyMeterHistoryRow {
+	result := make([]handler.BillingPropertyMeterHistoryRow, 0, len(rows))
+	for i := range rows {
+		result = append(result, handler.BillingPropertyMeterHistoryRow{
+			BillID:          rows[i].BillID,
+			PropertyID:      rows[i].PropertyID,
+			RoomID:          rows[i].RoomID,
+			RoomLabel:       rows[i].RoomLabel,
+			TenantID:        rows[i].TenantID,
+			TenantLabel:     rows[i].TenantLabel,
+			LeaseID:         rows[i].LeaseID,
+			PeriodStart:     rows[i].PeriodStart,
+			PeriodEnd:       rows[i].PeriodEnd,
+			PeriodLabel:     rows[i].PeriodLabel,
+			DueDate:         rows[i].DueDate,
+			PreviousReading: rows[i].PreviousReading,
+			CurrentReading:  rows[i].CurrentReading,
+			Usage:           rows[i].Usage,
+			UnitPrice:       rows[i].UnitPrice,
+			Amount:          rows[i].Amount,
+			Status:          rows[i].Status,
+			MeterRecordedAt: rows[i].MeterRecordedAt,
+		})
+	}
+
+	return result
 }
 
 func toHandlerFinancialReportSummaries(summaries []appbilling.FinancialReportSummary) []handler.BillingFinancialReportSummary {

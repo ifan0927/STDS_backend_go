@@ -70,6 +70,28 @@ type Bill struct {
 	Version              int
 }
 
+// PropertyMeterHistoryRow is one property-scoped meter history grid row.
+type PropertyMeterHistoryRow struct {
+	BillID          string
+	PropertyID      string
+	RoomID          string
+	RoomLabel       string
+	TenantID        string
+	TenantLabel     string
+	LeaseID         string
+	PeriodStart     time.Time
+	PeriodEnd       time.Time
+	PeriodLabel     string
+	DueDate         time.Time
+	PreviousReading int
+	CurrentReading  int
+	Usage           int
+	UnitPrice       float64
+	Amount          *int
+	Status          string
+	MeterRecordedAt *time.Time
+}
+
 // UpdateMeterParams contains the fields persisted after recording electricity meter usage.
 type UpdateMeterParams struct {
 	BillID               string
@@ -820,46 +842,45 @@ WHERE b.property_id = $1
 	return bills, nil
 }
 
-// ListPropertyMeterHistory returns recorded electricity bills for a property.
-func (r *SQLRepository) ListPropertyMeterHistory(ctx context.Context, scope Scope, propertyID string, year *int) ([]Bill, error) {
+// ListPropertyMeterHistory returns grid-ready recorded electricity history rows for a property.
+func (r *SQLRepository) ListPropertyMeterHistory(ctx context.Context, scope Scope, propertyID string, year *int) (rows []PropertyMeterHistoryRow, err error) {
 	query := `
 SELECT
 	b.id,
-	b.lease_id,
-	b.tenant_id,
-	b.room_id,
 	b.property_id,
-	b.type,
-	b.amount,
+	b.room_id,
+	COALESCE(r.name, b.room_id::text) AS room_label,
+	b.tenant_id,
+	COALESCE(t.name, b.tenant_id::text) AS tenant_label,
+	b.lease_id,
 	b.period_start,
 	b.period_end,
+	concat(b.period_start::text, '..', b.period_end::text) AS period_label,
 	b.due_date,
-	b.status,
-	b.payment_method,
-	b.paid_at,
-	b.paid_amount,
 	b.meter_previous_reading,
 	b.meter_current_reading,
+	b.meter_current_reading - b.meter_previous_reading AS usage,
 	b.meter_unit_price,
-	b.meter_recorded_at,
-	b.written_off_reason,
-	b.overdue_notice_count,
-	b.created_at,
-	b.updated_at,
-	b.version
+	b.amount,
+	b.status,
+	b.meter_recorded_at
 FROM bills b
 JOIN properties p ON p.id = b.property_id AND p.deleted_at IS NULL
+LEFT JOIN rooms r ON r.id = b.room_id
+LEFT JOIN tenants t ON t.id = b.tenant_id
 WHERE b.property_id = $1
   AND b.type = 'electricity'
+  AND b.meter_previous_reading IS NOT NULL
   AND b.meter_current_reading IS NOT NULL
-  AND b.status NOT IN ('voided', 'written_off')
+  AND b.meter_unit_price IS NOT NULL
+  AND b.status IN ('pending_payment', 'paid', 'overdue')
   AND b.deleted_at IS NULL
 `
 	args := []any{propertyID}
 	var ok bool
 	query, args, ok = appendPropertyScope(query, args, scope, "p")
 	if !ok {
-		return []Bill{}, nil
+		return []PropertyMeterHistoryRow{}, nil
 	}
 	if year != nil {
 		periodStart := time.Date(*year, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -869,7 +890,48 @@ WHERE b.property_id = $1
 	}
 	query += "ORDER BY b.period_start DESC, b.period_end DESC, b.created_at DESC\n"
 
-	return r.listBills(ctx, query, "list property meter history", args...)
+	resultRows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list property meter history: %w", err)
+	}
+	defer func() {
+		if cerr := resultRows.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close property meter history rows: %w", cerr)
+		}
+	}()
+
+	rows = make([]PropertyMeterHistoryRow, 0)
+	for resultRows.Next() {
+		var row PropertyMeterHistoryRow
+		if err := resultRows.Scan(
+			&row.BillID,
+			&row.PropertyID,
+			&row.RoomID,
+			&row.RoomLabel,
+			&row.TenantID,
+			&row.TenantLabel,
+			&row.LeaseID,
+			&row.PeriodStart,
+			&row.PeriodEnd,
+			&row.PeriodLabel,
+			&row.DueDate,
+			&row.PreviousReading,
+			&row.CurrentReading,
+			&row.Usage,
+			&row.UnitPrice,
+			&row.Amount,
+			&row.Status,
+			&row.MeterRecordedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan property meter history row: %w", err)
+		}
+		rows = append(rows, row)
+	}
+	if err := resultRows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate property meter history rows: %w", err)
+	}
+
+	return rows, nil
 }
 
 // ListRoomMeterHistory returns recorded electricity bills for a room.

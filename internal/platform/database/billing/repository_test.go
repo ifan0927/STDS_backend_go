@@ -448,13 +448,24 @@ func TestListPropertyMeterHistoryYearFilterUsesPeriodOverlap(t *testing.T) {
 	year := 2026
 	rangeStart := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	rangeEnd := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
-	mock.ExpectQuery(`(?s)b.property_id = \$1\s+AND b.type = 'electricity'\s+AND b.meter_current_reading IS NOT NULL\s+AND b.status NOT IN \('voided', 'written_off'\)\s+AND b.deleted_at IS NULL\s+AND b.period_start < \$2\s+AND b.period_end >= \$3`).
+	recordedAt := time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC)
+	mock.ExpectQuery(`(?s)LEFT JOIN rooms r ON r.id = b.room_id\s+LEFT JOIN tenants t ON t.id = b.tenant_id\s+WHERE b.property_id = \$1\s+AND b.type = 'electricity'\s+AND b.meter_previous_reading IS NOT NULL\s+AND b.meter_current_reading IS NOT NULL\s+AND b.meter_unit_price IS NOT NULL\s+AND b.status IN \('pending_payment', 'paid', 'overdue'\)\s+AND b.deleted_at IS NULL\s+AND b.period_start < \$2\s+AND b.period_end >= \$3`).
 		WithArgs("property-1", rangeEnd, rangeStart).
-		WillReturnRows(billRows())
+		WillReturnRows(propertyMeterHistoryRows().AddRow(
+			"bill-1", "property-1", "room-1", "101", "tenant-1", "王小明", "lease-1",
+			time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 4, 30, 0, 0, 0, 0, time.UTC), "2026-04-01..2026-04-30",
+			time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC), 1120, 1250, 130, 5.0, 650, "paid", recordedAt,
+		))
 
-	_, err := repo.ListPropertyMeterHistory(context.Background(), Scope{Role: "admin"}, "property-1", &year)
+	rows, err := repo.ListPropertyMeterHistory(context.Background(), Scope{Role: "admin"}, "property-1", &year)
 	if err != nil {
 		t.Fatalf("ListPropertyMeterHistory: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	if rows[0].RoomLabel != "101" || rows[0].TenantLabel != "王小明" || rows[0].Usage != 130 || rows[0].UnitPrice != 5 {
+		t.Fatalf("unexpected history row: %+v", rows[0])
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -1378,6 +1389,29 @@ func billRows() *sqlmock.Rows {
 		"created_at",
 		"updated_at",
 		"version",
+	})
+}
+
+func propertyMeterHistoryRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{
+		"bill_id",
+		"property_id",
+		"room_id",
+		"room_label",
+		"tenant_id",
+		"tenant_label",
+		"lease_id",
+		"period_start",
+		"period_end",
+		"period_label",
+		"due_date",
+		"previous_reading",
+		"current_reading",
+		"usage",
+		"unit_price",
+		"amount",
+		"status",
+		"meter_recorded_at",
 	})
 }
 

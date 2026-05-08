@@ -99,6 +99,47 @@ func TestReportServicesValidateRoles(t *testing.T) {
 	})
 }
 
+func TestListPropertyMeterHistoryReturnsGridRowsAndForwardsScope(t *testing.T) {
+	repo := &reportRepositoryStub{
+		propertyMeterHistoryRows: []PropertyMeterHistoryRow{{
+			BillID:          "bill-1",
+			PropertyID:      testPropertyID,
+			RoomID:          testRoomID,
+			RoomLabel:       "101",
+			TenantID:        testTenantID,
+			TenantLabel:     "王小明",
+			LeaseID:         testLeaseID,
+			PreviousReading: 1120,
+			CurrentReading:  1250,
+			Usage:           130,
+			UnitPrice:       5,
+			Status:          "paid",
+		}},
+	}
+	service := NewListPropertyMeterHistoryService(repo)
+	year := 2026
+
+	rows, err := service.Execute(context.Background(), ListPropertyMeterHistoryInput{
+		ActorRole:           "staff",
+		ActorUserID:         "user-1",
+		AssignedPropertyIDs: []string{testPropertyID},
+		PropertyID:          testPropertyID,
+		Year:                &year,
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if len(rows) != 1 || rows[0].RoomLabel != "101" || rows[0].Usage != 130 {
+		t.Fatalf("unexpected rows: %+v", rows)
+	}
+	if repo.propertyMeterHistoryQuery == nil || repo.propertyMeterHistoryQuery.ActorRole != "staff" || repo.propertyMeterHistoryQuery.PropertyID != testPropertyID {
+		t.Fatalf("unexpected query: %+v", repo.propertyMeterHistoryQuery)
+	}
+	if repo.propertyMeterHistoryQuery.Year == nil || *repo.propertyMeterHistoryQuery.Year != 2026 {
+		t.Fatalf("unexpected year query: %+v", repo.propertyMeterHistoryQuery)
+	}
+}
+
 func TestFinancialReportDetailMissingMapsToNotFound(t *testing.T) {
 	t.Run("snapshot missing", func(t *testing.T) {
 		repo := &reportRepositoryStub{snapshotReportErr: ErrFinancialReportNotFoundRepository}
@@ -1151,7 +1192,7 @@ func TestExportOperationReportUsesCurrentMonthLiveRows(t *testing.T) {
 type reportRepositoryStub struct {
 	pendingMeterBills            []Bill
 	pendingMeterQuery            *PendingMeterQuery
-	propertyMeterHistoryBills    []Bill
+	propertyMeterHistoryRows     []PropertyMeterHistoryRow
 	propertyMeterHistoryQuery    *MeterHistoryQuery
 	roomMeterHistoryBills        []Bill
 	roomMeterHistoryQuery        *MeterHistoryQuery
@@ -1198,12 +1239,12 @@ func (s *reportRepositoryStub) ListPendingMeterBills(_ context.Context, query Pe
 	return s.pendingMeterBills, nil
 }
 
-func (s *reportRepositoryStub) ListPropertyMeterHistory(_ context.Context, query MeterHistoryQuery) ([]Bill, error) {
+func (s *reportRepositoryStub) ListPropertyMeterHistory(_ context.Context, query MeterHistoryQuery) ([]PropertyMeterHistoryRow, error) {
 	s.propertyMeterHistoryQuery = &query
 	if s.err != nil {
 		return nil, s.err
 	}
-	return s.propertyMeterHistoryBills, nil
+	return s.propertyMeterHistoryRows, nil
 }
 
 func (s *reportRepositoryStub) ListRoomMeterHistory(_ context.Context, query MeterHistoryQuery) ([]Bill, error) {

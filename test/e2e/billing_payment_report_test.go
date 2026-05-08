@@ -99,6 +99,7 @@ func TestE2EBillingPaymentAndFinancialReportAcceptance(t *testing.T) {
 	if electricityBill.MeterUnitPrice == nil || *electricityBill.MeterUnitPrice != property.ElectricityUnitPrice {
 		t.Fatalf("expected meter_unit_price %v, got %+v", property.ElectricityUnitPrice, electricityBill.MeterUnitPrice)
 	}
+	billingFlowE2ERequirePropertyMeterHistory(t, ctx, adminClient, property.ID, reportYear, room, tenant, electricityBill)
 
 	rentBill = billingFlowE2ERecordPayment(t, ctx, adminClient, rentBill.ID, *rentBill.Amount, paidAt)
 	electricityBill = billingFlowE2ERecordPayment(t, ctx, adminClient, electricityBill.ID, *electricityBill.Amount, paidAt)
@@ -161,6 +162,31 @@ type billingFlowE2EBillResponse struct {
 type billingFlowE2EBillListResponse struct {
 	Data       []billingFlowE2EBillResponse `json:"data"`
 	Pagination billingFlowE2EPagination     `json:"pagination"`
+}
+
+type billingFlowE2EPropertyMeterHistoryResponse struct {
+	Data []billingFlowE2EPropertyMeterHistoryRow `json:"data"`
+}
+
+type billingFlowE2EPropertyMeterHistoryRow struct {
+	BillID          string  `json:"bill_id"`
+	PropertyID      string  `json:"property_id"`
+	RoomID          string  `json:"room_id"`
+	RoomLabel       string  `json:"room_label"`
+	TenantID        string  `json:"tenant_id"`
+	TenantLabel     string  `json:"tenant_label"`
+	LeaseID         string  `json:"lease_id"`
+	PeriodStart     string  `json:"period_start"`
+	PeriodEnd       string  `json:"period_end"`
+	PeriodLabel     string  `json:"period_label"`
+	DueDate         string  `json:"due_date"`
+	PreviousReading int     `json:"previous_reading"`
+	CurrentReading  int     `json:"current_reading"`
+	Usage           int     `json:"usage"`
+	UnitPrice       float64 `json:"unit_price"`
+	Amount          *int    `json:"amount"`
+	Status          string  `json:"status"`
+	MeterRecordedAt *string `json:"meter_recorded_at"`
 }
 
 type billingFlowE2EPagination struct {
@@ -279,6 +305,45 @@ func billingFlowE2ERequirePagination(t *testing.T, got billingFlowE2EPagination,
 	if got.TotalPages != wantTotalPages || got.HasNext != wantHasNext {
 		t.Fatalf("pagination derived fields = %+v, want total_pages=%d has_next=%t", got, wantTotalPages, wantHasNext)
 	}
+}
+
+func billingFlowE2ERequirePropertyMeterHistory(t *testing.T, ctx context.Context, client apiClient, propertyID string, year int, room e2eRoomResponse, tenant e2eTenantResponse, bill billingFlowE2EBillResponse) {
+	t.Helper()
+
+	resp, body, err := client.getJSON(ctx, fmt.Sprintf("/api/v1/properties/%s/meter-history?year=%d", propertyID, year))
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireStatus(t, resp, body, http.StatusOK)
+
+	var result billingFlowE2EPropertyMeterHistoryResponse
+	decodeJSON(t, body, &result)
+	for _, row := range result.Data {
+		if row.BillID != bill.ID {
+			continue
+		}
+		if row.PropertyID != propertyID || row.RoomID != room.ID || row.TenantID != tenant.ID || row.LeaseID != bill.LeaseID {
+			t.Fatalf("unexpected meter history IDs: %+v", row)
+		}
+		if row.RoomLabel != room.Name || row.TenantLabel != tenant.Name {
+			t.Fatalf("unexpected meter history labels: %+v", row)
+		}
+		if row.PeriodStart != bill.PeriodStart || row.PeriodEnd != bill.PeriodEnd || row.PeriodLabel == "" || row.DueDate != bill.DueDate {
+			t.Fatalf("unexpected meter history period: %+v", row)
+		}
+		if row.PreviousReading != *bill.MeterPreviousReading || row.CurrentReading != *bill.MeterCurrentReading || row.Usage != *bill.MeterCurrentReading-*bill.MeterPreviousReading {
+			t.Fatalf("unexpected meter history readings: %+v", row)
+		}
+		if row.UnitPrice != *bill.MeterUnitPrice || row.Amount == nil || *row.Amount != *bill.Amount || row.Status != bill.Status {
+			t.Fatalf("unexpected meter history billing fields: %+v", row)
+		}
+		if row.MeterRecordedAt == nil || *row.MeterRecordedAt == "" {
+			t.Fatalf("expected meter_recorded_at: %+v", row)
+		}
+		return
+	}
+
+	t.Fatalf("expected property meter history row for bill %q in %+v", bill.ID, result.Data)
 }
 
 func billingFlowE2EFindBill(t *testing.T, bills []billingFlowE2EBillResponse, billType string) billingFlowE2EBillResponse {

@@ -56,6 +56,28 @@ type MeterHistoryQuery struct {
 	Month               *int
 }
 
+// PropertyMeterHistoryRow is one grid-ready electricity meter history row.
+type PropertyMeterHistoryRow struct {
+	BillID          string
+	PropertyID      string
+	RoomID          string
+	RoomLabel       string
+	TenantID        string
+	TenantLabel     string
+	LeaseID         string
+	PeriodStart     time.Time
+	PeriodEnd       time.Time
+	PeriodLabel     string
+	DueDate         time.Time
+	PreviousReading int
+	CurrentReading  int
+	Usage           int
+	UnitPrice       float64
+	Amount          *int
+	Status          string
+	MeterRecordedAt *time.Time
+}
+
 // FinancialReportSummaryQuery defines role scoping for financial report summary reads.
 type FinancialReportSummaryQuery struct {
 	ActorRole           string
@@ -286,7 +308,7 @@ type ProfitLossRow struct {
 // ReportRepository defines read operations required by billing report use cases.
 type ReportRepository interface {
 	ListPendingMeterBills(ctx context.Context, query PendingMeterQuery) ([]Bill, error)
-	ListPropertyMeterHistory(ctx context.Context, query MeterHistoryQuery) ([]Bill, error)
+	ListPropertyMeterHistory(ctx context.Context, query MeterHistoryQuery) ([]PropertyMeterHistoryRow, error)
 	ListRoomMeterHistory(ctx context.Context, query MeterHistoryQuery) ([]Bill, error)
 	ListFinancialReportSummaries(ctx context.Context, query FinancialReportSummaryQuery) ([]FinancialReportSummary, error)
 	FindLiveFinancialReport(ctx context.Context, query FinancialReportQuery) (*FinancialReport, error)
@@ -363,7 +385,7 @@ func NewListPropertyMeterHistoryService(repo ReportRepository) *ListPropertyMete
 }
 
 // Execute validates report read scope and returns property meter history.
-func (s *ListPropertyMeterHistoryService) Execute(ctx context.Context, input ListPropertyMeterHistoryInput) ([]Bill, error) {
+func (s *ListPropertyMeterHistoryService) Execute(ctx context.Context, input ListPropertyMeterHistoryInput) ([]PropertyMeterHistoryRow, error) {
 	actorRole, err := normalizeMeterReportRole(input.ActorRole)
 	if err != nil {
 		return nil, err
