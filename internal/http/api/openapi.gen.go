@@ -196,6 +196,32 @@ const (
 	ForceTerminationResponseStatusInProgress ForceTerminationResponseStatus = "in_progress"
 )
 
+// Defines values for LeaseCheckoutReviewResponseDepositStatus.
+const (
+	LeaseCheckoutReviewResponseDepositStatusHeld       LeaseCheckoutReviewResponseDepositStatus = "held"
+	LeaseCheckoutReviewResponseDepositStatusSettled    LeaseCheckoutReviewResponseDepositStatus = "settled"
+	LeaseCheckoutReviewResponseDepositStatusWrittenOff LeaseCheckoutReviewResponseDepositStatus = "written_off"
+)
+
+// Defines values for LeaseCheckoutReviewResponseForceTerminationDepositHandling.
+const (
+	KeepHeld LeaseCheckoutReviewResponseForceTerminationDepositHandling = "keep_held"
+	WriteOff LeaseCheckoutReviewResponseForceTerminationDepositHandling = "write_off"
+)
+
+// Defines values for LeaseCheckoutReviewResponseForceTerminationStatus.
+const (
+	LeaseCheckoutReviewResponseForceTerminationStatusCompleted  LeaseCheckoutReviewResponseForceTerminationStatus = "completed"
+	LeaseCheckoutReviewResponseForceTerminationStatusInProgress LeaseCheckoutReviewResponseForceTerminationStatus = "in_progress"
+)
+
+// Defines values for LeaseCheckoutReviewResponseLeaseStatus.
+const (
+	LeaseCheckoutReviewResponseLeaseStatusExpired         LeaseCheckoutReviewResponseLeaseStatus = "expired"
+	LeaseCheckoutReviewResponseLeaseStatusForceTerminated LeaseCheckoutReviewResponseLeaseStatus = "force_terminated"
+	LeaseCheckoutReviewResponseLeaseStatusTerminated      LeaseCheckoutReviewResponseLeaseStatus = "terminated"
+)
+
 // Defines values for LeaseReplaceRequestDepositHandling.
 const (
 	LeaseReplaceRequestDepositHandlingCarryOver LeaseReplaceRequestDepositHandling = "carry_over"
@@ -259,9 +285,9 @@ const (
 
 // Defines values for PropertyMeterHistoryRowStatus.
 const (
-	Overdue        PropertyMeterHistoryRowStatus = "overdue"
-	Paid           PropertyMeterHistoryRowStatus = "paid"
-	PendingPayment PropertyMeterHistoryRowStatus = "pending_payment"
+	PropertyMeterHistoryRowStatusOverdue        PropertyMeterHistoryRowStatus = "overdue"
+	PropertyMeterHistoryRowStatusPaid           PropertyMeterHistoryRowStatus = "paid"
+	PropertyMeterHistoryRowStatusPendingPayment PropertyMeterHistoryRowStatus = "pending_payment"
 )
 
 // Defines values for PropertyResponseDefaultElectricityBillingCadence.
@@ -363,6 +389,13 @@ const (
 	ExportBillReceiptParamsFormatHtml ExportBillReceiptParamsFormat = "html"
 )
 
+// Defines values for ListLeaseCheckoutReviewsParamsStatus.
+const (
+	ListLeaseCheckoutReviewsParamsStatusExpired         ListLeaseCheckoutReviewsParamsStatus = "expired"
+	ListLeaseCheckoutReviewsParamsStatusForceTerminated ListLeaseCheckoutReviewsParamsStatus = "force_terminated"
+	ListLeaseCheckoutReviewsParamsStatusTerminated      ListLeaseCheckoutReviewsParamsStatus = "terminated"
+)
+
 // Defines values for ListLeasesParamsStatus.
 const (
 	ListLeasesParamsStatusActive          ListLeasesParamsStatus = "active"
@@ -405,25 +438,25 @@ const (
 
 // Defines values for ListRepairRequestsParamsStatus.
 const (
-	Assigned   ListRepairRequestsParamsStatus = "assigned"
-	Cancelled  ListRepairRequestsParamsStatus = "cancelled"
-	Completed  ListRepairRequestsParamsStatus = "completed"
-	InProgress ListRepairRequestsParamsStatus = "in_progress"
-	Submitted  ListRepairRequestsParamsStatus = "submitted"
+	ListRepairRequestsParamsStatusAssigned   ListRepairRequestsParamsStatus = "assigned"
+	ListRepairRequestsParamsStatusCancelled  ListRepairRequestsParamsStatus = "cancelled"
+	ListRepairRequestsParamsStatusCompleted  ListRepairRequestsParamsStatus = "completed"
+	ListRepairRequestsParamsStatusInProgress ListRepairRequestsParamsStatus = "in_progress"
+	ListRepairRequestsParamsStatusSubmitted  ListRepairRequestsParamsStatus = "submitted"
 )
 
 // Defines values for ListTenantsParamsStatus.
 const (
-	ListTenantsParamsStatusActive   ListTenantsParamsStatus = "active"
-	ListTenantsParamsStatusInactive ListTenantsParamsStatus = "inactive"
+	Active   ListTenantsParamsStatus = "active"
+	Inactive ListTenantsParamsStatus = "inactive"
 )
 
 // Defines values for ListTenantLeasesParamsStatus.
 const (
-	Active          ListTenantLeasesParamsStatus = "active"
-	Expired         ListTenantLeasesParamsStatus = "expired"
-	ForceTerminated ListTenantLeasesParamsStatus = "force_terminated"
-	Terminated      ListTenantLeasesParamsStatus = "terminated"
+	ListTenantLeasesParamsStatusActive          ListTenantLeasesParamsStatus = "active"
+	ListTenantLeasesParamsStatusExpired         ListTenantLeasesParamsStatus = "expired"
+	ListTenantLeasesParamsStatusForceTerminated ListTenantLeasesParamsStatus = "force_terminated"
+	ListTenantLeasesParamsStatusTerminated      ListTenantLeasesParamsStatus = "terminated"
 )
 
 // Defines values for ListUsersParamsRole.
@@ -521,11 +554,15 @@ type BillResponse struct {
 	PaidAt               *time.Time                 `json:"paid_at"`
 	PaymentMethod        *BillResponsePaymentMethod `json:"payment_method"`
 	PeriodEnd            *openapi_types.Date        `json:"period_end,omitempty"`
+	PeriodLabel          *string                    `json:"period_label,omitempty"`
 	PeriodStart          *openapi_types.Date        `json:"period_start,omitempty"`
 	PropertyId           *openapi_types.UUID        `json:"property_id,omitempty"`
+	PropertyLabel        *string                    `json:"property_label,omitempty"`
 	RoomId               *openapi_types.UUID        `json:"room_id,omitempty"`
+	RoomLabel            *string                    `json:"room_label,omitempty"`
 	Status               *BillResponseStatus        `json:"status,omitempty"`
 	TenantId             *openapi_types.UUID        `json:"tenant_id,omitempty"`
+	TenantLabel          *string                    `json:"tenant_label,omitempty"`
 	Type                 *BillResponseType          `json:"type,omitempty"`
 	UpdatedAt            *time.Time                 `json:"updated_at,omitempty"`
 	Version              *int                       `json:"version,omitempty"`
@@ -861,17 +898,28 @@ type ForceTerminateRequestDepositHandling string
 // ForceTerminationResponse defines model for ForceTerminationResponse.
 type ForceTerminationResponse struct {
 	Bills *[]struct {
-		BillId *openapi_types.UUID                  `json:"bill_id,omitempty"`
-		Status *ForceTerminationResponseBillsStatus `json:"status,omitempty"`
+		BillId      *openapi_types.UUID                  `json:"bill_id,omitempty"`
+		PeriodEnd   *openapi_types.Date                  `json:"period_end,omitempty"`
+		PeriodLabel *string                              `json:"period_label,omitempty"`
+		PeriodStart *openapi_types.Date                  `json:"period_start,omitempty"`
+		Status      *ForceTerminationResponseBillsStatus `json:"status,omitempty"`
+		Type        *string                              `json:"type,omitempty"`
 	} `json:"bills,omitempty"`
-	CreatedAt       *time.Time                               `json:"created_at,omitempty"`
-	DepositHandling *ForceTerminationResponseDepositHandling `json:"deposit_handling,omitempty"`
-	Id              *openapi_types.UUID                      `json:"id,omitempty"`
-	InitiatedBy     *openapi_types.UUID                      `json:"initiated_by,omitempty"`
-	LeaseId         *openapi_types.UUID                      `json:"lease_id,omitempty"`
-	Reason          *string                                  `json:"reason,omitempty"`
-	Status          *ForceTerminationResponseStatus          `json:"status,omitempty"`
-	UpdatedAt       *time.Time                               `json:"updated_at,omitempty"`
+	CreatedAt        *time.Time                               `json:"created_at,omitempty"`
+	DepositHandling  *ForceTerminationResponseDepositHandling `json:"deposit_handling,omitempty"`
+	Id               *openapi_types.UUID                      `json:"id,omitempty"`
+	InitiatedBy      *openapi_types.UUID                      `json:"initiated_by,omitempty"`
+	InitiatedByLabel *string                                  `json:"initiated_by_label,omitempty"`
+	LeaseId          *openapi_types.UUID                      `json:"lease_id,omitempty"`
+	PropertyId       *openapi_types.UUID                      `json:"property_id,omitempty"`
+	PropertyLabel    *string                                  `json:"property_label,omitempty"`
+	Reason           *string                                  `json:"reason,omitempty"`
+	RoomId           *openapi_types.UUID                      `json:"room_id,omitempty"`
+	RoomLabel        *string                                  `json:"room_label,omitempty"`
+	Status           *ForceTerminationResponseStatus          `json:"status,omitempty"`
+	TenantId         *openapi_types.UUID                      `json:"tenant_id,omitempty"`
+	TenantLabel      *string                                  `json:"tenant_label,omitempty"`
+	UpdatedAt        *time.Time                               `json:"updated_at,omitempty"`
 }
 
 // ForceTerminationResponseBillsStatus defines model for ForceTerminationResponse.Bills.Status.
@@ -925,6 +973,7 @@ type JournalLogListResponse struct {
 // JournalLogResponse defines model for JournalLogResponse.
 type JournalLogResponse struct {
 	AuthorId                   *openapi_types.UUID `json:"author_id,omitempty"`
+	AuthorLabel                *string             `json:"author_label,omitempty"`
 	Content                    *string             `json:"content,omitempty"`
 	CreatedAt                  *time.Time          `json:"created_at,omitempty"`
 	ExpenseAccountingTitleCode *string             `json:"expense_accounting_title_code"`
@@ -934,9 +983,53 @@ type JournalLogResponse struct {
 	ExpenseDescription         *string             `json:"expense_description"`
 	Id                         *openapi_types.UUID `json:"id,omitempty"`
 	PropertyId                 *openapi_types.UUID `json:"property_id,omitempty"`
+	PropertyLabel              *string             `json:"property_label,omitempty"`
 	RoomId                     *openapi_types.UUID `json:"room_id"`
+	RoomLabel                  *string             `json:"room_label"`
 	UpdatedAt                  *time.Time          `json:"updated_at,omitempty"`
 }
+
+// LeaseCheckoutReviewListResponse defines model for LeaseCheckoutReviewListResponse.
+type LeaseCheckoutReviewListResponse struct {
+	Data       *[]LeaseCheckoutReviewResponse `json:"data,omitempty"`
+	Pagination *PaginationResponse            `json:"pagination,omitempty"`
+}
+
+// LeaseCheckoutReviewResponse defines model for LeaseCheckoutReviewResponse.
+type LeaseCheckoutReviewResponse struct {
+	CheckoutFinalizedAt             *time.Time                                                  `json:"checkout_finalized_at"`
+	DepositDeductionAmount          *int                                                        `json:"deposit_deduction_amount"`
+	DepositRefundAmount             *int                                                        `json:"deposit_refund_amount"`
+	DepositStatus                   *LeaseCheckoutReviewResponseDepositStatus                   `json:"deposit_status,omitempty"`
+	EndDate                         *openapi_types.Date                                         `json:"end_date,omitempty"`
+	ExportAvailable                 *bool                                                       `json:"export_available,omitempty"`
+	ForceTerminationDepositHandling *LeaseCheckoutReviewResponseForceTerminationDepositHandling `json:"force_termination_deposit_handling"`
+	ForceTerminationId              *openapi_types.UUID                                         `json:"force_termination_id"`
+	ForceTerminationReason          *string                                                     `json:"force_termination_reason"`
+	ForceTerminationStatus          *LeaseCheckoutReviewResponseForceTerminationStatus          `json:"force_termination_status"`
+	LeaseId                         *openapi_types.UUID                                         `json:"lease_id,omitempty"`
+	LeaseStatus                     *LeaseCheckoutReviewResponseLeaseStatus                     `json:"lease_status,omitempty"`
+	PropertyId                      *openapi_types.UUID                                         `json:"property_id,omitempty"`
+	PropertyLabel                   *string                                                     `json:"property_label,omitempty"`
+	RoomId                          *openapi_types.UUID                                         `json:"room_id,omitempty"`
+	RoomLabel                       *string                                                     `json:"room_label,omitempty"`
+	StartDate                       *openapi_types.Date                                         `json:"start_date,omitempty"`
+	TenantId                        *openapi_types.UUID                                         `json:"tenant_id,omitempty"`
+	TenantLabel                     *string                                                     `json:"tenant_label,omitempty"`
+	TerminationReason               *string                                                     `json:"termination_reason"`
+}
+
+// LeaseCheckoutReviewResponseDepositStatus defines model for LeaseCheckoutReviewResponse.DepositStatus.
+type LeaseCheckoutReviewResponseDepositStatus string
+
+// LeaseCheckoutReviewResponseForceTerminationDepositHandling defines model for LeaseCheckoutReviewResponse.ForceTerminationDepositHandling.
+type LeaseCheckoutReviewResponseForceTerminationDepositHandling string
+
+// LeaseCheckoutReviewResponseForceTerminationStatus defines model for LeaseCheckoutReviewResponse.ForceTerminationStatus.
+type LeaseCheckoutReviewResponseForceTerminationStatus string
+
+// LeaseCheckoutReviewResponseLeaseStatus defines model for LeaseCheckoutReviewResponse.LeaseStatus.
+type LeaseCheckoutReviewResponseLeaseStatus string
 
 // LeaseListResponse defines model for LeaseListResponse.
 type LeaseListResponse struct {
@@ -999,13 +1092,16 @@ type LeaseResponse struct {
 	Id                        *openapi_types.UUID                     `json:"id,omitempty"`
 	Notes                     *string                                 `json:"notes"`
 	PropertyId                *openapi_types.UUID                     `json:"property_id,omitempty"`
+	PropertyLabel             *string                                 `json:"property_label,omitempty"`
 	RentAmount                *int                                    `json:"rent_amount,omitempty"`
 	RentBillingCadence        *LeaseResponseRentBillingCadence        `json:"rent_billing_cadence,omitempty"`
 	RoomId                    *openapi_types.UUID                     `json:"room_id,omitempty"`
+	RoomLabel                 *string                                 `json:"room_label,omitempty"`
 	SettlementDetail          *map[string]interface{}                 `json:"settlement_detail"`
 	StartDate                 *openapi_types.Date                     `json:"start_date,omitempty"`
 	Status                    *LeaseResponseStatus                    `json:"status,omitempty"`
 	TenantId                  *openapi_types.UUID                     `json:"tenant_id,omitempty"`
+	TenantLabel               *string                                 `json:"tenant_label,omitempty"`
 	TerminationReason         *string                                 `json:"termination_reason"`
 	UpdatedAt                 *time.Time                              `json:"updated_at,omitempty"`
 	Version                   *int                                    `json:"version,omitempty"`
@@ -1186,19 +1282,23 @@ type RepairRequestListResponse struct {
 
 // RepairRequestResponse defines model for RepairRequestResponse.
 type RepairRequestResponse struct {
-	AssignedAt  *time.Time                   `json:"assigned_at"`
-	AssignedTo  *openapi_types.UUID          `json:"assigned_to"`
-	CompletedAt *time.Time                   `json:"completed_at"`
-	CreatedAt   *time.Time                   `json:"created_at,omitempty"`
-	Description *string                      `json:"description,omitempty"`
-	Id          *openapi_types.UUID          `json:"id,omitempty"`
-	PropertyId  *openapi_types.UUID          `json:"property_id,omitempty"`
-	RoomId      *openapi_types.UUID          `json:"room_id,omitempty"`
-	Status      *RepairRequestResponseStatus `json:"status,omitempty"`
-	SubmittedAt *time.Time                   `json:"submitted_at,omitempty"`
-	SubmittedBy *openapi_types.UUID          `json:"submitted_by,omitempty"`
-	Title       *string                      `json:"title,omitempty"`
-	UpdatedAt   *time.Time                   `json:"updated_at,omitempty"`
+	AssignedAt       *time.Time                   `json:"assigned_at"`
+	AssignedTo       *openapi_types.UUID          `json:"assigned_to"`
+	AssignedToLabel  *string                      `json:"assigned_to_label"`
+	CompletedAt      *time.Time                   `json:"completed_at"`
+	CreatedAt        *time.Time                   `json:"created_at,omitempty"`
+	Description      *string                      `json:"description,omitempty"`
+	Id               *openapi_types.UUID          `json:"id,omitempty"`
+	PropertyId       *openapi_types.UUID          `json:"property_id,omitempty"`
+	PropertyLabel    *string                      `json:"property_label,omitempty"`
+	RoomId           *openapi_types.UUID          `json:"room_id,omitempty"`
+	RoomLabel        *string                      `json:"room_label,omitempty"`
+	Status           *RepairRequestResponseStatus `json:"status,omitempty"`
+	SubmittedAt      *time.Time                   `json:"submitted_at,omitempty"`
+	SubmittedBy      *openapi_types.UUID          `json:"submitted_by,omitempty"`
+	SubmittedByLabel *string                      `json:"submitted_by_label,omitempty"`
+	Title            *string                      `json:"title,omitempty"`
+	UpdatedAt        *time.Time                   `json:"updated_at,omitempty"`
 }
 
 // RepairRequestResponseStatus defines model for RepairRequestResponse.Status.
@@ -1477,6 +1577,17 @@ type ListJournalLogsParams struct {
 	Page       *int                `form:"page,omitempty" json:"page,omitempty"`
 	Limit      *int                `form:"limit,omitempty" json:"limit,omitempty"`
 }
+
+// ListLeaseCheckoutReviewsParams defines parameters for ListLeaseCheckoutReviews.
+type ListLeaseCheckoutReviewsParams struct {
+	PropertyId *openapi_types.UUID                   `form:"property_id,omitempty" json:"property_id,omitempty"`
+	Status     *ListLeaseCheckoutReviewsParamsStatus `form:"status,omitempty" json:"status,omitempty"`
+	Page       *int                                  `form:"page,omitempty" json:"page,omitempty"`
+	Limit      *int                                  `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListLeaseCheckoutReviewsParamsStatus defines parameters for ListLeaseCheckoutReviews.
+type ListLeaseCheckoutReviewsParamsStatus string
 
 // ListLeasesParams defines parameters for ListLeases.
 type ListLeasesParams struct {
@@ -1806,6 +1917,9 @@ type ServerInterface interface {
 	// 登記日誌附件
 	// (POST /journal-logs/{id}/attachments)
 	CreateJournalLogAttachment(c *gin.Context, id openapi_types.UUID)
+	// List lease checkout review rows
+	// (GET /lease-checkout-reviews)
+	ListLeaseCheckoutReviews(c *gin.Context, params ListLeaseCheckoutReviewsParams)
 	// 租約列表
 	// (GET /leases)
 	ListLeases(c *gin.Context, params ListLeasesParams)
@@ -2799,6 +2913,58 @@ func (siw *ServerInterfaceWrapper) CreateJournalLogAttachment(c *gin.Context) {
 	}
 
 	siw.Handler.CreateJournalLogAttachment(c, id)
+}
+
+// ListLeaseCheckoutReviews operation middleware
+func (siw *ServerInterfaceWrapper) ListLeaseCheckoutReviews(c *gin.Context) {
+
+	var err error
+
+	c.Set(BearerAuthScopes, []string{})
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListLeaseCheckoutReviewsParams
+
+	// ------------- Optional query parameter "property_id" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "property_id", c.Request.URL.Query(), &params.PropertyId)
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter property_id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "status", c.Request.URL.Query(), &params.Status)
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter status: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "page" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "page", c.Request.URL.Query(), &params.Page)
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter page: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "limit", c.Request.URL.Query(), &params.Limit)
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter limit: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ListLeaseCheckoutReviews(c, params)
 }
 
 // ListLeases operation middleware
@@ -4877,6 +5043,7 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.PATCH(options.BaseURL+"/journal-logs/:id", wrapper.UpdateJournalLog)
 	router.GET(options.BaseURL+"/journal-logs/:id/attachments", wrapper.ListJournalLogAttachments)
 	router.POST(options.BaseURL+"/journal-logs/:id/attachments", wrapper.CreateJournalLogAttachment)
+	router.GET(options.BaseURL+"/lease-checkout-reviews", wrapper.ListLeaseCheckoutReviews)
 	router.GET(options.BaseURL+"/leases", wrapper.ListLeases)
 	router.POST(options.BaseURL+"/leases", wrapper.CreateLease)
 	router.GET(options.BaseURL+"/leases/:id", wrapper.GetLease)

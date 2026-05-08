@@ -92,6 +92,12 @@ func TestE2ELeaseTerminationAcceptance(t *testing.T) {
 		if forceTermination.DepositHandling != "write_off" {
 			t.Fatalf("expected deposit_handling %q, got %q", "write_off", forceTermination.DepositHandling)
 		}
+		if forceTermination.PropertyID != fixture.Property.ID || forceTermination.RoomID != fixture.Room.ID || forceTermination.TenantID != fixture.Tenant.ID {
+			t.Fatalf("unexpected force termination resource IDs: %+v", forceTermination)
+		}
+		if forceTermination.PropertyLabel != fixture.Property.Name || forceTermination.RoomLabel != fixture.Room.Name || forceTermination.TenantLabel != fixture.Tenant.Name || forceTermination.InitiatedByLabel != "E2E Admin" {
+			t.Fatalf("unexpected force termination labels: %+v", forceTermination)
+		}
 		if len(forceTermination.Bills) != len(unpaidBillIDs) {
 			t.Fatalf("expected force termination to track %d unpaid bills, got %d: %s", len(unpaidBillIDs), len(forceTermination.Bills), string(body))
 		}
@@ -105,6 +111,9 @@ func TestE2ELeaseTerminationAcceptance(t *testing.T) {
 			}
 			if bill.BillID == "" {
 				t.Fatalf("expected tracked bill id in response: %s", string(body))
+			}
+			if bill.Type == "" || bill.PeriodStart == "" || bill.PeriodEnd == "" || bill.PeriodLabel == "" {
+				t.Fatalf("expected tracked bill display fields in response: %+v", bill)
 			}
 			if !unpaidBillIDs[bill.BillID] {
 				t.Fatalf("tracked bill %q was not in the original unpaid bill set", bill.BillID)
@@ -183,16 +192,27 @@ type terminationE2ELeaseResponse struct {
 }
 
 type terminationE2EForceTerminationResponse struct {
-	ID              string                         `json:"id"`
-	LeaseID         string                         `json:"lease_id"`
-	Status          string                         `json:"status"`
-	DepositHandling string                         `json:"deposit_handling"`
-	Bills           []terminationE2ETrackedBillRef `json:"bills"`
+	ID               string                         `json:"id"`
+	LeaseID          string                         `json:"lease_id"`
+	PropertyID       string                         `json:"property_id"`
+	RoomID           string                         `json:"room_id"`
+	TenantID         string                         `json:"tenant_id"`
+	PropertyLabel    string                         `json:"property_label"`
+	RoomLabel        string                         `json:"room_label"`
+	TenantLabel      string                         `json:"tenant_label"`
+	InitiatedByLabel string                         `json:"initiated_by_label"`
+	Status           string                         `json:"status"`
+	DepositHandling  string                         `json:"deposit_handling"`
+	Bills            []terminationE2ETrackedBillRef `json:"bills"`
 }
 
 type terminationE2ETrackedBillRef struct {
-	BillID string `json:"bill_id"`
-	Status string `json:"status"`
+	BillID      string `json:"bill_id"`
+	Status      string `json:"status"`
+	Type        string `json:"type"`
+	PeriodStart string `json:"period_start"`
+	PeriodEnd   string `json:"period_end"`
+	PeriodLabel string `json:"period_label"`
 }
 
 type terminationE2EBillListResponse struct {

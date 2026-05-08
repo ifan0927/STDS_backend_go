@@ -1,15 +1,15 @@
 type: object
 properties:
-  id:
+  lease_id:
     type: string
     format: uuid
-  tenant_id:
+  property_id:
     type: string
     format: uuid
   room_id:
     type: string
     format: uuid
-  property_id:
+  tenant_id:
     type: string
     format: uuid
   property_label:
@@ -18,35 +18,18 @@ properties:
     type: string
   tenant_label:
     type: string
-  rent_amount:
-    type: integer
-  rent_billing_cadence:
-    type: string
-    enum:
-      - monthly
-      - quarterly
-      - semiannual
-      - annual
   start_date:
     type: string
     format: date
   end_date:
     type: string
     format: date
-  electricity_billing_cadence:
+  lease_status:
     type: string
     enum:
-      - monthly
-      - bimonthly
-  status:
-    type: string
-    enum:
-      - active
-      - expired
       - terminated
+      - expired
       - force_terminated
-  deposit_amount:
-    type: integer
   deposit_status:
     type: string
     enum:
@@ -59,24 +42,31 @@ properties:
   deposit_deduction_amount:
     type: integer
     nullable: true
-  deposit_deduction_reason:
-    type: string
-    nullable: true
-  notes:
-    type: string
-    nullable: true
   termination_reason:
     type: string
     nullable: true
-  settlement_detail:
-    type: object
-    additionalProperties: true
+  checkout_finalized_at:
+    type: string
+    format: date-time
     nullable: true
-  created_at:
+  export_available:
+    type: boolean
+  force_termination_id:
     type: string
-    format: date-time
-  updated_at:
+    format: uuid
+    nullable: true
+  force_termination_status:
     type: string
-    format: date-time
-  version:
-    type: integer
+    enum:
+      - in_progress
+      - completed
+    nullable: true
+  force_termination_reason:
+    type: string
+    nullable: true
+  force_termination_deposit_handling:
+    type: string
+    enum:
+      - write_off
+      - keep_held
+    nullable: true

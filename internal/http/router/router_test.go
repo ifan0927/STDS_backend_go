@@ -4376,11 +4376,12 @@ type fakeLeaseRepo struct {
 }
 
 type fakeLeaseQueryRepo struct {
-	lease    *dbleasequery.Lease
-	leaseErr error
-	leases   []dbleasequery.Lease
-	listCall *listLeasesCall
-	findCall *findLeaseCall
+	lease           *dbleasequery.Lease
+	leaseErr        error
+	leases          []dbleasequery.Lease
+	checkoutReviews []dbleasequery.CheckoutReview
+	listCall        *listLeasesCall
+	findCall        *findLeaseCall
 }
 
 type fakeRepairQueryRepo struct{}
@@ -5763,6 +5764,16 @@ func (f fakeLeaseQueryRepo) FindByIDAccessible(_ context.Context, id string, rol
 		UpdatedAt:                 time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
 		Version:                   1,
 	}, nil
+}
+
+func (f fakeLeaseQueryRepo) ListCheckoutReviewsAccessible(_ context.Context, role string, assignedPropertyIDs []string, params dbleasequery.CheckoutReviewListParams) (dbleasequery.CheckoutReviewListResult, error) {
+	if f.leaseErr != nil {
+		return dbleasequery.CheckoutReviewListResult{}, f.leaseErr
+	}
+	if f.checkoutReviews != nil {
+		return dbleasequery.CheckoutReviewListResult{Items: f.checkoutReviews, Total: len(f.checkoutReviews)}, nil
+	}
+	return dbleasequery.CheckoutReviewListResult{Items: []dbleasequery.CheckoutReview{}}, nil
 }
 
 func (fakeRepairQueryRepo) List(context.Context, apprepair.ListQuery) (apprepair.ListResult, error) {

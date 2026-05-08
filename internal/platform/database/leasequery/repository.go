@@ -19,6 +19,9 @@ type Lease struct {
 	TenantID                  string
 	PropertyID                string
 	RoomID                    string
+	PropertyLabel             string
+	TenantLabel               string
+	RoomLabel                 string
 	RentAmount                int
 	StartDate                 time.Time
 	EndDate                   time.Time
@@ -44,6 +47,36 @@ type LeaseListResult struct {
 	Total int
 }
 
+// CheckoutReview is a property-scoped lease checkout review row.
+type CheckoutReview struct {
+	LeaseID                  string
+	PropertyID               string
+	RoomID                   string
+	TenantID                 string
+	PropertyLabel            string
+	RoomLabel                string
+	TenantLabel              string
+	StartDate                time.Time
+	EndDate                  time.Time
+	LeaseStatus              string
+	DepositStatus            string
+	DepositRefundAmount      *int
+	DepositDeductionAmount   *int
+	TerminationReason        *string
+	CheckoutFinalizedAt      *time.Time
+	ExportAvailable          bool
+	ForceTerminationID       *string
+	ForceTerminationStatus   *string
+	ForceTerminationReason   *string
+	ForceTerminationHandling *string
+}
+
+// CheckoutReviewListResult is the paginated checkout review query result.
+type CheckoutReviewListResult struct {
+	Items []CheckoutReview
+	Total int
+}
+
 // ListParams captures supported filters for lease listing.
 type ListParams struct {
 	PropertyID *string
@@ -54,10 +87,19 @@ type ListParams struct {
 	Offset     int
 }
 
+// CheckoutReviewListParams captures supported filters for checkout review listing.
+type CheckoutReviewListParams struct {
+	PropertyID *string
+	Status     string
+	Limit      int
+	Offset     int
+}
+
 // Repository serves read-model queries for leases.
 type Repository interface {
 	ListAccessible(ctx context.Context, role string, assignedPropertyIDs []string, params ListParams) (LeaseListResult, error)
 	FindByIDAccessible(ctx context.Context, leaseID string, role string, assignedPropertyIDs []string) (*Lease, error)
+	ListCheckoutReviewsAccessible(ctx context.Context, role string, assignedPropertyIDs []string, params CheckoutReviewListParams) (CheckoutReviewListResult, error)
 }
 
 // SQLRepository reads lease data from PostgreSQL.
@@ -112,6 +154,9 @@ SELECT
 	l.tenant_id,
 	l.property_id,
 	l.room_id,
+	COALESCE(p.name, l.property_id::text) AS property_label,
+	COALESCE(t.name, l.tenant_id::text) AS tenant_label,
+	COALESCE(r.name, l.room_id::text) AS room_label,
 	l.rent_amount,
 	l.start_date,
 	l.end_date,
@@ -130,6 +175,9 @@ SELECT
 	l.updated_at,
 	l.version
 FROM leases l
+LEFT JOIN properties p ON p.id = l.property_id
+LEFT JOIN tenants t ON t.id = l.tenant_id
+LEFT JOIN rooms r ON r.id = l.room_id
 WHERE l.deleted_at IS NULL
 `
 	if count {
@@ -191,6 +239,9 @@ SELECT
 	l.tenant_id,
 	l.property_id,
 	l.room_id,
+	COALESCE(p.name, l.property_id::text) AS property_label,
+	COALESCE(t.name, l.tenant_id::text) AS tenant_label,
+	COALESCE(r.name, l.room_id::text) AS room_label,
 	l.rent_amount,
 	l.start_date,
 	l.end_date,
@@ -209,6 +260,9 @@ SELECT
 	l.updated_at,
 	l.version
 FROM leases l
+LEFT JOIN properties p ON p.id = l.property_id
+LEFT JOIN tenants t ON t.id = l.tenant_id
+LEFT JOIN rooms r ON r.id = l.room_id
 WHERE l.id = $1
   AND l.deleted_at IS NULL
 `
@@ -242,6 +296,117 @@ WHERE l.id = $1
 	return lease, nil
 }
 
+func (r *SQLRepository) ListCheckoutReviewsAccessible(ctx context.Context, role string, assignedPropertyIDs []string, params CheckoutReviewListParams) (CheckoutReviewListResult, error) {
+	countQuery, countArgs, ok := buildCheckoutReviewQuery(role, assignedPropertyIDs, params, true)
+	if !ok {
+		return CheckoutReviewListResult{Items: []CheckoutReview{}}, nil
+	}
+
+	var total int
+	if err := r.db.QueryRowContext(ctx, countQuery, countArgs...).Scan(&total); err != nil {
+		return CheckoutReviewListResult{}, fmt.Errorf("count checkout reviews: %w", err)
+	}
+
+	listQuery, listArgs, _ := buildCheckoutReviewQuery(role, assignedPropertyIDs, params, false)
+	rows, err := r.db.QueryContext(ctx, listQuery, listArgs...)
+	if err != nil {
+		return CheckoutReviewListResult{}, fmt.Errorf("list checkout reviews: %w", err)
+	}
+	defer rows.Close()
+
+	reviews := make([]CheckoutReview, 0)
+	for rows.Next() {
+		review, err := scanCheckoutReview(rows)
+		if err != nil {
+			return CheckoutReviewListResult{}, fmt.Errorf("scan checkout review row: %w", err)
+		}
+		reviews = append(reviews, *review)
+	}
+	if err := rows.Err(); err != nil {
+		return CheckoutReviewListResult{}, fmt.Errorf("iterate checkout review rows: %w", err)
+	}
+
+	return CheckoutReviewListResult{Items: reviews, Total: total}, nil
+}
+
+func buildCheckoutReviewQuery(role string, assignedPropertyIDs []string, params CheckoutReviewListParams, count bool) (string, []any, bool) {
+	base := `
+SELECT
+	l.id,
+	l.property_id,
+	l.room_id,
+	l.tenant_id,
+	COALESCE(p.name, l.property_id::text) AS property_label,
+	COALESCE(r.name, l.room_id::text) AS room_label,
+	COALESCE(t.name, l.tenant_id::text) AS tenant_label,
+	l.start_date,
+	l.end_date,
+	l.status,
+	l.deposit_status,
+	l.deposit_refund_amount,
+	l.deposit_deduction_amount,
+	l.termination_reason,
+	CASE
+		WHEN l.settlement_detail ? 'finalized_at' THEN NULLIF(l.settlement_detail->>'finalized_at', '')::timestamptz
+		ELSE NULL
+	END AS checkout_finalized_at,
+	(l.settlement_detail ? 'finalized_at') AS export_available,
+	ft.id,
+	ft.status,
+	ft.reason,
+	ft.deposit_handling
+FROM leases l
+LEFT JOIN properties p ON p.id = l.property_id
+LEFT JOIN rooms r ON r.id = l.room_id
+LEFT JOIN tenants t ON t.id = l.tenant_id
+LEFT JOIN force_terminations ft ON ft.lease_id = l.id
+WHERE l.deleted_at IS NULL
+  AND l.status IN ('terminated', 'expired', 'force_terminated')
+`
+	if count {
+		base = `
+SELECT COUNT(*)::int
+FROM leases l
+WHERE l.deleted_at IS NULL
+  AND l.status IN ('terminated', 'expired', 'force_terminated')
+`
+	}
+
+	args := make([]any, 0)
+	switch strings.TrimSpace(role) {
+	case "organizer", "staff":
+		if len(assignedPropertyIDs) == 0 {
+			return "", nil, false
+		}
+		placeholders := make([]string, 0, len(assignedPropertyIDs))
+		for _, id := range assignedPropertyIDs {
+			args = append(args, id)
+			placeholders = append(placeholders, fmt.Sprintf("$%d", len(args)))
+		}
+		base += "\n  AND l.property_id IN (" + strings.Join(placeholders, ", ") + ")"
+	case "admin":
+	default:
+		return "", nil, false
+	}
+
+	if params.PropertyID != nil && strings.TrimSpace(*params.PropertyID) != "" {
+		args = append(args, strings.TrimSpace(*params.PropertyID))
+		base += fmt.Sprintf("\n  AND l.property_id = $%d", len(args))
+	}
+	if strings.TrimSpace(params.Status) != "" {
+		args = append(args, strings.TrimSpace(params.Status))
+		base += fmt.Sprintf("\n  AND l.status = $%d", len(args))
+	}
+
+	if count {
+		return base, args, true
+	}
+
+	args = append(args, params.Limit, params.Offset)
+	base += fmt.Sprintf("\nORDER BY l.updated_at DESC, l.id DESC LIMIT $%d OFFSET $%d", len(args)-1, len(args))
+	return base, args, true
+}
+
 type rowScanner interface {
 	Scan(dest ...any) error
 }
@@ -260,6 +425,9 @@ func scanLease(row rowScanner) (*Lease, error) {
 		&lease.TenantID,
 		&lease.PropertyID,
 		&lease.RoomID,
+		&lease.PropertyLabel,
+		&lease.TenantLabel,
+		&lease.RoomLabel,
 		&lease.RentAmount,
 		&lease.StartDate,
 		&lease.EndDate,
@@ -295,6 +463,56 @@ func scanLease(row rowScanner) (*Lease, error) {
 	}
 
 	return &lease, nil
+}
+
+func scanCheckoutReview(row rowScanner) (*CheckoutReview, error) {
+	var review CheckoutReview
+	var depositRefundAmount sql.NullInt64
+	var depositDeductionAmount sql.NullInt64
+	var terminationReason sql.NullString
+	var checkoutFinalizedAt sql.NullTime
+	var forceTerminationID sql.NullString
+	var forceTerminationStatus sql.NullString
+	var forceTerminationReason sql.NullString
+	var forceTerminationHandling sql.NullString
+
+	if err := row.Scan(
+		&review.LeaseID,
+		&review.PropertyID,
+		&review.RoomID,
+		&review.TenantID,
+		&review.PropertyLabel,
+		&review.RoomLabel,
+		&review.TenantLabel,
+		&review.StartDate,
+		&review.EndDate,
+		&review.LeaseStatus,
+		&review.DepositStatus,
+		&depositRefundAmount,
+		&depositDeductionAmount,
+		&terminationReason,
+		&checkoutFinalizedAt,
+		&review.ExportAvailable,
+		&forceTerminationID,
+		&forceTerminationStatus,
+		&forceTerminationReason,
+		&forceTerminationHandling,
+	); err != nil {
+		return nil, err
+	}
+
+	review.DepositRefundAmount = nullIntPtr(depositRefundAmount)
+	review.DepositDeductionAmount = nullIntPtr(depositDeductionAmount)
+	review.TerminationReason = nullStringPtr(terminationReason)
+	if checkoutFinalizedAt.Valid {
+		review.CheckoutFinalizedAt = &checkoutFinalizedAt.Time
+	}
+	review.ForceTerminationID = nullStringPtr(forceTerminationID)
+	review.ForceTerminationStatus = nullStringPtr(forceTerminationStatus)
+	review.ForceTerminationReason = nullStringPtr(forceTerminationReason)
+	review.ForceTerminationHandling = nullStringPtr(forceTerminationHandling)
+
+	return &review, nil
 }
 
 func nullStringPtr(value sql.NullString) *string {

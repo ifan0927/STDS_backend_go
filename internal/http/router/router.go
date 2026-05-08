@@ -186,6 +186,7 @@ func routePolicies(authzRepos AuthorizationRepositories) []routePolicy {
 		{method: "PATCH", path: "/api/v1/journal-logs/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyIDWithNotFound("id", ownership.FindPropertyIDByJournalLogID, apperr.ErrJournalLogNotFound)},
 
 		{method: "GET", path: "/api/v1/leases", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.QueryPropertyID("property_id")},
+		{method: "GET", path: "/api/v1/lease-checkout-reviews", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.QueryPropertyID("property_id")},
 		{method: "POST", path: "/api/v1/leases", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
 		{method: "GET", path: "/api/v1/leases/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyIDWithNotFound("id", ownership.FindPropertyIDByLeaseID, apperr.ErrLeaseNotFound)},
 		{method: "POST", path: "/api/v1/leases/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyIDWithNotFound("id", ownership.FindPropertyIDByLeaseID, apperr.ErrLeaseNotFound)},

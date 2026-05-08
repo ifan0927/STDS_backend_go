@@ -50,6 +50,10 @@ type Bill struct {
 	TenantID             string
 	RoomID               string
 	PropertyID           string
+	PropertyLabel        string
+	RoomLabel            string
+	TenantLabel          string
+	PeriodLabel          string
 	Type                 string
 	Amount               *int
 	PeriodStart          time.Time
@@ -743,6 +747,10 @@ SELECT
 	b.tenant_id,
 	b.room_id,
 	b.property_id,
+	COALESCE(p.name, b.property_id::text) AS property_label,
+	COALESCE(r.name, b.room_id::text) AS room_label,
+	COALESCE(t.name, b.tenant_id::text) AS tenant_label,
+	concat(b.period_start::text, '..', b.period_end::text) AS period_label,
 	b.type,
 	b.amount,
 	b.period_start,
@@ -762,9 +770,12 @@ SELECT
 	b.updated_at,
 	b.version
 FROM bills b
+LEFT JOIN properties p ON p.id = b.property_id
+LEFT JOIN rooms r ON r.id = b.room_id
+LEFT JOIN tenants t ON t.id = b.tenant_id
 WHERE b.id = $1
   AND b.deleted_at IS NULL
-FOR UPDATE
+FOR UPDATE OF b
 `
 
 	bill, err := scanBill(tx.QueryRowContext(ctx, query, billID))
@@ -824,6 +835,10 @@ SELECT
 	b.tenant_id,
 	b.room_id,
 	b.property_id,
+	COALESCE(p.name, b.property_id::text) AS property_label,
+	COALESCE(r.name, b.room_id::text) AS room_label,
+	COALESCE(t.name, b.tenant_id::text) AS tenant_label,
+	concat(b.period_start::text, '..', b.period_end::text) AS period_label,
 	b.type,
 	b.amount,
 	b.period_start,
@@ -844,6 +859,8 @@ SELECT
 	b.version
 FROM bills b
 JOIN properties p ON p.id = b.property_id AND p.deleted_at IS NULL
+LEFT JOIN rooms r ON r.id = b.room_id
+LEFT JOIN tenants t ON t.id = b.tenant_id
 WHERE b.property_id = $1
   AND b.type = 'electricity'
   AND b.status = 'pending_meter'
@@ -979,6 +996,10 @@ SELECT
 	b.tenant_id,
 	b.room_id,
 	b.property_id,
+	COALESCE(p.name, b.property_id::text) AS property_label,
+	COALESCE(r.name, b.room_id::text) AS room_label,
+	COALESCE(t.name, b.tenant_id::text) AS tenant_label,
+	concat(b.period_start::text, '..', b.period_end::text) AS period_label,
 	b.type,
 	b.amount,
 	b.period_start,
@@ -999,6 +1020,8 @@ SELECT
 	b.version
 FROM bills b
 JOIN properties p ON p.id = b.property_id AND p.deleted_at IS NULL
+LEFT JOIN rooms r ON r.id = b.room_id
+LEFT JOIN tenants t ON t.id = b.tenant_id
 WHERE b.room_id = $1
   AND b.type = 'electricity'
   AND b.meter_current_reading IS NOT NULL
@@ -2482,6 +2505,10 @@ SELECT
 	b.tenant_id,
 	b.room_id,
 	b.property_id,
+	COALESCE(p.name, b.property_id::text) AS property_label,
+	COALESCE(r.name, b.room_id::text) AS room_label,
+	COALESCE(t.name, b.tenant_id::text) AS tenant_label,
+	concat(b.period_start::text, '..', b.period_end::text) AS period_label,
 	b.type,
 	b.amount,
 	b.period_start,
@@ -2501,6 +2528,9 @@ SELECT
 	b.updated_at,
 	b.version
 FROM bills b
+LEFT JOIN properties p ON p.id = b.property_id
+LEFT JOIN rooms r ON r.id = b.room_id
+LEFT JOIN tenants t ON t.id = b.tenant_id
 `
 	args := []any{}
 	joins := []string{}
@@ -2523,9 +2553,9 @@ FROM bills b
 		}
 		conditions = append(conditions, "b.property_id IN ("+strings.Join(placeholders, ", ")+")")
 	case "owner":
-		joins = append(joins, "JOIN properties p ON p.id = b.property_id AND p.deleted_at IS NULL")
 		args = append(args, scope.UserID)
 		conditions = append(conditions, fmt.Sprintf("p.owner_id = $%d", len(args)))
+		conditions = append(conditions, "p.deleted_at IS NULL")
 	default:
 		return "", nil, false
 	}
@@ -2609,6 +2639,10 @@ func scanBill(row rowScanner) (*Bill, error) {
 		&bill.TenantID,
 		&bill.RoomID,
 		&bill.PropertyID,
+		&bill.PropertyLabel,
+		&bill.RoomLabel,
+		&bill.TenantLabel,
+		&bill.PeriodLabel,
 		&bill.Type,
 		&amount,
 		&bill.PeriodStart,

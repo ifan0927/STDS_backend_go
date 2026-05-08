@@ -12,14 +12,17 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	googleuuid "github.com/google/uuid"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	appattachment "stds_backend/internal/application/attachment"
+	applease "stds_backend/internal/application/lease"
 	appproperty "stds_backend/internal/application/property"
 	apprepair "stds_backend/internal/application/repair"
 	"stds_backend/internal/http/api"
 	"stds_backend/internal/http/middleware"
 	"stds_backend/internal/http/requestctx"
+	dbleasequery "stds_backend/internal/platform/database/leasequery"
 	dbpropertyquery "stds_backend/internal/platform/database/propertyquery"
 	"stds_backend/internal/platform/database/txrunner"
 	"stds_backend/internal/shared/apperr"
@@ -76,6 +79,64 @@ func TestToRoomResponseAllowsNilOptionalFields(t *testing.T) {
 		if value, ok := payload[field]; !ok || value != nil {
 			t.Fatalf("expected %s null, got %v", field, payload[field])
 		}
+	}
+}
+
+func TestToForceTerminationResponseIncludesDisplayLabels(t *testing.T) {
+	createdAt := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	updatedAt := time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC)
+	periodStart := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	periodEnd := time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC)
+
+	response := toForceTerminationResponse(&applease.ForceTermination{
+		ID:               "00000000-0000-0000-0000-000000000001",
+		LeaseID:          "00000000-0000-0000-0000-000000000002",
+		PropertyID:       "00000000-0000-0000-0000-000000000003",
+		RoomID:           "00000000-0000-0000-0000-000000000004",
+		TenantID:         "00000000-0000-0000-0000-000000000005",
+		PropertyLabel:    "Property A",
+		RoomLabel:        "Room 101",
+		TenantLabel:      "Tenant A",
+		InitiatedBy:      "00000000-0000-0000-0000-000000000006",
+		InitiatedByLabel: "Admin A",
+		Status:           "completed",
+		Reason:           "unpaid bills",
+		DepositHandling:  "write_off",
+		Bills: []applease.ForceTerminationBill{
+			{
+				BillID:      "00000000-0000-0000-0000-000000000007",
+				Status:      "done",
+				Type:        "rent",
+				PeriodStart: periodStart,
+				PeriodEnd:   periodEnd,
+				PeriodLabel: "2026-05-01..2026-05-31",
+			},
+		},
+		CreatedAt: createdAt,
+		UpdatedAt: updatedAt,
+	})
+
+	if response.PropertyLabel == nil || *response.PropertyLabel != "Property A" {
+		t.Fatalf("property_label = %v, want Property A", response.PropertyLabel)
+	}
+	if response.RoomLabel == nil || *response.RoomLabel != "Room 101" {
+		t.Fatalf("room_label = %v, want Room 101", response.RoomLabel)
+	}
+	if response.TenantLabel == nil || *response.TenantLabel != "Tenant A" {
+		t.Fatalf("tenant_label = %v, want Tenant A", response.TenantLabel)
+	}
+	if response.InitiatedByLabel == nil || *response.InitiatedByLabel != "Admin A" {
+		t.Fatalf("initiated_by_label = %v, want Admin A", response.InitiatedByLabel)
+	}
+	if response.Bills == nil || len(*response.Bills) != 1 {
+		t.Fatalf("expected one bill ref, got %+v", response.Bills)
+	}
+	bill := (*response.Bills)[0]
+	if bill.Type == nil || *bill.Type != "rent" {
+		t.Fatalf("bill type = %v, want rent", bill.Type)
+	}
+	if bill.PeriodLabel == nil || *bill.PeriodLabel != "2026-05-01..2026-05-31" {
+		t.Fatalf("bill period_label = %v, want 2026-05-01..2026-05-31", bill.PeriodLabel)
 	}
 }
 
@@ -626,7 +687,7 @@ func TestListRepairRequestsForwardsOwnershipFiltersAndReturnsResponseShape(t *te
 	propertyID := "10000000-0000-0000-0000-000000000001"
 	roomID := "20000000-0000-0000-0000-000000000001"
 	assignedTo := "00000000-0000-0000-0000-000000000002"
-	status := api.Submitted
+	status := api.ListRepairRequestsParamsStatusSubmitted
 	page := 2
 	limit := 10
 	now := time.Date(2026, 4, 27, 10, 0, 0, 0, time.UTC)
@@ -699,6 +760,76 @@ func TestListRepairRequestsForwardsOwnershipFiltersAndReturnsResponseShape(t *te
 	}
 	if item["id"] != "70000000-0000-0000-0000-000000000001" || item["status"] != "submitted" {
 		t.Fatalf("unexpected repair response: %#v", item)
+	}
+}
+
+func TestListLeaseCheckoutReviewsReturnsLabelsAndAuthoritativeExportAvailability(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	propertyID := "10000000-0000-0000-0000-000000000001"
+	finalizedAt := time.Date(2026, 8, 31, 10, 0, 0, 0, time.UTC)
+	queryRepo := &recordingLeaseQueryRepo{
+		checkoutReviews: []dbleasequery.CheckoutReview{{
+			LeaseID:                "40000000-0000-0000-0000-000000000001",
+			PropertyID:             propertyID,
+			RoomID:                 "20000000-0000-0000-0000-000000000001",
+			TenantID:               "30000000-0000-0000-0000-000000000001",
+			PropertyLabel:          "Demo Property",
+			RoomLabel:              "101",
+			TenantLabel:            "王小明",
+			StartDate:              time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+			EndDate:                time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+			LeaseStatus:            "terminated",
+			DepositStatus:          "settled",
+			DepositRefundAmount:    intPtr(33000),
+			DepositDeductionAmount: intPtr(3000),
+			CheckoutFinalizedAt:    &finalizedAt,
+			ExportAvailable:        true,
+		}},
+		total: 1,
+	}
+	server := &APIServer{leaseQueryRepo: queryRepo}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/lease-checkout-reviews", nil)
+	requestctx.SetPrincipal(c, requestctx.Principal{
+		Role:                "staff",
+		AssignedPropertyIDs: []string{propertyID},
+	})
+	status := api.ListLeaseCheckoutReviewsParamsStatusTerminated
+	page := 2
+	limit := 10
+
+	server.ListLeaseCheckoutReviews(c, api.ListLeaseCheckoutReviewsParams{
+		PropertyId: uuidPtr(propertyID),
+		Status:     &status,
+		Page:       &page,
+		Limit:      &limit,
+	})
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if queryRepo.checkoutParams.PropertyID == nil || *queryRepo.checkoutParams.PropertyID != propertyID {
+		t.Fatalf("unexpected property filter: %+v", queryRepo.checkoutParams)
+	}
+	if queryRepo.checkoutParams.Status != "terminated" || queryRepo.checkoutParams.Limit != 10 || queryRepo.checkoutParams.Offset != 10 {
+		t.Fatalf("unexpected checkout params: %+v", queryRepo.checkoutParams)
+	}
+
+	var response api.LeaseCheckoutReviewListResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if response.Data == nil || len(*response.Data) != 1 {
+		t.Fatalf("expected one checkout review, got %+v", response.Data)
+	}
+	row := (*response.Data)[0]
+	if row.RoomLabel == nil || *row.RoomLabel != "101" || row.TenantLabel == nil || *row.TenantLabel != "王小明" {
+		t.Fatalf("unexpected labels: %+v", row)
+	}
+	if row.ExportAvailable == nil || !*row.ExportAvailable || row.CheckoutFinalizedAt == nil {
+		t.Fatalf("unexpected export fields: %+v", row)
 	}
 }
 
@@ -1210,6 +1341,25 @@ type recordingBillingQuery struct {
 	getBill  BillingBill
 }
 
+type recordingLeaseQueryRepo struct {
+	checkoutReviews []dbleasequery.CheckoutReview
+	checkoutParams  dbleasequery.CheckoutReviewListParams
+	total           int
+}
+
+func (r *recordingLeaseQueryRepo) ListAccessible(context.Context, string, []string, dbleasequery.ListParams) (dbleasequery.LeaseListResult, error) {
+	return dbleasequery.LeaseListResult{}, nil
+}
+
+func (r *recordingLeaseQueryRepo) FindByIDAccessible(context.Context, string, string, []string) (*dbleasequery.Lease, error) {
+	return nil, nil
+}
+
+func (r *recordingLeaseQueryRepo) ListCheckoutReviewsAccessible(_ context.Context, _ string, _ []string, params dbleasequery.CheckoutReviewListParams) (dbleasequery.CheckoutReviewListResult, error) {
+	r.checkoutParams = params
+	return dbleasequery.CheckoutReviewListResult{Items: r.checkoutReviews, Total: r.total}, nil
+}
+
 func (q *recordingBillingQuery) ListBills(_ context.Context, input BillingListInput) (BillingListResult, error) {
 	q.input = input
 	return BillingListResult{Items: q.bills, Total: q.total}, nil
@@ -1660,4 +1810,14 @@ func testApplicationRepairRequest() *apprepair.RepairRequest {
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
+}
+
+func intPtr(value int) *int {
+	return &value
+}
+
+func uuidPtr(value string) *openapi_types.UUID {
+	parsed := googleuuid.MustParse(value)
+	result := openapi_types.UUID(parsed)
+	return &result
 }

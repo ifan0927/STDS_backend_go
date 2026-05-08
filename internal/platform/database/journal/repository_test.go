@@ -31,7 +31,7 @@ func TestListAppliesFiltersPaginationAndScope(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta("FROM journal_logs jl")).
 		WithArgs(propertyID, propertyID, roomID, dateFrom, dateTo.AddDate(0, 0, 1), 20, 40).
 		WillReturnRows(journalLogRows().
-			AddRow("60000000-0000-0000-0000-000000000001", propertyID, roomID, "00000000-0000-0000-0000-000000000002", "Inspection", nil, nil, nil, nil, nil, createdAt, updatedAt))
+			AddRow("60000000-0000-0000-0000-000000000001", propertyID, roomID, "00000000-0000-0000-0000-000000000002", "Property", "Room", "Author", "Inspection", nil, nil, nil, nil, nil, createdAt, updatedAt))
 
 	result, err := repo.List(context.Background(), appjournal.ListQuery{
 		ActorRole:           "staff",
@@ -196,7 +196,7 @@ func TestCreatePersistsAndScansExpenseAccountingTitleSnapshot(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO journal_logs")).
 		WithArgs(propertyID, roomID, authorID, "Bathroom repair", expenseAmount, expenseDescription, titleID, titleCode, titleName).
 		WillReturnRows(journalLogRows().
-			AddRow("60000000-0000-0000-0000-000000000001", propertyID, roomID, authorID, "Bathroom repair", expenseAmount, expenseDescription, titleID, titleCode, titleName, createdAt, createdAt))
+			AddRow("60000000-0000-0000-0000-000000000001", propertyID, roomID, authorID, propertyID, roomID, authorID, "Bathroom repair", expenseAmount, expenseDescription, titleID, titleCode, titleName, createdAt, createdAt))
 	mock.ExpectCommit()
 
 	created, err := repo.Create(context.Background(), tx, appjournal.CreateParams{
@@ -251,7 +251,7 @@ func TestUpdatePersistsAndScansExpenseAccountingTitleSnapshot(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta("UPDATE journal_logs")).
 		WithArgs(journalID, "Bathroom repair updated", expenseAmount, expenseDescription, titleID, titleCode, titleName).
 		WillReturnRows(journalLogRows().
-			AddRow(journalID, propertyID, nil, authorID, "Bathroom repair updated", expenseAmount, expenseDescription, titleID, titleCode, titleName, updatedAt, updatedAt))
+			AddRow(journalID, propertyID, nil, authorID, propertyID, nil, authorID, "Bathroom repair updated", expenseAmount, expenseDescription, titleID, titleCode, titleName, updatedAt, updatedAt))
 	mock.ExpectCommit()
 
 	updated, err := repo.Update(context.Background(), tx, appjournal.UpdateParams{
@@ -330,6 +330,9 @@ func journalLogRows() *sqlmock.Rows {
 		"property_id",
 		"room_id",
 		"author_id",
+		"property_label",
+		"room_label",
+		"author_label",
 		"content",
 		"expense_amount",
 		"expense_description",

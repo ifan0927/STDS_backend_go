@@ -2573,6 +2573,69 @@ paths:
                   value:
                     error_code: ROOM_NOT_VACANT
                     message: 目標房間目前不是空置狀態，無法建立租約
+  /lease-checkout-reviews:
+    get:
+      tags:
+        - Tenancy
+      summary: List lease checkout review rows
+      operationId: listLeaseCheckoutReviews
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: property
+      parameters:
+        - name: property_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum:
+              - terminated
+              - expired
+              - force_terminated
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Checkout review rows visible to the current actor.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaseCheckoutReviewListResponse'
+        '400':
+          description: Invalid filter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /leases/{id}:
     get:
       operationId: getLease
@@ -7411,6 +7474,15 @@ components:
           type: string
           format: uuid
           nullable: true
+        property_label:
+          type: string
+        room_label:
+          type: string
+        submitted_by_label:
+          type: string
+        assigned_to_label:
+          type: string
+          nullable: true
         title:
           type: string
         description:
@@ -7604,6 +7676,12 @@ components:
         property_id:
           type: string
           format: uuid
+        property_label:
+          type: string
+        room_label:
+          type: string
+        tenant_label:
+          type: string
         rent_amount:
           type: integer
         rent_billing_cadence:
@@ -7715,6 +7793,88 @@ components:
             - monthly
             - bimonthly
           description: 可省略；若未提供則套用 Property 的 default_electricity_billing_cadence
+    LeaseCheckoutReviewResponse:
+      type: object
+      properties:
+        lease_id:
+          type: string
+          format: uuid
+        property_id:
+          type: string
+          format: uuid
+        room_id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        property_label:
+          type: string
+        room_label:
+          type: string
+        tenant_label:
+          type: string
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        lease_status:
+          type: string
+          enum:
+            - terminated
+            - expired
+            - force_terminated
+        deposit_status:
+          type: string
+          enum:
+            - held
+            - settled
+            - written_off
+        deposit_refund_amount:
+          type: integer
+          nullable: true
+        deposit_deduction_amount:
+          type: integer
+          nullable: true
+        termination_reason:
+          type: string
+          nullable: true
+        checkout_finalized_at:
+          type: string
+          format: date-time
+          nullable: true
+        export_available:
+          type: boolean
+        force_termination_id:
+          type: string
+          format: uuid
+          nullable: true
+        force_termination_status:
+          type: string
+          enum:
+            - in_progress
+            - completed
+          nullable: true
+        force_termination_reason:
+          type: string
+          nullable: true
+        force_termination_deposit_handling:
+          type: string
+          enum:
+            - write_off
+            - keep_held
+          nullable: true
+    LeaseCheckoutReviewListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/LeaseCheckoutReviewResponse'
+        pagination:
+          $ref: '#/components/schemas/PaginationResponse'
     UpdateLeaseRequest:
       type: object
       properties:
@@ -8048,6 +8208,21 @@ components:
         lease_id:
           type: string
           format: uuid
+        property_id:
+          type: string
+          format: uuid
+        room_id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        property_label:
+          type: string
+        room_label:
+          type: string
+        tenant_label:
+          type: string
         status:
           type: string
           enum:
@@ -8056,6 +8231,8 @@ components:
         initiated_by:
           type: string
           format: uuid
+        initiated_by_label:
+          type: string
         reason:
           type: string
         deposit_handling:
@@ -8076,6 +8253,16 @@ components:
                 enum:
                   - pending
                   - done
+              type:
+                type: string
+              period_start:
+                type: string
+                format: date
+              period_end:
+                type: string
+                format: date
+              period_label:
+                type: string
         created_at:
           type: string
           format: date-time
@@ -8114,6 +8301,14 @@ components:
         property_id:
           type: string
           format: uuid
+        property_label:
+          type: string
+        room_label:
+          type: string
+        tenant_label:
+          type: string
+        period_label:
+          type: string
         type:
           type: string
           enum:
@@ -8488,6 +8683,13 @@ components:
         author_id:
           type: string
           format: uuid
+        property_label:
+          type: string
+        room_label:
+          type: string
+          nullable: true
+        author_label:
+          type: string
         content:
           type: string
         expense_amount:

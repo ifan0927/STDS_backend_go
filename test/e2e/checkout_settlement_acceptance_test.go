@@ -66,6 +66,18 @@ func TestE2ELeaseCheckoutSettlementAcceptance(t *testing.T) {
 		t.Fatalf("expected finalized_at: %+v", finalized)
 	}
 
+	reviews := checkoutE2EListReviews(t, ctx, adminClient, property.ID)
+	if len(reviews.Data) != 1 {
+		t.Fatalf("expected one checkout review row, got %+v", reviews.Data)
+	}
+	review := reviews.Data[0]
+	if review.LeaseID != lease.ID || review.PropertyLabel == "" || review.RoomLabel != room.Name || review.TenantLabel != tenant.Name {
+		t.Fatalf("unexpected checkout review labels: %+v", review)
+	}
+	if !review.ExportAvailable || review.CheckoutFinalizedAt == nil {
+		t.Fatalf("unexpected checkout review export state: %+v", review)
+	}
+
 	readBack := terminationE2EGetLease(t, ctx, adminClient, lease.ID)
 	if readBack.Status != "terminated" {
 		t.Fatalf("expected lease status terminated, got %q", readBack.Status)
@@ -115,6 +127,21 @@ type checkoutE2ESettlementLine struct {
 	Amount    int    `json:"amount"`
 }
 
+type checkoutE2EReviewListResponse struct {
+	Data []checkoutE2EReviewRow `json:"data"`
+}
+
+type checkoutE2EReviewRow struct {
+	LeaseID             string  `json:"lease_id"`
+	PropertyLabel       string  `json:"property_label"`
+	RoomLabel           string  `json:"room_label"`
+	TenantLabel         string  `json:"tenant_label"`
+	LeaseStatus         string  `json:"lease_status"`
+	DepositStatus       string  `json:"deposit_status"`
+	ExportAvailable     bool    `json:"export_available"`
+	CheckoutFinalizedAt *string `json:"checkout_finalized_at"`
+}
+
 func checkoutE2ESettleBills(t *testing.T, ctx context.Context, client apiClient, leaseID string) {
 	t.Helper()
 
@@ -160,6 +187,20 @@ func checkoutE2EFinalize(t *testing.T, ctx context.Context, client apiClient, le
 	requireStatus(t, resp, body, http.StatusOK)
 
 	var result checkoutE2ESettlementResponse
+	decodeJSON(t, body, &result)
+	return result
+}
+
+func checkoutE2EListReviews(t *testing.T, ctx context.Context, client apiClient, propertyID string) checkoutE2EReviewListResponse {
+	t.Helper()
+
+	resp, body, err := client.getJSON(ctx, "/api/v1/lease-checkout-reviews?property_id="+propertyID+"&status=terminated")
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireStatus(t, resp, body, http.StatusOK)
+
+	var result checkoutE2EReviewListResponse
 	decodeJSON(t, body, &result)
 	return result
 }

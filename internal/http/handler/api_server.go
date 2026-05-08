@@ -345,6 +345,10 @@ type BillingBill struct {
 	TenantID             string
 	RoomID               string
 	PropertyID           string
+	PropertyLabel        string
+	RoomLabel            string
+	TenantLabel          string
+	PeriodLabel          string
 	Type                 string
 	Amount               *int
 	PeriodStart          time.Time
@@ -1120,6 +1124,49 @@ func (s *APIServer) ListLeases(c *gin.Context, params api.ListLeasesParams) {
 	}
 
 	c.JSON(http.StatusOK, api.LeaseListResponse{Data: &items, Pagination: toPaginationResponse(pagination, result.Total)})
+}
+
+// ListLeaseCheckoutReviews handles the checkout review read-model endpoint.
+func (s *APIServer) ListLeaseCheckoutReviews(c *gin.Context, params api.ListLeaseCheckoutReviewsParams) {
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	pagination, err := queryparams.NormalizePagination(params.Page, params.Limit)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	status := ""
+	if params.Status != nil {
+		status = string(*params.Status)
+	}
+	var propertyID *string
+	if params.PropertyId != nil {
+		value := params.PropertyId.String()
+		propertyID = &value
+	}
+
+	result, err := s.leaseQueryRepo.ListCheckoutReviewsAccessible(c.Request.Context(), principal.Role, principal.AssignedPropertyIDs, dbleasequery.CheckoutReviewListParams{
+		PropertyID: propertyID,
+		Status:     status,
+		Limit:      pagination.Limit,
+		Offset:     pagination.Offset,
+	})
+	if err != nil {
+		c.Error(apperr.ErrInternalServerError.WithCause(err))
+		return
+	}
+
+	items := make([]api.LeaseCheckoutReviewResponse, 0, len(result.Items))
+	for i := range result.Items {
+		items = append(items, toLeaseCheckoutReviewResponse(&result.Items[i]))
+	}
+
+	c.JSON(http.StatusOK, api.LeaseCheckoutReviewListResponse{Data: &items, Pagination: toPaginationResponse(pagination, result.Total)})
 }
 
 // CreateLease handles lease creation.
@@ -3099,8 +3146,12 @@ func toBillResponse(bill *BillingBill) api.BillResponse {
 		PaidAmount:           bill.PaidAmount,
 		PaidAt:               bill.PaidAt,
 		PeriodEnd:            &periodEnd,
+		PeriodLabel:          &bill.PeriodLabel,
 		PeriodStart:          &periodStart,
+		PropertyLabel:        &bill.PropertyLabel,
+		RoomLabel:            &bill.RoomLabel,
 		Status:               &status,
+		TenantLabel:          &bill.TenantLabel,
 		Type:                 &billType,
 		UpdatedAt:            &updatedAt,
 		Version:              &version,
@@ -3158,12 +3209,15 @@ func toJournalLogResponse(journalLog *appjournal.JournalLog) api.JournalLogRespo
 	updatedAt := journalLog.UpdatedAt
 
 	response := api.JournalLogResponse{
+		AuthorLabel:                &journalLog.AuthorLabel,
 		Content:                    &content,
 		CreatedAt:                  &createdAt,
 		ExpenseAccountingTitleCode: journalLog.ExpenseAccountingTitleCode,
 		ExpenseAccountingTitleName: journalLog.ExpenseAccountingTitleName,
 		ExpenseAmount:              journalLog.ExpenseAmount,
 		ExpenseDescription:         journalLog.ExpenseDescription,
+		PropertyLabel:              &journalLog.PropertyLabel,
+		RoomLabel:                  journalLog.RoomLabel,
 		UpdatedAt:                  &updatedAt,
 	}
 	if idOK {
@@ -3725,7 +3779,69 @@ func toLeaseResponse(lease *dbleasequery.Lease) api.LeaseResponse {
 		Version:                   lease.Version,
 	}
 
-	return toTenantLeaseResponse(tenantLease)
+	response := toTenantLeaseResponse(tenantLease)
+	response.PropertyLabel = &lease.PropertyLabel
+	response.RoomLabel = &lease.RoomLabel
+	response.TenantLabel = &lease.TenantLabel
+	return response
+}
+
+func toLeaseCheckoutReviewResponse(review *dbleasequery.CheckoutReview) api.LeaseCheckoutReviewResponse {
+	leaseID, leaseOK := parseUUID(review.LeaseID)
+	propertyID, propertyOK := parseUUID(review.PropertyID)
+	roomID, roomOK := parseUUID(review.RoomID)
+	tenantID, tenantOK := parseUUID(review.TenantID)
+	startDate := openapi_types.Date{Time: review.StartDate}
+	endDate := openapi_types.Date{Time: review.EndDate}
+	leaseStatus := api.LeaseCheckoutReviewResponseLeaseStatus(review.LeaseStatus)
+	depositStatus := api.LeaseCheckoutReviewResponseDepositStatus(review.DepositStatus)
+	exportAvailable := review.ExportAvailable
+
+	response := api.LeaseCheckoutReviewResponse{
+		CheckoutFinalizedAt:    review.CheckoutFinalizedAt,
+		DepositDeductionAmount: review.DepositDeductionAmount,
+		DepositRefundAmount:    review.DepositRefundAmount,
+		DepositStatus:          &depositStatus,
+		EndDate:                &endDate,
+		ExportAvailable:        &exportAvailable,
+		LeaseStatus:            &leaseStatus,
+		PropertyLabel:          &review.PropertyLabel,
+		RoomLabel:              &review.RoomLabel,
+		StartDate:              &startDate,
+		TenantLabel:            &review.TenantLabel,
+		TerminationReason:      review.TerminationReason,
+	}
+	if leaseOK {
+		response.LeaseId = &leaseID
+	}
+	if propertyOK {
+		response.PropertyId = &propertyID
+	}
+	if roomOK {
+		response.RoomId = &roomID
+	}
+	if tenantOK {
+		response.TenantId = &tenantID
+	}
+	if review.ForceTerminationID != nil {
+		forceTerminationID, ok := parseUUID(*review.ForceTerminationID)
+		if ok {
+			response.ForceTerminationId = &forceTerminationID
+		}
+	}
+	if review.ForceTerminationStatus != nil {
+		status := api.LeaseCheckoutReviewResponseForceTerminationStatus(*review.ForceTerminationStatus)
+		response.ForceTerminationStatus = &status
+	}
+	if review.ForceTerminationReason != nil {
+		response.ForceTerminationReason = review.ForceTerminationReason
+	}
+	if review.ForceTerminationHandling != nil {
+		handling := api.LeaseCheckoutReviewResponseForceTerminationDepositHandling(*review.ForceTerminationHandling)
+		response.ForceTerminationDepositHandling = &handling
+	}
+
+	return response
 }
 
 func toCreatedLeaseResponse(lease *applease.Lease) api.LeaseResponse {
@@ -3757,6 +3873,9 @@ func toCreatedLeaseResponse(lease *applease.Lease) api.LeaseResponse {
 func toForceTerminationResponse(forceTermination *applease.ForceTermination) api.ForceTerminationResponse {
 	id, idOK := parseUUID(forceTermination.ID)
 	leaseID, leaseOK := parseUUID(forceTermination.LeaseID)
+	propertyID, propertyOK := parseUUID(forceTermination.PropertyID)
+	roomID, roomOK := parseUUID(forceTermination.RoomID)
+	tenantID, tenantOK := parseUUID(forceTermination.TenantID)
 	initiatedBy, initiatedByOK := parseUUID(forceTermination.InitiatedBy)
 	status := api.ForceTerminationResponseStatus(forceTermination.Status)
 	reason := forceTermination.Reason
@@ -3765,17 +3884,32 @@ func toForceTerminationResponse(forceTermination *applease.ForceTermination) api
 	depositHandling := api.ForceTerminationResponseDepositHandling(forceTermination.DepositHandling)
 
 	bills := make([]struct {
-		BillId *openapi_types.UUID                      `json:"bill_id,omitempty"`
-		Status *api.ForceTerminationResponseBillsStatus `json:"status,omitempty"`
+		BillId      *openapi_types.UUID                      `json:"bill_id,omitempty"`
+		PeriodEnd   *openapi_types.Date                      `json:"period_end,omitempty"`
+		PeriodLabel *string                                  `json:"period_label,omitempty"`
+		PeriodStart *openapi_types.Date                      `json:"period_start,omitempty"`
+		Status      *api.ForceTerminationResponseBillsStatus `json:"status,omitempty"`
+		Type        *string                                  `json:"type,omitempty"`
 	}, 0, len(forceTermination.Bills))
 	for _, bill := range forceTermination.Bills {
 		billID, billIDOK := parseUUID(bill.BillID)
 		billStatus := api.ForceTerminationResponseBillsStatus(bill.Status)
+		billType := bill.Type
+		periodStart := openapi_types.Date{Time: bill.PeriodStart}
+		periodEnd := openapi_types.Date{Time: bill.PeriodEnd}
 		item := struct {
-			BillId *openapi_types.UUID                      `json:"bill_id,omitempty"`
-			Status *api.ForceTerminationResponseBillsStatus `json:"status,omitempty"`
+			BillId      *openapi_types.UUID                      `json:"bill_id,omitempty"`
+			PeriodEnd   *openapi_types.Date                      `json:"period_end,omitempty"`
+			PeriodLabel *string                                  `json:"period_label,omitempty"`
+			PeriodStart *openapi_types.Date                      `json:"period_start,omitempty"`
+			Status      *api.ForceTerminationResponseBillsStatus `json:"status,omitempty"`
+			Type        *string                                  `json:"type,omitempty"`
 		}{
-			Status: &billStatus,
+			PeriodEnd:   &periodEnd,
+			PeriodLabel: &bill.PeriodLabel,
+			PeriodStart: &periodStart,
+			Status:      &billStatus,
+			Type:        &billType,
 		}
 		if billIDOK {
 			item.BillId = &billID
@@ -3784,18 +3918,31 @@ func toForceTerminationResponse(forceTermination *applease.ForceTermination) api
 	}
 
 	response := api.ForceTerminationResponse{
-		Bills:           &bills,
-		CreatedAt:       &createdAt,
-		DepositHandling: &depositHandling,
-		Reason:          &reason,
-		Status:          &status,
-		UpdatedAt:       &updatedAt,
+		Bills:            &bills,
+		CreatedAt:        &createdAt,
+		DepositHandling:  &depositHandling,
+		InitiatedByLabel: &forceTermination.InitiatedByLabel,
+		PropertyLabel:    &forceTermination.PropertyLabel,
+		Reason:           &reason,
+		RoomLabel:        &forceTermination.RoomLabel,
+		Status:           &status,
+		TenantLabel:      &forceTermination.TenantLabel,
+		UpdatedAt:        &updatedAt,
 	}
 	if idOK {
 		response.Id = &id
 	}
 	if leaseOK {
 		response.LeaseId = &leaseID
+	}
+	if propertyOK {
+		response.PropertyId = &propertyID
+	}
+	if roomOK {
+		response.RoomId = &roomID
+	}
+	if tenantOK {
+		response.TenantId = &tenantID
 	}
 	if initiatedByOK {
 		response.InitiatedBy = &initiatedBy
@@ -3957,7 +4104,7 @@ func toApplicationRepairRequestResponse(repairRequest *apprepair.RepairRequest) 
 		return api.RepairRequestResponse{}
 	}
 
-	return toRepairRequestResponseFields(
+	response := toRepairRequestResponseFields(
 		repairRequest.ID,
 		repairRequest.PropertyID,
 		repairRequest.RoomID,
@@ -3972,6 +4119,11 @@ func toApplicationRepairRequestResponse(repairRequest *apprepair.RepairRequest) 
 		repairRequest.CreatedAt,
 		repairRequest.UpdatedAt,
 	)
+	response.PropertyLabel = &repairRequest.PropertyLabel
+	response.RoomLabel = &repairRequest.RoomLabel
+	response.SubmittedByLabel = &repairRequest.SubmittedByLabel
+	response.AssignedToLabel = repairRequest.AssignedToLabel
+	return response
 }
 
 func toRepairRequestResponseFields(

@@ -343,21 +343,32 @@ func toApplicationForceTermination(forceTermination *dbleases.ForceTermination) 
 	bills := make([]applease.ForceTerminationBill, 0, len(forceTermination.Bills))
 	for _, bill := range forceTermination.Bills {
 		bills = append(bills, applease.ForceTerminationBill{
-			BillID: bill.BillID,
-			Status: bill.Status,
+			BillID:      bill.BillID,
+			Status:      bill.Status,
+			Type:        bill.Type,
+			PeriodStart: bill.PeriodStart,
+			PeriodEnd:   bill.PeriodEnd,
+			PeriodLabel: bill.PeriodLabel,
 		})
 	}
 
 	return &applease.ForceTermination{
-		ID:              forceTermination.ID,
-		LeaseID:         forceTermination.LeaseID,
-		Status:          forceTermination.Status,
-		InitiatedBy:     forceTermination.InitiatedBy,
-		Reason:          forceTermination.Reason,
-		DepositHandling: forceTermination.DepositHandling,
-		Bills:           bills,
-		CreatedAt:       forceTermination.CreatedAt,
-		UpdatedAt:       forceTermination.UpdatedAt,
+		ID:               forceTermination.ID,
+		LeaseID:          forceTermination.LeaseID,
+		PropertyID:       forceTermination.PropertyID,
+		RoomID:           forceTermination.RoomID,
+		TenantID:         forceTermination.TenantID,
+		PropertyLabel:    forceTermination.PropertyLabel,
+		RoomLabel:        forceTermination.RoomLabel,
+		TenantLabel:      forceTermination.TenantLabel,
+		InitiatedByLabel: forceTermination.InitiatedByLabel,
+		Status:           forceTermination.Status,
+		InitiatedBy:      forceTermination.InitiatedBy,
+		Reason:           forceTermination.Reason,
+		DepositHandling:  forceTermination.DepositHandling,
+		Bills:            bills,
+		CreatedAt:        forceTermination.CreatedAt,
+		UpdatedAt:        forceTermination.UpdatedAt,
 	}
 }
 

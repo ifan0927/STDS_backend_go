@@ -41,6 +41,10 @@ FROM repair_requests rr
 	listArgs = append(listArgs, query.Limit, query.Offset)
 	listQuery := selectRepairRequestColumns + `
 FROM repair_requests rr
+LEFT JOIN properties p ON p.id = rr.property_id
+LEFT JOIN rooms r ON r.id = rr.room_id
+LEFT JOIN users submitted_by_user ON submitted_by_user.id = rr.submitted_by
+LEFT JOIN users assigned_to_user ON assigned_to_user.id = rr.assigned_to
 ` + filterSQL + fmt.Sprintf("\nORDER BY rr.created_at DESC, rr.id DESC LIMIT $%d OFFSET $%d", len(listArgs)-1, len(listArgs))
 
 	rows, err := r.db.QueryContext(ctx, listQuery, listArgs...)
@@ -109,6 +113,10 @@ func buildRepairListFilter(query apprepair.ListQuery) (string, []any, bool) {
 func (r *SQLRepository) FindByID(ctx context.Context, id string) (*apprepair.RepairRequest, error) {
 	query := selectRepairRequestColumns + `
 FROM repair_requests rr
+LEFT JOIN properties p ON p.id = rr.property_id
+LEFT JOIN rooms r ON r.id = rr.room_id
+LEFT JOIN users submitted_by_user ON submitted_by_user.id = rr.submitted_by
+LEFT JOIN users assigned_to_user ON assigned_to_user.id = rr.assigned_to
 WHERE rr.id = $1
   AND rr.deleted_at IS NULL
 LIMIT 1
@@ -128,9 +136,13 @@ LIMIT 1
 func (r *SQLRepository) FindByIDForUpdate(ctx context.Context, tx *sql.Tx, id string) (*apprepair.RepairRequest, error) {
 	query := selectRepairRequestColumns + `
 FROM repair_requests rr
+LEFT JOIN properties p ON p.id = rr.property_id
+LEFT JOIN rooms r ON r.id = rr.room_id
+LEFT JOIN users submitted_by_user ON submitted_by_user.id = rr.submitted_by
+LEFT JOIN users assigned_to_user ON assigned_to_user.id = rr.assigned_to
 WHERE rr.id = $1
   AND rr.deleted_at IS NULL
-FOR UPDATE
+FOR UPDATE OF rr
 `
 	repairRequest, err := scanRepairRequest(tx.QueryRowContext(ctx, query, id))
 	if err != nil {
@@ -375,6 +387,10 @@ SELECT
 	rr.room_id,
 	rr.submitted_by,
 	rr.assigned_to,
+	COALESCE(p.name, rr.property_id::text) AS property_label,
+	COALESCE(r.name, rr.room_id::text) AS room_label,
+	COALESCE(submitted_by_user.name, submitted_by_user.email, rr.submitted_by::text) AS submitted_by_label,
+	COALESCE(assigned_to_user.name, assigned_to_user.email, rr.assigned_to::text) AS assigned_to_label,
 	rr.title,
 	rr.description,
 	rr.status,
@@ -393,6 +409,10 @@ RETURNING
 	room_id,
 	submitted_by,
 	assigned_to,
+	property_id::text AS property_label,
+	room_id::text AS room_label,
+	submitted_by::text AS submitted_by_label,
+	assigned_to::text AS assigned_to_label,
 	title,
 	description,
 	status,
@@ -407,6 +427,7 @@ RETURNING
 func scanRepairRequest(row rowScanner) (*apprepair.RepairRequest, error) {
 	var repairRequest apprepair.RepairRequest
 	var assignedTo sql.NullString
+	var assignedToLabel sql.NullString
 	var assignedAt sql.NullTime
 	var completedAt sql.NullTime
 	var cancelReason sql.NullString
@@ -417,6 +438,10 @@ func scanRepairRequest(row rowScanner) (*apprepair.RepairRequest, error) {
 		&repairRequest.RoomID,
 		&repairRequest.SubmittedBy,
 		&assignedTo,
+		&repairRequest.PropertyLabel,
+		&repairRequest.RoomLabel,
+		&repairRequest.SubmittedByLabel,
+		&assignedToLabel,
 		&repairRequest.Title,
 		&repairRequest.Description,
 		&repairRequest.Status,
@@ -432,6 +457,9 @@ func scanRepairRequest(row rowScanner) (*apprepair.RepairRequest, error) {
 
 	if assignedTo.Valid {
 		repairRequest.AssignedTo = &assignedTo.String
+	}
+	if assignedToLabel.Valid {
+		repairRequest.AssignedToLabel = &assignedToLabel.String
 	}
 	if assignedAt.Valid {
 		repairRequest.AssignedAt = &assignedAt.Time

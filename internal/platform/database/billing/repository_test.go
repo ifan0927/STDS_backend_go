@@ -16,13 +16,13 @@ func TestListAccessibleOwnerScopeReturnsOwnedBills(t *testing.T) {
 	defer closeBillingDB(t, db)
 
 	now := time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC)
-	mock.ExpectQuery(`(?s)SELECT COUNT\(\*\)\s+FROM bills b\s+JOIN properties p ON p.id = b.property_id AND p.deleted_at IS NULL\s+WHERE b.deleted_at IS NULL\s+AND p.owner_id = \$1`).
+	mock.ExpectQuery(`(?s)SELECT COUNT\(\*\)\s+FROM bills b.*WHERE b.deleted_at IS NULL\s+AND p.owner_id = \$1`).
 		WithArgs("user-1").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-	mock.ExpectQuery(`(?s)FROM bills b\s+JOIN properties p ON p.id = b.property_id AND p.deleted_at IS NULL\s+WHERE b.deleted_at IS NULL\s+AND p.owner_id = \$1\s+ORDER BY b.due_date DESC, b.created_at DESC LIMIT \$2 OFFSET \$3`).
+	mock.ExpectQuery(`(?s)FROM bills b.*WHERE b.deleted_at IS NULL\s+AND p.owner_id = \$1\s+AND p.deleted_at IS NULL\s+ORDER BY b.due_date DESC, b.created_at DESC LIMIT \$2 OFFSET \$3`).
 		WithArgs("user-1", 10, 0).
 		WillReturnRows(billRows().AddRow(
-			"bill-1", "lease-1", "tenant-1", "room-1", "property-owned", "rent", 12000,
+			"bill-1", "lease-1", "tenant-1", "room-1", "property-owned", "Property", "Room", "Tenant", "2026-04-24..2026-04-24", "rent", 12000,
 			now, now, now, "pending_payment", nil, nil, nil, nil, nil, nil, nil, nil, 0, now, now, 1,
 		))
 
@@ -333,7 +333,7 @@ func TestFindByIDAccessibleComputesPreviousReadingWhenMissing(t *testing.T) {
 	mock.ExpectQuery(`(?s)WHERE b.id = \$1\s+AND b.deleted_at IS NULL\s+LIMIT 1`).
 		WithArgs("bill-1").
 		WillReturnRows(billRows().AddRow(
-			"bill-1", "lease-1", "tenant-1", "room-1", "property-1", "electricity", nil,
+			"bill-1", "lease-1", "tenant-1", "room-1", "property-1", "Property", "Room", "Tenant", "2026-04-01..2026-04-30", "electricity", nil,
 			periodStart, time.Date(2026, 4, 30, 0, 0, 0, 0, time.UTC), now, "pending_meter",
 			nil, nil, nil, nil, nil, nil, nil, nil, 0, now, now, 1,
 		))
@@ -373,7 +373,7 @@ func TestFindByIDAccessiblePreservesNilPreviousReadingWhenNoHistory(t *testing.T
 	mock.ExpectQuery(`(?s)WHERE b.id = \$1\s+AND b.deleted_at IS NULL\s+LIMIT 1`).
 		WithArgs("bill-1").
 		WillReturnRows(billRows().AddRow(
-			"bill-1", "lease-1", "tenant-1", "room-1", "property-1", "electricity", nil,
+			"bill-1", "lease-1", "tenant-1", "room-1", "property-1", "Property", "Room", "Tenant", "2026-04-01..2026-04-30", "electricity", nil,
 			periodStart, time.Date(2026, 4, 30, 0, 0, 0, 0, time.UTC), now, "pending_meter",
 			nil, nil, nil, nil, nil, nil, nil, nil, 0, now, now, 1,
 		))
@@ -471,10 +471,10 @@ func TestListPropertyPendingMetersFiltersPendingMeterAndReturnsPeriodBounds(t *t
 	periodStart := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
 	periodEnd := time.Date(2026, 4, 30, 0, 0, 0, 0, time.UTC)
 	now := time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC)
-	mock.ExpectQuery(`(?s)FROM bills b\s+JOIN properties p ON p.id = b.property_id AND p.deleted_at IS NULL\s+WHERE b.property_id = \$1\s+AND b.type = 'electricity'\s+AND b.status = 'pending_meter'\s+AND b.deleted_at IS NULL`).
+	mock.ExpectQuery(`(?s)FROM bills b\s+JOIN properties p ON p.id = b.property_id AND p.deleted_at IS NULL.*WHERE b.property_id = \$1\s+AND b.type = 'electricity'\s+AND b.status = 'pending_meter'\s+AND b.deleted_at IS NULL`).
 		WithArgs("property-1").
 		WillReturnRows(billRows().AddRow(
-			"bill-1", "lease-1", "tenant-1", "room-1", "property-1", "electricity", nil,
+			"bill-1", "lease-1", "tenant-1", "room-1", "property-1", "Property", "Room", "Tenant", "2026-04-01..2026-04-30", "electricity", nil,
 			periodStart, periodEnd, now, "pending_meter", nil, nil, nil, nil, nil, nil, nil, nil, 0, now, now, 1,
 		))
 	mock.ExpectQuery(`(?s)SELECT meter_current_reading\s+FROM bills\s+WHERE room_id = \$1\s+AND type = 'electricity'\s+AND meter_current_reading IS NOT NULL\s+AND period_end < \$2\s+AND deleted_at IS NULL\s+ORDER BY period_end DESC, due_date DESC, created_at DESC\s+LIMIT 1`).
@@ -1469,6 +1469,10 @@ func billRows() *sqlmock.Rows {
 		"tenant_id",
 		"room_id",
 		"property_id",
+		"property_label",
+		"room_label",
+		"tenant_label",
+		"period_label",
 		"type",
 		"amount",
 		"period_start",

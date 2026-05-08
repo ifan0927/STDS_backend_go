@@ -752,6 +752,81 @@ FOR UPDATE`)).
 	}
 }
 
+func TestFindForceTerminationByIDScansDisplayLabelsAndBillPeriods(t *testing.T) {
+	db, mock, repo := newLeaseRepoTest(t)
+	defer closeLeaseDB(t, db)
+	tx := beginLeaseTx(t, db, mock)
+	createdAt := time.Date(2026, 5, 1, 9, 0, 0, 0, time.UTC)
+	updatedAt := time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC)
+	periodStart := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	periodEnd := time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT
+	ft.id,
+	ft.lease_id,
+	l.property_id,
+	l.room_id,
+	l.tenant_id,
+	COALESCE(p.name, l.property_id::text) AS property_label,
+	COALESCE(r.name, l.room_id::text) AS room_label,
+	COALESCE(t.name, l.tenant_id::text) AS tenant_label,
+	ft.initiated_by,
+	COALESCE(u.name, u.email, ft.initiated_by::text) AS initiated_by_label,
+	ft.reason,
+	ft.deposit_handling,
+	ft.status,
+	ft.created_at,
+	ft.updated_at
+FROM force_terminations ft
+JOIN leases l ON l.id = ft.lease_id
+LEFT JOIN properties p ON p.id = l.property_id
+LEFT JOIN rooms r ON r.id = l.room_id
+LEFT JOIN tenants t ON t.id = l.tenant_id
+LEFT JOIN users u ON u.id = ft.initiated_by
+WHERE ft.id = $1`)).
+		WithArgs("force-1").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "lease_id", "property_id", "room_id", "tenant_id", "property_label", "room_label", "tenant_label", "initiated_by", "initiated_by_label", "reason", "deposit_handling", "status", "created_at", "updated_at",
+		}).AddRow("force-1", "lease-1", "property-1", "room-1", "tenant-1", "Property A", "Room 101", "Tenant A", "admin-1", "Admin A", "unpaid bills", "write_off", "completed", createdAt, updatedAt))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT
+	ftb.bill_id,
+	ftb.status,
+	b.type,
+	b.period_start,
+	b.period_end,
+	concat(b.period_start::text, '..', b.period_end::text) AS period_label
+FROM force_termination_bills ftb
+LEFT JOIN bills b ON b.id = ftb.bill_id
+WHERE ftb.force_termination_id = $1
+ORDER BY ftb.created_at ASC, ftb.bill_id ASC`)).
+		WithArgs("force-1").
+		WillReturnRows(sqlmock.NewRows([]string{"bill_id", "status", "type", "period_start", "period_end", "period_label"}).
+			AddRow("bill-1", "done", "rent", periodStart, periodEnd, "2026-05-01..2026-05-31"))
+
+	forceTermination, err := repo.FindForceTerminationByID(context.Background(), tx, "force-1")
+	if err != nil {
+		t.Fatalf("FindForceTerminationByID: %v", err)
+	}
+	if forceTermination.PropertyLabel != "Property A" || forceTermination.RoomLabel != "Room 101" || forceTermination.TenantLabel != "Tenant A" || forceTermination.InitiatedByLabel != "Admin A" {
+		t.Fatalf("unexpected force termination labels: %+v", forceTermination)
+	}
+	if len(forceTermination.Bills) != 1 {
+		t.Fatalf("expected one force termination bill, got %+v", forceTermination.Bills)
+	}
+	bill := forceTermination.Bills[0]
+	if bill.Type != "rent" || bill.PeriodLabel != "2026-05-01..2026-05-31" || !bill.PeriodStart.Equal(periodStart) || !bill.PeriodEnd.Equal(periodEnd) {
+		t.Fatalf("unexpected force termination bill labels: %+v", bill)
+	}
+
+	mock.ExpectRollback()
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("Rollback: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
 func TestCreateBillsNoOpsWhenEmpty(t *testing.T) {
 	db, mock, repo := newLeaseRepoTest(t)
 	defer closeLeaseDB(t, db)

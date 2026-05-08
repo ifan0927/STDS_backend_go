@@ -28,6 +28,9 @@ type JournalLog struct {
 	PropertyID                 string
 	RoomID                     *string
 	AuthorID                   string
+	PropertyLabel              string
+	RoomLabel                  *string
+	AuthorLabel                string
 	Content                    string
 	ExpenseAmount              *int
 	ExpenseDescription         *string

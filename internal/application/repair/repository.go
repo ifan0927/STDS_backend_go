@@ -22,20 +22,24 @@ type TransactionRunner interface {
 
 // RepairRequest is the application-facing repair request shape.
 type RepairRequest struct {
-	ID           string
-	PropertyID   string
-	RoomID       string
-	SubmittedBy  string
-	AssignedTo   *string
-	Title        string
-	Description  string
-	Status       string
-	SubmittedAt  time.Time
-	AssignedAt   *time.Time
-	CompletedAt  *time.Time
-	CancelReason *string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID               string
+	PropertyID       string
+	RoomID           string
+	SubmittedBy      string
+	AssignedTo       *string
+	PropertyLabel    string
+	RoomLabel        string
+	SubmittedByLabel string
+	AssignedToLabel  *string
+	Title            string
+	Description      string
+	Status           string
+	SubmittedAt      time.Time
+	AssignedAt       *time.Time
+	CompletedAt      *time.Time
+	CancelReason     *string
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 // Room captures room ownership needed by repair creation.
