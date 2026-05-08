@@ -2755,5 +2755,5 @@ func nullableDate(value *time.Time) any {
 	if value == nil {
 		return nil
 	}
-	return *value
+	return value.Format("2006-01-02")
 }

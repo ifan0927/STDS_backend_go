@@ -571,7 +571,7 @@ func TestInsertAccountingEntryWritesTitleLinkage(t *testing.T) {
 	periodLabel := "2026-04-01 至 2026-04-30"
 	displayNote := "租金：2026-04-01 至 2026-04-30"
 	mock.ExpectExec(`(?s)INSERT INTO accounting_entries \(\s+property_account_id,\s+category,\s+accounting_title_id,\s+accounting_title_code,\s+accounting_title_name,\s+amount,\s+description,\s+source_ref,\s+year,\s+month,\s+source_date,\s+room_label,\s+tenant_label,\s+period_label,\s+display_note\s+\).*FROM accounting_titles at\s+WHERE at.code = \$8\s+AND at.is_active = true`).
-		WithArgs("account-1", "rent_payment", 12000, description, `{"bill_id":"bill-1"}`, 2026, 4, "4603", sourceDate, nil, nil, periodLabel, displayNote).
+		WithArgs("account-1", "rent_payment", 12000, description, `{"bill_id":"bill-1"}`, 2026, 4, "4603", "2026-04-24", nil, nil, periodLabel, displayNote).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
@@ -611,7 +611,7 @@ func TestReplaceJournalExpenseAccountingEntryDeletesExistingAndInsertsReplacemen
 		WithArgs("journal-1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`(?s)INSERT INTO accounting_entries \(\s+property_account_id,\s+category,\s+accounting_title_id,\s+accounting_title_code,\s+accounting_title_name,\s+amount,\s+description,\s+source_ref,\s+year,\s+month,\s+source_date,\s+room_label,\s+tenant_label,\s+period_label,\s+display_note\s+\).*FROM accounting_titles at\s+WHERE at.code = \$8\s+AND at.is_active = true`).
-		WithArgs("account-1", "journal_expense", 4200, description, `{"journal_log_id":"journal-1","type":"JournalExpenseRecorded"}`, 2026, 5, "6681", sourceDate, nil, nil, nil, description).
+		WithArgs("account-1", "journal_expense", 4200, description, `{"journal_log_id":"journal-1","type":"JournalExpenseRecorded"}`, 2026, 5, "6681", "2026-05-02", nil, nil, nil, description).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 

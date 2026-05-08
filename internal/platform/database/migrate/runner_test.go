@@ -168,15 +168,20 @@ func TestAccountingEntryDisplayFieldsMigrationAddsNullableFields(t *testing.T) {
 	}
 
 	downSQL := migrationsByVersion(t, "down")["000017"].SQL
-	for _, snippet := range []string{
+	requiredDownSnippets := []string{
 		"ALTER TABLE monthly_snapshot_entries",
 		"DROP COLUMN IF EXISTS display_note",
 		"DROP COLUMN IF EXISTS period_label",
 		"DROP COLUMN IF EXISTS tenant_label",
 		"DROP COLUMN IF EXISTS room_label",
 		"DROP COLUMN IF EXISTS source_date",
-		"ALTER TABLE accounting_entries",
-	} {
+		"ALTER TABLE accounting_entries\n    DROP COLUMN IF EXISTS display_note",
+		"ALTER TABLE accounting_entries\n    DROP COLUMN IF EXISTS display_note,\n    DROP COLUMN IF EXISTS period_label",
+		"ALTER TABLE accounting_entries\n    DROP COLUMN IF EXISTS display_note,\n    DROP COLUMN IF EXISTS period_label,\n    DROP COLUMN IF EXISTS tenant_label",
+		"ALTER TABLE accounting_entries\n    DROP COLUMN IF EXISTS display_note,\n    DROP COLUMN IF EXISTS period_label,\n    DROP COLUMN IF EXISTS tenant_label,\n    DROP COLUMN IF EXISTS room_label",
+		"ALTER TABLE accounting_entries\n    DROP COLUMN IF EXISTS display_note,\n    DROP COLUMN IF EXISTS period_label,\n    DROP COLUMN IF EXISTS tenant_label,\n    DROP COLUMN IF EXISTS room_label,\n    DROP COLUMN IF EXISTS source_date",
+	}
+	for _, snippet := range requiredDownSnippets {
 		if !strings.Contains(downSQL, snippet) {
 			t.Fatalf("000017 down migration missing %q", snippet)
 		}

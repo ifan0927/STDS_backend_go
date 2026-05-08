@@ -343,6 +343,10 @@ func TestRecordPaymentServiceRecordsPaymentAndPublishesEventAfterCommit(t *testi
 	if accountingRepo.entry.SourceDate == nil {
 		t.Fatal("expected accounting source date")
 	}
+	wantSourceDate := accountingSourceDate(paidAt)
+	if !accountingRepo.entry.SourceDate.Equal(wantSourceDate) {
+		t.Fatalf("accounting source date = %s, want %s", accountingRepo.entry.SourceDate, wantSourceDate)
+	}
 	if accountingRepo.entry.RoomLabel != nil || accountingRepo.entry.TenantLabel != nil {
 		t.Fatalf("unexpected unavailable labels: room=%v tenant=%v", accountingRepo.entry.RoomLabel, accountingRepo.entry.TenantLabel)
 	}

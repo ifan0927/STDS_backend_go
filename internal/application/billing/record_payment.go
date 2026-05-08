@@ -92,7 +92,7 @@ func (s *RecordPaymentService) Execute(ctx context.Context, input RecordPaymentI
 		if err != nil {
 			return apperr.ErrInternalServerError.WithCause(err)
 		}
-		sourceDate := accountingSourceDate(time.Now())
+		sourceDate := accountingSourceDate(*state.PaidAt)
 		periodLabel := formatAccountingPeriodLabel(updatedBill.PeriodStart, updatedBill.PeriodEnd)
 		displayNote := formatBillAccountingDisplayNote(updatedBill.Type, periodLabel)
 		if err := s.accountingRepo.CreateAccountingEntry(ctx, tx, AccountingEntryParams{
