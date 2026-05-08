@@ -3014,6 +3014,199 @@ paths:
                   value:
                     error_code: DEPOSIT_DEDUCTION_REASON_REQUIRED
                     message: 押金扣款須填寫扣款原因
+  /leases/{id}/checkout-settlement/preview:
+    post:
+      operationId: previewLeaseCheckoutSettlement
+      summary: Preview backend-owned lease checkout settlement
+      description: |
+        x-required-role: admin, organizer, staff
+        x-ownership-required: true
+
+        Calculates an authoritative checkout settlement proposal without mutating business state.
+        Frontend must display the returned lines, blockers, warnings, and totals instead of calculating settlement effects locally.
+      tags:
+        - Leasing
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckoutSettlementPreviewRequest'
+      responses:
+        '200':
+          description: Checkout settlement preview.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckoutSettlementResponse'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 租約不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Business Rule 拒絕
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /leases/{id}/checkout-settlement/finalize:
+    post:
+      operationId: finalizeLeaseCheckoutSettlement
+      summary: Finalize backend-owned lease checkout settlement
+      description: |
+        x-required-role: admin, organizer, staff
+        x-ownership-required: true
+
+        Recomputes the checkout settlement under lock, verifies the preview token, persists the finalized settlement snapshot, terminates the lease, and writes accounting effects in one business transaction.
+      tags:
+        - Leasing
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckoutSettlementFinalizeRequest'
+      responses:
+        '200':
+          description: Checkout settlement finalized.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckoutSettlementResponse'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 租約不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Preview token is stale or no longer matches the current settlement basis.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Business Rule 拒絕
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /leases/{id}/checkout-settlement/export:
+    get:
+      operationId: exportLeaseCheckoutSettlement
+      summary: Export finalized lease checkout settlement as HTML
+      description: |
+        x-required-role: admin, organizer, staff
+        x-ownership-required: true
+
+        Renders completed checkout settlement HTML from the persisted settlement snapshot.
+        Generated HTML is returned directly and is not stored in GCS or attachments.
+      tags:
+        - Leasing
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+      x-ownership-required: true
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum:
+              - html
+            default: html
+          description: 匯出格式；第一版僅支援 html。
+      responses:
+        '200':
+          description: 退租結算 HTML 文件
+          headers:
+            Content-Disposition:
+              description: Browser preview filename hint.
+              schema:
+                type: string
+                example: inline; filename="checkout-settlement-demo-room-2026-05-08.html"
+          content:
+            text/html; charset=utf-8:
+              schema:
+                type: string
+        '400':
+          description: 查詢參數格式錯誤
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 租約或退租結算不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /leases/{id}/force-terminate:
     post:
       operationId: forceTerminateLease
@@ -7202,6 +7395,213 @@ components:
         deposit_deduction_reason:
           type: string
           description: deduction_amount 大於 0 時必填（BR-10）
+    CheckoutSettlementInput:
+      type: object
+      required:
+        - checkout_date
+        - reason
+      properties:
+        checkout_date:
+          type: string
+          format: date
+          description: 實際退租日；backend 以此計算並保存結算快照。
+        reason:
+          type: string
+          description: 退租原因。
+        final_meter_reading:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: 退租電表讀數；v1 僅作為快照顯示輸入，不由 frontend 計算電費。
+        cleaning_fee:
+          type: integer
+          minimum: 0
+          default: 0
+        key_card_loss_fee:
+          type: integer
+          minimum: 0
+          default: 0
+        other_fee:
+          type: integer
+          minimum: 0
+          default: 0
+        other_fee_reason:
+          type: string
+          nullable: true
+          description: other_fee 大於 0 時建議提供。
+        notes:
+          type: string
+          nullable: true
+          description: 退租結算備註。
+    CheckoutSettlementPreviewRequest:
+      allOf:
+        - $ref: '#/components/schemas/CheckoutSettlementInput'
+    CheckoutSettlementLine:
+      type: object
+      required:
+        - kind
+        - label
+        - direction
+        - amount
+      properties:
+        kind:
+          type: string
+          enum:
+            - deposit_refund
+            - cleaning_fee
+            - key_card_loss
+            - other_fee
+            - electricity_settlement
+            - rent_refund
+        label:
+          type: string
+        direction:
+          type: string
+          enum:
+            - refund
+            - charge
+            - info
+        amount:
+          type: integer
+          description: Positive amount. Direction determines whether it adds to refund or charge.
+        description:
+          type: string
+          nullable: true
+        source_ref:
+          type: object
+          additionalProperties: true
+          nullable: true
+    CheckoutSettlementBlocker:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          enum:
+            - unpaid_bill
+            - pending_meter
+            - lease_not_active
+            - deposit_not_held
+            - charge_exceeds_deposit
+            - rent_refund_not_calculated
+        message:
+          type: string
+        source_id:
+          type: string
+          nullable: true
+    CheckoutSettlementWarning:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          enum:
+            - rent_refund_not_calculated
+            - final_meter_snapshot_only
+        message:
+          type: string
+    CheckoutSettlementResponse:
+      type: object
+      required:
+        - lease_id
+        - property_id
+        - tenant_id
+        - room_id
+        - property_label
+        - tenant_label
+        - room_label
+        - checkout_date
+        - reason
+        - lines
+        - blockers
+        - warnings
+        - deposit_amount
+        - total_refund
+        - total_charge
+        - net_amount
+        - net_direction
+        - export_available
+      properties:
+        lease_id:
+          type: string
+          format: uuid
+        property_id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        room_id:
+          type: string
+          format: uuid
+        property_label:
+          type: string
+        tenant_label:
+          type: string
+        room_label:
+          type: string
+        checkout_date:
+          type: string
+          format: date
+        reason:
+          type: string
+        final_meter_reading:
+          type: integer
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/CheckoutSettlementLine'
+        blockers:
+          type: array
+          items:
+            $ref: '#/components/schemas/CheckoutSettlementBlocker'
+        warnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/CheckoutSettlementWarning'
+        deposit_amount:
+          type: integer
+        total_refund:
+          type: integer
+        total_charge:
+          type: integer
+        net_amount:
+          type: integer
+          description: Absolute net amount after refund and charge lines are balanced.
+        net_direction:
+          type: string
+          enum:
+            - refund
+            - payable
+            - zero
+        preview_token:
+          type: string
+          nullable: true
+          description: Present only when there are no blockers and the proposal can be finalized.
+        export_available:
+          type: boolean
+        finalized_at:
+          type: string
+          format: date-time
+          nullable: true
+    CheckoutSettlementFinalizeRequest:
+      allOf:
+        - $ref: '#/components/schemas/CheckoutSettlementInput'
+        - type: object
+          required:
+            - preview_token
+          properties:
+            preview_token:
+              type: string
+              description: Preview response token. Finalize rejects mismatched or stale tokens.
     ForceTerminateRequest:
       type: object
       required:

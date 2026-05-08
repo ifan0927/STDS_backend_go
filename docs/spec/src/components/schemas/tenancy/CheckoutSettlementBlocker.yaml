@@ -1,0 +1,19 @@
+type: object
+required:
+  - code
+  - message
+properties:
+  code:
+    type: string
+    enum:
+      - unpaid_bill
+      - pending_meter
+      - lease_not_active
+      - deposit_not_held
+      - charge_exceeds_deposit
+      - rent_refund_not_calculated
+  message:
+    type: string
+  source_id:
+    type: string
+    nullable: true

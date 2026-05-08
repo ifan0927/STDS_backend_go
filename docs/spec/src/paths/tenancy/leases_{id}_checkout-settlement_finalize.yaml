@@ -1,0 +1,64 @@
+post:
+  operationId: finalizeLeaseCheckoutSettlement
+  summary: Finalize backend-owned lease checkout settlement
+  description: |
+    x-required-role: admin, organizer, staff
+    x-ownership-required: true
+
+    Recomputes the checkout settlement under lock, verifies the preview token, persists the finalized settlement snapshot, terminates the lease, and writes accounting effects in one business transaction.
+  tags:
+    - Leasing
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+  x-ownership-required: true
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: ../../components/schemas/tenancy/CheckoutSettlementFinalizeRequest.yaml
+  responses:
+    '200':
+      description: Checkout settlement finalized.
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/tenancy/CheckoutSettlementResponse.yaml
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+    '403':
+      description: 權限不足
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+    '404':
+      description: 租約不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+    '409':
+      description: Preview token is stale or no longer matches the current settlement basis.
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+    '422':
+      description: Business Rule 拒絕
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml

@@ -1,0 +1,67 @@
+get:
+  operationId: exportLeaseCheckoutSettlement
+  summary: Export finalized lease checkout settlement as HTML
+  description: |
+    x-required-role: admin, organizer, staff
+    x-ownership-required: true
+
+    Renders completed checkout settlement HTML from the persisted settlement snapshot.
+    Generated HTML is returned directly and is not stored in GCS or attachments.
+  tags:
+    - Leasing
+  x-required-role:
+    - admin
+    - organizer
+    - staff
+  x-ownership-required: true
+  parameters:
+    - name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    - name: format
+      in: query
+      schema:
+        type: string
+        enum:
+          - html
+        default: html
+      description: 匯出格式；第一版僅支援 html。
+  responses:
+    '200':
+      description: 退租結算 HTML 文件
+      headers:
+        Content-Disposition:
+          description: Browser preview filename hint.
+          schema:
+            type: string
+            example: inline; filename="checkout-settlement-demo-room-2026-05-08.html"
+      content:
+        text/html; charset=utf-8:
+          schema:
+            type: string
+    '400':
+      description: 查詢參數格式錯誤
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+    '403':
+      description: 權限不足
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+    '404':
+      description: 租約或退租結算不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml

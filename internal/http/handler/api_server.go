@@ -63,6 +63,9 @@ type APIServer struct {
 	updateDepositSvc  *applease.UpdateDepositService
 	replaceLeaseSvc   *applease.ReplaceLeaseService
 	terminateLeaseSvc *applease.TerminateLeaseService
+	previewCheckout   *applease.PreviewCheckoutSettlementService
+	finalizeCheckout  *applease.FinalizeCheckoutSettlementService
+	exportCheckout    *applease.ExportCheckoutSettlementService
 	forceTerminateSvc *applease.ForceTerminateLeaseService
 	getForceTermSvc   *applease.GetForceTerminationService
 	billing           BillingServices
@@ -110,6 +113,9 @@ type LeaseServices struct {
 	UpdateDeposit       *applease.UpdateDepositService
 	ReplaceLease        *applease.ReplaceLeaseService
 	TerminateLease      *applease.TerminateLeaseService
+	PreviewCheckout     *applease.PreviewCheckoutSettlementService
+	FinalizeCheckout    *applease.FinalizeCheckoutSettlementService
+	ExportCheckout      *applease.ExportCheckoutSettlementService
 	ForceTerminateLease *applease.ForceTerminateLeaseService
 	GetForceTermination *applease.GetForceTerminationService
 }
@@ -391,6 +397,9 @@ func NewAPIServer(deps APIServerDeps) *APIServer {
 		updateDepositSvc:  deps.Leases.UpdateDeposit,
 		replaceLeaseSvc:   deps.Leases.ReplaceLease,
 		terminateLeaseSvc: deps.Leases.TerminateLease,
+		previewCheckout:   deps.Leases.PreviewCheckout,
+		finalizeCheckout:  deps.Leases.FinalizeCheckout,
+		exportCheckout:    deps.Leases.ExportCheckout,
 		forceTerminateSvc: deps.Leases.ForceTerminateLease,
 		getForceTermSvc:   deps.Leases.GetForceTermination,
 		billing:           deps.Billing,
@@ -432,6 +441,9 @@ func validateAPIServerDeps(deps APIServerDeps) {
 		{"update_deposit", deps.Leases.UpdateDeposit},
 		{"replace_lease", deps.Leases.ReplaceLease},
 		{"terminate_lease", deps.Leases.TerminateLease},
+		{"preview_checkout", deps.Leases.PreviewCheckout},
+		{"finalize_checkout", deps.Leases.FinalizeCheckout},
+		{"export_checkout", deps.Leases.ExportCheckout},
 		{"force_terminate", deps.Leases.ForceTerminateLease},
 		{"get_force_termination", deps.Leases.GetForceTermination},
 		{"billing_query", deps.Billing.Query},
@@ -1239,6 +1251,96 @@ func (s *APIServer) TerminateLease(c *gin.Context, id string) {
 	}
 
 	c.JSON(http.StatusOK, toCreatedLeaseResponse(lease))
+}
+
+// PreviewLeaseCheckoutSettlement handles checkout settlement preview.
+func (s *APIServer) PreviewLeaseCheckoutSettlement(c *gin.Context, id string) {
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	var request api.CheckoutSettlementPreviewRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.Error(apperr.ErrBadRequest.WithCause(err))
+		return
+	}
+
+	settlement, err := s.previewCheckout.Execute(c.Request.Context(), toCheckoutSettlementInput(principal, id, request, ""))
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	response, err := toCheckoutSettlementResponse(settlement)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+	c.JSON(http.StatusOK, response)
+}
+
+// FinalizeLeaseCheckoutSettlement handles checkout settlement finalization.
+func (s *APIServer) FinalizeLeaseCheckoutSettlement(c *gin.Context, id string) {
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	var request api.CheckoutSettlementFinalizeRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.Error(apperr.ErrBadRequest.WithCause(err))
+		return
+	}
+
+	settlement, err := s.finalizeCheckout.Execute(c.Request.Context(), toCheckoutSettlementInput(principal, id, api.CheckoutSettlementInput{
+		CheckoutDate:      request.CheckoutDate,
+		CleaningFee:       request.CleaningFee,
+		FinalMeterReading: request.FinalMeterReading,
+		KeyCardLossFee:    request.KeyCardLossFee,
+		Notes:             request.Notes,
+		OtherFee:          request.OtherFee,
+		OtherFeeReason:    request.OtherFeeReason,
+		Reason:            request.Reason,
+	}, request.PreviewToken))
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	response, err := toCheckoutSettlementResponse(settlement)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+	c.JSON(http.StatusOK, response)
+}
+
+// ExportLeaseCheckoutSettlement handles finalized checkout settlement HTML export.
+func (s *APIServer) ExportLeaseCheckoutSettlement(c *gin.Context, id string, params api.ExportLeaseCheckoutSettlementParams) {
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+
+	if params.Format != nil && string(*params.Format) != "html" {
+		c.Error(apperr.ErrBadRequest.WithDetails(map[string]interface{}{"field": "format"}))
+		return
+	}
+
+	document, err := s.exportCheckout.Execute(c.Request.Context(), applease.CheckoutSettlementInput{
+		ActorRole:           principal.Role,
+		AssignedPropertyIDs: principal.AssignedPropertyIDs,
+		LeaseID:             id,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+	writeHTMLDocument(c, document)
 }
 
 // ListProperties handles the property listing endpoint.
@@ -3221,6 +3323,107 @@ func toForceTerminationResponse(forceTermination *applease.ForceTermination) api
 	}
 
 	return response
+}
+
+func toCheckoutSettlementInput(principal requestctx.Principal, leaseID string, request api.CheckoutSettlementInput, previewToken string) applease.CheckoutSettlementInput {
+	return applease.CheckoutSettlementInput{
+		ActorRole:           principal.Role,
+		AssignedPropertyIDs: principal.AssignedPropertyIDs,
+		LeaseID:             leaseID,
+		CheckoutDate:        request.CheckoutDate.Time,
+		Reason:              request.Reason,
+		FinalMeterReading:   request.FinalMeterReading,
+		CleaningFee:         intValuePtr(request.CleaningFee),
+		KeyCardLossFee:      intValuePtr(request.KeyCardLossFee),
+		OtherFee:            intValuePtr(request.OtherFee),
+		OtherFeeReason:      request.OtherFeeReason,
+		Notes:               request.Notes,
+		PreviewToken:        previewToken,
+	}
+}
+
+func toCheckoutSettlementResponse(settlement *applease.CheckoutSettlement) (api.CheckoutSettlementResponse, error) {
+	leaseID, err := uuid.Parse(settlement.LeaseID)
+	if err != nil {
+		return api.CheckoutSettlementResponse{}, apperr.ErrInternalServerError.WithCause(err)
+	}
+	propertyID, err := uuid.Parse(settlement.PropertyID)
+	if err != nil {
+		return api.CheckoutSettlementResponse{}, apperr.ErrInternalServerError.WithCause(err)
+	}
+	tenantID, err := uuid.Parse(settlement.TenantID)
+	if err != nil {
+		return api.CheckoutSettlementResponse{}, apperr.ErrInternalServerError.WithCause(err)
+	}
+	roomID, err := uuid.Parse(settlement.RoomID)
+	if err != nil {
+		return api.CheckoutSettlementResponse{}, apperr.ErrInternalServerError.WithCause(err)
+	}
+
+	lines := make([]api.CheckoutSettlementLine, 0, len(settlement.Lines))
+	for _, line := range settlement.Lines {
+		var sourceRef *map[string]interface{}
+		if line.SourceRef != nil {
+			sourceRef = &line.SourceRef
+		}
+		lines = append(lines, api.CheckoutSettlementLine{
+			Amount:      line.Amount,
+			Description: line.Description,
+			Direction:   api.CheckoutSettlementLineDirection(line.Direction),
+			Kind:        api.CheckoutSettlementLineKind(line.Kind),
+			Label:       line.Label,
+			SourceRef:   sourceRef,
+		})
+	}
+
+	blockers := make([]api.CheckoutSettlementBlocker, 0, len(settlement.Blockers))
+	for _, blocker := range settlement.Blockers {
+		blockers = append(blockers, api.CheckoutSettlementBlocker{
+			Code:     api.CheckoutSettlementBlockerCode(blocker.Code),
+			Message:  blocker.Message,
+			SourceId: blocker.SourceID,
+		})
+	}
+
+	warnings := make([]api.CheckoutSettlementWarning, 0, len(settlement.Warnings))
+	for _, warning := range settlement.Warnings {
+		warnings = append(warnings, api.CheckoutSettlementWarning{
+			Code:    api.CheckoutSettlementWarningCode(warning.Code),
+			Message: warning.Message,
+		})
+	}
+
+	return api.CheckoutSettlementResponse{
+		Blockers:          blockers,
+		CheckoutDate:      openapi_types.Date{Time: settlement.CheckoutDate},
+		DepositAmount:     settlement.DepositAmount,
+		ExportAvailable:   settlement.ExportAvailable,
+		FinalMeterReading: settlement.FinalMeterReading,
+		FinalizedAt:       settlement.FinalizedAt,
+		LeaseId:           leaseID,
+		Lines:             lines,
+		NetAmount:         settlement.NetAmount,
+		NetDirection:      api.CheckoutSettlementResponseNetDirection(settlement.NetDirection),
+		Notes:             settlement.Notes,
+		PreviewToken:      settlement.PreviewToken,
+		PropertyId:        propertyID,
+		PropertyLabel:     settlement.PropertyLabel,
+		Reason:            settlement.Reason,
+		RoomId:            roomID,
+		RoomLabel:         settlement.RoomLabel,
+		TenantId:          tenantID,
+		TenantLabel:       settlement.TenantLabel,
+		TotalCharge:       settlement.TotalCharge,
+		TotalRefund:       settlement.TotalRefund,
+		Warnings:          warnings,
+	}, nil
+}
+
+func intValuePtr(value *int) int {
+	if value == nil {
+		return 0
+	}
+	return *value
 }
 
 func toLeaseReplaceResponse(result *applease.ReplaceLeaseResult) api.LeaseReplaceResponse {

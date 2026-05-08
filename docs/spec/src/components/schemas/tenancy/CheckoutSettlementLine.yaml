@@ -1,0 +1,34 @@
+type: object
+required:
+  - kind
+  - label
+  - direction
+  - amount
+properties:
+  kind:
+    type: string
+    enum:
+      - deposit_refund
+      - cleaning_fee
+      - key_card_loss
+      - other_fee
+      - electricity_settlement
+      - rent_refund
+  label:
+    type: string
+  direction:
+    type: string
+    enum:
+      - refund
+      - charge
+      - info
+  amount:
+    type: integer
+    description: Positive amount. Direction determines whether it adds to refund or charge.
+  description:
+    type: string
+    nullable: true
+  source_ref:
+    type: object
+    additionalProperties: true
+    nullable: true

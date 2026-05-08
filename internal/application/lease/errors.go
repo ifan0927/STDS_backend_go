@@ -22,6 +22,9 @@ const (
 	codeDepositSettlementMismatch     = "DEPOSIT_SETTLEMENT_AMOUNT_MISMATCH"
 	codeDepositNotHeld                = "DEPOSIT_NOT_HELD"
 	codeLeaseHasUnpaidBills           = "LEASE_HAS_UNPAID_BILLS"
+	codeCheckoutSettlementBlocked     = "CHECKOUT_SETTLEMENT_BLOCKED"
+	codeCheckoutSettlementStale       = "CHECKOUT_SETTLEMENT_STALE"
+	codeCheckoutSettlementNotFound    = "CHECKOUT_SETTLEMENT_NOT_FOUND"
 	codeForbiddenForceTermination     = "FORBIDDEN_FORCE_TERMINATION"
 	codeForceTerminationReason        = "FORCE_TERMINATION_REASON_REQUIRED"
 	codeForceTerminationDeposit       = "FORCE_TERMINATION_DEPOSIT_HANDLING_REQUIRED"
@@ -99,6 +102,21 @@ var (
 		codeLeaseHasUnpaidBills,
 		http.StatusUnprocessableEntity,
 		"Lease has unpaid bills.",
+	)
+	errCheckoutSettlementBlocked = apperr.New(
+		codeCheckoutSettlementBlocked,
+		http.StatusUnprocessableEntity,
+		"Checkout settlement has blockers.",
+	)
+	errCheckoutSettlementStale = apperr.New(
+		codeCheckoutSettlementStale,
+		http.StatusConflict,
+		"Checkout settlement preview is stale.",
+	)
+	errCheckoutSettlementNotFound = apperr.New(
+		codeCheckoutSettlementNotFound,
+		http.StatusNotFound,
+		"Checkout settlement not found.",
 	)
 	errForbiddenForceTermination = apperr.New(
 		codeForbiddenForceTermination,

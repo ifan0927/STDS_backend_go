@@ -91,6 +91,14 @@ type Bill struct {
 	PeriodEnd   time.Time
 }
 
+// CheckoutSettlementContext contains locked lease state plus stable display labels.
+type CheckoutSettlementContext struct {
+	Lease        Lease
+	PropertyName string
+	RoomName     string
+	TenantName   string
+}
+
 // ForceTermination captures force-termination progress state.
 type ForceTermination struct {
 	ID              string
@@ -144,6 +152,7 @@ type TerminateLeaseParams struct {
 	LeaseID           string
 	EndDate           time.Time
 	TerminationReason string
+	SettlementDetail  map[string]interface{}
 }
 
 // ForceTerminateLeaseParams contains fields for forced termination.
@@ -166,6 +175,7 @@ type Repository interface {
 	FindTenantByID(ctx context.Context, tx *sql.Tx, tenantID string) (*Tenant, error)
 	FindRoomByIDForUpdate(ctx context.Context, tx *sql.Tx, roomID string) (*Room, error)
 	FindLeaseByIDForUpdate(ctx context.Context, tx *sql.Tx, leaseID string) (*Lease, error)
+	FindCheckoutSettlementContextForUpdate(ctx context.Context, tx *sql.Tx, leaseID string) (*CheckoutSettlementContext, error)
 	CreateLease(ctx context.Context, tx *sql.Tx, params CreateLeaseParams) (*Lease, error)
 	UpdateLeaseConditions(ctx context.Context, tx *sql.Tx, params UpdateLeaseParams) (*Lease, error)
 	SettleDeposit(ctx context.Context, tx *sql.Tx, params SettleDepositParams) (*Lease, error)
@@ -178,6 +188,7 @@ type Repository interface {
 	MarkForceTerminationBillsDone(ctx context.Context, tx *sql.Tx, forceTerminationID string, billIDs []string) error
 	CompleteForceTermination(ctx context.Context, tx *sql.Tx, forceTerminationID string) error
 	FindForceTerminationByID(ctx context.Context, tx *sql.Tx, forceTerminationID string) (*ForceTermination, error)
+	FindCheckoutSettlementContext(ctx context.Context, tx *sql.Tx, leaseID string) (*CheckoutSettlementContext, error)
 	HasLockedRentBillsFromDueDate(ctx context.Context, tx *sql.Tx, leaseID string, dueDate time.Time) (bool, error)
 	VoidRentBillsFromDueDate(ctx context.Context, tx *sql.Tx, leaseID string, dueDate time.Time) error
 	VoidBillsOverlappingOrAfter(ctx context.Context, tx *sql.Tx, leaseID string, boundary time.Time) error

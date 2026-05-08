@@ -396,6 +396,7 @@ func TestTerminateLeaseUpdatesFieldsAndScansReturnedLease(t *testing.T) {
 SET status = 'terminated',
 	end_date = $2,
 	termination_reason = $3,
+	settlement_detail = COALESCE($4::jsonb, settlement_detail),
 	updated_at = now(),
 	version = version + 1
 WHERE id = $1
@@ -422,7 +423,7 @@ RETURNING
 	created_at,
 	updated_at,
 	version`)).
-		WithArgs("lease-1", endDate, "tenant requested").
+		WithArgs("lease-1", endDate, "tenant requested", nil).
 		WillReturnRows(newLeaseRows().AddRow(
 			"lease-1", "tenant-1", "property-1", "room-1", 25000, startDate, endDate, "monthly", "monthly",
 			"terminated", 50000, nil, nil, "held", nil, nil, "tenant requested", nil, now, now, 2,
@@ -446,6 +447,78 @@ RETURNING
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestTerminateLeasePersistsSettlementDetail(t *testing.T) {
+	db, mock, repo := newLeaseRepoTest(t)
+	defer closeLeaseDB(t, db)
+	tx := beginLeaseTx(t, db, mock)
+	now := time.Date(2026, 4, 29, 10, 0, 0, 0, time.UTC)
+	startDate := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	endDate := time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)
+	detail := map[string]interface{}{
+		"LeaseID":         "lease-1",
+		"NetAmount":       float64(45000),
+		"NetDirection":    "refund",
+		"ExportAvailable": true,
+	}
+
+	mock.ExpectQuery(regexp.QuoteMeta(`UPDATE leases
+SET status = 'terminated',
+	end_date = $2,
+	termination_reason = $3,
+	settlement_detail = COALESCE($4::jsonb, settlement_detail),
+	updated_at = now(),
+	version = version + 1
+WHERE id = $1
+  AND deleted_at IS NULL
+RETURNING
+	id,
+	tenant_id,
+	property_id,
+	room_id,
+	rent_amount,
+	start_date,
+	end_date,
+	rent_billing_cadence,
+	electricity_billing_cadence,
+	status,
+	deposit_amount,
+	deposit_refund_amount,
+	deposit_deduction_amount,
+	deposit_status,
+	deposit_deduction_reason,
+	notes,
+	termination_reason,
+	settlement_detail::text,
+	created_at,
+	updated_at,
+	version`)).
+		WithArgs("lease-1", endDate, "tenant requested", `{"ExportAvailable":true,"LeaseID":"lease-1","NetAmount":45000,"NetDirection":"refund"}`).
+		WillReturnRows(newLeaseRows().AddRow(
+			"lease-1", "tenant-1", "property-1", "room-1", 25000, startDate, endDate, "monthly", "monthly",
+			"terminated", 50000, nil, nil, "held", nil, nil, "tenant requested",
+			`{"ExportAvailable":true,"LeaseID":"lease-1","NetAmount":45000,"NetDirection":"refund"}`,
+			now, now, 2,
+		))
+
+	lease, err := repo.TerminateLease(context.Background(), tx, TerminateLeaseParams{
+		LeaseID:           "lease-1",
+		EndDate:           endDate,
+		TerminationReason: "tenant requested",
+		SettlementDetail:  detail,
+	})
+	if err != nil {
+		t.Fatalf("TerminateLease: %v", err)
+	}
+	if lease.SettlementDetail == nil || (*lease.SettlementDetail)["NetDirection"] != "refund" {
+		t.Fatalf("unexpected settlement detail: %+v", lease.SettlementDetail)
+	}
+
+	mock.ExpectRollback()
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("Rollback: %v", err)
 	}
 }
 
@@ -655,7 +728,7 @@ func TestListBillsByLeaseIDForUpdateLocksBills(t *testing.T) {
 FROM bills
 WHERE lease_id = $1
   AND deleted_at IS NULL
-ORDER BY period_start ASC, type ASC
+ORDER BY period_start ASC, type ASC, id ASC
 FOR UPDATE`)).
 		WithArgs("lease-1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "type", "status", "period_start", "period_end"}).

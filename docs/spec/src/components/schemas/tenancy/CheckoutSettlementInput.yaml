@@ -1,0 +1,37 @@
+type: object
+required:
+  - checkout_date
+  - reason
+properties:
+  checkout_date:
+    type: string
+    format: date
+    description: 實際退租日；backend 以此計算並保存結算快照。
+  reason:
+    type: string
+    description: 退租原因。
+  final_meter_reading:
+    type: integer
+    minimum: 0
+    nullable: true
+    description: 退租電表讀數；v1 僅作為快照顯示輸入，不由 frontend 計算電費。
+  cleaning_fee:
+    type: integer
+    minimum: 0
+    default: 0
+  key_card_loss_fee:
+    type: integer
+    minimum: 0
+    default: 0
+  other_fee:
+    type: integer
+    minimum: 0
+    default: 0
+  other_fee_reason:
+    type: string
+    nullable: true
+    description: other_fee 大於 0 時建議提供。
+  notes:
+    type: string
+    nullable: true
+    description: 退租結算備註。
