@@ -45,14 +45,42 @@ FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099
 firebase emulators:start --only auth
 ```
 
-3. Create or update the local emulator user:
+3. Create or update the local emulator user and matching backend DB user:
 
 ```bash
-go run ./cmd/auth-emulator upsert-user \
+scripts/dev_auth_user.sh
+```
+
+By default this creates an `admin` backend user for `testuser@example.com` with
+password `Test123!` in the database pointed at by `DATABASE_URL`. The database
+must already exist and have migrations applied. You can override the local
+account fields:
+
+```bash
+scripts/dev_auth_user.sh \
   --uid 72sjYQv3GoNts3glUeiXmvbuBUx1 \
   --email testuser@example.com \
-  --password 'Test123!'
+  --password 'Test123!' \
+  --name 'Local Admin' \
+  --role admin
 ```
+
+To create one local account per backend role for frontend testing:
+
+```bash
+scripts/dev_auth_users.sh
+```
+
+This creates or updates:
+
+| Email | Password | Role |
+| --- | --- | --- |
+| `local-admin@example.com` | `Test123!` | `admin` |
+| `local-organizer@example.com` | `Test123!` | `organizer` |
+| `local-staff@example.com` | `Test123!` | `staff` |
+| `local-owner@example.com` | `Test123!` | `owner` |
+
+Set `DEV_AUTH_PASSWORD` to override the shared local password.
 
 4. Get an ID token from the emulator:
 
