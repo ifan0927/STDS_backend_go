@@ -13,12 +13,17 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	domainlease "stds_backend/internal/domain/lease"
 )
 
 const (
 	legacyBillSourceFileName   = "02_estate_electric.json"
 	legacyBillSourceRootKey    = "xx_estate_electric"
+	billTypeRent               = "rent"
 	billTypeElectricity        = "electricity"
+	billStatusPendingPayment   = "pending_payment"
+	billStatusOverdue          = "overdue"
 	billStatusPaid             = "paid"
 	legacyBillTimestampLayout  = "2006-01-02 15:04:05"
 	task11ReportFileName       = "task11_bills_report.json"
@@ -31,6 +36,7 @@ var legacyBillTimestampLocation = time.FixedZone("Asia/Taipei", 8*60*60)
 type MigrateBillsOptions struct {
 	SourceDir string
 	ReportDir string
+	Now       time.Time
 }
 
 // BillMigrationReport captures Task 11 execution details.
@@ -52,6 +58,11 @@ type BillMigrationReport struct {
 	MissingUnitPriceRows int              `json:"missing_unit_price_rows"`
 	NegativeUsageRows    int              `json:"negative_usage_rows"`
 	RoundedReadingRows   int              `json:"rounded_reading_rows"`
+	RentEligibleLeases   int              `json:"rent_eligible_leases"`
+	RentEligiblePeriods  int              `json:"rent_eligible_periods"`
+	RentGeneratedRows    int              `json:"rent_generated_rows"`
+	RentAlreadyExists    int              `json:"rent_already_exists"`
+	RentSkippedRows      int              `json:"rent_skipped_rows"`
 	StatusDistribution   map[string]int   `json:"status_distribution"`
 	Skipped              []BillSkipRecord `json:"skipped"`
 	Assumptions          []string         `json:"assumptions"`
@@ -103,6 +114,17 @@ type billLeaseResolution struct {
 	StartDate  time.Time
 }
 
+type rentBillLeaseCandidate struct {
+	LeaseID            string
+	TenantID           string
+	RoomID             string
+	PropertyID         string
+	RentAmount         int
+	StartDate          time.Time
+	EndDate            time.Time
+	RentBillingCadence string
+}
+
 type normalizedBillRecord struct {
 	LegacyBillKey        string
 	LeaseID              string
@@ -141,6 +163,11 @@ func MigrateBills(ctx context.Context, db *sql.DB, options MigrateBillsOptions) 
 	if err != nil {
 		return nil, err
 	}
+	now := options.Now
+	if now.IsZero() {
+		now = time.Now().In(legacyBillTimestampLocation)
+	}
+	today := time.Date(now.In(legacyBillTimestampLocation).Year(), now.In(legacyBillTimestampLocation).Month(), now.In(legacyBillTimestampLocation).Day(), 0, 0, 0, 0, time.UTC)
 
 	report := &BillMigrationReport{
 		GeneratedAt:        time.Now().UTC(),
@@ -155,6 +182,8 @@ func MigrateBills(ctx context.Context, db *sql.DB, options MigrateBillsOptions) 
 			"Because xx_estate_electric contains reading history but no payment history, migrated historical electricity bills are imported as paid once a valid occupied period and property electricity_unit_price exist.",
 			"Legacy meter readings contain decimal values while bills.meter_previous_reading and bills.meter_current_reading are integer columns; raw decimal readings are preserved in source_ref and the stored reading columns use rounded integers.",
 			"Task 1 nullable electricity_unit_price policy remains authoritative: rows whose migrated property still has unknown unit price are skipped and reported instead of fabricating an amount.",
+			"Issue 153 rent bill generation is limited to active migrated leases from legacy_lease_mappings. Historical inactive leases are not backfilled because legacy rent payment evidence is not available.",
+			"Generated legacy rent bills use runtime rent billing period rules. Rent bills due before the migration date are marked overdue; current and future bills are pending_payment; no generated rent bill is marked paid without legacy payment evidence.",
 		},
 	}
 
@@ -298,6 +327,10 @@ func MigrateBills(ctx context.Context, db *sql.DB, options MigrateBillsOptions) 
 		}
 	}
 
+	if err := generateRentBillsForActiveMigratedLeases(ctx, tx, report, today); err != nil {
+		return nil, err
+	}
+
 	report.StatusDistribution = sortedDistribution(report.StatusDistribution)
 
 	if err := tx.Commit(); err != nil {
@@ -422,6 +455,189 @@ func normalizeLegacyElectricRecord(record legacyElectricRecord) (normalizedElect
 
 func buildLegacyBillKey(legacyRoomID string, year int, month int) string {
 	return fmt.Sprintf("%s:%04d-%02d", strings.TrimSpace(legacyRoomID), year, month)
+}
+
+func generateRentBillsForActiveMigratedLeases(ctx context.Context, tx *sql.Tx, report *BillMigrationReport, today time.Time) error {
+	candidates, err := listActiveMigratedRentBillLeases(ctx, tx)
+	if err != nil {
+		return err
+	}
+	report.RentEligibleLeases = len(candidates)
+
+	for _, candidate := range candidates {
+		periods, err := domainlease.BuildRentBillingPeriods(candidate.StartDate, candidate.EndDate, candidate.RentBillingCadence)
+		if err != nil {
+			report.RentSkippedRows++
+			report.Skipped = append(report.Skipped, BillSkipRecord{
+				LegacyBillKey: candidate.LeaseID,
+				Reason:        fmt.Sprintf("build rent billing periods: %v", err),
+			})
+			continue
+		}
+
+		for _, period := range periods {
+			report.RentEligiblePeriods++
+
+			exists, err := rentBillExists(ctx, tx, candidate.LeaseID, period.PeriodStart, period.PeriodEnd)
+			if err != nil {
+				return err
+			}
+			if exists {
+				report.RentAlreadyExists++
+				continue
+			}
+
+			status := generatedRentBillStatus(period.DueDate, today)
+
+			if err := insertMigratedRentBill(ctx, tx, candidate, period, status); err != nil {
+				return err
+			}
+
+			report.RentGeneratedRows++
+			report.StatusDistribution[status]++
+		}
+	}
+
+	return nil
+}
+
+func generatedRentBillStatus(dueDate time.Time, today time.Time) string {
+	if dueDate.Before(today) {
+		return billStatusOverdue
+	}
+
+	return billStatusPendingPayment
+}
+
+func listActiveMigratedRentBillLeases(ctx context.Context, tx *sql.Tx) ([]rentBillLeaseCandidate, error) {
+	const query = `
+SELECT l.id,
+       l.tenant_id,
+       l.room_id,
+       l.property_id,
+       l.rent_amount,
+       l.start_date,
+       l.end_date,
+       l.rent_billing_cadence
+FROM legacy_lease_mappings m
+JOIN leases l
+  ON l.id = m.lease_id
+WHERE l.status = 'active'
+  AND l.deleted_at IS NULL
+ORDER BY l.property_id, l.room_id, l.start_date, l.id
+`
+
+	rows, err := tx.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list active migrated leases for rent bill generation: %w", err)
+	}
+	defer rows.Close()
+
+	candidates := make([]rentBillLeaseCandidate, 0)
+	for rows.Next() {
+		var candidate rentBillLeaseCandidate
+		if err := rows.Scan(
+			&candidate.LeaseID,
+			&candidate.TenantID,
+			&candidate.RoomID,
+			&candidate.PropertyID,
+			&candidate.RentAmount,
+			&candidate.StartDate,
+			&candidate.EndDate,
+			&candidate.RentBillingCadence,
+		); err != nil {
+			return nil, fmt.Errorf("scan active migrated lease for rent bill generation: %w", err)
+		}
+		candidates = append(candidates, candidate)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate active migrated leases for rent bill generation: %w", err)
+	}
+
+	return candidates, nil
+}
+
+func rentBillExists(ctx context.Context, tx *sql.Tx, leaseID string, periodStart time.Time, periodEnd time.Time) (bool, error) {
+	const query = `
+SELECT 1
+FROM bills
+WHERE lease_id = $1
+  AND type = 'rent'
+  AND period_start = $2
+  AND period_end = $3
+  AND deleted_at IS NULL
+LIMIT 1
+`
+
+	var marker int
+	if err := tx.QueryRowContext(ctx, query, leaseID, periodStart, periodEnd).Scan(&marker); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("query existing rent bill for lease %s period %s..%s: %w", leaseID, periodStart.Format("2006-01-02"), periodEnd.Format("2006-01-02"), err)
+	}
+
+	return true, nil
+}
+
+func insertMigratedRentBill(ctx context.Context, tx *sql.Tx, lease rentBillLeaseCandidate, period domainlease.BillingPeriod, status string) error {
+	sourceRefJSON, err := buildRentBillSourceRefJSON(lease, period)
+	if err != nil {
+		return fmt.Errorf("build rent bill source_ref for lease %s period %s: %w", lease.LeaseID, period.PeriodStart.Format("2006-01-02"), err)
+	}
+
+	const query = `
+INSERT INTO bills (
+	lease_id,
+	tenant_id,
+	room_id,
+	property_id,
+	type,
+	amount,
+	period_start,
+	period_end,
+	due_date,
+	status,
+	source_ref
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)
+`
+
+	if _, err := tx.ExecContext(
+		ctx,
+		query,
+		lease.LeaseID,
+		lease.TenantID,
+		lease.RoomID,
+		lease.PropertyID,
+		billTypeRent,
+		lease.RentAmount,
+		period.PeriodStart,
+		period.PeriodEnd,
+		period.DueDate,
+		status,
+		sourceRefJSON,
+	); err != nil {
+		return fmt.Errorf("insert generated rent bill for lease %s period %s..%s: %w", lease.LeaseID, period.PeriodStart.Format("2006-01-02"), period.PeriodEnd.Format("2006-01-02"), err)
+	}
+
+	return nil
+}
+
+func buildRentBillSourceRefJSON(lease rentBillLeaseCandidate, period domainlease.BillingPeriod) (string, error) {
+	payload := map[string]any{
+		"type":                 "legacy_rent_migration",
+		"lease_id":             lease.LeaseID,
+		"period_start":         period.PeriodStart.Format("2006-01-02"),
+		"period_end":           period.PeriodEnd.Format("2006-01-02"),
+		"rent_billing_cadence": lease.RentBillingCadence,
+	}
+
+	content, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+
+	return string(content), nil
 }
 
 func monthRange(year int, month int) (time.Time, time.Time) {

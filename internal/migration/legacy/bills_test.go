@@ -22,6 +22,148 @@ func TestDeriveHistoricalBillDueDateClampsToMonthEnd(t *testing.T) {
 	}
 }
 
+func TestGeneratedRentBillStatus(t *testing.T) {
+	today := time.Date(2026, 5, 9, 0, 0, 0, 0, time.UTC)
+
+	if got := generatedRentBillStatus(time.Date(2026, 5, 8, 0, 0, 0, 0, time.UTC), today); got != billStatusOverdue {
+		t.Fatalf("generatedRentBillStatus(past) = %q, want %q", got, billStatusOverdue)
+	}
+	if got := generatedRentBillStatus(today, today); got != billStatusPendingPayment {
+		t.Fatalf("generatedRentBillStatus(today) = %q, want %q", got, billStatusPendingPayment)
+	}
+	if got := generatedRentBillStatus(time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC), today); got != billStatusPendingPayment {
+		t.Fatalf("generatedRentBillStatus(future) = %q, want %q", got, billStatusPendingPayment)
+	}
+}
+
+func TestMigrateBillsGeneratesRentBillsForActiveMigratedLeases(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New() error = %v", err)
+	}
+	defer db.Close()
+
+	sourceDir := t.TempDir()
+	reportDir := t.TempDir()
+
+	writeLegacyBillFixture(t, sourceDir, []legacyElectricRecord{})
+
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(`
+CREATE TABLE IF NOT EXISTS legacy_bill_mappings (
+	legacy_bill_key VARCHAR(100) PRIMARY KEY,
+	bill_id UUID NOT NULL UNIQUE REFERENCES bills(id),
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+)
+`)).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(regexp.QuoteMeta(activeMigratedRentBillLeasesQuery())).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id",
+			"tenant_id",
+			"room_id",
+			"property_id",
+			"rent_amount",
+			"start_date",
+			"end_date",
+			"rent_billing_cadence",
+		}).AddRow(
+			"lease-uuid-10",
+			"tenant-uuid-10",
+			"room-uuid-10",
+			"property-uuid-10",
+			54000,
+			time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+			time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC),
+			"quarterly",
+		))
+	expectRentBillExists(mock,
+		"lease-uuid-10",
+		time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 3, 31, 0, 0, 0, 0, time.UTC),
+		true,
+	)
+	expectRentBillExists(mock,
+		"lease-uuid-10",
+		time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC),
+		false,
+	)
+	mock.ExpectExec(regexp.QuoteMeta(`
+INSERT INTO bills (
+	lease_id,
+	tenant_id,
+	room_id,
+	property_id,
+	type,
+	amount,
+	period_start,
+	period_end,
+	due_date,
+	status,
+	source_ref
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)
+`)).
+		WithArgs(
+			"lease-uuid-10",
+			"tenant-uuid-10",
+			"room-uuid-10",
+			"property-uuid-10",
+			billTypeRent,
+			54000,
+			time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+			time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC),
+			time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+			billStatusPendingPayment,
+			sqlmock.AnyArg(),
+		).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	report, err := MigrateBills(context.Background(), db, MigrateBillsOptions{
+		SourceDir: sourceDir,
+		ReportDir: reportDir,
+		Now:       time.Date(2026, 4, 1, 12, 0, 0, 0, legacyBillTimestampLocation),
+	})
+	if err != nil {
+		t.Fatalf("MigrateBills() error = %v", err)
+	}
+
+	if report.RentEligibleLeases != 1 {
+		t.Fatalf("RentEligibleLeases = %d, want 1", report.RentEligibleLeases)
+	}
+	if report.RentEligiblePeriods != 2 {
+		t.Fatalf("RentEligiblePeriods = %d, want 2", report.RentEligiblePeriods)
+	}
+	if report.RentAlreadyExists != 1 {
+		t.Fatalf("RentAlreadyExists = %d, want 1", report.RentAlreadyExists)
+	}
+	if report.RentGeneratedRows != 1 {
+		t.Fatalf("RentGeneratedRows = %d, want 1", report.RentGeneratedRows)
+	}
+	if report.StatusDistribution[billStatusPendingPayment] != 1 {
+		t.Fatalf("StatusDistribution[%s] = %d, want 1", billStatusPendingPayment, report.StatusDistribution[billStatusPendingPayment])
+	}
+
+	content, err := os.ReadFile(report.ReportPath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(report.ReportPath) error = %v", err)
+	}
+
+	var persisted BillMigrationReport
+	if err := json.Unmarshal(content, &persisted); err != nil {
+		t.Fatalf("json.Unmarshal(report) error = %v", err)
+	}
+	if persisted.RentGeneratedRows != report.RentGeneratedRows ||
+		persisted.RentAlreadyExists != report.RentAlreadyExists ||
+		persisted.RentEligiblePeriods != report.RentEligiblePeriods {
+		t.Fatalf("persisted report counts = %+v, want returned counts %+v", persisted, report)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet() error = %v", err)
+	}
+}
+
 func TestMigrateBillsWritesReportWithImportedAndSkippedRows(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -197,6 +339,7 @@ LIMIT 1
 			time.Date(2020, 3, 1, 0, 0, 0, 0, time.UTC),
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "tenant_id", "property_id", "start_date"}))
+	expectNoActiveMigratedRentBillLeases(mock)
 	mock.ExpectCommit()
 
 	report, err := MigrateBills(context.Background(), db, MigrateBillsOptions{
@@ -352,6 +495,7 @@ LIMIT 1
 `)).
 		WithArgs("20").
 		WillReturnRows(sqlmock.NewRows([]string{"room_id", "property_id", "electricity_unit_price"}).AddRow("room-uuid-20", "property-uuid-20", nil))
+	expectNoActiveMigratedRentBillLeases(mock)
 	mock.ExpectCommit()
 
 	report, err := MigrateBills(context.Background(), db, MigrateBillsOptions{
@@ -414,6 +558,7 @@ LIMIT 1
 `)).
 		WithArgs("10:2020-02").
 		WillReturnRows(sqlmock.NewRows([]string{"?column?"}).AddRow(1))
+	expectNoActiveMigratedRentBillLeases(mock)
 	mock.ExpectCommit()
 
 	report, err := MigrateBills(context.Background(), db, MigrateBillsOptions{
@@ -606,4 +751,57 @@ func writeLegacyBillFixture(t *testing.T, dir string, records []legacyElectricRe
 	if err := os.WriteFile(path, payload, 0o644); err != nil {
 		t.Fatalf("os.WriteFile(%s) error = %v", path, err)
 	}
+}
+
+func expectNoActiveMigratedRentBillLeases(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery(regexp.QuoteMeta(activeMigratedRentBillLeasesQuery())).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id",
+			"tenant_id",
+			"room_id",
+			"property_id",
+			"rent_amount",
+			"start_date",
+			"end_date",
+			"rent_billing_cadence",
+		}))
+}
+
+func activeMigratedRentBillLeasesQuery() string {
+	return `
+SELECT l.id,
+       l.tenant_id,
+       l.room_id,
+       l.property_id,
+       l.rent_amount,
+       l.start_date,
+       l.end_date,
+       l.rent_billing_cadence
+FROM legacy_lease_mappings m
+JOIN leases l
+  ON l.id = m.lease_id
+WHERE l.status = 'active'
+  AND l.deleted_at IS NULL
+ORDER BY l.property_id, l.room_id, l.start_date, l.id
+`
+}
+
+func expectRentBillExists(mock sqlmock.Sqlmock, leaseID string, periodStart time.Time, periodEnd time.Time, exists bool) {
+	rows := sqlmock.NewRows([]string{"?column?"})
+	if exists {
+		rows.AddRow(1)
+	}
+
+	mock.ExpectQuery(regexp.QuoteMeta(`
+SELECT 1
+FROM bills
+WHERE lease_id = $1
+  AND type = 'rent'
+  AND period_start = $2
+  AND period_end = $3
+  AND deleted_at IS NULL
+LIMIT 1
+`)).
+		WithArgs(leaseID, periodStart, periodEnd).
+		WillReturnRows(rows)
 }
