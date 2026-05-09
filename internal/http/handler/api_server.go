@@ -3534,10 +3534,10 @@ func toHomeDashboardResponse(dashboard *appproperty.HomeDashboard) api.HomeDashb
 	}
 
 	return api.HomeDashboardResponse{
-		PortfolioSummary:      toOccupancySummaryResponse(dashboard.PortfolioSummary),
+		PortfolioSummary:      *toOccupancySummaryResponse(dashboard.PortfolioSummary),
 		MonthlyBillingSummary: toHomeDashboardBillingSummary(dashboard.MonthlyBillingSummary),
-		PropertySummaries:     &propertySummaries,
-		RecentJournals:        &recentJournals,
+		PropertySummaries:     propertySummaries,
+		RecentJournals:        recentJournals,
 	}
 }
 
@@ -3546,61 +3546,50 @@ func toHomeDashboardPropertySummary(summary appproperty.HomeDashboardPropertySum
 	propertyName := summary.PropertyName
 	response := api.HomeDashboardPropertySummary{
 		MonthlyBillingSummary: toHomeDashboardBillingSummary(summary.MonthlySummary),
-		OccupancySummary:      toOccupancySummaryResponse(summary.Occupancy),
-		PropertyName:          &propertyName,
+		OccupancySummary:      *toOccupancySummaryResponse(summary.Occupancy),
+		PropertyName:          propertyName,
 	}
 	if propertyOK {
-		response.PropertyId = &propertyID
+		response.PropertyId = propertyID
 	}
 	return response
 }
 
-func toHomeDashboardBillingSummary(summary appproperty.DashboardMonthlySummary) *api.HomeDashboardBillingSummary {
-	expectedRent := summary.ExpectedRent
-	collectedRent := summary.CollectedRent
-	overdueBillCount := summary.OverdueBillCount
-	return &api.HomeDashboardBillingSummary{
-		ExpectedRent:     &expectedRent,
-		CollectedRent:    &collectedRent,
-		OverdueBillCount: &overdueBillCount,
+func toHomeDashboardBillingSummary(summary appproperty.DashboardMonthlySummary) api.HomeDashboardBillingSummary {
+	return api.HomeDashboardBillingSummary{
+		ExpectedRent:     summary.ExpectedRent,
+		CollectedRent:    summary.CollectedRent,
+		OverdueBillCount: summary.OverdueBillCount,
 	}
 }
 
 func toHomeDashboardRecentJournalItem(journal appproperty.HomeDashboardRecentJournal) api.HomeDashboardRecentJournalItem {
 	id, idOK := parseUUID(journal.ID)
 	propertyID, propertyOK := parseUUID(journal.PropertyID)
-	propertyName := journal.PropertyName
-	content := journal.Content
 	createdAt := journal.CreatedAt
-	itemType := journal.Type
 
 	response := api.HomeDashboardRecentJournalItem{
-		Content:      &content,
-		CreatedAt:    &createdAt,
-		PropertyName: &propertyName,
-		Type:         &itemType,
+		Content:      journal.Content,
+		CreatedAt:    createdAt,
+		PropertyName: journal.PropertyName,
+		Type:         api.HomeDashboardRecentJournalItemType(journal.Type),
 	}
 	if idOK {
-		response.Id = &id
+		response.Id = id
 	}
 	if propertyOK {
-		response.PropertyId = &propertyID
+		response.PropertyId = propertyID
 	}
 	return response
 }
 
 func toOccupancySummaryResponse(summary appproperty.OccupancySummary) *api.OccupancySummary {
-	totalRooms := summary.TotalRooms
-	occupiedRooms := summary.OccupiedRooms
-	vacantRooms := summary.VacantRooms
-	maintenanceRooms := summary.MaintenanceRooms
-	occupancyRate := summary.OccupancyRate
 	return &api.OccupancySummary{
-		TotalRooms:       &totalRooms,
-		OccupiedRooms:    &occupiedRooms,
-		VacantRooms:      &vacantRooms,
-		MaintenanceRooms: &maintenanceRooms,
-		OccupancyRate:    &occupancyRate,
+		TotalRooms:       summary.TotalRooms,
+		OccupiedRooms:    summary.OccupiedRooms,
+		VacantRooms:      summary.VacantRooms,
+		MaintenanceRooms: summary.MaintenanceRooms,
+		OccupancyRate:    summary.OccupancyRate,
 	}
 }
 

@@ -1,4 +1,11 @@
 type: object
+required:
+  - id
+  - property_id
+  - property_name
+  - type
+  - content
+  - created_at
 properties:
   id:
     type: string
@@ -10,6 +17,9 @@ properties:
     type: string
   type:
     type: string
+    enum:
+      - journal_log
+      - repair_request
   content:
     type: string
   created_at:

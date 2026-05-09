@@ -7161,6 +7161,12 @@ components:
             format: uuid
     OccupancySummary:
       type: object
+      required:
+        - total_rooms
+        - occupied_rooms
+        - vacant_rooms
+        - maintenance_rooms
+        - occupancy_rate
       properties:
         total_rooms:
           type: integer
@@ -7177,6 +7183,10 @@ components:
           maximum: 1
     HomeDashboardBillingSummary:
       type: object
+      required:
+        - expected_rent
+        - collected_rent
+        - overdue_bill_count
       properties:
         expected_rent:
           type: integer
@@ -7186,6 +7196,11 @@ components:
           type: integer
     HomeDashboardPropertySummary:
       type: object
+      required:
+        - property_id
+        - property_name
+        - occupancy_summary
+        - monthly_billing_summary
       properties:
         property_id:
           type: string
@@ -7198,6 +7213,13 @@ components:
           $ref: '#/components/schemas/HomeDashboardBillingSummary'
     HomeDashboardRecentJournalItem:
       type: object
+      required:
+        - id
+        - property_id
+        - property_name
+        - type
+        - content
+        - created_at
       properties:
         id:
           type: string
@@ -7209,6 +7231,9 @@ components:
           type: string
         type:
           type: string
+          enum:
+            - journal_log
+            - repair_request
         content:
           type: string
         created_at:
@@ -7216,6 +7241,11 @@ components:
           format: date-time
     HomeDashboardResponse:
       type: object
+      required:
+        - portfolio_summary
+        - monthly_billing_summary
+        - property_summaries
+        - recent_journals
       properties:
         portfolio_summary:
           $ref: '#/components/schemas/OccupancySummary'

@@ -1,4 +1,8 @@
 type: object
+required:
+  - expected_rent
+  - collected_rent
+  - overdue_bill_count
 properties:
   expected_rent:
     type: integer

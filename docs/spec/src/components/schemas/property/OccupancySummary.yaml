@@ -1,4 +1,10 @@
 type: object
+required:
+  - total_rooms
+  - occupied_rooms
+  - vacant_rooms
+  - maintenance_rooms
+  - occupancy_rate
 properties:
   total_rooms:
     type: integer

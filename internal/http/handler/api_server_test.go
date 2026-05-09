@@ -239,7 +239,7 @@ func TestGetPropertyDashboardReturnsDashboardResponse(t *testing.T) {
 	if response.MonthlySummary == nil || response.MonthlySummary.ExpectedRent == nil || *response.MonthlySummary.ExpectedRent != 50000 {
 		t.Fatalf("unexpected monthly summary: %+v", response.MonthlySummary)
 	}
-	if response.OccupancySummary == nil || response.OccupancySummary.OccupancyRate == nil || *response.OccupancySummary.OccupancyRate != 0.5 {
+	if response.OccupancySummary == nil || response.OccupancySummary.OccupancyRate != 0.5 {
 		t.Fatalf("unexpected occupancy summary: %+v", response.OccupancySummary)
 	}
 	if response.Rooms == nil || len(*response.Rooms) != 1 || (*response.Rooms)[0].Status == nil || string(*(*response.Rooms)[0].Status) != "occupied" {
@@ -313,16 +313,16 @@ func TestGetDashboardReturnsHomeDashboardResponse(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("json.Unmarshal: %v", err)
 	}
-	if response.PortfolioSummary == nil || response.PortfolioSummary.TotalRooms == nil || *response.PortfolioSummary.TotalRooms != 2 {
+	if response.PortfolioSummary.TotalRooms != 2 {
 		t.Fatalf("unexpected portfolio summary: %+v", response.PortfolioSummary)
 	}
-	if response.MonthlyBillingSummary == nil || response.MonthlyBillingSummary.ExpectedRent == nil || *response.MonthlyBillingSummary.ExpectedRent != 50000 {
+	if response.MonthlyBillingSummary.ExpectedRent != 50000 {
 		t.Fatalf("unexpected billing summary: %+v", response.MonthlyBillingSummary)
 	}
-	if response.PropertySummaries == nil || len(*response.PropertySummaries) != 1 || (*response.PropertySummaries)[0].PropertyName == nil || *(*response.PropertySummaries)[0].PropertyName != "Demo Property" {
+	if len(response.PropertySummaries) != 1 || response.PropertySummaries[0].PropertyName != "Demo Property" {
 		t.Fatalf("unexpected property summaries: %+v", response.PropertySummaries)
 	}
-	if response.RecentJournals == nil || len(*response.RecentJournals) != 1 || (*response.RecentJournals)[0].PropertyName == nil || *(*response.RecentJournals)[0].PropertyName != "Demo Property" {
+	if len(response.RecentJournals) != 1 || response.RecentJournals[0].PropertyName != "Demo Property" || response.RecentJournals[0].Type != api.JournalLog {
 		t.Fatalf("unexpected recent journals: %+v", response.RecentJournals)
 	}
 }
