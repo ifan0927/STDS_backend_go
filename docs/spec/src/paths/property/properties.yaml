@@ -4,7 +4,7 @@ get:
   description: |
     x-ownership-required: 依角色過濾：
     - admin：全部物業
-    - organizer/staff：Firebase Custom Claims 內 assigned_property_ids
+    - organizer/staff：DB user principal 內 assigned_property_ids
     - owner：自己名下（properties.owner_id = authenticated user id）
   tags:
     - Property
