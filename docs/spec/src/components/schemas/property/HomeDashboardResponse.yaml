@@ -1,4 +1,9 @@
 type: object
+required:
+  - portfolio_summary
+  - monthly_billing_summary
+  - property_summaries
+  - recent_journals
 properties:
   portfolio_summary:
     $ref: ./OccupancySummary.yaml

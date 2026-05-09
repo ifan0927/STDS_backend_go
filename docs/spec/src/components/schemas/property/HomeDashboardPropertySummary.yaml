@@ -1,4 +1,9 @@
 type: object
+required:
+  - property_id
+  - property_name
+  - occupancy_summary
+  - monthly_billing_summary
 properties:
   property_id:
     type: string

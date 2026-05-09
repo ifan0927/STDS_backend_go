@@ -196,6 +196,12 @@ const (
 	ForceTerminationResponseStatusInProgress ForceTerminationResponseStatus = "in_progress"
 )
 
+// Defines values for HomeDashboardRecentJournalItemType.
+const (
+	JournalLog    HomeDashboardRecentJournalItemType = "journal_log"
+	RepairRequest HomeDashboardRecentJournalItemType = "repair_request"
+)
+
 // Defines values for LeaseCheckoutReviewResponseDepositStatus.
 const (
 	LeaseCheckoutReviewResponseDepositStatusHeld       LeaseCheckoutReviewResponseDepositStatus = "held"
@@ -945,35 +951,38 @@ type ForceTerminationResponseStatus string
 
 // HomeDashboardBillingSummary defines model for HomeDashboardBillingSummary.
 type HomeDashboardBillingSummary struct {
-	CollectedRent    *int `json:"collected_rent,omitempty"`
-	ExpectedRent     *int `json:"expected_rent,omitempty"`
-	OverdueBillCount *int `json:"overdue_bill_count,omitempty"`
+	CollectedRent    int `json:"collected_rent"`
+	ExpectedRent     int `json:"expected_rent"`
+	OverdueBillCount int `json:"overdue_bill_count"`
 }
 
 // HomeDashboardPropertySummary defines model for HomeDashboardPropertySummary.
 type HomeDashboardPropertySummary struct {
-	MonthlyBillingSummary *HomeDashboardBillingSummary `json:"monthly_billing_summary,omitempty"`
-	OccupancySummary      *OccupancySummary            `json:"occupancy_summary,omitempty"`
-	PropertyId            *openapi_types.UUID          `json:"property_id,omitempty"`
-	PropertyName          *string                      `json:"property_name,omitempty"`
+	MonthlyBillingSummary HomeDashboardBillingSummary `json:"monthly_billing_summary"`
+	OccupancySummary      OccupancySummary            `json:"occupancy_summary"`
+	PropertyId            openapi_types.UUID          `json:"property_id"`
+	PropertyName          string                      `json:"property_name"`
 }
 
 // HomeDashboardRecentJournalItem defines model for HomeDashboardRecentJournalItem.
 type HomeDashboardRecentJournalItem struct {
-	Content      *string             `json:"content,omitempty"`
-	CreatedAt    *time.Time          `json:"created_at,omitempty"`
-	Id           *openapi_types.UUID `json:"id,omitempty"`
-	PropertyId   *openapi_types.UUID `json:"property_id,omitempty"`
-	PropertyName *string             `json:"property_name,omitempty"`
-	Type         *string             `json:"type,omitempty"`
+	Content      string                             `json:"content"`
+	CreatedAt    time.Time                          `json:"created_at"`
+	Id           openapi_types.UUID                 `json:"id"`
+	PropertyId   openapi_types.UUID                 `json:"property_id"`
+	PropertyName string                             `json:"property_name"`
+	Type         HomeDashboardRecentJournalItemType `json:"type"`
 }
+
+// HomeDashboardRecentJournalItemType defines model for HomeDashboardRecentJournalItem.Type.
+type HomeDashboardRecentJournalItemType string
 
 // HomeDashboardResponse defines model for HomeDashboardResponse.
 type HomeDashboardResponse struct {
-	MonthlyBillingSummary *HomeDashboardBillingSummary      `json:"monthly_billing_summary,omitempty"`
-	PortfolioSummary      *OccupancySummary                 `json:"portfolio_summary,omitempty"`
-	PropertySummaries     *[]HomeDashboardPropertySummary   `json:"property_summaries,omitempty"`
-	RecentJournals        *[]HomeDashboardRecentJournalItem `json:"recent_journals,omitempty"`
+	MonthlyBillingSummary HomeDashboardBillingSummary      `json:"monthly_billing_summary"`
+	PortfolioSummary      OccupancySummary                 `json:"portfolio_summary"`
+	PropertySummaries     []HomeDashboardPropertySummary   `json:"property_summaries"`
+	RecentJournals        []HomeDashboardRecentJournalItem `json:"recent_journals"`
 }
 
 // JournalLogListResponse defines model for JournalLogListResponse.
@@ -1136,11 +1145,11 @@ type LeaseResponseStatus string
 
 // OccupancySummary defines model for OccupancySummary.
 type OccupancySummary struct {
-	MaintenanceRooms *int     `json:"maintenance_rooms,omitempty"`
-	OccupancyRate    *float64 `json:"occupancy_rate,omitempty"`
-	OccupiedRooms    *int     `json:"occupied_rooms,omitempty"`
-	TotalRooms       *int     `json:"total_rooms,omitempty"`
-	VacantRooms      *int     `json:"vacant_rooms,omitempty"`
+	MaintenanceRooms int     `json:"maintenance_rooms"`
+	OccupancyRate    float64 `json:"occupancy_rate"`
+	OccupiedRooms    int     `json:"occupied_rooms"`
+	TotalRooms       int     `json:"total_rooms"`
+	VacantRooms      int     `json:"vacant_rooms"`
 }
 
 // PaginationResponse defines model for PaginationResponse.
