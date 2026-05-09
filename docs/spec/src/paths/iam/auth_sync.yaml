@@ -10,7 +10,7 @@ post:
     - Identity & Access
   responses:
     '200':
-      description: 同步成功，回傳使用者基本資料與 Custom Claims 資訊
+      description: 同步成功，回傳使用者基本資料與 DB 授權資訊
       content:
         application/json:
           schema:

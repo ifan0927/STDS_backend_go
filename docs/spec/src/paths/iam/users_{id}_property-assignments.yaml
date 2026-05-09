@@ -11,7 +11,8 @@ post:
     指派成功後，後端呼叫 Firebase Admin SDK 更新該使用者的 Custom Claims（role 與
     assigned_property_ids），
 
-    前端下次 refresh token 後新指派生效。
+    Backend authenticated requests 會於下次請求載入 DB user principal 後生效；Custom Claims
+    僅作為同步副本。
   tags:
     - Identity & Access
   x-required-role:
@@ -37,7 +38,7 @@ post:
                 - 10000000-0000-0000-0000-000000000002
   responses:
     '200':
-      description: 指派成功（Firebase Custom Claims 已更新）
+      description: 指派成功（DB 授權資料已更新，Firebase Custom Claims 已同步）
       content:
         application/json:
           schema:

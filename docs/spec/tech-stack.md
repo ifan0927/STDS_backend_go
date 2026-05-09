@@ -62,10 +62,10 @@
 
 - **認證方式**：Firebase Auth（已確定於 schema）
 - **授權實作**：
-  - RBAC：role 欄位（admin/organizer/staff/owner）存於 Firebase Custom Claims，Go middleware 讀取 token 直接判斷，不需每次查 DB
-  - Resource-based：`assigned_property_ids` 存於 Custom Claims，middleware 驗證請求是否在允許的 property 範圍內
-- **Go 整合**：`firebase.google.com/go/v4` Admin SDK，middleware 驗證 ID Token → 解析 claims → 注入 context
-- **理由**：schema 已確定此方案，Custom Claims 避免每次 DB 查詢，符合低成本高效率需求
+  - RBAC：Go middleware 驗證 Firebase ID token 後，以 `firebase_uid` 載入 DB user principal，使用 DB role（admin/organizer/staff/owner）判斷
+  - Resource-based：middleware 使用 DB user principal 內的 `assigned_property_ids` 驗證請求是否在允許的 property 範圍內；owner 以 `properties.owner_id` 判斷
+- **Go 整合**：`firebase.google.com/go/v4` Admin SDK，middleware 驗證 ID Token → 載入 DB user principal → 注入 context
+- **理由**：Firebase Auth 負責身份驗證，DB user principal 作為授權 source of truth，避免 Custom Claims 與 DB drift 影響 runtime authorization
 - **放棄的選項**：JWT 自建（多餘複雜度，Firebase 已包含）、session-based（Cloud Run 無狀態不適合）
 
 ---

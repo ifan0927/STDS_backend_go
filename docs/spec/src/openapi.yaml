@@ -14,8 +14,9 @@ info:
 
     - x-required-role：列出可呼叫的角色（RBAC）
 
-    - x-ownership-required：物業層級存取控制（resource-based），透過 Firebase ID token 內
-    Custom Claims 的 assigned_property_ids 驗證
+    - x-ownership-required：物業層級存取控制（resource-based），透過 Firebase ID token
+    解析出的 firebase_uid 載入 DB user principal，再以 DB 內 role / assigned_property_ids
+    驗證
 
     - 優先順序：先驗 RBAC role，再驗 property ownership（兩者皆須通過）
 
@@ -26,8 +27,8 @@ info:
 
     - 後端驗證：每個 request 以 Firebase ID token（Bearer token）呼叫後端
 
-    - 後端 middleware 以 Firebase Admin SDK 驗證 token，從 Custom Claims 讀取 role 與
-    assigned_property_ids
+    - 後端 middleware 以 Firebase Admin SDK 驗證 token，使用 firebase_uid 查詢 DB user；
+    DB user principal 才是 role 與 assigned_property_ids 的授權來源
 
     - 密碼重設：`POST /users` 建立帳號後由後端向 Firebase 產生 reset link，再透過 email 寄送；admin 可透過 `POST /users/{id}/password-reset` 重寄設定密碼信
 
@@ -65,7 +66,8 @@ components:
         Firebase ID token。前端以 Firebase SDK 登入後取得，每個 request 帶入 Authorization
         header。
 
-        後端以 Firebase Admin SDK 驗證，Custom Claims 包含 role 與 assigned_property_ids。
+        後端以 Firebase Admin SDK 驗證 token，並以 firebase_uid 載入 DB user principal
+        作為 role 與 assigned_property_ids 的授權來源。
     SchedulerKey:
       type: apiKey
       in: header

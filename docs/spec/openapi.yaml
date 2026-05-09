@@ -10,13 +10,13 @@ info:
     產出依據：docs/design/domain-model.md v3.3
     授權模型：混合型（RBAC + Resource-based）
     - x-required-role：列出可呼叫的角色（RBAC）
-    - x-ownership-required：物業層級存取控制（resource-based），透過 Firebase ID token 內 Custom Claims 的 assigned_property_ids 驗證
+    - x-ownership-required：物業層級存取控制（resource-based），透過 Firebase ID token 解析出的 firebase_uid 載入 DB user principal，再以 DB 內 role / assigned_property_ids 驗證
     - 優先順序：先驗 RBAC role，再驗 property ownership（兩者皆須通過）
 
     認證機制（v3.2）：系統使用 Firebase Auth 管理使用者認證。
     - 登入流程：由前端 Firebase SDK 處理，後端不接受 email/password 登入
     - 後端驗證：每個 request 以 Firebase ID token（Bearer token）呼叫後端
-    - 後端 middleware 以 Firebase Admin SDK 驗證 token，從 Custom Claims 讀取 role 與 assigned_property_ids
+    - 後端 middleware 以 Firebase Admin SDK 驗證 token，使用 firebase_uid 查詢 DB user； DB user principal 才是 role 與 assigned_property_ids 的授權來源
     - 密碼重設：`POST /users` 建立帳號後由後端向 Firebase 產生 reset link，再透過 email 寄送；admin 可透過 `POST /users/{id}/password-reset` 重寄設定密碼信
     - users table 透過 firebase_uid 與 Firebase 帳號對應
 
@@ -49,7 +49,7 @@ paths:
         - Identity & Access
       responses:
         '200':
-          description: 同步成功，回傳使用者基本資料與 Custom Claims 資訊
+          description: 同步成功，回傳使用者基本資料與 DB 授權資訊
           content:
             application/json:
               schema:
@@ -549,7 +549,7 @@ paths:
         BR-11：指派對象必須為工作室成員（非業主）。
         x-required-role: admin
         指派成功後，後端呼叫 Firebase Admin SDK 更新該使用者的 Custom Claims（role 與 assigned_property_ids），
-        前端下次 refresh token 後新指派生效。
+        Backend authenticated requests 會於下次請求載入 DB user principal 後生效；Custom Claims 僅作為同步副本。
       tags:
         - Identity & Access
       x-required-role:
@@ -575,7 +575,7 @@ paths:
                     - 10000000-0000-0000-0000-000000000002
       responses:
         '200':
-          description: 指派成功（Firebase Custom Claims 已更新）
+          description: 指派成功（DB 授權資料已更新，Firebase Custom Claims 已同步）
           content:
             application/json:
               schema:
@@ -771,7 +771,7 @@ paths:
       description: |
         x-ownership-required: 依角色過濾：
         - admin：全部物業
-        - organizer/staff：Firebase Custom Claims 內 assigned_property_ids
+        - organizer/staff：DB user principal 內 assigned_property_ids
         - owner：自己名下（properties.owner_id = authenticated user id）
       tags:
         - Property
@@ -7022,7 +7022,7 @@ components:
       bearerFormat: JWT
       description: |
         Firebase ID token。前端以 Firebase SDK 登入後取得，每個 request 帶入 Authorization header。
-        後端以 Firebase Admin SDK 驗證，Custom Claims 包含 role 與 assigned_property_ids。
+        後端以 Firebase Admin SDK 驗證 token，並以 firebase_uid 載入 DB user principal 作為 role 與 assigned_property_ids 的授權來源。
     SchedulerKey:
       type: apiKey
       in: header

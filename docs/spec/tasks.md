@@ -213,9 +213,9 @@ T-14~T-19 ── T-20（整合測試）
   - [x] 所有查詢可自動加上 `deleted_at IS NULL` filter（middleware 或 ORM scope）
   - [x] `gen_random_uuid()` 可用（PostgreSQL uuid-ossp 或 pgcrypto extension 啟用）
   - [x] Firebase Admin SDK 初始化成功，可驗證 Firebase ID token
-  - [x] Auth middleware 完成：驗證 Firebase ID token、解析 Custom Claims、載入對應 DB user，並將 `user_id`、`firebase_uid`、`role`、`assigned_property_ids` 注入 request context
+  - [x] Auth middleware 完成：驗證 Firebase ID token、以 `firebase_uid` 載入對應 DB user，並將 DB principal 的 `user_id`、`firebase_uid`、`role`、`assigned_property_ids` 注入 request context
   - [x] Authorization middleware 拆分完成：RBAC（`x-required-role`）與 property ownership（`x-ownership-required`）分離實作，先驗 role 再驗 property access
-  - [x] Property ownership 檢查以 Firebase Custom Claims 的 `assigned_property_ids` 為主；設計上保留必要時 fallback DB 查詢的擴充點
+  - [x] Property ownership 檢查以 DB principal 的 `assigned_property_ids` 為主；owner 以 `properties.owner_id` 判斷
   - [x] 統一 error handling middleware 完成：handler / application service 回傳 domain/app error 時，可統一轉為 OpenAPI `ErrorResponse` 格式（`error_code`、`message`、`details`）
   - [x] `401` 與 `403` 錯誤可分別穩定回傳 `UNAUTHORIZED` 與 `FORBIDDEN` 類型 error code；`500` 由 recovery middleware 處理，回應內 `details` 含 `request_id`
   - [x] Request logging middleware 完成：使用 structured logging，至少記錄 `request_id`、`method`、`path`、`status`、`latency_ms`、`user_id`、`firebase_uid`、`role`、`property_id`、`error_code`
@@ -495,5 +495,5 @@ T-14~T-19 ── T-20（整合測試）
   - [ ] 強制終止路徑：建立 Lease → 模擬逾期帳單 → 觸發強制終止 → 補償排程執行 → 所有帳單 written_off → LeaseTerminated（forced:true）發出
   - [ ] 跨 BC side effect 正確：LeaseCreated 後 Room 改 occupied；Repair workflow 完成後 Room 改 vacant（所有 RepairRequest 完成後才轉換）
   - [ ] 樂觀鎖測試：兩個請求同時對同一帳單收款，只有一個成功，另一個回傳 409 `CONCURRENT_UPDATE_CONFLICT`
-  - [ ] Resource-based 存取控制：organizer 只能存取 Firebase Custom Claims 內 assigned_property_ids 的資源；嘗試存取未指派物業時回傳 403 `FORBIDDEN`
-  - [ ] Firebase Auth 整合：Firebase ID token 驗證正確，Custom Claims 更新（物業指派變更後）於下次 token refresh 生效
+  - [ ] Resource-based 存取控制：organizer 只能存取 DB principal 內 assigned_property_ids 的資源；嘗試存取未指派物業時回傳 403 `FORBIDDEN`
+  - [ ] Firebase Auth 整合：Firebase ID token 驗證正確，物業指派變更後 DB principal 於下次 request 生效，Custom Claims 仍同步最新授權副本
