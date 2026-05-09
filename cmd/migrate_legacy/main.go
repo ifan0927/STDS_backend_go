@@ -333,7 +333,7 @@ func runBills(args []string) error {
 	}
 
 	fmt.Printf(
-		"legacy bills migrated: imported=%d already_mapped=%d skipped=%d first_reading_skipped=%d vacancy_skipped=%d missing_unit_price=%d negative_usage=%d report=%s\n",
+		"legacy bills migrated: imported=%d already_mapped=%d skipped=%d first_reading_skipped=%d vacancy_skipped=%d missing_unit_price=%d negative_usage=%d rent_generated=%d rent_already_exists=%d rent_skipped=%d report=%s\n",
 		report.ImportedRows,
 		report.AlreadyMappedRows,
 		report.SkippedRows,
@@ -341,6 +341,9 @@ func runBills(args []string) error {
 		report.VacancyPeriodSkipped,
 		report.MissingUnitPriceRows,
 		report.NegativeUsageRows,
+		report.RentGeneratedRows,
+		report.RentAlreadyExists,
+		report.RentSkippedRows,
 		report.ReportPath,
 	)
 
