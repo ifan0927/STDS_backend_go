@@ -88,6 +88,35 @@ func TestToPropertyResponseIncludesWritableV1Fields(t *testing.T) {
 	}
 }
 
+func TestToPropertyResponseDropsInvalidContactEmail(t *testing.T) {
+	contactEmail := "not an email"
+
+	response := toPropertyResponse(&dbpropertyquery.Property{
+		ID:           "00000000-0000-0000-0000-000000000001",
+		Name:         "Property",
+		Address:      "Address",
+		OwnerID:      "00000000-0000-0000-0000-000000000002",
+		ContactEmail: &contactEmail,
+		CreatedAt:    time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+		UpdatedAt:    time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+		Version:      1,
+	})
+
+	body, err := json.Marshal(response)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+
+	if value, ok := payload["contact_email"]; !ok || value != nil {
+		t.Fatalf("expected contact_email null, got %v", payload["contact_email"])
+	}
+}
+
 func TestToRoomResponseAllowsNilOptionalFields(t *testing.T) {
 	response := toRoomResponse(&dbpropertyquery.Room{
 		ID:         "20000000-0000-0000-0000-000000000001",

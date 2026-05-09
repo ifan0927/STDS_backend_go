@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/mail"
 	"strings"
 	"time"
 
@@ -3712,8 +3713,10 @@ func toPropertyResponse(property *dbpropertyquery.Property) api.PropertyResponse
 		Version:          &version,
 	}
 	if property.ContactEmail != nil {
-		email := openapi_types.Email(*property.ContactEmail)
-		response.ContactEmail = &email
+		if parsed, err := mail.ParseAddress(*property.ContactEmail); err == nil {
+			email := openapi_types.Email(parsed.Address)
+			response.ContactEmail = &email
+		}
 	}
 	if property.DefaultElectricityBillingCadence != "" {
 		cadence := api.PropertyResponseDefaultElectricityBillingCadence(property.DefaultElectricityBillingCadence)
