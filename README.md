@@ -82,7 +82,19 @@ This creates or updates:
 
 Set `DEV_AUTH_PASSWORD` to override the shared local password.
 
-4. Get an ID token from the emulator:
+4. Seed deterministic frontend demo data when the UI needs non-empty local
+   screens:
+
+```bash
+scripts/dev_demo_seed.sh
+```
+
+This opt-in seed refuses production-like environments and creates a rerunnable
+demo property with rooms, tenants, leases, bills, meter history, reports,
+journal, repair, and checkout data. It is local frontend support data and is
+separate from schema migrations and legacy migration validation.
+
+5. Get an ID token from the emulator:
 
 ```bash
 go run ./cmd/auth-emulator issue-token \
@@ -90,7 +102,7 @@ go run ./cmd/auth-emulator issue-token \
   --password 'Test123!'
 ```
 
-5. Use the returned token to call a protected route:
+6. Use the returned token to call a protected route:
 
 ```bash
 curl -i \
