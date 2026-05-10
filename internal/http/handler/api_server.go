@@ -1267,17 +1267,11 @@ func (s *APIServer) UpdateLease(c *gin.Context, id string) {
 		return
 	}
 
-	var endDate *time.Time
-	if request.EndDate != nil {
-		value := request.EndDate.Time
-		endDate = &value
-	}
 	lease, err := s.updateLeaseSvc.Execute(c.Request.Context(), applease.UpdateLeaseInput{
 		ActorRole:           principal.Role,
 		AssignedPropertyIDs: principal.AssignedPropertyIDs,
 		LeaseID:             id,
 		RentAmount:          request.RentAmount,
-		EndDate:             endDate,
 	})
 	if err != nil {
 		c.Error(err)

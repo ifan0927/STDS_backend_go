@@ -8052,9 +8052,6 @@ components:
       properties:
         rent_amount:
           type: integer
-        end_date:
-          type: string
-          format: date
     LeaseReplaceRequest:
       type: object
       required:

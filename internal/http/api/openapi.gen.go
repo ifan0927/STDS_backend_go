@@ -1464,8 +1464,7 @@ type UpdateJournalLogRequest struct {
 
 // UpdateLeaseRequest defines model for UpdateLeaseRequest.
 type UpdateLeaseRequest struct {
-	EndDate    *openapi_types.Date `json:"end_date,omitempty"`
-	RentAmount *int                `json:"rent_amount,omitempty"`
+	RentAmount *int `json:"rent_amount,omitempty"`
 }
 
 // UpdatePropertyRequest defines model for UpdatePropertyRequest.
