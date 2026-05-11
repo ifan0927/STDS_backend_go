@@ -209,5 +209,7 @@ paths:
     $ref: paths/scheduler/internal_jobs_force-terminations_compensate.yaml
   /attachments/upload-url:
     $ref: paths/shared/attachments_upload-url.yaml
+  /attachments/{id}/download-url:
+    $ref: paths/shared/attachments_{id}_download-url.yaml
   /attachments/{id}:
     $ref: paths/shared/attachments_{id}.yaml

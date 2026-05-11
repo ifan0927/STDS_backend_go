@@ -6970,6 +6970,63 @@ paths:
                   value:
                     error_code: ATTACHMENT_FILE_TOO_LARGE
                     message: Attachment file size exceeds the 20MB limit.
+  /attachments/{id}/download-url:
+    post:
+      operationId: createAttachmentDownloadURL
+      summary: 產生附件下載 Signed URL
+      description: |
+        x-required-role: admin, organizer, staff; owner only for attachments whose host resource read/list policy allows owner (property, room, bill on own property)
+        依附件 id 產生短效讀取 Signed URL。呼叫者必須通過認證，並符合附件宿主資源的 property access policy；owner 只可下載其宿主資源 read/list policy 允許的附件（自己名下 property、room、bill attachments）。tenant attachments follow the same tenant to property access model as other tenant flows.
+        Missing 或已軟刪除的附件不回傳可用 URL。Response 不暴露 object_path、bucket、service account 或 storage internals。
+      tags:
+        - Attachments
+      x-required-role:
+        - admin
+        - organizer
+        - staff
+        - owner
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Signed URL 建立成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttachmentDownloadURLResponse'
+              examples:
+                success:
+                  value:
+                    download_url: https://storage.googleapis.com/example-bucket/attachments/properties/10000000-0000-0000-0000-000000000001/abcd.jpg?signature=masked
+                    expires_at: '2026-04-17T10:15:00Z'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 附件不存在或已刪除
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  value:
+                    error_code: ATTACHMENT_NOT_FOUND
+                    message: Attachment not found.
   /attachments/{id}:
     delete:
       operationId: deleteAttachment
@@ -9083,6 +9140,18 @@ components:
           format: uri
         nonce:
           type: string
+        expires_at:
+          type: string
+          format: date-time
+    AttachmentDownloadURLResponse:
+      type: object
+      required:
+        - download_url
+        - expires_at
+      properties:
+        download_url:
+          type: string
+          format: uri
         expires_at:
           type: string
           format: date-time

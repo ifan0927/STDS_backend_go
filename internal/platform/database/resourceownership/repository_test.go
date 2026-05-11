@@ -347,6 +347,71 @@ func TestFindPropertyIDByAttachmentIDRequiresActiveAttachmentAndHostResource(t *
 	}
 }
 
+func TestFindPropertyIDsByAttachmentIDReturnsAllActiveAttachmentProperties(t *testing.T) {
+	db, mock, repo := newResourceOwnershipRepoTest(t)
+	defer closeResourceOwnershipDB(t, db)
+
+	mock.ExpectQuery(attachmentPropertiesQueryPattern()).
+		WithArgs("attachment-1").
+		WillReturnRows(sqlmock.NewRows([]string{"property_id"}).
+			AddRow("property-1").
+			AddRow("property-2"))
+
+	propertyIDs, err := repo.FindPropertyIDsByAttachmentID(context.Background(), "attachment-1")
+	if err != nil {
+		t.Fatalf("FindPropertyIDsByAttachmentID: %v", err)
+	}
+	if len(propertyIDs) != 2 || propertyIDs[0] != "property-1" || propertyIDs[1] != "property-2" {
+		t.Fatalf("propertyIDs = %+v, want [property-1 property-2]", propertyIDs)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestFindPropertyIDsByAttachmentIDMapsEmptyRowsToNotFound(t *testing.T) {
+	db, mock, repo := newResourceOwnershipRepoTest(t)
+	defer closeResourceOwnershipDB(t, db)
+
+	mock.ExpectQuery(attachmentPropertiesQueryPattern()).
+		WithArgs("attachment-1").
+		WillReturnRows(sqlmock.NewRows([]string{"property_id"}))
+	mock.ExpectQuery(activeAttachmentHostExistsQueryPattern()).
+		WithArgs("attachment-1").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	_, err := repo.FindPropertyIDsByAttachmentID(context.Background(), "attachment-1")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestFindPropertyIDsByAttachmentIDReturnsEmptyListForActiveHostWithoutProperties(t *testing.T) {
+	db, mock, repo := newResourceOwnershipRepoTest(t)
+	defer closeResourceOwnershipDB(t, db)
+
+	mock.ExpectQuery(attachmentPropertiesQueryPattern()).
+		WithArgs("attachment-1").
+		WillReturnRows(sqlmock.NewRows([]string{"property_id"}))
+	mock.ExpectQuery(activeAttachmentHostExistsQueryPattern()).
+		WithArgs("attachment-1").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	propertyIDs, err := repo.FindPropertyIDsByAttachmentID(context.Background(), "attachment-1")
+	if err != nil {
+		t.Fatalf("FindPropertyIDsByAttachmentID: %v", err)
+	}
+	if len(propertyIDs) != 0 {
+		t.Fatalf("propertyIDs = %+v, want empty list", propertyIDs)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
 func TestEnsureTenantExists(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -420,6 +485,31 @@ LIMIT 1
 `)).
 		WithArgs(tenantID).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(tenantID))
+}
+
+func attachmentPropertiesQueryPattern() string {
+	return `(?s)` +
+		`SELECT DISTINCT property_id.*` +
+		`FROM property_attachments\s+JOIN properties ON properties.id = property_attachments.property_id\s+WHERE property_attachments.id = \$1\s+AND property_attachments.deleted_at IS NULL\s+AND properties.deleted_at IS NULL.*` +
+		`FROM room_attachments\s+JOIN rooms ON rooms.id = room_attachments.room_id\s+WHERE room_attachments.id = \$1\s+AND room_attachments.deleted_at IS NULL\s+AND rooms.deleted_at IS NULL.*` +
+		`FROM tenant_attachments\s+JOIN tenants ON tenants.id = tenant_attachments.tenant_id\s+JOIN leases ON leases.tenant_id = tenants.id\s+WHERE tenant_attachments.id = \$1\s+AND tenant_attachments.deleted_at IS NULL\s+AND tenants.deleted_at IS NULL\s+AND leases.deleted_at IS NULL.*` +
+		`FROM lease_attachments\s+JOIN leases ON leases.id = lease_attachments.lease_id\s+WHERE lease_attachments.id = \$1\s+AND lease_attachments.deleted_at IS NULL\s+AND leases.deleted_at IS NULL.*` +
+		`FROM journal_log_attachments\s+JOIN journal_logs ON journal_logs.id = journal_log_attachments.journal_log_id\s+WHERE journal_log_attachments.id = \$1\s+AND journal_log_attachments.deleted_at IS NULL\s+AND journal_logs.deleted_at IS NULL.*` +
+		`FROM repair_request_attachments\s+JOIN repair_requests ON repair_requests.id = repair_request_attachments.repair_request_id\s+WHERE repair_request_attachments.id = \$1\s+AND repair_request_attachments.deleted_at IS NULL\s+AND repair_requests.deleted_at IS NULL.*` +
+		`FROM bill_attachments\s+JOIN bills ON bills.id = bill_attachments.bill_id\s+WHERE bill_attachments.id = \$1\s+AND bill_attachments.deleted_at IS NULL\s+AND bills.deleted_at IS NULL.*` +
+		`ORDER BY property_id`
+}
+
+func activeAttachmentHostExistsQueryPattern() string {
+	return `(?s)` +
+		`SELECT EXISTS.*` +
+		`FROM property_attachments\s+JOIN properties ON properties.id = property_attachments.property_id\s+WHERE property_attachments.id = \$1\s+AND property_attachments.deleted_at IS NULL\s+AND properties.deleted_at IS NULL.*` +
+		`FROM room_attachments\s+JOIN rooms ON rooms.id = room_attachments.room_id\s+WHERE room_attachments.id = \$1\s+AND room_attachments.deleted_at IS NULL\s+AND rooms.deleted_at IS NULL.*` +
+		`FROM tenant_attachments\s+JOIN tenants ON tenants.id = tenant_attachments.tenant_id\s+WHERE tenant_attachments.id = \$1\s+AND tenant_attachments.deleted_at IS NULL\s+AND tenants.deleted_at IS NULL.*` +
+		`FROM lease_attachments\s+JOIN leases ON leases.id = lease_attachments.lease_id\s+WHERE lease_attachments.id = \$1\s+AND lease_attachments.deleted_at IS NULL\s+AND leases.deleted_at IS NULL.*` +
+		`FROM journal_log_attachments\s+JOIN journal_logs ON journal_logs.id = journal_log_attachments.journal_log_id\s+WHERE journal_log_attachments.id = \$1\s+AND journal_log_attachments.deleted_at IS NULL\s+AND journal_logs.deleted_at IS NULL.*` +
+		`FROM repair_request_attachments\s+JOIN repair_requests ON repair_requests.id = repair_request_attachments.repair_request_id\s+WHERE repair_request_attachments.id = \$1\s+AND repair_request_attachments.deleted_at IS NULL\s+AND repair_requests.deleted_at IS NULL.*` +
+		`FROM bill_attachments\s+JOIN bills ON bills.id = bill_attachments.bill_id\s+WHERE bill_attachments.id = \$1\s+AND bill_attachments.deleted_at IS NULL\s+AND bills.deleted_at IS NULL`
 }
 
 func newResourceOwnershipRepoTest(t *testing.T) (*sql.DB, sqlmock.Sqlmock, *SQLRepository) {

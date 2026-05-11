@@ -459,6 +459,58 @@ func TestListByResourceRejectsUnsupportedResourceType(t *testing.T) {
 	}
 }
 
+func TestFindActiveByIDReturnsAttachmentFromFirstMatchingResourceTable(t *testing.T) {
+	_, mock, repo := newAttachmentRepoTest(t)
+	now := time.Date(2026, 5, 11, 10, 0, 0, 0, time.UTC)
+	attachmentID := "80000000-0000-0000-0000-000000000001"
+
+	mock.ExpectQuery(findActiveByIDQueryPattern()).
+		WithArgs(attachmentID).
+		WillReturnRows(activeAttachmentRows().AddRow(
+			attachmentID,
+			"room",
+			"20000000-0000-0000-0000-000000000001",
+			"attachments/room/object.pdf",
+			"object.pdf",
+			nil,
+			nil,
+			nil,
+			now,
+			nil,
+		))
+
+	attachment, err := repo.FindActiveByID(context.Background(), attachmentID)
+	if err != nil {
+		t.Fatalf("FindActiveByID returned error: %v", err)
+	}
+	if attachment.ResourceType != ResourceTypeRoom || attachment.ResourceID != "20000000-0000-0000-0000-000000000001" {
+		t.Fatalf("unexpected attachment: %#v", attachment)
+	}
+	if attachment.ObjectPath != "attachments/room/object.pdf" {
+		t.Fatalf("unexpected object path: %q", attachment.ObjectPath)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+func TestFindActiveByIDMapsNoRowsToNotFound(t *testing.T) {
+	_, mock, repo := newAttachmentRepoTest(t)
+	attachmentID := "80000000-0000-0000-0000-000000000001"
+
+	mock.ExpectQuery(findActiveByIDQueryPattern()).
+		WithArgs(attachmentID).
+		WillReturnError(sql.ErrNoRows)
+
+	_, err := repo.FindActiveByID(context.Background(), attachmentID)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sqlmock expectations: %v", err)
+	}
+}
+
 func TestSoftDeleteAttachmentByIDUsesDeterministicResourceOrder(t *testing.T) {
 	db, mock, repo := newAttachmentRepoTest(t)
 	tx := beginAttachmentTx(t, db, mock)
@@ -563,6 +615,32 @@ func attachmentRows(resourceIDColumn string) *sqlmock.Rows {
 		"created_at",
 		"deleted_at",
 	})
+}
+
+func activeAttachmentRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{
+		"id",
+		"resource_type",
+		"resource_id",
+		"object_path",
+		"file_name",
+		"uploaded_by",
+		"sort_order",
+		"photo_stage",
+		"created_at",
+		"deleted_at",
+	})
+}
+
+func findActiveByIDQueryPattern() string {
+	return `(?s)FROM property_attachments\s+WHERE id = \$1\s+AND deleted_at IS NULL.*` +
+		`FROM room_attachments\s+WHERE id = \$1\s+AND deleted_at IS NULL.*` +
+		`FROM tenant_attachments\s+WHERE id = \$1\s+AND deleted_at IS NULL.*` +
+		`FROM lease_attachments\s+WHERE id = \$1\s+AND deleted_at IS NULL.*` +
+		`FROM journal_log_attachments\s+WHERE id = \$1\s+AND deleted_at IS NULL.*` +
+		`FROM repair_request_attachments\s+WHERE id = \$1\s+AND deleted_at IS NULL.*` +
+		`FROM bill_attachments\s+WHERE id = \$1\s+AND deleted_at IS NULL.*` +
+		`LIMIT 1`
 }
 
 func expectSoftDelete(mock sqlmock.Sqlmock, table string, attachmentID string, rowsAffected int64) {

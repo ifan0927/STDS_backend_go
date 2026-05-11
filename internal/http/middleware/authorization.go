@@ -57,8 +57,8 @@ func RequireRoles(allowedRoles ...string) gin.HandlerFunc {
 }
 
 // RequireAnyPropertyAccess rejects requests when none of the resolved
-// properties is assigned to the authenticated principal.
-func RequireAnyPropertyAccess(resolvePropertyIDs PropertyIDsResolver) gin.HandlerFunc {
+// properties is assigned to or owned by the authenticated principal.
+func RequireAnyPropertyAccess(resolvePropertyIDs PropertyIDsResolver, propertyRepo dbproperties.Repository) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		principal, ok := requestctx.GetPrincipal(c)
 		if !ok {
@@ -76,6 +76,26 @@ func RequireAnyPropertyAccess(resolvePropertyIDs PropertyIDsResolver) gin.Handle
 
 		if principal.Role == "admin" {
 			c.Next()
+			return
+		}
+
+		if principal.Role == "owner" {
+			for _, propertyID := range propertyIDs {
+				ownerID, err := propertyRepo.FindOwnerIDByPropertyID(c.Request.Context(), propertyID)
+				if err != nil {
+					c.Error(mapPropertyLookupError(err))
+					c.Abort()
+					return
+				}
+				if ownerID == principal.UserID {
+					requestctx.SetPropertyID(c, propertyID)
+					c.Next()
+					return
+				}
+			}
+
+			c.Error(apperr.ErrForbidden)
+			c.Abort()
 			return
 		}
 

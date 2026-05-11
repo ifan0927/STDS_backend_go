@@ -53,6 +53,19 @@ type RegisterAttachmentInput struct {
 	PhotoStage          *PhotoStage
 }
 
+// CreateDownloadURLInput contains the actor and attachment id for read URL creation.
+type CreateDownloadURLInput struct {
+	ActorRole           string
+	AssignedPropertyIDs []string
+	AttachmentID        string
+}
+
+// CreateDownloadURLOutput is returned to clients for short-lived attachment reads.
+type CreateDownloadURLOutput struct {
+	DownloadURL string
+	ExpiresAt   time.Time
+}
+
 // Service implements attachment upload, registration, listing, and delete flows.
 type Service struct {
 	repo           Repository
@@ -263,6 +276,49 @@ func (s *Service) ListAttachments(ctx context.Context, resourceType ResourceType
 	return attachments, nil
 }
 
+// CreateDownloadURL signs a short-lived read URL for an active attachment.
+func (s *Service) CreateDownloadURL(ctx context.Context, input CreateDownloadURLInput) (*CreateDownloadURLOutput, error) {
+	if err := s.ensureReady("attachment_download_url"); err != nil {
+		return nil, err
+	}
+	attachmentID, err := normalizeID(input.AttachmentID, "id")
+	if err != nil {
+		return nil, err
+	}
+
+	attachment, err := s.repo.FindActiveByID(ctx, attachmentID)
+	if err != nil {
+		return nil, mapAttachmentRepositoryError(err)
+	}
+	if attachment == nil {
+		return nil, apperr.ErrAttachmentNotFound
+	}
+	if err := ensureDownloadRole(input.ActorRole, attachment.ResourceType); err != nil {
+		return nil, err
+	}
+	if err := s.ensureResourceAccess(ctx, input.ActorRole, input.AssignedPropertyIDs, attachment.ResourceType, attachment.ResourceID); err != nil {
+		return nil, err
+	}
+
+	expiresAt := s.now().UTC().Add(s.uploadURLTTL)
+	if _, err := s.storage.GetObjectMetadata(ctx, attachment.ObjectPath); err != nil {
+		if errorsIsObjectMissing(err) {
+			return nil, ErrObjectNotFound
+		}
+		return nil, apperr.ErrInternalServerError.WithCause(err)
+	}
+
+	downloadURL, err := s.storage.GenerateDownloadURL(ctx, attachment.ObjectPath, expiresAt)
+	if err != nil {
+		return nil, apperr.ErrInternalServerError.WithCause(err)
+	}
+
+	return &CreateDownloadURLOutput{
+		DownloadURL: downloadURL,
+		ExpiresAt:   expiresAt,
+	}, nil
+}
+
 // DeleteAttachment soft-deletes one attachment row.
 func (s *Service) DeleteAttachment(ctx context.Context, attachmentID string) error {
 	if s.repo == nil || s.txRunner == nil {
@@ -343,6 +399,23 @@ func normalizeWriteRole(role string) (string, error) {
 	default:
 		return "", apperr.ErrForbidden
 	}
+}
+
+func ensureDownloadRole(role string, resourceType ResourceType) error {
+	normalized := strings.TrimSpace(role)
+	switch resourceType {
+	case ResourceTypeProperty, ResourceTypeRoom, ResourceTypeBill:
+		switch normalized {
+		case "admin", "organizer", "staff", "owner":
+			return nil
+		}
+	case ResourceTypeTenant, ResourceTypeLease, ResourceTypeJournalLog, ResourceTypeRepairRequest:
+		switch normalized {
+		case "admin", "organizer", "staff":
+			return nil
+		}
+	}
+	return apperr.ErrForbidden
 }
 
 func normalizeResourceType(resourceType ResourceType) (ResourceType, error) {

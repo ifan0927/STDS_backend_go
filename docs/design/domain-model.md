@@ -450,6 +450,7 @@ Operational lease lifecycle changes use terminate, force-terminate, or replaceme
 | `GET /journal-logs/{id}/attachments` | 日誌附件列表 |
 | `GET /repair-requests/{id}/attachments` | 維修單附件列表（依 sort_order 排序） |
 | `GET /bills/{id}/attachments` | 帳單附件列表 |
+| `POST /attachments/{id}/download-url` | 產生附件下載 Signed URL |
 | `DELETE /attachments/{id}` | 軟刪除附件 |
 
 ### 跨 BC 組合查詢
@@ -633,6 +634,8 @@ Step 3：POST /{resource}/{id}/attachments
   → 後端呼叫 GCS HEAD 確認物件存在，並以 metadata 再確認 content_type 與 size
   → 寫入對應 attachment table，刪除已用 nonce
 ```
+
+Download：`POST /attachments/{id}/download-url` 只對 authenticated caller 回傳 `{ download_url, expires_at }`。呼叫者必須符合附件宿主資源的 property access policy；missing 或已軟刪除附件不回傳可用 URL，且 response 不暴露 object_path、bucket 或 storage internals。
 
 Tenant attachment endpoints use the same tenant access model as tenant detail and lease-history flows. The tenant must exist, and non-admin management roles must have access to one of the tenant's associated properties.
 

@@ -460,7 +460,7 @@ func TestRequireAnyPropertyAccessAllowsNonAdminWhenAssignedPropertyMatchesAnyRes
 		}
 
 		return []string{testPropertyID1, testPropertyID2}, nil
-	}, apperr.ErrTenantNotFound)), func(c *gin.Context) {
+	}, apperr.ErrTenantNotFound), fakePropertyRepo{}), func(c *gin.Context) {
 		propertyID := requestctx.GetPropertyID(c)
 		if propertyID != testPropertyID2 {
 			t.Fatalf("propertyID = %q, want %q", propertyID, testPropertyID2)
@@ -494,7 +494,7 @@ func TestRequireAnyPropertyAccessReturnsForbiddenWhenNoResolvedPropertyIsAssigne
 		}
 
 		return []string{testPropertyID1, testPropertyID2}, nil
-	}, apperr.ErrTenantNotFound)), func(c *gin.Context) {
+	}, apperr.ErrTenantNotFound), fakePropertyRepo{}), func(c *gin.Context) {
 		c.Status(http.StatusOK)
 	})
 
@@ -519,7 +519,7 @@ func TestRequireAnyPropertyAccessAllowsAdminWhenTenantExistsWithoutResolvedPrope
 		}
 
 		return []string{}, nil
-	}, apperr.ErrTenantNotFound)), func(c *gin.Context) {
+	}, apperr.ErrTenantNotFound), fakePropertyRepo{}), func(c *gin.Context) {
 		c.Status(http.StatusOK)
 	})
 
