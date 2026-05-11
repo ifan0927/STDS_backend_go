@@ -141,6 +141,7 @@ type Repository interface {
 	DeleteUploadTokenByNonce(ctx context.Context, tx *sql.Tx, nonce string) error
 	DeleteExpiredUploadTokens(ctx context.Context, tx *sql.Tx, before time.Time) (int64, error)
 	ListByResource(ctx context.Context, resourceType ResourceType, resourceID string) ([]Attachment, error)
+	FindActiveByID(ctx context.Context, attachmentID string) (*Attachment, error)
 	CreateAttachment(ctx context.Context, tx *sql.Tx, params CreateAttachmentParams) (*Attachment, error)
 	SoftDeleteAttachmentByID(ctx context.Context, tx *sql.Tx, attachmentID string) error
 }
@@ -316,6 +317,152 @@ ORDER BY %s
 	return attachments, nil
 }
 
+// FindActiveByID loads one active attachment across all resource attachment tables.
+func (r *SQLRepository) FindActiveByID(ctx context.Context, attachmentID string) (*Attachment, error) {
+	const query = `
+SELECT
+	id,
+	resource_type,
+	resource_id,
+	object_path,
+	file_name,
+	uploaded_by,
+	sort_order,
+	photo_stage,
+	created_at,
+	deleted_at
+FROM (
+	SELECT
+		id,
+		'property' AS resource_type,
+		property_id AS resource_id,
+		object_path,
+		file_name,
+		uploaded_by,
+		NULL AS sort_order,
+		NULL AS photo_stage,
+		created_at,
+		deleted_at
+	FROM property_attachments
+	WHERE id = $1
+	  AND deleted_at IS NULL
+
+	UNION ALL
+
+	SELECT
+		id,
+		'room' AS resource_type,
+		room_id AS resource_id,
+		object_path,
+		file_name,
+		uploaded_by,
+		NULL AS sort_order,
+		NULL AS photo_stage,
+		created_at,
+		deleted_at
+	FROM room_attachments
+	WHERE id = $1
+	  AND deleted_at IS NULL
+
+	UNION ALL
+
+	SELECT
+		id,
+		'tenant' AS resource_type,
+		tenant_id AS resource_id,
+		object_path,
+		file_name,
+		uploaded_by,
+		NULL AS sort_order,
+		NULL AS photo_stage,
+		created_at,
+		deleted_at
+	FROM tenant_attachments
+	WHERE id = $1
+	  AND deleted_at IS NULL
+
+	UNION ALL
+
+	SELECT
+		id,
+		'lease' AS resource_type,
+		lease_id AS resource_id,
+		object_path,
+		file_name,
+		uploaded_by,
+		NULL AS sort_order,
+		NULL AS photo_stage,
+		created_at,
+		deleted_at
+	FROM lease_attachments
+	WHERE id = $1
+	  AND deleted_at IS NULL
+
+	UNION ALL
+
+	SELECT
+		id,
+		'journal_log' AS resource_type,
+		journal_log_id AS resource_id,
+		object_path,
+		file_name,
+		uploaded_by,
+		NULL AS sort_order,
+		NULL AS photo_stage,
+		created_at,
+		deleted_at
+	FROM journal_log_attachments
+	WHERE id = $1
+	  AND deleted_at IS NULL
+
+	UNION ALL
+
+	SELECT
+		id,
+		'repair_request' AS resource_type,
+		repair_request_id AS resource_id,
+		object_path,
+		file_name,
+		uploaded_by,
+		sort_order,
+		photo_stage,
+		created_at,
+		deleted_at
+	FROM repair_request_attachments
+	WHERE id = $1
+	  AND deleted_at IS NULL
+
+	UNION ALL
+
+	SELECT
+		id,
+		'bill' AS resource_type,
+		bill_id AS resource_id,
+		object_path,
+		file_name,
+		uploaded_by,
+		NULL AS sort_order,
+		NULL AS photo_stage,
+		created_at,
+		deleted_at
+	FROM bill_attachments
+	WHERE id = $1
+	  AND deleted_at IS NULL
+) AS active_attachments
+LIMIT 1
+`
+
+	attachment, err := scanAttachmentWithResourceType(r.db.QueryRowContext(ctx, query, attachmentID))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("find active attachment by id: %w", err)
+	}
+
+	return attachment, nil
+}
+
 // CreateAttachment registers a resource attachment row.
 func (r *SQLRepository) CreateAttachment(ctx context.Context, tx *sql.Tx, params CreateAttachmentParams) (*Attachment, error) {
 	if tx == nil {
@@ -477,6 +624,38 @@ func scanAttachment(row rowScanner, resourceType ResourceType) (*Attachment, err
 	}
 
 	attachment.ResourceType = resourceType
+	attachment.UploadedBy = stringPointer(uploadedBy)
+	attachment.SortOrder = intPointer(sortOrder)
+	attachment.PhotoStage = photoStagePointer(photoStage)
+	attachment.DeletedAt = timePointer(deletedAt)
+
+	return &attachment, nil
+}
+
+func scanAttachmentWithResourceType(row rowScanner) (*Attachment, error) {
+	var attachment Attachment
+	var resourceType string
+	var uploadedBy sql.NullString
+	var sortOrder sql.NullInt64
+	var photoStage sql.NullString
+	var deletedAt sql.NullTime
+
+	if err := row.Scan(
+		&attachment.ID,
+		&resourceType,
+		&attachment.ResourceID,
+		&attachment.ObjectPath,
+		&attachment.FileName,
+		&uploadedBy,
+		&sortOrder,
+		&photoStage,
+		&attachment.CreatedAt,
+		&deletedAt,
+	); err != nil {
+		return nil, err
+	}
+
+	attachment.ResourceType = ResourceType(resourceType)
 	attachment.UploadedBy = stringPointer(uploadedBy)
 	attachment.SortOrder = intPointer(sortOrder)
 	attachment.PhotoStage = photoStagePointer(photoStage)

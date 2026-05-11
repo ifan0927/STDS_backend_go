@@ -83,6 +83,27 @@ func (s *GCSStorage) GenerateUploadURL(ctx context.Context, objectPath string, c
 	return uploadURL, nil
 }
 
+// GenerateDownloadURL returns a GET URL for reading an existing object.
+func (s *GCSStorage) GenerateDownloadURL(ctx context.Context, objectPath string, expiresAt time.Time) (string, error) {
+	if s.emulatorHost != "" {
+		objectURL, err := url.JoinPath(s.emulatorHost, s.bucketName, objectPath)
+		if err != nil {
+			return "", fmt.Errorf("build emulator object url: %w", err)
+		}
+		return objectURL, nil
+	}
+
+	downloadURL, err := s.client.Bucket(s.bucketName).SignedURL(objectPath, &gcstorage.SignedURLOptions{
+		Method:  "GET",
+		Expires: expiresAt,
+	})
+	if err != nil {
+		return "", fmt.Errorf("sign gcs download url: %w", err)
+	}
+
+	return downloadURL, nil
+}
+
 // GetObjectMetadata returns metadata for an uploaded object.
 func (s *GCSStorage) GetObjectMetadata(ctx context.Context, objectPath string) (*appattachment.ObjectMetadata, error) {
 	attrsReader := s.attrsReader

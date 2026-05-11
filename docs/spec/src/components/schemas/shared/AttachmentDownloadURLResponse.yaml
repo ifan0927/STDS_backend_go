@@ -1,0 +1,11 @@
+type: object
+required:
+  - download_url
+  - expires_at
+properties:
+  download_url:
+    type: string
+    format: uri
+  expires_at:
+    type: string
+    format: date-time

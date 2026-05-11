@@ -487,6 +487,12 @@ type AssignRepairRequest struct {
 	AssignedTo openapi_types.UUID `json:"assigned_to"`
 }
 
+// AttachmentDownloadURLResponse defines model for AttachmentDownloadURLResponse.
+type AttachmentDownloadURLResponse struct {
+	DownloadUrl string    `json:"download_url"`
+	ExpiresAt   time.Time `json:"expires_at"`
+}
+
 // AttachmentListResponse defines model for AttachmentListResponse.
 type AttachmentListResponse struct {
 	Data *[]AttachmentResponse `json:"data,omitempty"`
@@ -1887,6 +1893,9 @@ type ServerInterface interface {
 	// 軟刪除附件
 	// (DELETE /attachments/{id})
 	DeleteAttachment(c *gin.Context, id openapi_types.UUID)
+	// Generate attachment download signed URL
+	// (POST /attachments/{id}/download-url)
+	CreateAttachmentDownloadURL(c *gin.Context, id openapi_types.UUID)
 	// 同步 Firebase 使用者至後端 DB（首次登入或 token 更新時呼叫）
 	// (POST /auth/sync)
 	SyncAuth(c *gin.Context)
@@ -2210,6 +2219,32 @@ func (siw *ServerInterfaceWrapper) DeleteAttachment(c *gin.Context) {
 	}
 
 	siw.Handler.DeleteAttachment(c, id)
+}
+
+// CreateAttachmentDownloadURL operation middleware
+func (siw *ServerInterfaceWrapper) CreateAttachmentDownloadURL(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Param("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(BearerAuthScopes, []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.CreateAttachmentDownloadURL(c, id)
 }
 
 // SyncAuth operation middleware
@@ -5061,6 +5096,7 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 
 	router.POST(options.BaseURL+"/attachments/upload-url", wrapper.CreateAttachmentUploadURL)
 	router.DELETE(options.BaseURL+"/attachments/:id", wrapper.DeleteAttachment)
+	router.POST(options.BaseURL+"/attachments/:id/download-url", wrapper.CreateAttachmentDownloadURL)
 	router.POST(options.BaseURL+"/auth/sync", wrapper.SyncAuth)
 	router.GET(options.BaseURL+"/bills", wrapper.ListBills)
 	router.GET(options.BaseURL+"/bills/:id", wrapper.GetBill)

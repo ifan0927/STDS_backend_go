@@ -86,6 +86,7 @@ type Repository interface {
 	FindUploadTokenByNonce(ctx context.Context, nonce string) (*UploadToken, error)
 	DeleteUploadTokenByNonce(ctx context.Context, tx *sql.Tx, nonce string) error
 	ListByResource(ctx context.Context, resourceType ResourceType, resourceID string) ([]Attachment, error)
+	FindActiveByID(ctx context.Context, attachmentID string) (*Attachment, error)
 	CreateAttachment(ctx context.Context, tx *sql.Tx, params CreateAttachmentParams) (*Attachment, error)
 	SoftDeleteAttachmentByID(ctx context.Context, tx *sql.Tx, attachmentID string) error
 }
@@ -100,6 +101,7 @@ type ResourceAccess interface {
 // Storage signs upload URLs and verifies uploaded object metadata.
 type Storage interface {
 	GenerateUploadURL(ctx context.Context, objectPath string, contentType string, expiresAt time.Time) (string, error)
+	GenerateDownloadURL(ctx context.Context, objectPath string, expiresAt time.Time) (string, error)
 	GetObjectMetadata(ctx context.Context, objectPath string) (*ObjectMetadata, error)
 }
 

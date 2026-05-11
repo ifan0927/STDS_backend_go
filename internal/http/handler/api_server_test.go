@@ -975,6 +975,107 @@ func TestCreateAttachmentUploadURLReturnsOK(t *testing.T) {
 	}
 }
 
+func TestCreateAttachmentDownloadURLReturnsOK(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	attachmentID := "10000000-0000-0000-0000-000000000011"
+	repo := &handlerAttachmentRepoStub{
+		activeAttachment: &appattachment.Attachment{
+			ID:           attachmentID,
+			ResourceType: appattachment.ResourceTypeProperty,
+			ResourceID:   "10000000-0000-0000-0000-000000000001",
+			ObjectPath:   "attachments/property/object.pdf",
+			FileName:     "object.pdf",
+			CreatedAt:    time.Now().UTC(),
+		},
+	}
+	storage := &handlerAttachmentStorageStub{downloadURL: "http://storage/download"}
+	access := &handlerAttachmentResourceAccessStub{}
+	service := appattachment.NewService(repo, storage, access, handlerRepairTxRunner{}, 15*time.Minute)
+	server := &APIServer{attachment: service}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/attachments/"+attachmentID+"/download-url", nil)
+	requestctx.SetPrincipal(c, requestctx.Principal{
+		UserID:              "00000000-0000-0000-0000-000000000001",
+		Role:                "staff",
+		AssignedPropertyIDs: []string{"10000000-0000-0000-0000-000000000001"},
+	})
+
+	server.CreateAttachmentDownloadURL(c, openapi_types.UUID(googleuuid.MustParse(attachmentID)))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if repo.foundAttachmentID != attachmentID {
+		t.Fatalf("expected lookup for attachment id %q, got %q", attachmentID, repo.foundAttachmentID)
+	}
+	if storage.signedDownloadObjectPath != "attachments/property/object.pdf" {
+		t.Fatalf("expected download signing for object path, got %q", storage.signedDownloadObjectPath)
+	}
+	var response api.AttachmentDownloadURLResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if response.DownloadUrl != "http://storage/download" {
+		t.Fatalf("unexpected download URL response: %+v", response)
+	}
+	if response.ExpiresAt.IsZero() {
+		t.Fatalf("expected expires_at, got %+v", response)
+	}
+}
+
+func TestCreateAttachmentDownloadURLOwnerReturnsOK(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	attachmentID := "10000000-0000-0000-0000-000000000011"
+	propertyID := "10000000-0000-0000-0000-000000000001"
+	repo := &handlerAttachmentRepoStub{
+		activeAttachment: &appattachment.Attachment{
+			ID:           attachmentID,
+			ResourceType: appattachment.ResourceTypeProperty,
+			ResourceID:   propertyID,
+			ObjectPath:   "attachments/property/object.pdf",
+			FileName:     "object.pdf",
+			CreatedAt:    time.Now().UTC(),
+		},
+	}
+	storage := &handlerAttachmentStorageStub{downloadURL: "http://storage/download"}
+	access := &handlerAttachmentResourceAccessStub{}
+	service := appattachment.NewService(repo, storage, access, handlerRepairTxRunner{}, 15*time.Minute)
+	server := &APIServer{attachment: service}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/attachments/"+attachmentID+"/download-url", nil)
+	requestctx.SetPrincipal(c, requestctx.Principal{
+		UserID: "00000000-0000-0000-0000-000000000001",
+		Role:   "owner",
+	})
+	requestctx.SetPropertyID(c, propertyID)
+
+	server.CreateAttachmentDownloadURL(c, openapi_types.UUID(googleuuid.MustParse(attachmentID)))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if repo.foundAttachmentID != attachmentID {
+		t.Fatalf("expected lookup for attachment id %q, got %q", attachmentID, repo.foundAttachmentID)
+	}
+	if storage.signedDownloadObjectPath != "attachments/property/object.pdf" {
+		t.Fatalf("expected download signing for object path, got %q", storage.signedDownloadObjectPath)
+	}
+	var response api.AttachmentDownloadURLResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if response.DownloadUrl != "http://storage/download" {
+		t.Fatalf("unexpected download URL response: %+v", response)
+	}
+	if response.ExpiresAt.IsZero() {
+		t.Fatalf("expected expires_at, got %+v", response)
+	}
+}
+
 func TestListRoomMeterHistoryForwardsYearMonthAndReturnsBillListResponse(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -1632,7 +1733,9 @@ func (handlerRepairTxRunner) WithinTransaction(ctx context.Context, fn func(cont
 }
 
 type handlerAttachmentRepoStub struct {
-	createdToken *appattachment.CreateUploadTokenParams
+	createdToken      *appattachment.CreateUploadTokenParams
+	activeAttachment  *appattachment.Attachment
+	foundAttachmentID string
 }
 
 func (r *handlerAttachmentRepoStub) CreateUploadToken(_ context.Context, _ *sql.Tx, params appattachment.CreateUploadTokenParams) (*appattachment.UploadToken, error) {
@@ -1659,6 +1762,14 @@ func (r *handlerAttachmentRepoStub) ListByResource(context.Context, appattachmen
 	return nil, nil
 }
 
+func (r *handlerAttachmentRepoStub) FindActiveByID(_ context.Context, attachmentID string) (*appattachment.Attachment, error) {
+	r.foundAttachmentID = attachmentID
+	if r.activeAttachment == nil || r.activeAttachment.ID != attachmentID {
+		return nil, appattachment.ErrNotFound
+	}
+	return r.activeAttachment, nil
+}
+
 func (r *handlerAttachmentRepoStub) CreateAttachment(context.Context, *sql.Tx, appattachment.CreateAttachmentParams) (*appattachment.Attachment, error) {
 	return nil, nil
 }
@@ -1668,8 +1779,10 @@ func (r *handlerAttachmentRepoStub) SoftDeleteAttachmentByID(context.Context, *s
 }
 
 type handlerAttachmentStorageStub struct {
-	uploadURL         string
-	signedContentType string
+	uploadURL                string
+	downloadURL              string
+	signedContentType        string
+	signedDownloadObjectPath string
 }
 
 func (s *handlerAttachmentStorageStub) GenerateUploadURL(_ context.Context, _ string, contentType string, _ time.Time) (string, error) {
@@ -1678,7 +1791,12 @@ func (s *handlerAttachmentStorageStub) GenerateUploadURL(_ context.Context, _ st
 }
 
 func (s *handlerAttachmentStorageStub) GetObjectMetadata(context.Context, string) (*appattachment.ObjectMetadata, error) {
-	return nil, nil
+	return &appattachment.ObjectMetadata{ContentType: "application/pdf", Size: 1024}, nil
+}
+
+func (s *handlerAttachmentStorageStub) GenerateDownloadURL(_ context.Context, objectPath string, _ time.Time) (string, error) {
+	s.signedDownloadObjectPath = objectPath
+	return s.downloadURL, nil
 }
 
 type handlerAttachmentResourceAccessStub struct{}

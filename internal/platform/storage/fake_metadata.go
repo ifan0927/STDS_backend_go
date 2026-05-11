@@ -28,6 +28,15 @@ func (s *FakeMetadataStorage) GenerateUploadURL(_ context.Context, objectPath st
 	return url.JoinPath("https://fake-storage.local", bucketName, objectPath)
 }
 
+// GenerateDownloadURL returns a deterministic fake download URL.
+func (s *FakeMetadataStorage) GenerateDownloadURL(_ context.Context, objectPath string, _ time.Time) (string, error) {
+	bucketName := s.bucketName
+	if bucketName == "" {
+		bucketName = "fake-attachment-bucket"
+	}
+	return url.JoinPath("https://fake-storage.local", bucketName, objectPath)
+}
+
 // GetObjectMetadata returns valid attachment metadata without reading object storage.
 func (s *FakeMetadataStorage) GetObjectMetadata(_ context.Context, _ string) (*appattachment.ObjectMetadata, error) {
 	return &appattachment.ObjectMetadata{

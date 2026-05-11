@@ -771,6 +771,36 @@ func (s *APIServer) DeleteAttachment(c *gin.Context, id openapi_types.UUID) {
 	c.Status(http.StatusNoContent)
 }
 
+// CreateAttachmentDownloadURL handles attachment download URL creation.
+func (s *APIServer) CreateAttachmentDownloadURL(c *gin.Context, id openapi_types.UUID) {
+	principal, ok := requestctx.GetPrincipal(c)
+	if !ok {
+		c.Error(apperr.ErrUnauthorized)
+		return
+	}
+	assignedPropertyIDs := principal.AssignedPropertyIDs
+	if principal.Role == "owner" {
+		if propertyID := requestctx.GetPropertyID(c); propertyID != "" {
+			assignedPropertyIDs = append(append([]string{}, assignedPropertyIDs...), propertyID)
+		}
+	}
+
+	result, err := s.attachment.CreateDownloadURL(c.Request.Context(), appattachment.CreateDownloadURLInput{
+		ActorRole:           principal.Role,
+		AssignedPropertyIDs: assignedPropertyIDs,
+		AttachmentID:        id.String(),
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, api.AttachmentDownloadURLResponse{
+		DownloadUrl: result.DownloadURL,
+		ExpiresAt:   result.ExpiresAt,
+	})
+}
+
 // ListBillAttachments handles bill attachment listing.
 func (s *APIServer) ListBillAttachments(c *gin.Context, id openapi_types.UUID) {
 	s.listAttachments(c, appattachment.ResourceTypeBill, id)

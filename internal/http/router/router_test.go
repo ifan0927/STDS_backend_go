@@ -4338,6 +4338,120 @@ func TestDeleteAttachmentReturnsAttachmentNotFound(t *testing.T) {
 	}
 }
 
+func TestCreateAttachmentDownloadURLResolvesPropertyAccessThroughOwnershipQuery(t *testing.T) {
+	repo := fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}}
+	engine := newTestEngine(repo, fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}}, fakePropertyRepo{}, fakeResourceOwnershipRepo{
+		propertyByAttachmentID: map[string]string{
+			"10000000-0000-0000-0000-000000000099": testPropertyID1,
+		},
+	}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/attachments/10000000-0000-0000-0000-000000000099/download-url", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestCreateAttachmentDownloadURLAllowsTenantAttachmentWhenAnyResolvedPropertyIsAssigned(t *testing.T) {
+	attachmentID := "10000000-0000-0000-0000-000000000099"
+	repo := fakeUserRepo{assignedPropertyIDs: []string{testPropertyID2}}
+	engine := newTestEngine(repo, fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID2}}, fakePropertyRepo{}, fakeResourceOwnershipRepo{
+		propertyIDsByAttachmentID: map[string][]string{
+			attachmentID: {testPropertyID1, testPropertyID2},
+		},
+	}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/attachments/"+attachmentID+"/download-url", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("expected middleware to allow request through to handler, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestCreateAttachmentDownloadURLAllowsOwnerForOwnedResolvedProperty(t *testing.T) {
+	attachmentID := "10000000-0000-0000-0000-000000000099"
+	repo := fakeUserRepo{userID: "owner-1", role: "owner"}
+	engine := newTestEngine(repo, fakeAuthenticator{role: "owner"}, fakePropertyRepo{
+		ownerByPropertyID: map[string]string{
+			testPropertyID1: "owner-1",
+		},
+	}, fakeResourceOwnershipRepo{
+		propertyIDsByAttachmentID: map[string][]string{
+			attachmentID: {testPropertyID1},
+		},
+	}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/attachments/"+attachmentID+"/download-url", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("expected middleware to allow owner request through to handler, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestCreateAttachmentDownloadURLRejectsUnauthorizedPropertyAccess(t *testing.T) {
+	repo := fakeUserRepo{assignedPropertyIDs: []string{testPropertyID2}}
+	engine := newTestEngine(repo, fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID2}}, fakePropertyRepo{
+		ownerByPropertyID: map[string]string{
+			testPropertyID1: "user-1",
+		},
+	}, fakeResourceOwnershipRepo{
+		propertyByAttachmentID: map[string]string{
+			"10000000-0000-0000-0000-000000000099": testPropertyID1,
+		},
+	}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/attachments/10000000-0000-0000-0000-000000000099/download-url", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestCreateAttachmentDownloadURLReturnsAttachmentNotFound(t *testing.T) {
+	repo := fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}}
+	engine := newTestEngine(repo, fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}}, fakePropertyRepo{
+		ownerByPropertyID: map[string]string{
+			testPropertyID1: "user-1",
+		},
+	}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/attachments/10000000-0000-0000-0000-000000000099/download-url", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	if payload["error_code"] != apperr.CodeAttachmentNotFound {
+		t.Fatalf("expected error_code %s, got %v", apperr.CodeAttachmentNotFound, payload["error_code"])
+	}
+}
+
 func TestCompileRoutePoliciesRejectsConflictingPropertyResolvers(t *testing.T) {
 	defer func() {
 		if recovered := recover(); recovered == nil {
@@ -4738,6 +4852,7 @@ type fakeResourceOwnershipRepo struct {
 	propertyByRepairRequestID    map[string]string
 	propertyByForceTerminationID map[string]string
 	propertyByAttachmentID       map[string]string
+	propertyIDsByAttachmentID    map[string][]string
 	tenantExists                 map[string]bool
 }
 
@@ -6243,6 +6358,20 @@ func (f fakeResourceOwnershipRepo) FindPropertyIDByForceTerminationID(_ context.
 
 func (f fakeResourceOwnershipRepo) FindPropertyIDByAttachmentID(_ context.Context, attachmentID string) (string, error) {
 	return lookupPropertyID(f.propertyByAttachmentID, attachmentID)
+}
+
+func (f fakeResourceOwnershipRepo) FindPropertyIDsByAttachmentID(_ context.Context, attachmentID string) ([]string, error) {
+	if f.propertyIDsByAttachmentID != nil {
+		if propertyIDs, ok := f.propertyIDsByAttachmentID[attachmentID]; ok {
+			copied := make([]string, len(propertyIDs))
+			copy(copied, propertyIDs)
+			return copied, nil
+		}
+	}
+	if propertyID, ok := f.propertyByAttachmentID[attachmentID]; ok {
+		return []string{propertyID}, nil
+	}
+	return nil, dbresourceownership.ErrNotFound
 }
 
 func (f fakeResourceOwnershipRepo) EnsureTenantExists(_ context.Context, tenantID string) error {

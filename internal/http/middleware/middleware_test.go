@@ -460,7 +460,7 @@ func TestRequireAnyPropertyAccessAllowsNonAdminWhenAssignedPropertyMatchesAnyRes
 		}
 
 		return []string{testPropertyID1, testPropertyID2}, nil
-	}, apperr.ErrTenantNotFound)), func(c *gin.Context) {
+	}, apperr.ErrTenantNotFound), fakePropertyRepo{}), func(c *gin.Context) {
 		propertyID := requestctx.GetPropertyID(c)
 		if propertyID != testPropertyID2 {
 			t.Fatalf("propertyID = %q, want %q", propertyID, testPropertyID2)
@@ -494,7 +494,7 @@ func TestRequireAnyPropertyAccessReturnsForbiddenWhenNoResolvedPropertyIsAssigne
 		}
 
 		return []string{testPropertyID1, testPropertyID2}, nil
-	}, apperr.ErrTenantNotFound)), func(c *gin.Context) {
+	}, apperr.ErrTenantNotFound), fakePropertyRepo{}), func(c *gin.Context) {
 		c.Status(http.StatusOK)
 	})
 
@@ -519,7 +519,7 @@ func TestRequireAnyPropertyAccessAllowsAdminWhenTenantExistsWithoutResolvedPrope
 		}
 
 		return []string{}, nil
-	}, apperr.ErrTenantNotFound)), func(c *gin.Context) {
+	}, apperr.ErrTenantNotFound), fakePropertyRepo{}), func(c *gin.Context) {
 		c.Status(http.StatusOK)
 	})
 
@@ -584,6 +584,40 @@ func TestRequirePropertyAccessRejectsOwnerForOtherProperty(t *testing.T) {
 	engine.ServeHTTP(resp, req)
 
 	assertErrorCode(t, resp, http.StatusForbidden, "FORBIDDEN")
+}
+
+func TestRequireAnyPropertyAccessAllowsOwnerWhenLaterResolvedPropertyIsOwned(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	engine := gin.New()
+	engine.Use(RequestID(), ErrorHandler(testLoggerBuffer(nil)))
+	engine.GET("/attachments/:id/download-url", func(c *gin.Context) {
+		requestctx.SetPrincipal(c, requestctx.Principal{
+			UserID: "owner-1",
+			Role:   "owner",
+		})
+		c.Next()
+	}, RequireAnyPropertyAccess(func(*gin.Context) ([]string, error) {
+		return []string{testPropertyID1, testPropertyID2}, nil
+	}, fakePropertyRepo{
+		ownerByPropertyID: map[string]string{
+			testPropertyID2: "owner-1",
+		},
+	}), func(c *gin.Context) {
+		propertyID := requestctx.GetPropertyID(c)
+		if propertyID != testPropertyID2 {
+			t.Fatalf("propertyID = %q, want %q", propertyID, testPropertyID2)
+		}
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/attachments/10000000-0000-0000-0000-000000000099/download-url", nil)
+	resp := httptest.NewRecorder()
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
 }
 
 func TestErrorHandlerLogsStructuredServerError(t *testing.T) {

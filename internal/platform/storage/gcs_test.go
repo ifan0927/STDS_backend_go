@@ -33,6 +33,27 @@ func TestGenerateUploadURLEmulatorDoesNotRequireSignedURL(t *testing.T) {
 	}
 }
 
+func TestGenerateDownloadURLEmulatorDoesNotRequireSignedURL(t *testing.T) {
+	storage := &GCSStorage{
+		bucketName:   "test-bucket",
+		emulatorHost: "http://127.0.0.1:9023",
+	}
+
+	downloadURL, err := storage.GenerateDownloadURL(
+		context.Background(),
+		"attachments/property/10000000-0000-0000-0000-000000000001/object.pdf",
+		time.Date(2026, 4, 28, 10, 15, 0, 0, time.UTC),
+	)
+	if err != nil {
+		t.Fatalf("GenerateDownloadURL returned error: %v", err)
+	}
+
+	want := "http://127.0.0.1:9023/test-bucket/attachments/property/10000000-0000-0000-0000-000000000001/object.pdf"
+	if downloadURL != want {
+		t.Fatalf("expected emulator download URL %q, got %q", want, downloadURL)
+	}
+}
+
 func TestGetObjectMetadataMapsAttrs(t *testing.T) {
 	reader := &fakeGCSAttrsReader{
 		attrs: &gcstorage.ObjectAttrs{

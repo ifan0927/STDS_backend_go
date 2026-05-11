@@ -34,6 +34,14 @@ func TestFakeMetadataStorageReturnsUploadURLAndMetadata(t *testing.T) {
 		t.Fatalf("unexpected upload URL %q", uploadURL)
 	}
 
+	downloadURL, err := storage.GenerateDownloadURL(context.Background(), "attachments/property/object.pdf", time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("GenerateDownloadURL returned error: %v", err)
+	}
+	if downloadURL != "https://fake-storage.local/stds-e2e/attachments/property/object.pdf" {
+		t.Fatalf("unexpected download URL %q", downloadURL)
+	}
+
 	metadata, err := storage.GetObjectMetadata(context.Background(), "attachments/property/object.pdf")
 	if err != nil {
 		t.Fatalf("GetObjectMetadata returned error: %v", err)

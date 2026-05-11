@@ -23,6 +23,7 @@ type Repository interface {
 	FindPropertyIDByRepairRequestID(ctx context.Context, repairRequestID string) (string, error)
 	FindPropertyIDByForceTerminationID(ctx context.Context, forceTerminationID string) (string, error)
 	FindPropertyIDByAttachmentID(ctx context.Context, attachmentID string) (string, error)
+	FindPropertyIDsByAttachmentID(ctx context.Context, attachmentID string) ([]string, error)
 	EnsureTenantExists(ctx context.Context, tenantID string) error
 }
 
@@ -238,6 +239,180 @@ LIMIT 1
 `
 
 	return r.findPropertyID(ctx, query, attachmentID, "query attachment property by id")
+}
+
+func (r *SQLRepository) FindPropertyIDsByAttachmentID(ctx context.Context, attachmentID string) ([]string, error) {
+	const query = `
+SELECT DISTINCT property_id
+FROM (
+    SELECT property_id AS property_id
+    FROM property_attachments
+    JOIN properties ON properties.id = property_attachments.property_id
+    WHERE property_attachments.id = $1
+      AND property_attachments.deleted_at IS NULL
+      AND properties.deleted_at IS NULL
+
+    UNION ALL
+
+    SELECT rooms.property_id AS property_id
+    FROM room_attachments
+    JOIN rooms ON rooms.id = room_attachments.room_id
+    WHERE room_attachments.id = $1
+      AND room_attachments.deleted_at IS NULL
+      AND rooms.deleted_at IS NULL
+
+    UNION ALL
+
+    SELECT leases.property_id AS property_id
+    FROM tenant_attachments
+    JOIN tenants ON tenants.id = tenant_attachments.tenant_id
+    JOIN leases ON leases.tenant_id = tenants.id
+    WHERE tenant_attachments.id = $1
+      AND tenant_attachments.deleted_at IS NULL
+      AND tenants.deleted_at IS NULL
+      AND leases.deleted_at IS NULL
+
+    UNION ALL
+
+    SELECT leases.property_id AS property_id
+    FROM lease_attachments
+    JOIN leases ON leases.id = lease_attachments.lease_id
+    WHERE lease_attachments.id = $1
+      AND lease_attachments.deleted_at IS NULL
+      AND leases.deleted_at IS NULL
+
+    UNION ALL
+
+    SELECT journal_logs.property_id AS property_id
+    FROM journal_log_attachments
+    JOIN journal_logs ON journal_logs.id = journal_log_attachments.journal_log_id
+    WHERE journal_log_attachments.id = $1
+      AND journal_log_attachments.deleted_at IS NULL
+      AND journal_logs.deleted_at IS NULL
+
+    UNION ALL
+
+    SELECT repair_requests.property_id AS property_id
+    FROM repair_request_attachments
+    JOIN repair_requests ON repair_requests.id = repair_request_attachments.repair_request_id
+    WHERE repair_request_attachments.id = $1
+      AND repair_request_attachments.deleted_at IS NULL
+      AND repair_requests.deleted_at IS NULL
+
+    UNION ALL
+
+    SELECT bills.property_id AS property_id
+    FROM bill_attachments
+    JOIN bills ON bills.id = bill_attachments.bill_id
+    WHERE bill_attachments.id = $1
+      AND bill_attachments.deleted_at IS NULL
+      AND bills.deleted_at IS NULL
+) AS attachment_properties
+ORDER BY property_id
+`
+
+	rows, err := r.db.QueryContext(ctx, query, attachmentID)
+	if err != nil {
+		return nil, fmt.Errorf("query attachment properties by id: %w", err)
+	}
+	defer rows.Close()
+
+	propertyIDs := []string{}
+	for rows.Next() {
+		var propertyID string
+		if err := rows.Scan(&propertyID); err != nil {
+			return nil, fmt.Errorf("scan attachment properties by id: %w", err)
+		}
+		propertyIDs = append(propertyIDs, propertyID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate attachment properties by id: %w", err)
+	}
+	if len(propertyIDs) == 0 {
+		exists, err := r.activeAttachmentHostExists(ctx, attachmentID)
+		if err != nil {
+			return nil, err
+		}
+		if exists {
+			return []string{}, nil
+		}
+		return nil, ErrNotFound
+	}
+
+	return propertyIDs, nil
+}
+
+func (r *SQLRepository) activeAttachmentHostExists(ctx context.Context, attachmentID string) (bool, error) {
+	const query = `
+SELECT EXISTS (
+    SELECT 1
+    FROM property_attachments
+    JOIN properties ON properties.id = property_attachments.property_id
+    WHERE property_attachments.id = $1
+      AND property_attachments.deleted_at IS NULL
+      AND properties.deleted_at IS NULL
+
+    UNION ALL
+
+    SELECT 1
+    FROM room_attachments
+    JOIN rooms ON rooms.id = room_attachments.room_id
+    WHERE room_attachments.id = $1
+      AND room_attachments.deleted_at IS NULL
+      AND rooms.deleted_at IS NULL
+
+    UNION ALL
+
+    SELECT 1
+    FROM tenant_attachments
+    JOIN tenants ON tenants.id = tenant_attachments.tenant_id
+    WHERE tenant_attachments.id = $1
+      AND tenant_attachments.deleted_at IS NULL
+      AND tenants.deleted_at IS NULL
+
+    UNION ALL
+
+    SELECT 1
+    FROM lease_attachments
+    JOIN leases ON leases.id = lease_attachments.lease_id
+    WHERE lease_attachments.id = $1
+      AND lease_attachments.deleted_at IS NULL
+      AND leases.deleted_at IS NULL
+
+    UNION ALL
+
+    SELECT 1
+    FROM journal_log_attachments
+    JOIN journal_logs ON journal_logs.id = journal_log_attachments.journal_log_id
+    WHERE journal_log_attachments.id = $1
+      AND journal_log_attachments.deleted_at IS NULL
+      AND journal_logs.deleted_at IS NULL
+
+    UNION ALL
+
+    SELECT 1
+    FROM repair_request_attachments
+    JOIN repair_requests ON repair_requests.id = repair_request_attachments.repair_request_id
+    WHERE repair_request_attachments.id = $1
+      AND repair_request_attachments.deleted_at IS NULL
+      AND repair_requests.deleted_at IS NULL
+
+    UNION ALL
+
+    SELECT 1
+    FROM bill_attachments
+    JOIN bills ON bills.id = bill_attachments.bill_id
+    WHERE bill_attachments.id = $1
+      AND bill_attachments.deleted_at IS NULL
+      AND bills.deleted_at IS NULL
+)
+`
+
+	var exists bool
+	if err := r.db.QueryRowContext(ctx, query, attachmentID).Scan(&exists); err != nil {
+		return false, fmt.Errorf("query active attachment host by id: %w", err)
+	}
+	return exists, nil
 }
 
 func (r *SQLRepository) EnsureTenantExists(ctx context.Context, tenantID string) error {

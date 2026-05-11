@@ -139,7 +139,7 @@ func compileRoutePolicies(appCfg config.AppConfig, authenticator platformfirebas
 		case policy.propertyResolver != nil:
 			compiled.requirePropertyAccess = middleware.RequirePropertyAccess(policy.propertyResolver, authzRepos.Properties)
 		case policy.propertyIDsResolver != nil:
-			compiled.requirePropertyAccess = middleware.RequireAnyPropertyAccess(policy.propertyIDsResolver)
+			compiled.requirePropertyAccess = middleware.RequireAnyPropertyAccess(policy.propertyIDsResolver, authzRepos.Properties)
 		}
 
 		policies[routePolicyKey(policy.method, policy.path)] = compiled
@@ -158,7 +158,8 @@ func routePolicies(authzRepos AuthorizationRepositories) []routePolicy {
 	return []routePolicy{
 		{method: "POST", path: "/api/v1/auth/sync", authStrategy: authStrategyFirebaseTokenOnly},
 		{method: "POST", path: "/api/v1/attachments/upload-url", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
-		{method: "DELETE", path: "/api/v1/attachments/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyResolver: middleware.ResourcePropertyIDWithNotFound("id", ownership.FindPropertyIDByAttachmentID, apperr.ErrAttachmentNotFound)},
+		{method: "DELETE", path: "/api/v1/attachments/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}, propertyIDsResolver: middleware.ResourcePropertyIDsWithNotFound("id", ownership.FindPropertyIDsByAttachmentID, apperr.ErrAttachmentNotFound)},
+		{method: "POST", path: "/api/v1/attachments/:id/download-url", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff", "owner"}, propertyIDsResolver: middleware.ResourcePropertyIDsWithNotFound("id", ownership.FindPropertyIDsByAttachmentID, apperr.ErrAttachmentNotFound)},
 
 		{method: "GET", path: "/api/v1/bills", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff", "owner"}, propertyResolver: middleware.QueryPropertyID("property_id")},
 		{method: "GET", path: "/api/v1/bills/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff", "owner"}, propertyResolver: middleware.ResourcePropertyIDWithNotFound("id", ownership.FindPropertyIDByBillID, apperr.ErrBillNotFound)},

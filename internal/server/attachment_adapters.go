@@ -56,6 +56,16 @@ func (a attachmentRepositoryAdapter) ListByResource(ctx context.Context, resourc
 	return attachments, nil
 }
 
+func (a attachmentRepositoryAdapter) FindActiveByID(ctx context.Context, attachmentID string) (*appattachment.Attachment, error) {
+	attachment, err := a.repo.FindActiveByID(ctx, attachmentID)
+	if err != nil {
+		return nil, mapAttachmentRepoError(err)
+	}
+
+	converted := toAppAttachment(attachment)
+	return &converted, nil
+}
+
 func (a attachmentRepositoryAdapter) CreateAttachment(ctx context.Context, tx *sql.Tx, params appattachment.CreateAttachmentParams) (*appattachment.Attachment, error) {
 	attachment, err := a.repo.CreateAttachment(ctx, tx, dbattachments.CreateAttachmentParams{
 		ResourceType: dbattachments.ResourceType(params.ResourceType),
