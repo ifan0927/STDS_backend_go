@@ -3,6 +3,7 @@ package billing
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -474,6 +475,44 @@ func TestExportTenantRosterRendersHTMLDocument(t *testing.T) {
 	}
 	if string(document.HTML) != "<html>tenant roster</html>" {
 		t.Fatalf("html = %q", document.HTML)
+	}
+}
+
+func TestTenantRosterTemplateUsesA4PageLayout(t *testing.T) {
+	longTenantName := "很長很長的租客姓名需要在欄位內自動換行"
+	longPhone := "091234567809123456780912345678"
+	longNotes := "這是一段很長的備註內容，需要留在表格欄位內換行，不能把 A4 預覽頁面撐寬。"
+	view := newTenantRosterView(time.Date(2026, 5, 7, 0, 0, 0, 0, time.UTC), []TenantRosterRow{
+		{
+			PropertyName: "Demo Property",
+			RoomName:     "A-1001-很長的房號",
+			LeaseID:      stringPtr("lease-1"),
+			TenantName:   &longTenantName,
+			TenantPhone:  &longPhone,
+			ReportNotes:  &longNotes,
+		},
+	})
+	renderer := MustNewTenantRosterRenderer()
+
+	html, err := renderer.Render("tenant_roster.html", view)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	rendered := string(html)
+	for _, want := range []string{
+		`<main class="page">`,
+		`width: 210mm;`,
+		`min-height: 297mm;`,
+		`table-layout: fixed;`,
+		`overflow-wrap: anywhere;`,
+		`size: A4 portrait;`,
+		longTenantName,
+		longPhone,
+		longNotes,
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered tenant roster HTML missing %q", want)
+		}
 	}
 }
 

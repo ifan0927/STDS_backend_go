@@ -1,87 +1,157 @@
 {{define "tenant_roster.html"}}<!doctype html>
-<html lang="en">
+<html lang="zh-Hant">
 <head>
   <meta charset="utf-8">
   <title>{{.Title}}</title>
   <style>
+    :root {
+      color-scheme: light;
+      font-family: "Noto Sans TC", "Microsoft JhengHei", Arial, sans-serif;
+      color: #111827;
+      background: #ffffff;
+    }
     body {
-      color: #1f2933;
-      font-family: Arial, sans-serif;
-      font-size: 14px;
-      line-height: 1.4;
-      margin: 24px;
+      margin: 0;
+      padding: 32px;
+      background: #f3f4f6;
+    }
+    .page {
+      width: 210mm;
+      min-height: 297mm;
+      margin: 0 auto;
+      padding: 18mm 14mm;
+      background: #ffffff;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+      box-sizing: border-box;
     }
     h1 {
+      margin: 0 0 14px;
+      text-align: center;
       font-size: 24px;
-      margin: 0 0 8px;
+      font-weight: 700;
+      letter-spacing: 0;
     }
     .report-meta {
-      color: #52606d;
-      margin-bottom: 20px;
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      color: #4b5563;
+      font-size: 12px;
     }
     table {
-      border-collapse: collapse;
       width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 12px;
     }
     th,
     td {
-      border: 1px solid #cbd2d9;
-      padding: 8px;
+      border: 1px solid #111827;
+      padding: 5px 6px;
       text-align: left;
       vertical-align: top;
+      line-height: 1.4;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
     th {
-      background: #f5f7fa;
+      background: #e5e7eb;
       font-weight: 700;
+      text-align: center;
+    }
+    .room {
+      width: 11%;
+    }
+    .status {
+      width: 10%;
+      text-align: center;
+    }
+    .tenant {
+      width: 14%;
+    }
+    .phone {
+      width: 15%;
+    }
+    .due-date {
+      width: 13%;
+      text-align: center;
+    }
+    .cadence {
+      width: 9%;
+      text-align: center;
+    }
+    .amount {
+      width: 11%;
+      text-align: right;
+    }
+    .notes {
+      width: 17%;
     }
     @media print {
       body {
-        margin: 12mm;
+        padding: 0;
+        background: #ffffff;
+      }
+      .page {
+        width: auto;
+        min-height: auto;
+        margin: 0;
+        padding: 0;
+        box-shadow: none;
       }
       th {
-        background: #f5f7fa;
+        background: #e5e7eb;
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;
       }
+      thead {
+        display: table-header-group;
+      }
       tr {
         break-inside: avoid;
+      }
+      @page {
+        size: A4 portrait;
+        margin: 14mm 10mm;
       }
     }
   </style>
 </head>
 <body>
-  <h1>{{.Title}}</h1>
-  <div class="report-meta">
-    <div>物業：{{.PropertyName}}</div>
-    <div>基準日：{{.AsOfLabel}}</div>
-  </div>
-  <table>
-    <thead>
-      <tr>
-        <th>房號</th>
-        <th>狀態</th>
-        <th>租客</th>
-        <th>電話</th>
-        <th>下次租金到期日</th>
-        <th>租金週期</th>
-        <th>租金金額</th>
-        <th>備註</th>
-      </tr>
-    </thead>
-    <tbody>
-      {{range .Rows}}
-      <tr>
-        <td>{{.RoomName}}</td>
-        <td>{{.StatusLabel}}</td>
-        <td>{{.TenantName}}</td>
-        <td>{{.TenantPhone}}</td>
-        <td>{{.NextRentDueDateLabel}}</td>
-        <td>{{.RentCadenceLabel}}</td>
-        <td>{{.RentAmountLabel}}</td>
-        <td>{{.Notes}}</td>
-      </tr>
-      {{end}}
-    </tbody>
-  </table>
+  <main class="page">
+    <h1>{{.Title}}</h1>
+    <div class="report-meta">
+      <span>物業：{{.PropertyName}}</span>
+      <span>基準日：{{.AsOfLabel}}</span>
+    </div>
+    <table aria-label="租客名冊">
+      <thead>
+        <tr>
+          <th class="room">房號</th>
+          <th class="status">狀態</th>
+          <th class="tenant">租客</th>
+          <th class="phone">電話</th>
+          <th class="due-date">下次租金到期日</th>
+          <th class="cadence">租金週期</th>
+          <th class="amount">租金金額</th>
+          <th class="notes">備註</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Rows}}
+        <tr>
+          <td class="room">{{.RoomName}}</td>
+          <td class="status">{{.StatusLabel}}</td>
+          <td class="tenant">{{.TenantName}}</td>
+          <td class="phone">{{.TenantPhone}}</td>
+          <td class="due-date">{{.NextRentDueDateLabel}}</td>
+          <td class="cadence">{{.RentCadenceLabel}}</td>
+          <td class="amount">{{.RentAmountLabel}}</td>
+          <td class="notes">{{.Notes}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </main>
 </body>
 </html>{{end}}
