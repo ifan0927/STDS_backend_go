@@ -6893,6 +6893,7 @@ paths:
       description: |
         x-required-role: admin, organizer, staff
         Step 1：後端驗證呼叫者對資源的寫入權限，建立 nonce 與 object_path，回傳 GCS Signed URL。
+        Step 2：Client 必須使用 HTTP PUT 直接上傳 raw file bytes 到 upload_url，且 direct upload 的 Content-Type header 必須與本 request 的 content_type 完全相同。
         BR-18：僅允許 image/jpeg、image/png、image/heic、application/pdf，且在產生 upload URL 前驗證 file_size 不可超過 20MB。
         注意：取得 upload_url 不代表附件已生效，必須完成 Step 3 登記。
       tags:
