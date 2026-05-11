@@ -1893,7 +1893,7 @@ type ServerInterface interface {
 	// 軟刪除附件
 	// (DELETE /attachments/{id})
 	DeleteAttachment(c *gin.Context, id openapi_types.UUID)
-	// 產生附件下載 Signed URL
+	// Generate attachment download signed URL
 	// (POST /attachments/{id}/download-url)
 	CreateAttachmentDownloadURL(c *gin.Context, id openapi_types.UUID)
 	// 同步 Firebase 使用者至後端 DB（首次登入或 token 更新時呼叫）

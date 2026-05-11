@@ -466,7 +466,10 @@ func TestDeleteAttachmentMapsRepositoryNotFoundToAttachmentNotFound(t *testing.T
 func TestCreateAttachmentDownloadURLReturnsSignedURL(t *testing.T) {
 	now := time.Date(2026, 5, 11, 10, 0, 0, 0, time.UTC)
 	attachmentID := "10000000-0000-0000-0000-000000000011"
-	storage := &storageStub{downloadURL: "http://storage/download"}
+	storage := &storageStub{
+		downloadURL: "http://storage/download",
+		metadata:    &ObjectMetadata{ContentType: "application/pdf", Size: 1024},
+	}
 	service := newTestService(&attachmentRepoStub{
 		activeAttachment: &Attachment{
 			ID:           attachmentID,
@@ -497,11 +500,17 @@ func TestCreateAttachmentDownloadURLReturnsSignedURL(t *testing.T) {
 	if storage.signedDownloadObjectPath != "attachments/room/object.pdf" {
 		t.Fatalf("expected storage to sign object path, got %q", storage.signedDownloadObjectPath)
 	}
+	if storage.signedDownloadExpiresAt != now.Add(15*time.Minute) {
+		t.Fatalf("expected signed expiry %s, got %s", now.Add(15*time.Minute), storage.signedDownloadExpiresAt)
+	}
 }
 
 func TestCreateAttachmentDownloadURLRejectsUnassignedPropertyBeforeSigning(t *testing.T) {
 	attachmentID := "10000000-0000-0000-0000-000000000011"
-	storage := &storageStub{downloadURL: "http://storage/download"}
+	storage := &storageStub{
+		downloadURL: "http://storage/download",
+		metadata:    &ObjectMetadata{ContentType: "application/pdf", Size: 1024},
+	}
 	service := newTestService(&attachmentRepoStub{
 		activeAttachment: &Attachment{
 			ID:           attachmentID,
@@ -534,6 +543,24 @@ func TestCreateAttachmentDownloadURLMapsMissingAttachmentToNotFound(t *testing.T
 	assertAppErrorCode(t, err, apperr.CodeAttachmentNotFound)
 }
 
+func TestCreateAttachmentDownloadURLRejectsNilStorageMetadata(t *testing.T) {
+	service := newTestService(&attachmentRepoStub{
+		activeAttachment: &Attachment{
+			ID:           "10000000-0000-0000-0000-000000000011",
+			ResourceType: ResourceTypeProperty,
+			ResourceID:   testPropertyID,
+			ObjectPath:   "attachments/property/object.pdf",
+		},
+	}, &storageStub{downloadURL: "http://storage/download"}, &resourceAccessStub{}, time.Now().UTC())
+
+	_, err := service.CreateDownloadURL(context.Background(), CreateDownloadURLInput{
+		ActorRole:           "staff",
+		AssignedPropertyIDs: []string{testPropertyID},
+		AttachmentID:        "10000000-0000-0000-0000-000000000011",
+	})
+	assertAppErrorCode(t, err, CodeObjectNotFound)
+}
+
 func TestCreateAttachmentDownloadURLMapsStorageSigningFailureToInternal(t *testing.T) {
 	signErr := errors.New("storage signer unavailable")
 	service := newTestService(&attachmentRepoStub{
@@ -543,7 +570,10 @@ func TestCreateAttachmentDownloadURLMapsStorageSigningFailureToInternal(t *testi
 			ResourceID:   testPropertyID,
 			ObjectPath:   "attachments/property/object.pdf",
 		},
-	}, &storageStub{downloadErr: signErr}, &resourceAccessStub{}, time.Now().UTC())
+	}, &storageStub{
+		metadata:    &ObjectMetadata{ContentType: "application/pdf", Size: 1024},
+		downloadErr: signErr,
+	}, &resourceAccessStub{}, time.Now().UTC())
 
 	_, err := service.CreateDownloadURL(context.Background(), CreateDownloadURLInput{
 		ActorRole:           "staff",
@@ -676,6 +706,7 @@ type storageStub struct {
 	downloadURL              string
 	downloadSignCalled       bool
 	signedDownloadObjectPath string
+	signedDownloadExpiresAt  time.Time
 	metadata                 *ObjectMetadata
 	metadataErr              error
 	downloadErr              error
@@ -694,9 +725,10 @@ func (s *storageStub) GetObjectMetadata(_ context.Context, _ string) (*ObjectMet
 	return s.metadata, nil
 }
 
-func (s *storageStub) GenerateDownloadURL(_ context.Context, objectPath string, _ time.Time) (string, error) {
+func (s *storageStub) GenerateDownloadURL(_ context.Context, objectPath string, expiresAt time.Time) (string, error) {
 	s.downloadSignCalled = true
 	s.signedDownloadObjectPath = objectPath
+	s.signedDownloadExpiresAt = expiresAt
 	if s.downloadErr != nil {
 		return "", s.downloadErr
 	}

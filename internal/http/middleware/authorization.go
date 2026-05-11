@@ -83,6 +83,9 @@ func RequireAnyPropertyAccess(resolvePropertyIDs PropertyIDsResolver, propertyRe
 			for _, propertyID := range propertyIDs {
 				ownerID, err := propertyRepo.FindOwnerIDByPropertyID(c.Request.Context(), propertyID)
 				if err != nil {
+					if errors.Is(err, dbproperties.ErrNotFound) {
+						continue
+					}
 					c.Error(mapPropertyLookupError(err))
 					c.Abort()
 					return

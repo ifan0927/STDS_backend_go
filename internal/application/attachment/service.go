@@ -301,11 +301,15 @@ func (s *Service) CreateDownloadURL(ctx context.Context, input CreateDownloadURL
 	}
 
 	expiresAt := s.now().UTC().Add(s.uploadURLTTL)
-	if _, err := s.storage.GetObjectMetadata(ctx, attachment.ObjectPath); err != nil {
+	metadata, err := s.storage.GetObjectMetadata(ctx, attachment.ObjectPath)
+	if err != nil {
 		if errorsIsObjectMissing(err) {
 			return nil, ErrObjectNotFound
 		}
 		return nil, apperr.ErrInternalServerError.WithCause(err)
+	}
+	if metadata == nil {
+		return nil, ErrObjectNotFound
 	}
 
 	downloadURL, err := s.storage.GenerateDownloadURL(ctx, attachment.ObjectPath, expiresAt)
