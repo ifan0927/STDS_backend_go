@@ -4,11 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"os"
 	"regexp"
 	"testing"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 func TestCreateFindAndDeleteUploadTokenLifecycle(t *testing.T) {
@@ -511,6 +514,102 @@ func TestFindActiveByIDMapsNoRowsToNotFound(t *testing.T) {
 	}
 }
 
+func TestFindActiveByIDPostgresUnionTypeContract(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		databaseURL = os.Getenv("DATABASE_URL")
+	}
+	if databaseURL == "" {
+		t.Skip("set TEST_DATABASE_URL or DATABASE_URL to run PostgreSQL attachment repository contract test")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	db, err := sql.Open("pgx", databaseURL)
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+
+	if err := db.PingContext(ctx); err != nil {
+		t.Fatalf("PingContext: %v", err)
+	}
+
+	schemaName := fmt.Sprintf("attachment_repo_test_%d", time.Now().UnixNano())
+	if _, err := db.ExecContext(ctx, `CREATE SCHEMA `+schemaName); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+	defer func() {
+		if _, err := db.ExecContext(context.Background(), `DROP SCHEMA IF EXISTS `+schemaName+` CASCADE`); err != nil {
+			t.Errorf("drop schema: %v", err)
+		}
+	}()
+	if _, err := db.ExecContext(ctx, `SET search_path TO `+schemaName+`, public`); err != nil {
+		t.Fatalf("set search_path: %v", err)
+	}
+
+	createAttachmentContractTables(t, ctx, db)
+
+	now := time.Date(2026, 5, 12, 9, 0, 0, 0, time.UTC)
+	propertyAttachmentID := "80000000-0000-0000-0000-000000000101"
+	repairAttachmentID := "80000000-0000-0000-0000-000000000102"
+	propertyID := "10000000-0000-0000-0000-000000000001"
+	repairRequestID := "30000000-0000-0000-0000-000000000001"
+	uploaderID := "20000000-0000-0000-0000-000000000001"
+	if _, err := db.ExecContext(ctx, `
+INSERT INTO property_attachments (id, property_id, object_path, file_name, uploaded_by, created_at)
+VALUES ($1, $2, $3, $4, $5, $6)
+`, propertyAttachmentID, propertyID, "attachments/property/object.pdf", "object.pdf", uploaderID, now); err != nil {
+		t.Fatalf("insert property attachment: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+INSERT INTO repair_request_attachments (
+	id,
+	repair_request_id,
+	object_path,
+	file_name,
+	uploaded_by,
+	sort_order,
+	photo_stage,
+	created_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+`, repairAttachmentID, repairRequestID, "attachments/repair/before.jpg", "before.jpg", uploaderID, 2, "before", now); err != nil {
+		t.Fatalf("insert repair request attachment: %v", err)
+	}
+
+	repo := NewRepository(db)
+	propertyAttachment, err := repo.FindActiveByID(ctx, propertyAttachmentID)
+	if err != nil {
+		t.Fatalf("FindActiveByID property attachment returned error: %v", err)
+	}
+	if propertyAttachment.ResourceType != ResourceTypeProperty || propertyAttachment.ResourceID != propertyID {
+		t.Fatalf("unexpected property attachment: %#v", propertyAttachment)
+	}
+	if propertyAttachment.SortOrder != nil {
+		t.Fatalf("expected nil property sort order, got %#v", propertyAttachment.SortOrder)
+	}
+	if propertyAttachment.PhotoStage != nil {
+		t.Fatalf("expected nil property photo stage, got %#v", propertyAttachment.PhotoStage)
+	}
+
+	repairAttachment, err := repo.FindActiveByID(ctx, repairAttachmentID)
+	if err != nil {
+		t.Fatalf("FindActiveByID repair attachment returned error: %v", err)
+	}
+	if repairAttachment.ResourceType != ResourceTypeRepairRequest || repairAttachment.ResourceID != repairRequestID {
+		t.Fatalf("unexpected repair attachment: %#v", repairAttachment)
+	}
+	if repairAttachment.SortOrder == nil || *repairAttachment.SortOrder != 2 {
+		t.Fatalf("expected repair sort order 2, got %#v", repairAttachment.SortOrder)
+	}
+	if repairAttachment.PhotoStage == nil || *repairAttachment.PhotoStage != PhotoStageBefore {
+		t.Fatalf("expected repair photo stage before, got %#v", repairAttachment.PhotoStage)
+	}
+}
+
 func TestSoftDeleteAttachmentByIDUsesDeterministicResourceOrder(t *testing.T) {
 	db, mock, repo := newAttachmentRepoTest(t)
 	tx := beginAttachmentTx(t, db, mock)
@@ -641,6 +740,90 @@ func findActiveByIDQueryPattern() string {
 		`FROM repair_request_attachments\s+WHERE id = \$1\s+AND deleted_at IS NULL.*` +
 		`FROM bill_attachments\s+WHERE id = \$1\s+AND deleted_at IS NULL.*` +
 		`LIMIT 1`
+}
+
+func createAttachmentContractTables(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+
+	statements := []string{
+		`
+CREATE TABLE property_attachments (
+	id UUID PRIMARY KEY,
+	property_id UUID NOT NULL,
+	object_path TEXT NOT NULL,
+	file_name TEXT NOT NULL,
+	uploaded_by UUID,
+	deleted_at TIMESTAMPTZ,
+	created_at TIMESTAMPTZ NOT NULL
+)`,
+		`
+CREATE TABLE room_attachments (
+	id UUID PRIMARY KEY,
+	room_id UUID NOT NULL,
+	object_path TEXT NOT NULL,
+	file_name TEXT NOT NULL,
+	uploaded_by UUID,
+	deleted_at TIMESTAMPTZ,
+	created_at TIMESTAMPTZ NOT NULL
+)`,
+		`
+CREATE TABLE tenant_attachments (
+	id UUID PRIMARY KEY,
+	tenant_id UUID NOT NULL,
+	object_path TEXT NOT NULL,
+	file_name TEXT NOT NULL,
+	uploaded_by UUID,
+	deleted_at TIMESTAMPTZ,
+	created_at TIMESTAMPTZ NOT NULL
+)`,
+		`
+CREATE TABLE lease_attachments (
+	id UUID PRIMARY KEY,
+	lease_id UUID NOT NULL,
+	object_path TEXT NOT NULL,
+	file_name TEXT NOT NULL,
+	uploaded_by UUID,
+	deleted_at TIMESTAMPTZ,
+	created_at TIMESTAMPTZ NOT NULL
+)`,
+		`
+CREATE TABLE journal_log_attachments (
+	id UUID PRIMARY KEY,
+	journal_log_id UUID NOT NULL,
+	object_path TEXT NOT NULL,
+	file_name TEXT NOT NULL,
+	uploaded_by UUID,
+	deleted_at TIMESTAMPTZ,
+	created_at TIMESTAMPTZ NOT NULL
+)`,
+		`
+CREATE TABLE repair_request_attachments (
+	id UUID PRIMARY KEY,
+	repair_request_id UUID NOT NULL,
+	object_path TEXT NOT NULL,
+	file_name TEXT NOT NULL,
+	uploaded_by UUID,
+	sort_order INTEGER NOT NULL DEFAULT 0,
+	photo_stage VARCHAR(20),
+	deleted_at TIMESTAMPTZ,
+	created_at TIMESTAMPTZ NOT NULL
+)`,
+		`
+CREATE TABLE bill_attachments (
+	id UUID PRIMARY KEY,
+	bill_id UUID NOT NULL,
+	object_path TEXT NOT NULL,
+	file_name TEXT NOT NULL,
+	uploaded_by UUID,
+	deleted_at TIMESTAMPTZ,
+	created_at TIMESTAMPTZ NOT NULL
+)`,
+	}
+	for _, statement := range statements {
+		if _, err := db.ExecContext(ctx, statement); err != nil {
+			t.Fatalf("create attachment contract table: %v", err)
+		}
+	}
 }
 
 func expectSoftDelete(mock sqlmock.Sqlmock, table string, attachmentID string, rowsAffected int64) {
