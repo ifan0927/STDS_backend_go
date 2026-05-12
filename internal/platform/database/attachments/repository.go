@@ -334,13 +334,13 @@ SELECT
 FROM (
 	SELECT
 		id,
-		'property' AS resource_type,
+		'property'::text AS resource_type,
 		property_id AS resource_id,
 		object_path,
 		file_name,
 		uploaded_by,
-		NULL AS sort_order,
-		NULL AS photo_stage,
+		NULL::integer AS sort_order,
+		NULL::varchar(20) AS photo_stage,
 		created_at,
 		deleted_at
 	FROM property_attachments
@@ -351,13 +351,13 @@ FROM (
 
 	SELECT
 		id,
-		'room' AS resource_type,
+		'room'::text AS resource_type,
 		room_id AS resource_id,
 		object_path,
 		file_name,
 		uploaded_by,
-		NULL AS sort_order,
-		NULL AS photo_stage,
+		NULL::integer AS sort_order,
+		NULL::varchar(20) AS photo_stage,
 		created_at,
 		deleted_at
 	FROM room_attachments
@@ -368,13 +368,13 @@ FROM (
 
 	SELECT
 		id,
-		'tenant' AS resource_type,
+		'tenant'::text AS resource_type,
 		tenant_id AS resource_id,
 		object_path,
 		file_name,
 		uploaded_by,
-		NULL AS sort_order,
-		NULL AS photo_stage,
+		NULL::integer AS sort_order,
+		NULL::varchar(20) AS photo_stage,
 		created_at,
 		deleted_at
 	FROM tenant_attachments
@@ -385,13 +385,13 @@ FROM (
 
 	SELECT
 		id,
-		'lease' AS resource_type,
+		'lease'::text AS resource_type,
 		lease_id AS resource_id,
 		object_path,
 		file_name,
 		uploaded_by,
-		NULL AS sort_order,
-		NULL AS photo_stage,
+		NULL::integer AS sort_order,
+		NULL::varchar(20) AS photo_stage,
 		created_at,
 		deleted_at
 	FROM lease_attachments
@@ -402,13 +402,13 @@ FROM (
 
 	SELECT
 		id,
-		'journal_log' AS resource_type,
+		'journal_log'::text AS resource_type,
 		journal_log_id AS resource_id,
 		object_path,
 		file_name,
 		uploaded_by,
-		NULL AS sort_order,
-		NULL AS photo_stage,
+		NULL::integer AS sort_order,
+		NULL::varchar(20) AS photo_stage,
 		created_at,
 		deleted_at
 	FROM journal_log_attachments
@@ -419,7 +419,7 @@ FROM (
 
 	SELECT
 		id,
-		'repair_request' AS resource_type,
+		'repair_request'::text AS resource_type,
 		repair_request_id AS resource_id,
 		object_path,
 		file_name,
@@ -436,13 +436,13 @@ FROM (
 
 	SELECT
 		id,
-		'bill' AS resource_type,
+		'bill'::text AS resource_type,
 		bill_id AS resource_id,
 		object_path,
 		file_name,
 		uploaded_by,
-		NULL AS sort_order,
-		NULL AS photo_stage,
+		NULL::integer AS sort_order,
+		NULL::varchar(20) AS photo_stage,
 		created_at,
 		deleted_at
 	FROM bill_attachments
