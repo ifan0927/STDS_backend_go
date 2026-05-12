@@ -277,6 +277,41 @@ func TestListCheckoutReviewsAccessibleReturnsLabelsAndExportAvailability(t *test
 	}
 }
 
+func TestListCheckoutReviewsAccessibleReturnsExportUnavailableWithoutFinalizedSettlement(t *testing.T) {
+	db, mock, repo := newLeaseQueryRepoTest(t)
+	defer closeLeaseQueryDB(t, db)
+
+	startDate := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	endDate := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
+
+	mock.ExpectQuery(`(?s)SELECT COUNT\(\*\)::int\s+FROM leases l\s+WHERE l\.deleted_at IS NULL\s+AND l\.status IN \('terminated', 'expired', 'force_terminated'\)`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery(`(?s)\(l\.settlement_detail IS NOT NULL AND l\.settlement_detail \? 'finalized_at'\) AS export_available.*FROM leases l.*LIMIT \$1 OFFSET \$2`).
+		WithArgs(20, 0).
+		WillReturnRows(checkoutReviewRows().AddRow(
+			"lease-1", "property-1", "room-1", "tenant-1", "Property 1", "Room 1", "Tenant 1",
+			startDate, endDate, "expired", "held", nil, nil, nil, nil, false,
+			nil, nil, nil, nil,
+		))
+
+	result, err := repo.ListCheckoutReviewsAccessible(context.Background(), "admin", nil, CheckoutReviewListParams{
+		Limit: 20,
+	})
+	if err != nil {
+		t.Fatalf("ListCheckoutReviewsAccessible: %v", err)
+	}
+	if result.Total != 1 || len(result.Items) != 1 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	review := result.Items[0]
+	if review.ExportAvailable {
+		t.Fatalf("ExportAvailable = true, want false")
+	}
+	if review.CheckoutFinalizedAt != nil {
+		t.Fatalf("CheckoutFinalizedAt = %v, want nil", review.CheckoutFinalizedAt)
+	}
+}
+
 func TestFindByIDAccessibleAdminSuccess(t *testing.T) {
 	db, mock, repo := newLeaseQueryRepoTest(t)
 	defer closeLeaseQueryDB(t, db)

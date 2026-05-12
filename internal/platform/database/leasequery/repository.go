@@ -353,7 +353,7 @@ SELECT
 		WHEN l.settlement_detail ? 'finalized_at' THEN NULLIF(l.settlement_detail->>'finalized_at', '')::timestamptz
 		ELSE NULL
 	END AS checkout_finalized_at,
-	(l.settlement_detail ? 'finalized_at') AS export_available,
+	(l.settlement_detail IS NOT NULL AND l.settlement_detail ? 'finalized_at') AS export_available,
 	ft.id,
 	ft.status,
 	ft.reason,
