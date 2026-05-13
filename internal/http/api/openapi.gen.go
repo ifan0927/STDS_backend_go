@@ -585,6 +585,23 @@ type BillResponseStatus string
 // BillResponseType defines model for BillResponse.Type.
 type BillResponseType string
 
+// BrandFAQItemListResponse defines model for BrandFAQItemListResponse.
+type BrandFAQItemListResponse struct {
+	Data *[]BrandFAQItemResponse `json:"data,omitempty"`
+}
+
+// BrandFAQItemResponse defines model for BrandFAQItemResponse.
+type BrandFAQItemResponse struct {
+	Answer    *string             `json:"answer,omitempty"`
+	CreatedAt *time.Time          `json:"created_at,omitempty"`
+	Id        *openapi_types.UUID `json:"id,omitempty"`
+	IsActive  *bool               `json:"is_active,omitempty"`
+	Question  *string             `json:"question,omitempty"`
+	SortOrder *int                `json:"sort_order,omitempty"`
+	UpdatedAt *time.Time          `json:"updated_at,omitempty"`
+	Version   *int                `json:"version,omitempty"`
+}
+
 // BrandProfileResponse defines model for BrandProfileResponse.
 type BrandProfileResponse struct {
 	BrandName      *string              `json:"brand_name,omitempty"`
@@ -757,6 +774,14 @@ type CheckoutSettlementWarning struct {
 // CheckoutSettlementWarningCode Informational warning code. Warnings do not authorize frontend-side settlement calculation; frontend must display backend lines and totals as returned.
 type CheckoutSettlementWarningCode string
 
+// CreateBrandFAQItemRequest defines model for CreateBrandFAQItemRequest.
+type CreateBrandFAQItemRequest struct {
+	Answer    string `json:"answer"`
+	IsActive  *bool  `json:"is_active,omitempty"`
+	Question  string `json:"question"`
+	SortOrder *int   `json:"sort_order,omitempty"`
+}
+
 // CreateJournalLogRequest defines model for CreateJournalLogRequest.
 type CreateJournalLogRequest struct {
 	Content string `json:"content"`
@@ -894,6 +919,11 @@ type DashboardRoomItem struct {
 
 // DashboardRoomItemStatus defines model for DashboardRoomItem.Status.
 type DashboardRoomItemStatus string
+
+// DeactivateBrandFAQItemRequest defines model for DeactivateBrandFAQItemRequest.
+type DeactivateBrandFAQItemRequest struct {
+	Version int `json:"version"`
+}
 
 // ErrorResponse defines model for ErrorResponse.
 type ErrorResponse struct {
@@ -1507,6 +1537,15 @@ type TerminateLeaseRequest struct {
 	RefundAmount           *int    `json:"refund_amount,omitempty"`
 }
 
+// UpdateBrandFAQItemRequest defines model for UpdateBrandFAQItemRequest.
+type UpdateBrandFAQItemRequest struct {
+	Answer    string `json:"answer"`
+	IsActive  bool   `json:"is_active"`
+	Question  string `json:"question"`
+	SortOrder int    `json:"sort_order"`
+	Version   int    `json:"version"`
+}
+
 // UpdateCurrentUserRequest defines model for UpdateCurrentUserRequest.
 type UpdateCurrentUserRequest struct {
 	// Name 顯示名稱
@@ -1666,6 +1705,11 @@ type ExportBillReceiptParams struct {
 
 // ExportBillReceiptParamsFormat defines parameters for ExportBillReceipt.
 type ExportBillReceiptParamsFormat string
+
+// ListBrandFAQItemsParams defines parameters for ListBrandFAQItems.
+type ListBrandFAQItemsParams struct {
+	IncludeInactive *bool `form:"include_inactive,omitempty" json:"include_inactive,omitempty"`
+}
 
 // RunForceTerminationCompensationJobParams defines parameters for RunForceTerminationCompensationJob.
 type RunForceTerminationCompensationJobParams struct {
@@ -1873,6 +1917,15 @@ type SubmitBillMeterJSONRequestBody = RecordMeterRequest
 // RecordBillPaymentJSONRequestBody defines body for RecordBillPayment for application/json ContentType.
 type RecordBillPaymentJSONRequestBody = RecordPaymentRequest
 
+// CreateBrandFAQItemJSONRequestBody defines body for CreateBrandFAQItem for application/json ContentType.
+type CreateBrandFAQItemJSONRequestBody = CreateBrandFAQItemRequest
+
+// UpdateBrandFAQItemJSONRequestBody defines body for UpdateBrandFAQItem for application/json ContentType.
+type UpdateBrandFAQItemJSONRequestBody = UpdateBrandFAQItemRequest
+
+// DeactivateBrandFAQItemJSONRequestBody defines body for DeactivateBrandFAQItem for application/json ContentType.
+type DeactivateBrandFAQItemJSONRequestBody = DeactivateBrandFAQItemRequest
+
 // UpsertBrandProfileJSONRequestBody defines body for UpsertBrandProfile for application/json ContentType.
 type UpsertBrandProfileJSONRequestBody = UpsertBrandProfileRequest
 
@@ -2004,6 +2057,18 @@ type ServerInterface interface {
 	// Export bill receipt as HTML
 	// (GET /bills/{id}/receipt)
 	ExportBillReceipt(c *gin.Context, id string, params ExportBillReceiptParams)
+	// 列出品牌 FAQ
+	// (GET /brand/faq-items)
+	ListBrandFAQItems(c *gin.Context, params ListBrandFAQItemsParams)
+	// 建立品牌 FAQ
+	// (POST /brand/faq-items)
+	CreateBrandFAQItem(c *gin.Context)
+	// 更新品牌 FAQ
+	// (PATCH /brand/faq-items/{id})
+	UpdateBrandFAQItem(c *gin.Context, id openapi_types.UUID)
+	// 停用品牌 FAQ
+	// (POST /brand/faq-items/{id}/deactivate)
+	DeactivateBrandFAQItem(c *gin.Context, id openapi_types.UUID)
 	// 取得品牌基本資料
 	// (GET /brand/profile)
 	GetBrandProfile(c *gin.Context)
@@ -2601,6 +2666,101 @@ func (siw *ServerInterfaceWrapper) ExportBillReceipt(c *gin.Context) {
 	}
 
 	siw.Handler.ExportBillReceipt(c, id, params)
+}
+
+// ListBrandFAQItems operation middleware
+func (siw *ServerInterfaceWrapper) ListBrandFAQItems(c *gin.Context) {
+
+	var err error
+
+	c.Set(BearerAuthScopes, []string{})
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListBrandFAQItemsParams
+
+	// ------------- Optional query parameter "include_inactive" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "include_inactive", c.Request.URL.Query(), &params.IncludeInactive)
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter include_inactive: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ListBrandFAQItems(c, params)
+}
+
+// CreateBrandFAQItem operation middleware
+func (siw *ServerInterfaceWrapper) CreateBrandFAQItem(c *gin.Context) {
+
+	c.Set(BearerAuthScopes, []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.CreateBrandFAQItem(c)
+}
+
+// UpdateBrandFAQItem operation middleware
+func (siw *ServerInterfaceWrapper) UpdateBrandFAQItem(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Param("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(BearerAuthScopes, []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.UpdateBrandFAQItem(c, id)
+}
+
+// DeactivateBrandFAQItem operation middleware
+func (siw *ServerInterfaceWrapper) DeactivateBrandFAQItem(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Param("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	c.Set(BearerAuthScopes, []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.DeactivateBrandFAQItem(c, id)
 }
 
 // GetBrandProfile operation middleware
@@ -5225,6 +5385,10 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.POST(options.BaseURL+"/bills/:id/meter", wrapper.SubmitBillMeter)
 	router.POST(options.BaseURL+"/bills/:id/payment", wrapper.RecordBillPayment)
 	router.GET(options.BaseURL+"/bills/:id/receipt", wrapper.ExportBillReceipt)
+	router.GET(options.BaseURL+"/brand/faq-items", wrapper.ListBrandFAQItems)
+	router.POST(options.BaseURL+"/brand/faq-items", wrapper.CreateBrandFAQItem)
+	router.PATCH(options.BaseURL+"/brand/faq-items/:id", wrapper.UpdateBrandFAQItem)
+	router.POST(options.BaseURL+"/brand/faq-items/:id/deactivate", wrapper.DeactivateBrandFAQItem)
 	router.GET(options.BaseURL+"/brand/profile", wrapper.GetBrandProfile)
 	router.PUT(options.BaseURL+"/brand/profile", wrapper.UpsertBrandProfile)
 	router.GET(options.BaseURL+"/dashboard", wrapper.GetDashboard)

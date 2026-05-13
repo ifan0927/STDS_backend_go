@@ -1,0 +1,79 @@
+get:
+  operationId: listBrandFAQItems
+  summary: 列出品牌 FAQ
+  description: |
+    x-required-role: admin, organizer
+    Lists brand FAQ items for internal content management. Inactive items are returned only when include_inactive is true.
+  tags:
+    - Brand
+  x-required-role:
+    - admin
+    - organizer
+  parameters:
+    - in: query
+      name: include_inactive
+      required: false
+      schema:
+        type: boolean
+        default: false
+  responses:
+    '200':
+      description: 品牌 FAQ 清單
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/brand/BrandFAQItemListResponse.yaml
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+    '403':
+      description: 權限不足
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+post:
+  operationId: createBrandFAQItem
+  summary: 建立品牌 FAQ
+  description: |
+    x-required-role: admin, organizer
+    Creates a brand FAQ item for internal content management.
+  tags:
+    - Brand
+  x-required-role:
+    - admin
+    - organizer
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: ../../components/schemas/brand/CreateBrandFAQItemRequest.yaml
+  responses:
+    '201':
+      description: 品牌 FAQ 已建立
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/brand/BrandFAQItemResponse.yaml
+    '400':
+      description: 欄位驗證錯誤
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+    '403':
+      description: 權限不足
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml

@@ -1,0 +1,21 @@
+type: object
+properties:
+  id:
+    type: string
+    format: uuid
+  question:
+    type: string
+  answer:
+    type: string
+  sort_order:
+    type: integer
+  is_active:
+    type: boolean
+  created_at:
+    type: string
+    format: date-time
+  updated_at:
+    type: string
+    format: date-time
+  version:
+    type: integer

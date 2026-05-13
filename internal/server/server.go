@@ -23,6 +23,7 @@ import (
 	"stds_backend/internal/platform/database"
 	dbattachments "stds_backend/internal/platform/database/attachments"
 	dbbilling "stds_backend/internal/platform/database/billing"
+	dbbrandfaq "stds_backend/internal/platform/database/brandfaq"
 	dbbrandprofile "stds_backend/internal/platform/database/brandprofile"
 	dbjobruns "stds_backend/internal/platform/database/jobruns"
 	dbjournal "stds_backend/internal/platform/database/journal"
@@ -83,6 +84,7 @@ func New(cfg *config.Config) (*Server, error) {
 	jobRunsRepo := dbjobruns.NewRepository(db)
 	attachmentRepo := dbattachments.NewRepository(db)
 	brandProfileRepo := dbbrandprofile.NewRepository(db)
+	brandFAQRepo := dbbrandfaq.NewRepository(db)
 
 	storageClient, err := platformstorage.NewAttachmentStorage(context.Background(), cfg.App.Env, cfg.Storage)
 	if err != nil {
@@ -115,6 +117,7 @@ func New(cfg *config.Config) (*Server, error) {
 	)
 	txRunner := dbtxrunner.New(db, bus)
 	brandProfileService := appbrand.NewService(brandProfileRepositoryAdapter{repo: brandProfileRepo}, txRunner)
+	brandFAQService := appbrand.NewFAQService(brandFAQRepositoryAdapter{repo: brandFAQRepo}, txRunner)
 	createPropertyService := appproperty.NewCreatePropertyService(propertyRepositoryAdapter{repo: propertyRepo}, propertyAccountRepositoryAdapter{repo: billingRepo}, txRunner)
 	updatePropertyService := appproperty.NewUpdatePropertyService(propertyRepositoryAdapter{repo: propertyRepo}, txRunner)
 	deletePropertyService := appproperty.NewDeletePropertyService(propertyRepositoryAdapter{repo: propertyRepo}, txRunner)
@@ -173,6 +176,7 @@ func New(cfg *config.Config) (*Server, error) {
 		UpdateUser:        updateUserService,
 		AssignProperties:  assignUserPropertiesService,
 		BrandProfile:      brandProfileService,
+		BrandFAQ:          brandFAQService,
 		JobTrigger:        jobTriggerService,
 		PropertyQuery:     propertyQueryRepo,
 		PropertyDashboard: propertyDashboardService,

@@ -171,6 +171,41 @@ func TestBrandProfileRoutePolicyRejectsStaffAndOwner(t *testing.T) {
 	}
 }
 
+func TestBrandFAQRoutePolicyRejectsStaffAndOwner(t *testing.T) {
+	routes := []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodGet, path: "/api/v1/brand/faq-items"},
+		{method: http.MethodPost, path: "/api/v1/brand/faq-items"},
+		{method: http.MethodPatch, path: "/api/v1/brand/faq-items/10000000-0000-0000-0000-000000000001"},
+		{method: http.MethodPost, path: "/api/v1/brand/faq-items/10000000-0000-0000-0000-000000000001/deactivate"},
+	}
+
+	for _, role := range []string{"staff", "owner"} {
+		for _, route := range routes {
+			t.Run(role+" "+route.method+" "+route.path, func(t *testing.T) {
+				engine := newTestEngine(
+					fakeUserRepo{role: role},
+					fakeAuthenticator{role: role},
+					fakePropertyRepo{},
+					fakeResourceOwnershipRepo{},
+					"",
+					fakeJobRunsRepo{},
+				)
+
+				req := httptest.NewRequest(route.method, route.path, nil)
+				req.Header.Set("Authorization", "Bearer valid-token")
+				resp := httptest.NewRecorder()
+
+				engine.ServeHTTP(resp, req)
+
+				assertStandardErrorResponse(t, resp, http.StatusForbidden, apperr.CodeForbidden)
+			})
+		}
+	}
+}
+
 func TestPropertyAccessResolverMatrixAtRouterBoundary(t *testing.T) {
 	t.Run("param property id rejects unassigned property", func(t *testing.T) {
 		engine := newTestEngine(
@@ -6872,6 +6907,7 @@ func defaultAPIServerDeps(userRepo *fakeUserRepo, authenticator fakeAuthenticato
 		UpdateUser:        appiam.NewUpdateUserService(userAccountRepo, appiam.NewCustomClaimsService(authenticator)),
 		AssignProperties:  appiam.NewAssignUserPropertiesService(testManagedUserRepositoryAdapter{repo: userRepo}, testPropertyExistenceChecker{repo: fakePropertyQueryRepo{}}, appiam.NewCustomClaimsService(authenticator)),
 		BrandProfile:      appbrand.NewService(nil, nil),
+		BrandFAQ:          appbrand.NewFAQService(nil, nil),
 		JobTrigger:        appjobs.NewTriggerService(jobRunsRepo, nil, time.Minute, 3),
 		PropertyQuery:     propertyQueryRepo,
 		PropertyDashboard: appproperty.NewDashboardService(nil),

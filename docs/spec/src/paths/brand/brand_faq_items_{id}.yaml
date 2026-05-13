@@ -1,0 +1,61 @@
+patch:
+  operationId: updateBrandFAQItem
+  summary: 更新品牌 FAQ
+  description: |
+    x-required-role: admin, organizer
+    Updates a brand FAQ item. version is required for optimistic locking.
+  tags:
+    - Brand
+  x-required-role:
+    - admin
+    - organizer
+  parameters:
+    - in: path
+      name: id
+      required: true
+      schema:
+        type: string
+        format: uuid
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: ../../components/schemas/brand/UpdateBrandFAQItemRequest.yaml
+  responses:
+    '200':
+      description: 品牌 FAQ 已更新
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/brand/BrandFAQItemResponse.yaml
+    '400':
+      description: 欄位驗證錯誤
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+    '403':
+      description: 權限不足
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+    '404':
+      description: 品牌 FAQ 不存在
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+    '409':
+      description: 樂觀鎖版本衝突
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml

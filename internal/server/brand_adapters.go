@@ -5,6 +5,7 @@ import (
 	"database/sql"
 
 	appbrand "stds_backend/internal/application/brand"
+	dbbrandfaq "stds_backend/internal/platform/database/brandfaq"
 	dbbrandprofile "stds_backend/internal/platform/database/brandprofile"
 )
 
@@ -78,5 +79,92 @@ func toApplicationBrandProfile(profile *dbbrandprofile.Profile) *appbrand.Profil
 		CreatedAt:      profile.CreatedAt,
 		UpdatedAt:      profile.UpdatedAt,
 		Version:        profile.Version,
+	}
+}
+
+type brandFAQRepositoryAdapter struct {
+	repo *dbbrandfaq.SQLRepository
+}
+
+func (a brandFAQRepositoryAdapter) List(ctx context.Context, includeInactive bool) ([]appbrand.FAQItem, error) {
+	items, err := a.repo.List(ctx, includeInactive)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]appbrand.FAQItem, 0, len(items))
+	for _, item := range items {
+		result = append(result, *toApplicationBrandFAQItem(&item))
+	}
+	return result, nil
+}
+
+func (a brandFAQRepositoryAdapter) FindForUpdate(ctx context.Context, tx *sql.Tx, id string) (*appbrand.FAQItem, error) {
+	item, err := a.repo.FindForUpdate(ctx, tx, id)
+	if err != nil {
+		if err == dbbrandfaq.ErrNotFound {
+			return nil, appbrand.ErrBrandFAQItemNotFound
+		}
+		return nil, err
+	}
+
+	return toApplicationBrandFAQItem(item), nil
+}
+
+func (a brandFAQRepositoryAdapter) Create(ctx context.Context, tx *sql.Tx, params appbrand.CreateFAQItemParams) (*appbrand.FAQItem, error) {
+	item, err := a.repo.Create(ctx, tx, dbbrandfaq.CreateItemParams{
+		Question:  params.Question,
+		Answer:    params.Answer,
+		SortOrder: params.SortOrder,
+		IsActive:  params.IsActive,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return toApplicationBrandFAQItem(item), nil
+}
+
+func (a brandFAQRepositoryAdapter) Update(ctx context.Context, tx *sql.Tx, params appbrand.UpdateFAQItemParams) (*appbrand.FAQItem, error) {
+	item, err := a.repo.Update(ctx, tx, dbbrandfaq.UpdateItemParams{
+		ID:        params.ID,
+		Question:  params.Question,
+		Answer:    params.Answer,
+		SortOrder: params.SortOrder,
+		IsActive:  params.IsActive,
+		Version:   params.Version,
+	})
+	if err != nil {
+		if err == dbbrandfaq.ErrNotFound {
+			return nil, appbrand.ErrBrandFAQItemNotFound
+		}
+		return nil, err
+	}
+
+	return toApplicationBrandFAQItem(item), nil
+}
+
+func (a brandFAQRepositoryAdapter) Deactivate(ctx context.Context, tx *sql.Tx, id string, version int) (*appbrand.FAQItem, error) {
+	item, err := a.repo.Deactivate(ctx, tx, id, version)
+	if err != nil {
+		if err == dbbrandfaq.ErrNotFound {
+			return nil, appbrand.ErrBrandFAQItemNotFound
+		}
+		return nil, err
+	}
+
+	return toApplicationBrandFAQItem(item), nil
+}
+
+func toApplicationBrandFAQItem(item *dbbrandfaq.Item) *appbrand.FAQItem {
+	return &appbrand.FAQItem{
+		ID:        item.ID,
+		Question:  item.Question,
+		Answer:    item.Answer,
+		SortOrder: item.SortOrder,
+		IsActive:  item.IsActive,
+		CreatedAt: item.CreatedAt,
+		UpdatedAt: item.UpdatedAt,
+		Version:   item.Version,
 	}
 }

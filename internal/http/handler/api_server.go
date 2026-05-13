@@ -47,6 +47,7 @@ type APIServer struct {
 	updateUser        *appiam.UpdateUserService
 	assignProperties  *appiam.AssignUserPropertiesService
 	brandProfile      *appbrand.Service
+	brandFAQ          *appbrand.FAQService
 	jobTriggerService *appjobs.TriggerService
 	propertyQueryRepo dbpropertyquery.Repository
 	propertyDashboard *appproperty.DashboardService
@@ -89,6 +90,7 @@ type APIServerDeps struct {
 	UpdateUser        *appiam.UpdateUserService
 	AssignProperties  *appiam.AssignUserPropertiesService
 	BrandProfile      *appbrand.Service
+	BrandFAQ          *appbrand.FAQService
 	JobTrigger        *appjobs.TriggerService
 	PropertyQuery     dbpropertyquery.Repository
 	PropertyDashboard *appproperty.DashboardService
@@ -472,6 +474,7 @@ func NewAPIServer(deps APIServerDeps) *APIServer {
 		updateUser:        deps.UpdateUser,
 		assignProperties:  deps.AssignProperties,
 		brandProfile:      deps.BrandProfile,
+		brandFAQ:          deps.BrandFAQ,
 		jobTriggerService: deps.JobTrigger,
 		propertyQueryRepo: deps.PropertyQuery,
 		propertyDashboard: deps.PropertyDashboard,
@@ -517,6 +520,7 @@ func validateAPIServerDeps(deps APIServerDeps) {
 		{"update_user", deps.UpdateUser},
 		{"assign_properties", deps.AssignProperties},
 		{"brand_profile", deps.BrandProfile},
+		{"brand_faq", deps.BrandFAQ},
 		{"job_trigger", deps.JobTrigger},
 		{"property_query", deps.PropertyQuery},
 		{"property_dashboard", deps.PropertyDashboard},
@@ -1576,6 +1580,95 @@ func (s *APIServer) UpsertBrandProfile(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, toBrandProfileResponse(profile))
+}
+
+// ListBrandFAQItems handles brand FAQ item listing.
+func (s *APIServer) ListBrandFAQItems(c *gin.Context, params api.ListBrandFAQItemsParams) {
+	includeInactive := params.IncludeInactive != nil && *params.IncludeInactive
+	items, err := s.brandFAQ.ListFAQItems(c.Request.Context(), appbrand.ListFAQItemsInput{
+		IncludeInactive: includeInactive,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toBrandFAQItemListResponse(items))
+}
+
+// CreateBrandFAQItem handles brand FAQ item creation.
+func (s *APIServer) CreateBrandFAQItem(c *gin.Context) {
+	var request api.CreateBrandFAQItemRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.Error(apperr.ErrBadRequest.WithCause(err))
+		return
+	}
+
+	sortOrder := 0
+	if request.SortOrder != nil {
+		sortOrder = *request.SortOrder
+	}
+	isActive := true
+	if request.IsActive != nil {
+		isActive = *request.IsActive
+	}
+
+	item, err := s.brandFAQ.CreateFAQItem(c.Request.Context(), appbrand.CreateFAQItemInput{
+		Question:  request.Question,
+		Answer:    request.Answer,
+		SortOrder: sortOrder,
+		IsActive:  isActive,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusCreated, toBrandFAQItemResponse(item))
+}
+
+// UpdateBrandFAQItem handles brand FAQ item updates.
+func (s *APIServer) UpdateBrandFAQItem(c *gin.Context, id openapi_types.UUID) {
+	var request api.UpdateBrandFAQItemRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.Error(apperr.ErrBadRequest.WithCause(err))
+		return
+	}
+
+	item, err := s.brandFAQ.UpdateFAQItem(c.Request.Context(), appbrand.UpdateFAQItemInput{
+		ID:        id.String(),
+		Question:  request.Question,
+		Answer:    request.Answer,
+		SortOrder: request.SortOrder,
+		IsActive:  request.IsActive,
+		Version:   request.Version,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toBrandFAQItemResponse(item))
+}
+
+// DeactivateBrandFAQItem handles brand FAQ item deactivation.
+func (s *APIServer) DeactivateBrandFAQItem(c *gin.Context, id openapi_types.UUID) {
+	var request api.DeactivateBrandFAQItemRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.Error(apperr.ErrBadRequest.WithCause(err))
+		return
+	}
+
+	item, err := s.brandFAQ.DeactivateFAQItem(c.Request.Context(), appbrand.DeactivateFAQItemInput{
+		ID:      id.String(),
+		Version: request.Version,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toBrandFAQItemResponse(item))
 }
 
 // ListProperties handles the property listing endpoint.
@@ -3779,6 +3872,41 @@ func toBrandProfileResponse(profile *appbrand.Profile) api.BrandProfileResponse 
 	if profile.ContactEmail != nil {
 		email := openapi_types.Email(*profile.ContactEmail)
 		response.ContactEmail = &email
+	}
+	if idOK {
+		response.Id = &id
+	}
+
+	return response
+}
+
+func toBrandFAQItemListResponse(items []appbrand.FAQItem) api.BrandFAQItemListResponse {
+	responses := make([]api.BrandFAQItemResponse, 0, len(items))
+	for _, item := range items {
+		responses = append(responses, toBrandFAQItemResponse(&item))
+	}
+
+	return api.BrandFAQItemListResponse{Data: &responses}
+}
+
+func toBrandFAQItemResponse(item *appbrand.FAQItem) api.BrandFAQItemResponse {
+	id, idOK := parseUUID(item.ID)
+	question := item.Question
+	answer := item.Answer
+	sortOrder := item.SortOrder
+	isActive := item.IsActive
+	createdAt := item.CreatedAt
+	updatedAt := item.UpdatedAt
+	version := item.Version
+
+	response := api.BrandFAQItemResponse{
+		Question:  &question,
+		Answer:    &answer,
+		SortOrder: &sortOrder,
+		IsActive:  &isActive,
+		CreatedAt: &createdAt,
+		UpdatedAt: &updatedAt,
+		Version:   &version,
 	}
 	if idOK {
 		response.Id = &id

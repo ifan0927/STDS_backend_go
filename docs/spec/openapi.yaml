@@ -849,6 +849,210 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /brand/faq-items:
+    get:
+      operationId: listBrandFAQItems
+      summary: 列出品牌 FAQ
+      description: |
+        x-required-role: admin, organizer
+        Lists brand FAQ items for internal content management. Inactive items are returned only when include_inactive is true.
+      tags:
+        - Brand
+      x-required-role:
+        - admin
+        - organizer
+      parameters:
+        - in: query
+          name: include_inactive
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: 品牌 FAQ 清單
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrandFAQItemListResponse'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      operationId: createBrandFAQItem
+      summary: 建立品牌 FAQ
+      description: |
+        x-required-role: admin, organizer
+        Creates a brand FAQ item for internal content management.
+      tags:
+        - Brand
+      x-required-role:
+        - admin
+        - organizer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBrandFAQItemRequest'
+      responses:
+        '201':
+          description: 品牌 FAQ 已建立
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrandFAQItemResponse'
+        '400':
+          description: 欄位驗證錯誤
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /brand/faq-items/{id}:
+    patch:
+      operationId: updateBrandFAQItem
+      summary: 更新品牌 FAQ
+      description: |
+        x-required-role: admin, organizer
+        Updates a brand FAQ item. version is required for optimistic locking.
+      tags:
+        - Brand
+      x-required-role:
+        - admin
+        - organizer
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateBrandFAQItemRequest'
+      responses:
+        '200':
+          description: 品牌 FAQ 已更新
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrandFAQItemResponse'
+        '400':
+          description: 欄位驗證錯誤
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 品牌 FAQ 不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: 樂觀鎖版本衝突
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /brand/faq-items/{id}/deactivate:
+    post:
+      operationId: deactivateBrandFAQItem
+      summary: 停用品牌 FAQ
+      description: |
+        x-required-role: admin, organizer
+        Deactivates a brand FAQ item without deleting it from internal admin views. version is required for optimistic locking.
+      tags:
+        - Brand
+      x-required-role:
+        - admin
+        - organizer
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeactivateBrandFAQItemRequest'
+      responses:
+        '200':
+          description: 品牌 FAQ 已停用
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrandFAQItemResponse'
+        '400':
+          description: 欄位驗證錯誤
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 未認證
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 權限不足
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 品牌 FAQ 不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: 樂觀鎖版本衝突
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /properties:
     get:
       operationId: listProperties
@@ -7451,6 +7655,77 @@ components:
         version:
           type: integer
           description: Required when updating an existing brand profile; omit for first creation.
+    BrandFAQItemResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        question:
+          type: string
+        answer:
+          type: string
+        sort_order:
+          type: integer
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        version:
+          type: integer
+    BrandFAQItemListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/BrandFAQItemResponse'
+    CreateBrandFAQItemRequest:
+      type: object
+      required:
+        - question
+        - answer
+      properties:
+        question:
+          type: string
+        answer:
+          type: string
+        sort_order:
+          type: integer
+          default: 0
+        is_active:
+          type: boolean
+          default: true
+    UpdateBrandFAQItemRequest:
+      type: object
+      required:
+        - question
+        - answer
+        - sort_order
+        - is_active
+        - version
+      properties:
+        question:
+          type: string
+        answer:
+          type: string
+        sort_order:
+          type: integer
+        is_active:
+          type: boolean
+        version:
+          type: integer
+    DeactivateBrandFAQItemRequest:
+      type: object
+      required:
+        - version
+      properties:
+        version:
+          type: integer
     PropertyResponse:
       type: object
       properties:

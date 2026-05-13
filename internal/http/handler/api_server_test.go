@@ -200,6 +200,123 @@ func TestUpsertBrandProfileRejectsMalformedBody(t *testing.T) {
 	}
 }
 
+func TestListBrandFAQItemsForwardsIncludeInactive(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	now := time.Date(2026, 5, 13, 10, 0, 0, 0, time.UTC)
+	repo := &handlerBrandFAQRepoStub{
+		listItems: []appbrand.FAQItem{
+			{
+				ID:        "10000000-0000-0000-0000-000000000001",
+				Question:  "Q1",
+				Answer:    "A1",
+				SortOrder: 10,
+				IsActive:  false,
+				CreatedAt: now,
+				UpdatedAt: now,
+				Version:   1,
+			},
+		},
+	}
+	server := &APIServer{brandFAQ: appbrand.NewFAQService(repo, nil)}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/brand/faq-items?include_inactive=true", nil)
+
+	includeInactive := true
+	server.ListBrandFAQItems(c, api.ListBrandFAQItemsParams{IncludeInactive: &includeInactive})
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if repo.listIncludeInactive == nil || !*repo.listIncludeInactive {
+		t.Fatalf("expected include inactive forwarding, got %v", repo.listIncludeInactive)
+	}
+	var response api.BrandFAQItemListResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if response.Data == nil || len(*response.Data) != 1 || (*response.Data)[0].Question == nil || *(*response.Data)[0].Question != "Q1" {
+		t.Fatalf("unexpected response: %+v", response)
+	}
+}
+
+func TestCreateBrandFAQItemReturnsCreatedItem(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("open sqlmock: %v", err)
+	}
+	defer db.Close()
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+
+	now := time.Date(2026, 5, 13, 10, 0, 0, 0, time.UTC)
+	repo := &handlerBrandFAQRepoStub{
+		createItem: &appbrand.FAQItem{
+			ID:        "10000000-0000-0000-0000-000000000001",
+			Question:  "Q1",
+			Answer:    "A1",
+			SortOrder: 10,
+			IsActive:  true,
+			CreatedAt: now,
+			UpdatedAt: now,
+			Version:   1,
+		},
+	}
+	server := &APIServer{brandFAQ: appbrand.NewFAQService(repo, txrunner.New(db, nil))}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/brand/faq-items", bytes.NewBufferString(`{"question":" Q1 ","answer":" A1 ","sort_order":10}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	server.CreateBrandFAQItem(c)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if repo.createParams == nil || repo.createParams.Question != "Q1" || repo.createParams.Answer != "A1" || repo.createParams.SortOrder != 10 || !repo.createParams.IsActive {
+		t.Fatalf("unexpected create params: %+v", repo.createParams)
+	}
+	var response api.BrandFAQItemResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if response.Question == nil || *response.Question != "Q1" || response.IsActive == nil || !*response.IsActive {
+		t.Fatalf("unexpected response: %+v", response)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestUpdateBrandFAQItemRejectsMalformedBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	server := &APIServer{brandFAQ: appbrand.NewFAQService(&handlerBrandFAQRepoStub{}, nil)}
+	engine := gin.New()
+	engine.Use(middleware.ErrorHandler(nil))
+	engine.PATCH("/brand/faq-items/:id", func(c *gin.Context) {
+		server.UpdateBrandFAQItem(c, openapi_types.UUID{})
+	})
+
+	req := httptest.NewRequest(http.MethodPatch, "/brand/faq-items/10000000-0000-0000-0000-000000000001", bytes.NewBufferString(`{"question":`))
+	resp := httptest.NewRecorder()
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", resp.Code, resp.Body.String())
+	}
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if payload["error_code"] != apperr.CodeBadRequest {
+		t.Fatalf("expected bad request, got %v", payload["error_code"])
+	}
+}
+
 func TestToRoomResponseAllowsNilOptionalFields(t *testing.T) {
 	response := toRoomResponse(&dbpropertyquery.Room{
 		ID:         "20000000-0000-0000-0000-000000000001",
@@ -2136,4 +2253,61 @@ func (r *handlerBrandProfileRepoStub) Update(_ context.Context, _ *sql.Tx, param
 		return nil, r.updateErr
 	}
 	return r.updateProfile, nil
+}
+
+type handlerBrandFAQRepoStub struct {
+	listItems           []appbrand.FAQItem
+	listErr             error
+	listIncludeInactive *bool
+	findForUpdateItem   *appbrand.FAQItem
+	findForUpdateErr    error
+	createItem          *appbrand.FAQItem
+	createErr           error
+	createParams        *appbrand.CreateFAQItemParams
+	updateItem          *appbrand.FAQItem
+	updateErr           error
+	updateParams        *appbrand.UpdateFAQItemParams
+	deactivateItem      *appbrand.FAQItem
+	deactivateErr       error
+}
+
+func (r *handlerBrandFAQRepoStub) List(_ context.Context, includeInactive bool) ([]appbrand.FAQItem, error) {
+	r.listIncludeInactive = &includeInactive
+	if r.listErr != nil {
+		return nil, r.listErr
+	}
+	return r.listItems, nil
+}
+
+func (r *handlerBrandFAQRepoStub) FindForUpdate(context.Context, *sql.Tx, string) (*appbrand.FAQItem, error) {
+	if r.findForUpdateErr != nil {
+		return nil, r.findForUpdateErr
+	}
+	if r.findForUpdateItem != nil {
+		return r.findForUpdateItem, nil
+	}
+	return nil, appbrand.ErrBrandFAQItemNotFound
+}
+
+func (r *handlerBrandFAQRepoStub) Create(_ context.Context, _ *sql.Tx, params appbrand.CreateFAQItemParams) (*appbrand.FAQItem, error) {
+	r.createParams = &params
+	if r.createErr != nil {
+		return nil, r.createErr
+	}
+	return r.createItem, nil
+}
+
+func (r *handlerBrandFAQRepoStub) Update(_ context.Context, _ *sql.Tx, params appbrand.UpdateFAQItemParams) (*appbrand.FAQItem, error) {
+	r.updateParams = &params
+	if r.updateErr != nil {
+		return nil, r.updateErr
+	}
+	return r.updateItem, nil
+}
+
+func (r *handlerBrandFAQRepoStub) Deactivate(_ context.Context, _ *sql.Tx, _ string, _ int) (*appbrand.FAQItem, error) {
+	if r.deactivateErr != nil {
+		return nil, r.deactivateErr
+	}
+	return r.deactivateItem, nil
 }
