@@ -174,13 +174,14 @@ type ForceTerminateLeaseInput struct {
 
 // ForceTerminateLeaseService force-terminates a lease and tracks bill write-off progress.
 type ForceTerminateLeaseService struct {
-	repo     Repository
-	txRunner *txrunner.Runner
+	repo           Repository
+	accountingRepo DepositAccountingRepository
+	txRunner       *txrunner.Runner
 }
 
 // NewForceTerminateLeaseService returns a ForceTerminateLeaseService.
-func NewForceTerminateLeaseService(repo Repository, txRunner *txrunner.Runner) *ForceTerminateLeaseService {
-	return &ForceTerminateLeaseService{repo: repo, txRunner: txRunner}
+func NewForceTerminateLeaseService(repo Repository, accountingRepo DepositAccountingRepository, txRunner *txrunner.Runner) *ForceTerminateLeaseService {
+	return &ForceTerminateLeaseService{repo: repo, accountingRepo: accountingRepo, txRunner: txRunner}
 }
 
 // Execute enforces BR-14, writes off unpaid bills, and records LeaseTerminated.
@@ -297,6 +298,11 @@ func (s *ForceTerminateLeaseService) Execute(ctx context.Context, input ForceTer
 		if err := s.repo.CompleteForceTermination(ctx, tx, created.ID); err != nil {
 			return apperr.ErrInternalServerError.WithCause(err)
 		}
+		if depositHandling == domainlease.ForceTerminationDepositWriteOff {
+			if err := recordForceTerminationDepositWriteOffAccountingEntry(ctx, tx, s.accountingRepo, terminatedLease, created.ID, reason, terminationDate); err != nil {
+				return err
+			}
+		}
 
 		detail, err := s.repo.FindForceTerminationByID(ctx, tx, created.ID)
 		if err != nil {
@@ -321,6 +327,41 @@ func (s *ForceTerminateLeaseService) Execute(ctx context.Context, input ForceTer
 	}
 
 	return forceTermination, nil
+}
+
+func recordForceTerminationDepositWriteOffAccountingEntry(ctx context.Context, tx *sql.Tx, repo DepositAccountingRepository, lease *Lease, forceTerminationID string, reason string, sourceDate time.Time) error {
+	if lease.DepositAmount == 0 {
+		return nil
+	}
+	if repo == nil {
+		return apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "deposit_accounting"})
+	}
+
+	accountingSourceDate := depositAccountingSourceDate(sourceDate)
+	description := "強制終止押金沒收"
+	if reason != "" {
+		description = description + "：" + reason
+	}
+	if err := repo.CreateDepositAccountingEntry(ctx, tx, DepositAccountingEntryParams{
+		PropertyID:          lease.PropertyID,
+		Category:            depositAccountingCategoryDeduction,
+		AccountingTitleCode: depositAccountingTitleCodeDeduction,
+		Amount:              lease.DepositAmount,
+		Description:         &description,
+		SourceRef: map[string]interface{}{
+			"type":                 "ForceTerminationDepositWrittenOff",
+			"lease_id":             lease.ID,
+			"force_termination_id": forceTerminationID,
+			"reason":               reason,
+		},
+		Year:        accountingSourceDate.Year(),
+		Month:       int(accountingSourceDate.Month()),
+		SourceDate:  &accountingSourceDate,
+		DisplayNote: &description,
+	}); err != nil {
+		return mapDepositAccountingError(err)
+	}
+	return nil
 }
 
 // GetForceTerminationInput is the query payload for force-termination detail.

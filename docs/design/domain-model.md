@@ -187,7 +187,7 @@ Lease 於建立時也決定 `electricityBillingCadence`（`monthly | bimonthly`�
 
 - **Root Entity**：PropertyAccount（一個物業一個）
 - **包含**：當月未結算的 AccountingEntry entities
-  - 來源：Bill payment command 直接寫入；Journal expense command 直接寫入並保留 `JournalExpenseRecorded` 作 trace/reserved event；DepositRefunded / DepositDeducted 由押金處理 command 直接寫入
+  - 來源：Bill payment command 直接寫入；Journal expense command 直接寫入並保留 `JournalExpenseRecorded` 作 trace/reserved event；DepositRefunded / DepositDeducted 由押金處理 command 直接寫入；強制終止 `deposit_handling=write_off` 由 force termination command 直接以 `deposit_deduction` 寫入全額押金沒收分錄
   - `category: rent_payment | electricity_payment | deposit_refund | deposit_deduction | journal_expense`（財報分類用）
   - `accounting_title_id` / `accounting_title_code` / `accounting_title_name`：穩定會計科目維度；`accounting_titles` 是 runtime master data，`category` 仍是既有財報 total classification，不以 `accounting_titles.kind` 取代收入/支出計算
   - `source_date` / `room_label` / `tenant_label` / `period_label` / `display_note`：報表列顯示事實；`source_date` 是顯示日期，不是新的 occurred-at domain model；labels/notes 由建立分錄當下保存
@@ -298,7 +298,7 @@ Lease 於建立時也決定 `electricityBillingCadence`（`monthly | bimonthly`�
 | BR-11 | 物業指派對象必須為工作室成員 | 指派對象角色為業主 | 拒絕指派 | 無 |
 | BR-12 | 建立租約時目標房間必須為 vacant，且需取得 Room 的悲觀鎖後才執行檢查 | 建立租約時 | 拒絕建立 | 無 |
 | BR-13 | 系統管理員不得降低自己的角色 | 修改自身角色時 | 拒絕操作 | 無 |
-| BR-14 | 強制終止租約需主辦以上角色執行並填寫原因 | 執行強制終止時 | 員工角色拒絕執行 | 無 |
+| BR-14 | 強制終止租約需主辦以上角色執行並填寫原因；`deposit_handling=write_off` 代表全額押金沒收，backend 必須在同一交易中以 `deposit_deduction` / accounting title `4601` 建立押金收入分錄，`source_ref` 保存 `type=ForceTerminationDepositWrittenOff`、`lease_id`、`force_termination_id`、`reason`；`keep_held` 不建立押金 accounting entry | 執行強制終止時 | 員工角色拒絕執行；write_off 任一核心寫入或押金 accounting 失敗則整筆 rollback | 歷史已強制終止且押金 written_off 的 backfill 另案處理，不在 runtime 行為變更內 |
 | BR-15 | 租金付款日固定為 rent billing period 的 `periodStart`；rent period 以租約起始日為 anchor，依 `rentBillingCadence` 前進 1 / 3 / 6 / 12 個月 | 租金帳單預產或租金調整重產時 | 自動計算，無需拒絕 | 最後短 rent period 仍收完整 period rent，不做 proration |
 | BR-16 | 電費帳單金額由系統計算：usage = currentReading - previousReading，rawAmount = usage × MeterReading.unitPrice，amount = round(rawAmount)；不由員工輸入金額 | 抄表送出時 | 系統自動計算並四捨五入為整數，拒絕員工直接輸入金額 | 無 |
 | BR-17 | 修改物業電價（electricityUnitPrice）需主辦以上角色，且電價僅接受大於 0 的數值，可接受小數 | 修改電價時 | 員工角色拒絕；零與負數拒絕 | 無 |

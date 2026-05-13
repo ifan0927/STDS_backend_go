@@ -1678,7 +1678,7 @@ func TestForceTerminateLeaseForwardsTerminationDates(t *testing.T) {
 		applease.NewCreateLeaseService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil)),
 		nil,
 		func(deps *handler.APIServerDeps) {
-			deps.Leases.ForceTerminateLease = applease.NewForceTerminateLeaseService(fakeLeaseRepo{forceTerminateParams: &forceTerminateParams}, dbtxrunner.New(db, nil))
+			deps.Leases.ForceTerminateLease = applease.NewForceTerminateLeaseService(fakeLeaseRepo{forceTerminateParams: &forceTerminateParams}, fakeDepositAccountingRepo{}, dbtxrunner.New(db, nil))
 		},
 	)
 
@@ -6854,7 +6854,7 @@ func defaultAPIServerDeps(userRepo *fakeUserRepo, authenticator fakeAuthenticato
 			PreviewCheckout:     applease.NewPreviewCheckoutSettlementService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil)),
 			FinalizeCheckout:    applease.NewFinalizeCheckoutSettlementService(fakeLeaseRepo{}, nil, dbtxrunner.New(nil, nil)),
 			ExportCheckout:      applease.NewExportCheckoutSettlementService(fakeLeaseRepo{}, applease.MustNewCheckoutSettlementRenderer(), dbtxrunner.New(nil, nil)),
-			ForceTerminateLease: applease.NewForceTerminateLeaseService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil)),
+			ForceTerminateLease: applease.NewForceTerminateLeaseService(fakeLeaseRepo{}, fakeDepositAccountingRepo{}, dbtxrunner.New(nil, nil)),
 			GetForceTermination: applease.NewGetForceTerminationService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil)),
 		},
 		Billing: handler.BillingServices{

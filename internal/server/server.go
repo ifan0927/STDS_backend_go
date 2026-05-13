@@ -130,7 +130,7 @@ func New(cfg *config.Config) (*Server, error) {
 	previewCheckoutService := applease.NewPreviewCheckoutSettlementService(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
 	finalizeCheckoutService := applease.NewFinalizeCheckoutSettlementService(leaseRepositoryAdapter{repo: leaseRepo}, leaseDepositAccounting, txRunner)
 	exportCheckoutService := applease.NewExportCheckoutSettlementService(leaseRepositoryAdapter{repo: leaseRepo}, applease.MustNewCheckoutSettlementRenderer(), txRunner)
-	forceTerminateLeaseService := applease.NewForceTerminateLeaseService(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
+	forceTerminateLeaseService := applease.NewForceTerminateLeaseService(leaseRepositoryAdapter{repo: leaseRepo}, leaseDepositAccounting, txRunner)
 	getForceTerminationService := applease.NewGetForceTerminationService(leaseRepositoryAdapter{repo: leaseRepo}, txRunner)
 	attachmentService := appattachment.NewService(
 		attachmentRepositoryAdapter{repo: attachmentRepo},

@@ -3369,8 +3369,9 @@ paths:
       summary: 強制終止租約（觸發 LeaseTerminated event，forced=true）
       description: |
         x-required-role: admin, organizer（BR-14：主辦以上）
-        流程：ForceTermination 記錄 → 未結清帳單同步標記 written_off → ForceTermination 標記 completed → LeaseTerminated（forced: true）
+        流程：ForceTermination 記錄 → 未結清帳單同步標記 written_off → ForceTermination 標記 completed → 若 deposit_handling=write_off，將全額押金以 deposit_deduction/4601 建立 accounting entry → LeaseTerminated（forced: true）
         強制終止完成後觸發 LeaseTerminated（forced: true）；Room/Tenant 後置處理由已確認的 runtime subscriber 執行。
+        deposit_handling=write_off 代表全額押金沒收，會進入既有押金扣款收入分類； deposit_handling=keep_held 不建立押金 accounting entry，押金仍保留待後續人工處理。
         BR-14：需主辦以上角色並填寫原因。
       tags:
         - Leasing
@@ -8466,7 +8467,7 @@ components:
           minLength: 1
         deposit_handling:
           type: string
-          description: Deposit handling decision during force termination; write_off marks the deposit as written_off, while keep_held leaves it held for later manual handling.
+          description: Deposit handling decision during force termination; write_off marks the deposit as written_off and records the full deposit amount as deposit_deduction accounting, while keep_held leaves it held for later manual handling without creating a deposit accounting entry.
           enum:
             - write_off
             - keep_held
