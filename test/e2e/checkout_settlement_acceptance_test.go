@@ -54,7 +54,8 @@ func TestE2ELeaseCheckoutSettlementAcceptance(t *testing.T) {
 	if preview.NetDirection != "refund" || preview.NetAmount != 33000 {
 		t.Fatalf("unexpected preview net result: %+v", preview)
 	}
-	if preview.ActualMoveOutDate != "2026-08-20" || preview.ManualRentRefundAmount != 0 || preview.ManualRentRefundReason == nil {
+	expectedManualReason := "no rent refund for e2e normal checkout"
+	if preview.ActualMoveOutDate != "2026-08-20" || preview.ManualRentRefundAmount != 0 || preview.ManualRentRefundReason == nil || *preview.ManualRentRefundReason != expectedManualReason {
 		t.Fatalf("unexpected checkout date/refund contract fields: %+v", preview)
 	}
 
@@ -68,7 +69,7 @@ func TestE2ELeaseCheckoutSettlementAcceptance(t *testing.T) {
 	if finalized.FinalizedAt == nil {
 		t.Fatalf("expected finalized_at: %+v", finalized)
 	}
-	if finalized.ActualMoveOutDate != "2026-08-20" || finalized.ManualRentRefundAmount != 0 || finalized.ManualRentRefundReason == nil {
+	if finalized.ActualMoveOutDate != "2026-08-20" || finalized.ManualRentRefundAmount != 0 || finalized.ManualRentRefundReason == nil || *finalized.ManualRentRefundReason != expectedManualReason {
 		t.Fatalf("unexpected finalized checkout date/refund contract fields: %+v", finalized)
 	}
 

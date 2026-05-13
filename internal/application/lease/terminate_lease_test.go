@@ -839,7 +839,7 @@ func TestFinalizeCheckoutSettlementPersistsSnapshotAndPublishesEvent(t *testing.
 	if err != nil {
 		t.Fatalf("sqlmock.New: %v", err)
 	}
-	defer db2.Close()
+	defer func() { _ = db2.Close() }()
 	defer verifySQLMockExpectations(t, mock2)
 	mock2.ExpectBegin()
 	mock2.ExpectCommit()
@@ -910,7 +910,7 @@ func TestFinalizeCheckoutSettlementPersistsManualRentRefundAndAccounting(t *test
 	if err != nil {
 		t.Fatalf("sqlmock.New: %v", err)
 	}
-	defer db2.Close()
+	defer func() { _ = db2.Close() }()
 	defer verifySQLMockExpectations(t, mock2)
 	mock2.ExpectBegin()
 	mock2.ExpectCommit()
@@ -988,7 +988,7 @@ func TestFinalizeCheckoutSettlementRollsBackWhenRentRefundAccountingFails(t *tes
 	if err != nil {
 		t.Fatalf("sqlmock.New: %v", err)
 	}
-	defer db2.Close()
+	defer func() { _ = db2.Close() }()
 	defer verifySQLMockExpectations(t, mock2)
 	mock2.ExpectBegin()
 	mock2.ExpectRollback()

@@ -547,7 +547,7 @@ PropertyOwnerView
 
 ```
 主辦以上角色發起強制終止，填寫原因、termination_date，並可選填 actual_move_out_date
-  → 建立 ForceTermination 記錄（leaseId, billIds[], reason, deposit_handling）
+  → 建立 ForceTermination 記錄（leaseId, force_termination_bills, reason, deposit_handling）
   → 同步將未結清帳單標記為 written_off，每筆成功記錄進度
   → 將 leases.end_date 更新為 termination_date，若提供則保存 actual_move_out_date
   → 全部成功後將 ForceTermination 標記 completed

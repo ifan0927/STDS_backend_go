@@ -37,7 +37,7 @@ properties:
     type: string
     format: date
     nullable: true
-    description: 實際搬出 / 點交日；僅作為營運紀錄，不影響 lease end_date 或帳務。
+    description: Actual move-out or handover date. This is operational metadata only and does not affect lease end_date or accounting.
   electricity_billing_cadence:
     type: string
     enum:

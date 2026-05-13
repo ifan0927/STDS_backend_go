@@ -517,11 +517,11 @@ func checkoutSettlementBlockers(lease Lease, bills []Bill, input CheckoutSettlem
 		blockers = append(blockers, CheckoutSettlementBlocker{Code: checkoutBlockerDepositNotHeld, Message: "押金狀態不是 held，無法執行退租結算。"})
 	}
 	if normalizeDate(input.CheckoutDate).Before(normalizeDate(lease.StartDate)) {
-		blockers = append(blockers, CheckoutSettlementBlocker{Code: checkoutBlockerCheckoutBeforeStart, Message: "結算生效日不可早於租約起始日。"})
+		blockers = append(blockers, CheckoutSettlementBlocker{Code: checkoutBlockerCheckoutBeforeStart, Message: "Checkout effective date cannot be before the lease start date."})
 	}
 	if normalizeDate(input.CheckoutDate).Before(normalizeDate(lease.EndDate)) {
 		if input.ManualRentRefundReason == nil {
-			blockers = append(blockers, CheckoutSettlementBlocker{Code: checkoutBlockerRentRefund, Message: "提前退租必須填寫手動租金退回決策原因；金額可為 0。"})
+			blockers = append(blockers, CheckoutSettlementBlocker{Code: checkoutBlockerRentRefund, Message: "Early checkout requires an explicit manual rent refund decision reason; the amount may be 0."})
 		}
 	}
 	for _, bill := range bills {

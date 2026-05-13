@@ -1579,8 +1579,8 @@ func TestFinalizeLeaseCheckoutSettlementForwardsNewContractFields(t *testing.T) 
 		"reason":"tenant requested",
 		"cleaning_fee":3000,
 		"key_card_loss_fee":1000,
-		"manual_rent_refund_amount":0,
-		"manual_rent_refund_reason":"no rent refund by agreement"
+		"manual_rent_refund_amount":1000,
+		"manual_rent_refund_reason":"manual rent refund approved"
 	}`
 	previewReq := httptest.NewRequest(http.MethodPost, "/api/v1/leases/40000000-0000-0000-0000-000000000001/checkout-settlement/preview", strings.NewReader(body))
 	previewReq.Header.Set("Authorization", "Bearer valid-token")
@@ -1605,8 +1605,8 @@ func TestFinalizeLeaseCheckoutSettlementForwardsNewContractFields(t *testing.T) 
 		"reason":"tenant requested",
 		"cleaning_fee":3000,
 		"key_card_loss_fee":1000,
-		"manual_rent_refund_amount":0,
-		"manual_rent_refund_reason":"no rent refund by agreement",
+		"manual_rent_refund_amount":1000,
+		"manual_rent_refund_reason":"manual rent refund approved",
 		"preview_token":` + strconv.Quote(token) + `
 	}`
 	finalizeReq := httptest.NewRequest(http.MethodPost, "/api/v1/leases/40000000-0000-0000-0000-000000000001/checkout-settlement/finalize", strings.NewReader(finalizeBody))
@@ -1624,8 +1624,25 @@ func TestFinalizeLeaseCheckoutSettlementForwardsNewContractFields(t *testing.T) 
 	if finalizePayload["actual_move_out_date"] != "2026-12-20" {
 		t.Fatalf("actual_move_out_date = %v, want 2026-12-20", finalizePayload["actual_move_out_date"])
 	}
-	if finalizePayload["manual_rent_refund_amount"] != float64(0) || finalizePayload["manual_rent_refund_reason"] != "no rent refund by agreement" {
+	if finalizePayload["manual_rent_refund_amount"] != float64(1000) || finalizePayload["manual_rent_refund_reason"] != "manual rent refund approved" {
 		t.Fatalf("unexpected manual rent refund fields: %+v", finalizePayload)
+	}
+	lines, ok := finalizePayload["lines"].([]any)
+	if !ok {
+		t.Fatalf("lines = %T, want array", finalizePayload["lines"])
+	}
+	hasRentRefundLine := false
+	for _, rawLine := range lines {
+		line, ok := rawLine.(map[string]any)
+		if !ok {
+			continue
+		}
+		if line["kind"] == "rent_refund" && line["amount"] == float64(1000) && line["direction"] == "refund" {
+			hasRentRefundLine = true
+		}
+	}
+	if !hasRentRefundLine {
+		t.Fatalf("expected finalized rent_refund line, got %+v", lines)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("ExpectationsWereMet: %v", err)

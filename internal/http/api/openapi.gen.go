@@ -602,64 +602,64 @@ type CheckoutSettlementBlockerCode string
 
 // CheckoutSettlementFinalizeRequest defines model for CheckoutSettlementFinalizeRequest.
 type CheckoutSettlementFinalizeRequest struct {
-	// ActualMoveOutDate 實際搬出 / 點交日；僅作為營運紀錄，不影響 lease end_date、帳務期間或自動租金計算。
+	// ActualMoveOutDate Actual move-out or handover date. This is operational metadata only and does not affect lease end_date, accounting periods, or automatic rent calculation.
 	ActualMoveOutDate *openapi_types.Date `json:"actual_move_out_date"`
 
-	// CheckoutDate 結算生效日 / 租約終止日；backend 以此更新 lease end_date 並保存結算快照，不代表實際搬出日。
+	// CheckoutDate Settlement effective date and lease termination date. The backend writes this value to lease end_date and stores it in the finalized settlement snapshot. It is not the actual move-out date.
 	CheckoutDate openapi_types.Date `json:"checkout_date"`
 	CleaningFee  *int               `json:"cleaning_fee,omitempty"`
 
-	// FinalMeterReading 退租電表讀數；v1 僅作為快照顯示輸入，不由 frontend 計算電費。
+	// FinalMeterReading Final meter reading at checkout. In v1 this is stored for snapshot display only and must not be used by the frontend to calculate electricity fees.
 	FinalMeterReading *int `json:"final_meter_reading"`
 	KeyCardLossFee    *int `json:"key_card_loss_fee,omitempty"`
 
-	// ManualRentRefundAmount 人工決定的未到期租金退款金額；backend 不自動按比例計算。
+	// ManualRentRefundAmount Manually decided unexpired-rent refund amount. The backend never calculates a prorated rent refund automatically.
 	ManualRentRefundAmount *int `json:"manual_rent_refund_amount,omitempty"`
 
-	// ManualRentRefundReason 人工租金退款決策原因；checkout_date 早於原租約 end_date 時必填，金額 0 加原因表示明確決定不退未到期租金。
+	// ManualRentRefundReason Manual rent refund decision reason. Required when checkout_date is earlier than the original lease end_date or when manual_rent_refund_amount is greater than 0. Otherwise nullable. Amount 0 with a reason records an explicit decision not to refund unexpired rent.
 	ManualRentRefundReason *string `json:"manual_rent_refund_reason"`
 
-	// Notes 退租結算備註。
+	// Notes Checkout settlement notes.
 	Notes    *string `json:"notes"`
 	OtherFee *int    `json:"other_fee,omitempty"`
 
-	// OtherFeeReason other_fee 大於 0 時建議提供。
+	// OtherFeeReason Recommended when other_fee is greater than 0.
 	OtherFeeReason *string `json:"other_fee_reason"`
 
 	// PreviewToken Preview response token. Finalize rejects mismatched or stale tokens.
 	PreviewToken string `json:"preview_token"`
 
-	// Reason 退租原因。
+	// Reason Checkout settlement reason.
 	Reason string `json:"reason"`
 }
 
 // CheckoutSettlementInput defines model for CheckoutSettlementInput.
 type CheckoutSettlementInput struct {
-	// ActualMoveOutDate 實際搬出 / 點交日；僅作為營運紀錄，不影響 lease end_date、帳務期間或自動租金計算。
+	// ActualMoveOutDate Actual move-out or handover date. This is operational metadata only and does not affect lease end_date, accounting periods, or automatic rent calculation.
 	ActualMoveOutDate *openapi_types.Date `json:"actual_move_out_date"`
 
-	// CheckoutDate 結算生效日 / 租約終止日；backend 以此更新 lease end_date 並保存結算快照，不代表實際搬出日。
+	// CheckoutDate Settlement effective date and lease termination date. The backend writes this value to lease end_date and stores it in the finalized settlement snapshot. It is not the actual move-out date.
 	CheckoutDate openapi_types.Date `json:"checkout_date"`
 	CleaningFee  *int               `json:"cleaning_fee,omitempty"`
 
-	// FinalMeterReading 退租電表讀數；v1 僅作為快照顯示輸入，不由 frontend 計算電費。
+	// FinalMeterReading Final meter reading at checkout. In v1 this is stored for snapshot display only and must not be used by the frontend to calculate electricity fees.
 	FinalMeterReading *int `json:"final_meter_reading"`
 	KeyCardLossFee    *int `json:"key_card_loss_fee,omitempty"`
 
-	// ManualRentRefundAmount 人工決定的未到期租金退款金額；backend 不自動按比例計算。
+	// ManualRentRefundAmount Manually decided unexpired-rent refund amount. The backend never calculates a prorated rent refund automatically.
 	ManualRentRefundAmount *int `json:"manual_rent_refund_amount,omitempty"`
 
-	// ManualRentRefundReason 人工租金退款決策原因；checkout_date 早於原租約 end_date 時必填，金額 0 加原因表示明確決定不退未到期租金。
+	// ManualRentRefundReason Manual rent refund decision reason. Required when checkout_date is earlier than the original lease end_date or when manual_rent_refund_amount is greater than 0. Otherwise nullable. Amount 0 with a reason records an explicit decision not to refund unexpired rent.
 	ManualRentRefundReason *string `json:"manual_rent_refund_reason"`
 
-	// Notes 退租結算備註。
+	// Notes Checkout settlement notes.
 	Notes    *string `json:"notes"`
 	OtherFee *int    `json:"other_fee,omitempty"`
 
-	// OtherFeeReason other_fee 大於 0 時建議提供。
+	// OtherFeeReason Recommended when other_fee is greater than 0.
 	OtherFeeReason *string `json:"other_fee_reason"`
 
-	// Reason 退租原因。
+	// Reason Checkout settlement reason.
 	Reason string `json:"reason"`
 }
 
@@ -670,7 +670,7 @@ type CheckoutSettlementLine struct {
 	Description *string                         `json:"description"`
 	Direction   CheckoutSettlementLineDirection `json:"direction"`
 
-	// Kind rent_refund 表示 backend 接收的人工租金退款決策，不代表自動按比例計算的未到期租金退款。
+	// Kind rent_refund means a manual rent refund decision accepted by the backend. It does not represent an automatically prorated unexpired-rent refund.
 	Kind      CheckoutSettlementLineKind `json:"kind"`
 	Label     string                     `json:"label"`
 	SourceRef *map[string]interface{}    `json:"source_ref"`
@@ -679,7 +679,7 @@ type CheckoutSettlementLine struct {
 // CheckoutSettlementLineDirection defines model for CheckoutSettlementLine.Direction.
 type CheckoutSettlementLineDirection string
 
-// CheckoutSettlementLineKind rent_refund 表示 backend 接收的人工租金退款決策，不代表自動按比例計算的未到期租金退款。
+// CheckoutSettlementLineKind rent_refund means a manual rent refund decision accepted by the backend. It does not represent an automatically prorated unexpired-rent refund.
 type CheckoutSettlementLineKind string
 
 // CheckoutSettlementPreviewRequest defines model for CheckoutSettlementPreviewRequest.
@@ -687,11 +687,11 @@ type CheckoutSettlementPreviewRequest = CheckoutSettlementInput
 
 // CheckoutSettlementResponse defines model for CheckoutSettlementResponse.
 type CheckoutSettlementResponse struct {
-	// ActualMoveOutDate 實際搬出 / 點交日；僅作為營運紀錄。
+	// ActualMoveOutDate Actual move-out or handover date. This is operational metadata only.
 	ActualMoveOutDate *openapi_types.Date         `json:"actual_move_out_date"`
 	Blockers          []CheckoutSettlementBlocker `json:"blockers"`
 
-	// CheckoutDate 結算生效日 / 租約終止日，不代表實際搬出日。
+	// CheckoutDate Settlement effective date and lease termination date. This is not the actual move-out date.
 	CheckoutDate      openapi_types.Date       `json:"checkout_date"`
 	DepositAmount     int                      `json:"deposit_amount"`
 	ExportAvailable   bool                     `json:"export_available"`
@@ -700,10 +700,10 @@ type CheckoutSettlementResponse struct {
 	LeaseId           openapi_types.UUID       `json:"lease_id"`
 	Lines             []CheckoutSettlementLine `json:"lines"`
 
-	// ManualRentRefundAmount 人工決定的未到期租金退款金額；0 加 reason 表示明確不退。
+	// ManualRentRefundAmount Manually decided unexpired-rent refund amount. Amount 0 with a reason records an explicit no-refund decision.
 	ManualRentRefundAmount *int `json:"manual_rent_refund_amount,omitempty"`
 
-	// ManualRentRefundReason 人工租金退款決策原因。
+	// ManualRentRefundReason Manual rent refund decision reason. Required when checkout_date is earlier than the original lease end_date or when manual_rent_refund_amount is greater than 0. Otherwise nullable.
 	ManualRentRefundReason *string `json:"manual_rent_refund_reason"`
 
 	// NetAmount Absolute net amount after refund and charge lines are balanced.
@@ -944,14 +944,14 @@ type FinancialReportSummaryItem struct {
 
 // ForceTerminateRequest defines model for ForceTerminateRequest.
 type ForceTerminateRequest struct {
-	// ActualMoveOutDate 實際搬出 / 點交日；僅作為營運紀錄，不影響 write-off、deposit handling 或租金退款。
+	// ActualMoveOutDate Actual move-out or handover date. This is operational metadata only and does not affect write-off handling, deposit handling, or rent refund behavior.
 	ActualMoveOutDate *openapi_types.Date `json:"actual_move_out_date"`
 
 	// DepositHandling Deposit handling decision during force termination; write_off marks the deposit as written_off, while keep_held leaves it held for later manual handling.
 	DepositHandling ForceTerminateRequestDepositHandling `json:"deposit_handling"`
 	Reason          string                               `json:"reason"`
 
-	// TerminationDate 強制終止生效日；backend 以此更新 lease end_date。
+	// TerminationDate Force-termination effective date. The backend writes this value to lease end_date.
 	TerminationDate openapi_types.Date `json:"termination_date"`
 }
 
@@ -1147,7 +1147,7 @@ type LeaseReplaceResponseReplacementDepositHandling string
 
 // LeaseResponse defines model for LeaseResponse.
 type LeaseResponse struct {
-	// ActualMoveOutDate 實際搬出 / 點交日；僅作為營運紀錄，不影響 lease end_date 或帳務。
+	// ActualMoveOutDate Actual move-out or handover date. This is operational metadata only and does not affect lease end_date or accounting.
 	ActualMoveOutDate         *openapi_types.Date                     `json:"actual_move_out_date"`
 	CreatedAt                 *time.Time                              `json:"created_at,omitempty"`
 	DepositAmount             *int                                    `json:"deposit_amount,omitempty"`

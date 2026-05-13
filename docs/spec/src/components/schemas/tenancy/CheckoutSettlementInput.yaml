@@ -6,20 +6,20 @@ properties:
   checkout_date:
     type: string
     format: date
-    description: 結算生效日 / 租約終止日；backend 以此更新 lease end_date 並保存結算快照，不代表實際搬出日。
+    description: Settlement effective date and lease termination date. The backend writes this value to lease end_date and stores it in the finalized settlement snapshot. It is not the actual move-out date.
   actual_move_out_date:
     type: string
     format: date
     nullable: true
-    description: 實際搬出 / 點交日；僅作為營運紀錄，不影響 lease end_date、帳務期間或自動租金計算。
+    description: Actual move-out or handover date. This is operational metadata only and does not affect lease end_date, accounting periods, or automatic rent calculation.
   reason:
     type: string
-    description: 退租原因。
+    description: Checkout settlement reason.
   final_meter_reading:
     type: integer
     minimum: 0
     nullable: true
-    description: 退租電表讀數；v1 僅作為快照顯示輸入，不由 frontend 計算電費。
+    description: Final meter reading at checkout. In v1 this is stored for snapshot display only and must not be used by the frontend to calculate electricity fees.
   cleaning_fee:
     type: integer
     minimum: 0
@@ -35,17 +35,17 @@ properties:
   other_fee_reason:
     type: string
     nullable: true
-    description: other_fee 大於 0 時建議提供。
+    description: Recommended when other_fee is greater than 0.
   manual_rent_refund_amount:
     type: integer
     minimum: 0
     default: 0
-    description: 人工決定的未到期租金退款金額；backend 不自動按比例計算。
+    description: Manually decided unexpired-rent refund amount. The backend never calculates a prorated rent refund automatically.
   manual_rent_refund_reason:
     type: string
     nullable: true
-    description: 人工租金退款決策原因；checkout_date 早於原租約 end_date 時必填，金額 0 加原因表示明確決定不退未到期租金。
+    description: Manual rent refund decision reason. Required when checkout_date is earlier than the original lease end_date or when manual_rent_refund_amount is greater than 0. Otherwise nullable. Amount 0 with a reason records an explicit decision not to refund unexpired rent.
   notes:
     type: string
     nullable: true
-    description: 退租結算備註。
+    description: Checkout settlement notes.
