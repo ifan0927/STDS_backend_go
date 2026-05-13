@@ -3014,11 +3014,12 @@ func TestCreatePropertyAcceptsDecimalElectricityPrice(t *testing.T) {
 
 	mock.ExpectBegin()
 	mock.ExpectQuery("INSERT INTO properties").
-		WithArgs("Property A", nil, "Address A", 4.5, "monthly", "00000000-0000-0000-0000-000000000010", nil, nil, nil, nil).
+		WithArgs("Property A", "Property A", nil, "Address A", 4.5, "monthly", "00000000-0000-0000-0000-000000000010", nil, nil, nil, nil).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "subtitle", "address", "electricity_unit_price", "default_electricity_billing_cadence", "owner_id", "contact_phone", "contact_email", "notes", "facilities", "created_at", "updated_at", "version",
+			"id", "name", "property_public_name", "subtitle", "address", "electricity_unit_price", "default_electricity_billing_cadence", "owner_id", "contact_phone", "contact_email", "notes", "facilities", "created_at", "updated_at", "version",
 		}).AddRow(
 			"property-new",
+			"Property A",
 			"Property A",
 			nil,
 			"Address A",
@@ -3077,6 +3078,9 @@ func TestCreatePropertyAcceptsDecimalElectricityPrice(t *testing.T) {
 
 	if payload["electricity_unit_price"] != 4.5 {
 		t.Fatalf("expected electricity_unit_price 4.5, got %v", payload["electricity_unit_price"])
+	}
+	if payload["property_public_name"] != "Property A" {
+		t.Fatalf("expected property_public_name Property A, got %v", payload["property_public_name"])
 	}
 	if payload["default_electricity_billing_cadence"] != "monthly" {
 		t.Fatalf("expected default_electricity_billing_cadence monthly, got %v", payload["default_electricity_billing_cadence"])
@@ -3169,6 +3173,7 @@ func TestUpdatePropertyClearsNullableFieldsWithExplicitNull(t *testing.T) {
 			testPropertyID1: {
 				ID:                               testPropertyID1,
 				Name:                             "Property A",
+				PropertyPublicName:               "Property A",
 				Subtitle:                         &subtitle,
 				Address:                          "Address A",
 				ElectricityUnitPrice:             ptrFloat64(4.0),
@@ -3198,6 +3203,7 @@ func TestUpdatePropertyClearsNullableFieldsWithExplicitNull(t *testing.T) {
 	)
 
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/properties/"+testPropertyID1, strings.NewReader(`{
+		"property_public_name":"Public Property A",
 		"subtitle":null,
 		"contact_phone":null,
 		"contact_email":null,
@@ -3215,6 +3221,9 @@ func TestUpdatePropertyClearsNullableFieldsWithExplicitNull(t *testing.T) {
 	}
 	if updateParams.Subtitle != nil {
 		t.Fatalf("expected subtitle to be cleared, got %v", *updateParams.Subtitle)
+	}
+	if updateParams.PropertyPublicName != "Public Property A" {
+		t.Fatalf("expected property_public_name Public Property A, got %q", updateParams.PropertyPublicName)
 	}
 	if updateParams.ContactPhone != nil {
 		t.Fatalf("expected contact_phone to be cleared, got %v", *updateParams.ContactPhone)
@@ -5615,6 +5624,7 @@ func (f fakePropertyRepo) Create(_ context.Context, _ *sql.Tx, params apppropert
 	return &appproperty.Property{
 		ID:                               "property-new",
 		Name:                             params.Name,
+		PropertyPublicName:               params.PropertyPublicName,
 		Address:                          params.Address,
 		ElectricityUnitPrice:             &electricityUnitPrice,
 		DefaultElectricityBillingCadence: params.DefaultElectricityBillingCadence,
@@ -5634,6 +5644,7 @@ func (f fakePropertyRepo) FindByID(_ context.Context, _ *sql.Tx, id string) (*ap
 	return &appproperty.Property{
 		ID:                               id,
 		Name:                             "Property",
+		PropertyPublicName:               "Property",
 		Address:                          "Address",
 		ElectricityUnitPrice:             &electricityUnitPrice,
 		DefaultElectricityBillingCadence: "monthly",
@@ -5652,6 +5663,7 @@ func (f fakePropertyRepo) Update(_ context.Context, _ *sql.Tx, params apppropert
 	return &appproperty.Property{
 		ID:                               params.ID,
 		Name:                             params.Name,
+		PropertyPublicName:               params.PropertyPublicName,
 		Subtitle:                         params.Subtitle,
 		Address:                          params.Address,
 		ElectricityUnitPrice:             params.ElectricityUnitPrice,
@@ -5754,6 +5766,7 @@ func (f fakePropertyRepo) CreateRepairRequest(_ context.Context, _ *sql.Tx, para
 func (a testSQLPropertyRepositoryAdapter) Create(ctx context.Context, tx *sql.Tx, params appproperty.CreatePropertyParams) (*appproperty.Property, error) {
 	property, err := a.repo.Create(ctx, tx, dbproperties.CreatePropertyParams{
 		Name:                             params.Name,
+		PropertyPublicName:               params.PropertyPublicName,
 		Subtitle:                         params.Subtitle,
 		Address:                          params.Address,
 		ElectricityUnitPrice:             params.ElectricityUnitPrice,
@@ -5771,6 +5784,7 @@ func (a testSQLPropertyRepositoryAdapter) Create(ctx context.Context, tx *sql.Tx
 	return &appproperty.Property{
 		ID:                               property.ID,
 		Name:                             property.Name,
+		PropertyPublicName:               property.PropertyPublicName,
 		Subtitle:                         property.Subtitle,
 		Address:                          property.Address,
 		ElectricityUnitPrice:             property.ElectricityUnitPrice,
@@ -5799,6 +5813,7 @@ func (a testSQLPropertyRepositoryAdapter) FindByID(ctx context.Context, tx *sql.
 	return &appproperty.Property{
 		ID:                               property.ID,
 		Name:                             property.Name,
+		PropertyPublicName:               property.PropertyPublicName,
 		Subtitle:                         property.Subtitle,
 		Address:                          property.Address,
 		ElectricityUnitPrice:             property.ElectricityUnitPrice,
@@ -5818,6 +5833,7 @@ func (a testSQLPropertyRepositoryAdapter) Update(ctx context.Context, tx *sql.Tx
 	property, err := a.repo.Update(ctx, tx, dbproperties.UpdatePropertyParams{
 		ID:                               params.ID,
 		Name:                             params.Name,
+		PropertyPublicName:               params.PropertyPublicName,
 		Subtitle:                         params.Subtitle,
 		Address:                          params.Address,
 		ElectricityUnitPrice:             params.ElectricityUnitPrice,
@@ -5836,6 +5852,7 @@ func (a testSQLPropertyRepositoryAdapter) Update(ctx context.Context, tx *sql.Tx
 	return &appproperty.Property{
 		ID:                               property.ID,
 		Name:                             property.Name,
+		PropertyPublicName:               property.PropertyPublicName,
 		Subtitle:                         property.Subtitle,
 		Address:                          property.Address,
 		ElectricityUnitPrice:             property.ElectricityUnitPrice,

@@ -35,6 +35,7 @@ type CommandRepository interface {
 type Property struct {
 	ID                               string
 	Name                             string
+	PropertyPublicName               string
 	Subtitle                         *string
 	Address                          string
 	ElectricityUnitPrice             *float64
@@ -86,6 +87,7 @@ type RepairRequest struct {
 // CreatePropertyParams contains the writable fields required to persist a property.
 type CreatePropertyParams struct {
 	Name                             string
+	PropertyPublicName               string
 	Subtitle                         *string
 	Address                          string
 	ElectricityUnitPrice             float64
@@ -101,6 +103,7 @@ type CreatePropertyParams struct {
 type UpdatePropertyParams struct {
 	ID                               string
 	Name                             string
+	PropertyPublicName               string
 	Subtitle                         *string
 	Address                          string
 	ElectricityUnitPrice             *float64
@@ -191,6 +194,7 @@ func (r *SQLRepository) Create(ctx context.Context, tx *sql.Tx, params CreatePro
 	const query = `
 INSERT INTO properties (
 	name,
+	property_public_name,
 	subtitle,
 	address,
 	electricity_unit_price,
@@ -200,10 +204,11 @@ INSERT INTO properties (
 	contact_email,
 	notes,
 	facilities
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)
 RETURNING
 	id,
 	name,
+	property_public_name,
 	subtitle,
 	address,
 	electricity_unit_price,
@@ -218,7 +223,7 @@ RETURNING
 	version
 `
 
-	property, err := scanProperty(tx.QueryRowContext(ctx, query, params.Name, params.Subtitle, params.Address, params.ElectricityUnitPrice, params.DefaultElectricityBillingCadence, params.OwnerID, params.ContactPhone, params.ContactEmail, params.Notes, facilitiesJSON))
+	property, err := scanProperty(tx.QueryRowContext(ctx, query, params.Name, params.PropertyPublicName, params.Subtitle, params.Address, params.ElectricityUnitPrice, params.DefaultElectricityBillingCadence, params.OwnerID, params.ContactPhone, params.ContactEmail, params.Notes, facilitiesJSON))
 	if err != nil {
 		return nil, fmt.Errorf("create property: %w", err)
 	}
@@ -232,6 +237,7 @@ func (r *SQLRepository) FindByID(ctx context.Context, tx *sql.Tx, id string) (*P
 SELECT
 	id,
 	name,
+	property_public_name,
 	subtitle,
 	address,
 	electricity_unit_price,
@@ -271,23 +277,25 @@ func (r *SQLRepository) Update(ctx context.Context, tx *sql.Tx, params UpdatePro
 	const query = `
 UPDATE properties
 SET name = $2,
-	subtitle = $3,
-	address = $4,
-	electricity_unit_price = $5,
-	default_electricity_billing_cadence = $6,
-	owner_id = $7,
-	contact_phone = $8,
-	contact_email = $9,
-	notes = $10,
-	facilities = $11::jsonb,
+	property_public_name = $3,
+	subtitle = $4,
+	address = $5,
+	electricity_unit_price = $6,
+	default_electricity_billing_cadence = $7,
+	owner_id = $8,
+	contact_phone = $9,
+	contact_email = $10,
+	notes = $11,
+	facilities = $12::jsonb,
 	updated_at = now(),
 	version = version + 1
 WHERE id = $1
-  AND version = $12
+  AND version = $13
   AND deleted_at IS NULL
 RETURNING
 	id,
 	name,
+	property_public_name,
 	subtitle,
 	address,
 	electricity_unit_price,
@@ -302,7 +310,7 @@ RETURNING
 	version
 `
 
-	property, err := scanProperty(tx.QueryRowContext(ctx, query, params.ID, params.Name, params.Subtitle, params.Address, params.ElectricityUnitPrice, params.DefaultElectricityBillingCadence, params.OwnerID, params.ContactPhone, params.ContactEmail, params.Notes, facilitiesJSON, params.Version))
+	property, err := scanProperty(tx.QueryRowContext(ctx, query, params.ID, params.Name, params.PropertyPublicName, params.Subtitle, params.Address, params.ElectricityUnitPrice, params.DefaultElectricityBillingCadence, params.OwnerID, params.ContactPhone, params.ContactEmail, params.Notes, facilitiesJSON, params.Version))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -581,6 +589,7 @@ func scanProperty(row rowScanner) (*Property, error) {
 	if err := row.Scan(
 		&property.ID,
 		&property.Name,
+		&property.PropertyPublicName,
 		&subtitle,
 		&property.Address,
 		&electricityUnitPrice,

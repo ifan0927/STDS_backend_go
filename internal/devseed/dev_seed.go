@@ -282,6 +282,7 @@ func seedPropertyAndRooms(ctx context.Context, tx *sql.Tx, ownerID string) error
 INSERT INTO properties (
 	id,
 	name,
+	property_public_name,
 	subtitle,
 	address,
 	electricity_unit_price,
@@ -295,6 +296,7 @@ INSERT INTO properties (
 	updated_at
 ) VALUES (
 	$1,
+	'前端展示公寓',
 	'前端展示公寓',
 	'Frontend Demo Property',
 	'台北市中正區測試路 157 號',

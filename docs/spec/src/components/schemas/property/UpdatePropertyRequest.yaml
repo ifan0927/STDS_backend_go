@@ -2,6 +2,9 @@ type: object
 properties:
   name:
     type: string
+  property_public_name:
+    type: string
+    description: Public brand-page display name. Can be updated independently from name.
   subtitle:
     type: string
     nullable: true

@@ -5,6 +5,9 @@ properties:
     format: uuid
   name:
     type: string
+  property_public_name:
+    type: string
+    description: Public brand-page display name. Internal management name remains name.
   address:
     type: string
   subtitle:

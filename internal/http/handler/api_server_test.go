@@ -63,22 +63,26 @@ func TestToPropertyResponseIncludesWritableV1Fields(t *testing.T) {
 	facilities := map[string]interface{}{"elevator": true}
 
 	response := toPropertyResponse(&dbpropertyquery.Property{
-		ID:           "00000000-0000-0000-0000-000000000001",
-		Name:         "Property",
-		Subtitle:     &subtitle,
-		Address:      "Address",
-		OwnerID:      "00000000-0000-0000-0000-000000000002",
-		ContactPhone: &contactPhone,
-		ContactEmail: &contactEmail,
-		Notes:        &notes,
-		Facilities:   &facilities,
-		CreatedAt:    time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
-		UpdatedAt:    time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
-		Version:      1,
+		ID:                 "00000000-0000-0000-0000-000000000001",
+		Name:               "Property",
+		PropertyPublicName: "Public Property",
+		Subtitle:           &subtitle,
+		Address:            "Address",
+		OwnerID:            "00000000-0000-0000-0000-000000000002",
+		ContactPhone:       &contactPhone,
+		ContactEmail:       &contactEmail,
+		Notes:              &notes,
+		Facilities:         &facilities,
+		CreatedAt:          time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+		UpdatedAt:          time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC),
+		Version:            1,
 	})
 
 	if response.Subtitle == nil || *response.Subtitle != subtitle {
 		t.Fatalf("subtitle = %v, want %s", response.Subtitle, subtitle)
+	}
+	if response.PropertyPublicName == nil || *response.PropertyPublicName != "Public Property" {
+		t.Fatalf("property_public_name = %v, want Public Property", response.PropertyPublicName)
 	}
 	if response.ContactEmail == nil || string(*response.ContactEmail) != contactEmail {
 		t.Fatalf("contact_email = %v, want %s", response.ContactEmail, contactEmail)

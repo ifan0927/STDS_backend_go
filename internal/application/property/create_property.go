@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 
 	domainevents "stds_backend/internal/domain/events"
@@ -15,6 +16,7 @@ import (
 // CreatePropertyInput is the command payload for creating a property.
 type CreatePropertyInput struct {
 	Name                             string
+	PropertyPublicName               *string
 	Subtitle                         *string
 	Address                          string
 	ElectricityUnitPrice             float64
@@ -47,8 +49,16 @@ func NewCreatePropertyService(propertyRepo Repository, propertyAccountRepo Prope
 
 // Execute validates input and persists a new property.
 func (s *CreatePropertyService) Execute(ctx context.Context, input CreatePropertyInput) (*Property, error) {
+	propertyPublicName := ""
+	if input.PropertyPublicName != nil {
+		propertyPublicName = *input.PropertyPublicName
+		if strings.TrimSpace(propertyPublicName) == "" {
+			return nil, mapDomainError(domainproperty.ErrPropertyPublicNameRequired)
+		}
+	}
 	aggregate, err := domainproperty.New(domainproperty.State{
 		Name:                             input.Name,
+		PropertyPublicName:               propertyPublicName,
 		Subtitle:                         input.Subtitle,
 		Address:                          input.Address,
 		ElectricityUnitPrice:             &input.ElectricityUnitPrice,
@@ -77,6 +87,7 @@ func (s *CreatePropertyService) Execute(ctx context.Context, input CreatePropert
 		}
 		property, err := s.propertyRepo.Create(ctx, tx, CreatePropertyParams{
 			Name:                             state.Name,
+			PropertyPublicName:               state.PropertyPublicName,
 			Subtitle:                         state.Subtitle,
 			Address:                          state.Address,
 			ElectricityUnitPrice:             electricityUnitPrice,

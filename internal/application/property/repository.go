@@ -14,6 +14,7 @@ var ErrPropertyNotFound = errors.New("property not found")
 type Property struct {
 	ID                               string
 	Name                             string
+	PropertyPublicName               string
 	Subtitle                         *string
 	Address                          string
 	ElectricityUnitPrice             *float64
@@ -132,6 +133,7 @@ type DashboardRecentJournal struct {
 // property.
 type CreatePropertyParams struct {
 	Name                             string
+	PropertyPublicName               string
 	Subtitle                         *string
 	Address                          string
 	ElectricityUnitPrice             float64
@@ -154,6 +156,7 @@ type CreatePropertyAccountParams struct {
 type UpdatePropertyParams struct {
 	ID                               string
 	Name                             string
+	PropertyPublicName               string
 	Subtitle                         *string
 	Address                          string
 	ElectricityUnitPrice             *float64
