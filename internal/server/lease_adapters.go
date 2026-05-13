@@ -147,6 +147,7 @@ func (a leaseRepositoryAdapter) TerminateLease(ctx context.Context, tx *sql.Tx, 
 	lease, err := a.repo.TerminateLease(ctx, tx, dbleases.TerminateLeaseParams{
 		LeaseID:           params.LeaseID,
 		EndDate:           params.EndDate,
+		ActualMoveOutDate: params.ActualMoveOutDate,
 		TerminationReason: params.TerminationReason,
 		SettlementDetail:  params.SettlementDetail,
 	})
@@ -165,6 +166,8 @@ func (a leaseRepositoryAdapter) TerminateLease(ctx context.Context, tx *sql.Tx, 
 func (a leaseRepositoryAdapter) ForceTerminateLease(ctx context.Context, tx *sql.Tx, params applease.ForceTerminateLeaseParams) (*applease.Lease, error) {
 	lease, err := a.repo.ForceTerminateLease(ctx, tx, dbleases.ForceTerminateLeaseParams{
 		LeaseID:           params.LeaseID,
+		TerminationDate:   params.TerminationDate,
+		ActualMoveOutDate: params.ActualMoveOutDate,
 		TerminationReason: params.TerminationReason,
 		DepositStatus:     params.DepositStatus,
 	})
@@ -382,6 +385,7 @@ func toApplicationLease(lease *dbleases.Lease) *applease.Lease {
 		RentAmount:                lease.RentAmount,
 		StartDate:                 lease.StartDate,
 		EndDate:                   lease.EndDate,
+		ActualMoveOutDate:        lease.ActualMoveOutDate,
 		RentBillingCadence:        lease.RentBillingCadence,
 		ElectricityBillingCadence: lease.ElectricityBillingCadence,
 		StartingMeterReading:      lease.StartingMeterReading,

@@ -31,6 +31,8 @@ post:
         examples:
           default:
             value:
+              termination_date: '2026-07-15'
+              actual_move_out_date: '2026-07-10'
               reason: 租客失聯，連續 3 個月未繳租金
               deposit_handling: write_off
   responses:

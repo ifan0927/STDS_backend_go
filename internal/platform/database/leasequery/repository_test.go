@@ -28,7 +28,7 @@ WHERE l.deleted_at IS NULL
 	mock.ExpectQuery(`(?s)SELECT.*property_label.*tenant_label.*room_label.*FROM leases l.*WHERE l\.deleted_at IS NULL\s+ORDER BY l\.created_at DESC LIMIT \$1 OFFSET \$2`).
 		WithArgs(10, 20).
 		WillReturnRows(leaseQueryRows().AddRow(
-			"lease-1", "tenant-1", "property-1", "room-1", "Property 1", "Tenant 1", "Room 1", 12000, startDate, endDate,
+			"lease-1", "tenant-1", "property-1", "room-1", "Property 1", "Tenant 1", "Room 1", 12000, startDate, endDate, nil,
 			"monthly", "monthly", nil, "active", 24000, nil, nil, "held", nil, nil, nil, nil, now, now, 1,
 		))
 
@@ -173,12 +173,12 @@ func TestListAccessibleScansNullableFieldsAndSettlementDetail(t *testing.T) {
 		WithArgs(10, 0).
 		WillReturnRows(leaseQueryRows().
 			AddRow(
-				"lease-1", "tenant-1", "property-1", "room-1", "Property 1", "Tenant 1", "Room 1", 12000, startDate, endDate,
+				"lease-1", "tenant-1", "property-1", "room-1", "Property 1", "Tenant 1", "Room 1", 12000, startDate, endDate, nil,
 				"monthly", "monthly", nil, "terminated", 24000, 18000, 6000, "refunded", "cleaning",
 				"tenant note", "early termination", `{"refund_method":"bank","deduction":6000}`, now, now, 2,
 			).
 			AddRow(
-				"lease-2", "tenant-2", "property-2", "room-2", "Property 2", "Tenant 2", "Room 2", 15000, startDate, endDate,
+				"lease-2", "tenant-2", "property-2", "room-2", "Property 2", "Tenant 2", "Room 2", 15000, startDate, endDate, nil,
 				"monthly", "bi_monthly", nil, "active", 30000, nil, nil, "held", nil, nil, nil, nil, now, now, 1,
 			))
 
@@ -323,7 +323,7 @@ func TestFindByIDAccessibleAdminSuccess(t *testing.T) {
 	mock.ExpectQuery(`(?s)SELECT.*property_label.*tenant_label.*room_label.*FROM leases l.*WHERE l\.id = \$1\s+AND l\.deleted_at IS NULL\s+LIMIT 1`).
 		WithArgs("lease-1").
 		WillReturnRows(leaseQueryRows().AddRow(
-			"lease-1", "tenant-1", "property-1", "room-1", "Property 1", "Tenant 1", "Room 1", 12000, startDate, endDate,
+			"lease-1", "tenant-1", "property-1", "room-1", "Property 1", "Tenant 1", "Room 1", 12000, startDate, endDate, nil,
 			"monthly", "monthly", nil, "active", 24000, nil, nil, "held", nil, nil, nil, nil, now, now, 1,
 		))
 
@@ -359,7 +359,7 @@ func TestFindByIDAccessibleOrganizerAndStaffApplyAssignedPropertyScope(t *testin
 			mock.ExpectQuery(`(?s)WHERE l\.id = \$1\s+AND l\.deleted_at IS NULL\s+AND l\.property_id IN \(\$2, \$3\)\s+LIMIT 1`).
 				WithArgs("lease-1", "property-1", "property-2").
 				WillReturnRows(leaseQueryRows().AddRow(
-					"lease-1", "tenant-1", "property-1", "room-1", "Property 1", "Tenant 1", "Room 1", 12000, startDate, endDate,
+					"lease-1", "tenant-1", "property-1", "room-1", "Property 1", "Tenant 1", "Room 1", 12000, startDate, endDate, nil,
 					"monthly", "monthly", nil, "active", 24000, nil, nil, "held", nil, nil, nil, nil, now, now, 1,
 				))
 
@@ -439,7 +439,7 @@ func TestFindByIDAccessibleInvalidSettlementDetailReturnsError(t *testing.T) {
 	mock.ExpectQuery(`(?s)WHERE l\.id = \$1\s+AND l\.deleted_at IS NULL\s+LIMIT 1`).
 		WithArgs("lease-1").
 		WillReturnRows(leaseQueryRows().AddRow(
-			"lease-1", "tenant-1", "property-1", "room-1", "Property 1", "Tenant 1", "Room 1", 12000, startDate, endDate,
+			"lease-1", "tenant-1", "property-1", "room-1", "Property 1", "Tenant 1", "Room 1", 12000, startDate, endDate, nil,
 			"monthly", "monthly", nil, "terminated", 24000, nil, nil, "held", nil, nil, nil, `{"broken"`, now, now, 1,
 		))
 
@@ -470,7 +470,7 @@ func TestFindByIDAccessibleScansRentBillingCadence(t *testing.T) {
 	mock.ExpectQuery(`(?s)SELECT.*property_label.*tenant_label.*room_label.*FROM leases l.*WHERE l\.id = \$1\s+AND l\.deleted_at IS NULL\s+LIMIT 1`).
 		WithArgs("lease-1").
 		WillReturnRows(leaseQueryRowsWithRentCadence().AddRow(
-			"lease-1", "tenant-1", "property-1", "room-1", "Property 1", "Tenant 1", "Room 1", 54000, startDate, endDate,
+			"lease-1", "tenant-1", "property-1", "room-1", "Property 1", "Tenant 1", "Room 1", 54000, startDate, endDate, nil,
 			"quarterly", "monthly", 1250, "active", 24000, nil, nil, "held", nil, nil, nil, nil, now, now, 1,
 		))
 
@@ -519,6 +519,7 @@ func leaseQueryRows() *sqlmock.Rows {
 		"rent_amount",
 		"start_date",
 		"end_date",
+		"actual_move_out_date",
 		"rent_billing_cadence",
 		"electricity_billing_cadence",
 		"starting_meter_reading",
@@ -549,6 +550,7 @@ func leaseQueryRowsWithRentCadence() *sqlmock.Rows {
 		"rent_amount",
 		"start_date",
 		"end_date",
+		"actual_move_out_date",
 		"rent_billing_cadence",
 		"electricity_billing_cadence",
 		"starting_meter_reading",

@@ -48,6 +48,13 @@ func TestReplaceLeaseServiceCreatesSuccessorAndPublishesEvents(t *testing.T) {
 	if result.OldLease.Status != "terminated" {
 		t.Fatalf("old status = %q, want terminated", result.OldLease.Status)
 	}
+	expectedOldEndDate := time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC)
+	if !result.OldLease.EndDate.Equal(expectedOldEndDate) {
+		t.Fatalf("old end date = %v, want %v", result.OldLease.EndDate, expectedOldEndDate)
+	}
+	if result.OldLease.ActualMoveOutDate != nil {
+		t.Fatalf("old actual move-out date = %v, want nil", result.OldLease.ActualMoveOutDate)
+	}
 	if repo.createLeaseParams == nil || repo.createLeaseParams.TenantID != repo.lease.TenantID || repo.createLeaseParams.RoomID != repo.lease.RoomID {
 		t.Fatalf("successor did not inherit scope: %+v", repo.createLeaseParams)
 	}

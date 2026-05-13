@@ -54,6 +54,9 @@ func TestE2ELeaseCheckoutSettlementAcceptance(t *testing.T) {
 	if preview.NetDirection != "refund" || preview.NetAmount != 33000 {
 		t.Fatalf("unexpected preview net result: %+v", preview)
 	}
+	if preview.ActualMoveOutDate != "2026-08-20" || preview.ManualRentRefundAmount != 0 || preview.ManualRentRefundReason == nil {
+		t.Fatalf("unexpected checkout date/refund contract fields: %+v", preview)
+	}
 
 	finalized := checkoutE2EFinalize(t, ctx, adminClient, lease.ID, *preview.PreviewToken)
 	if finalized.PreviewToken != nil {
@@ -64,6 +67,9 @@ func TestE2ELeaseCheckoutSettlementAcceptance(t *testing.T) {
 	}
 	if finalized.FinalizedAt == nil {
 		t.Fatalf("expected finalized_at: %+v", finalized)
+	}
+	if finalized.ActualMoveOutDate != "2026-08-20" || finalized.ManualRentRefundAmount != 0 || finalized.ManualRentRefundReason == nil {
+		t.Fatalf("unexpected finalized checkout date/refund contract fields: %+v", finalized)
 	}
 
 	reviews := checkoutE2EListReviews(t, ctx, adminClient, property.ID)
@@ -102,16 +108,19 @@ func TestE2ELeaseCheckoutSettlementAcceptance(t *testing.T) {
 }
 
 type checkoutE2ESettlementResponse struct {
-	LeaseID         string                      `json:"lease_id"`
-	PreviewToken    *string                     `json:"preview_token"`
-	Blockers        []checkoutE2EBlocker        `json:"blockers"`
-	Lines           []checkoutE2ESettlementLine `json:"lines"`
-	TotalRefund     int                         `json:"total_refund"`
-	TotalCharge     int                         `json:"total_charge"`
-	NetAmount       int                         `json:"net_amount"`
-	NetDirection    string                      `json:"net_direction"`
-	ExportAvailable bool                        `json:"export_available"`
-	FinalizedAt     *string                     `json:"finalized_at"`
+	LeaseID                string                      `json:"lease_id"`
+	ActualMoveOutDate      string                      `json:"actual_move_out_date"`
+	ManualRentRefundAmount int                         `json:"manual_rent_refund_amount"`
+	ManualRentRefundReason *string                     `json:"manual_rent_refund_reason"`
+	PreviewToken           *string                     `json:"preview_token"`
+	Blockers               []checkoutE2EBlocker        `json:"blockers"`
+	Lines                  []checkoutE2ESettlementLine `json:"lines"`
+	TotalRefund            int                         `json:"total_refund"`
+	TotalCharge            int                         `json:"total_charge"`
+	NetAmount              int                         `json:"net_amount"`
+	NetDirection           string                      `json:"net_direction"`
+	ExportAvailable        bool                        `json:"export_available"`
+	FinalizedAt            *string                     `json:"finalized_at"`
 }
 
 type checkoutE2EBlocker struct {
@@ -207,13 +216,16 @@ func checkoutE2EListReviews(t *testing.T, ctx context.Context, client apiClient,
 
 func checkoutE2ERequest(previewToken string) map[string]any {
 	request := map[string]any{
-		"checkout_date":       "2026-08-31",
-		"reason":              "E2E normal checkout",
-		"cleaning_fee":        3000,
-		"key_card_loss_fee":   0,
-		"other_fee":           0,
-		"final_meter_reading": 120,
-		"notes":               "E2E checkout settlement",
+		"checkout_date":             "2026-08-31",
+		"actual_move_out_date":      "2026-08-20",
+		"reason":                    "E2E normal checkout",
+		"cleaning_fee":              3000,
+		"key_card_loss_fee":         0,
+		"other_fee":                 0,
+		"manual_rent_refund_amount": 0,
+		"manual_rent_refund_reason": "no rent refund for e2e normal checkout",
+		"final_meter_reading":       120,
+		"notes":                     "E2E checkout settlement",
 	}
 	if previewToken != "" {
 		request["preview_token"] = previewToken

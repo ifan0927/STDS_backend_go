@@ -1,8 +1,18 @@
 type: object
 required:
+  - termination_date
   - reason
   - deposit_handling
 properties:
+  termination_date:
+    type: string
+    format: date
+    description: 強制終止生效日；backend 以此更新 lease end_date。
+  actual_move_out_date:
+    type: string
+    format: date
+    nullable: true
+    description: 實際搬出 / 點交日；僅作為營運紀錄，不影響 write-off、deposit handling 或租金退款。
   reason:
     type: string
     minLength: 1

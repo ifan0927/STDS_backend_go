@@ -25,8 +25,14 @@
     <div class="label">物業</div><div>{{.PropertyLabel}}</div>
     <div class="label">房號</div><div>{{.RoomLabel}}</div>
     <div class="label">租客</div><div>{{.TenantLabel}}</div>
-    <div class="label">退租日</div><div>{{.CheckoutDateLabel}}</div>
+    <div class="label">結算生效日 / 租約終止日</div><div>{{.CheckoutDateLabel}}</div>
+    {{if .ActualMoveOutDateLabel}}
+    <div class="label">實際搬出日 / 點交日</div><div>{{.ActualMoveOutDateLabel}}</div>
+    {{end}}
     <div class="label">退租原因</div><div>{{.Reason}}</div>
+    {{if .ManualRentRefundReason}}
+    <div class="label">租金退回決策</div><div>{{.ManualRentRefundReason}}</div>
+    {{end}}
     <div class="label">完成時間</div><div>{{.FinalizedAtLabel}}</div>
     {{if .FinalMeterReading}}
     <div class="label">退租電表</div><div>{{.FinalMeterReading}}</div>

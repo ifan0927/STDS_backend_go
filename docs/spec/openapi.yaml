@@ -3393,6 +3393,8 @@ paths:
             examples:
               default:
                 value:
+                  termination_date: '2026-07-15'
+                  actual_move_out_date: '2026-07-10'
                   reason: 租客失聯，連續 3 個月未繳租金
                   deposit_handling: write_off
       responses:
@@ -7914,6 +7916,11 @@ components:
         end_date:
           type: string
           format: date
+        actual_move_out_date:
+          type: string
+          format: date
+          nullable: true
+          description: 實際搬出 / 點交日；僅作為營運紀錄，不影響 lease end_date 或帳務。
         electricity_billing_cadence:
           type: string
           enum:
@@ -8205,7 +8212,12 @@ components:
         checkout_date:
           type: string
           format: date
-          description: 實際退租日；backend 以此計算並保存結算快照。
+          description: 結算生效日 / 租約終止日；backend 以此更新 lease end_date 並保存結算快照，不代表實際搬出日。
+        actual_move_out_date:
+          type: string
+          format: date
+          nullable: true
+          description: 實際搬出 / 點交日；僅作為營運紀錄，不影響 lease end_date、帳務期間或自動租金計算。
         reason:
           type: string
           description: 退租原因。
@@ -8230,6 +8242,15 @@ components:
           type: string
           nullable: true
           description: other_fee 大於 0 時建議提供。
+        manual_rent_refund_amount:
+          type: integer
+          minimum: 0
+          default: 0
+          description: 人工決定的未到期租金退款金額；backend 不自動按比例計算。
+        manual_rent_refund_reason:
+          type: string
+          nullable: true
+          description: 人工租金退款決策原因；checkout_date 早於原租約 end_date 時必填，金額 0 加原因表示明確決定不退未到期租金。
         notes:
           type: string
           nullable: true
@@ -8247,6 +8268,7 @@ components:
       properties:
         kind:
           type: string
+          description: rent_refund 表示 backend 接收的人工租金退款決策，不代表自動按比例計算的未到期租金退款。
           enum:
             - deposit_refund
             - cleaning_fee
@@ -8286,7 +8308,7 @@ components:
             - lease_not_active
             - deposit_not_held
             - charge_exceeds_deposit
-            - rent_refund_not_calculated
+            - manual_rent_refund_decision_required
         message:
           type: string
         source_id:
@@ -8301,7 +8323,7 @@ components:
         code:
           type: string
           enum:
-            - rent_refund_not_calculated
+            - manual_rent_refund_recorded
             - final_meter_snapshot_only
         message:
           type: string
@@ -8348,6 +8370,12 @@ components:
         checkout_date:
           type: string
           format: date
+          description: 結算生效日 / 租約終止日，不代表實際搬出日。
+        actual_move_out_date:
+          type: string
+          format: date
+          nullable: true
+          description: 實際搬出 / 點交日；僅作為營運紀錄。
         reason:
           type: string
         final_meter_reading:
@@ -8356,6 +8384,14 @@ components:
         notes:
           type: string
           nullable: true
+        manual_rent_refund_amount:
+          type: integer
+          minimum: 0
+          description: 人工決定的未到期租金退款金額；0 加 reason 表示明確不退。
+        manual_rent_refund_reason:
+          type: string
+          nullable: true
+          description: 人工租金退款決策原因。
         lines:
           type: array
           items:
@@ -8406,9 +8442,19 @@ components:
     ForceTerminateRequest:
       type: object
       required:
+        - termination_date
         - reason
         - deposit_handling
       properties:
+        termination_date:
+          type: string
+          format: date
+          description: 強制終止生效日；backend 以此更新 lease end_date。
+        actual_move_out_date:
+          type: string
+          format: date
+          nullable: true
+          description: 實際搬出 / 點交日；僅作為營運紀錄，不影響 write-off、deposit handling 或租金退款。
         reason:
           type: string
           minLength: 1
@@ -8732,6 +8778,7 @@ components:
             - journal_expense
             - deposit_refund
             - deposit_deduction
+            - rent_refund
     FinancialReportEntryItem:
       type: object
       properties:
@@ -8746,6 +8793,7 @@ components:
             - electricity_payment
             - deposit_refund
             - deposit_deduction
+            - rent_refund
             - journal_expense
         accounting_title_id:
           type: string

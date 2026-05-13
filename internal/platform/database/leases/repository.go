@@ -55,6 +55,7 @@ type Lease struct {
 	RentAmount                int
 	StartDate                 time.Time
 	EndDate                   time.Time
+	ActualMoveOutDate         *time.Time
 	RentBillingCadence        string
 	ElectricityBillingCadence string
 	StartingMeterReading      *int
@@ -201,6 +202,7 @@ type SettleDepositParams struct {
 type TerminateLeaseParams struct {
 	LeaseID           string
 	EndDate           time.Time
+	ActualMoveOutDate *time.Time
 	TerminationReason string
 	SettlementDetail  map[string]interface{}
 }
@@ -208,6 +210,8 @@ type TerminateLeaseParams struct {
 // ForceTerminateLeaseParams contains fields for forced termination.
 type ForceTerminateLeaseParams struct {
 	LeaseID           string
+	TerminationDate   time.Time
+	ActualMoveOutDate *time.Time
 	TerminationReason string
 	DepositStatus     string
 }
@@ -461,6 +465,7 @@ SELECT
 	rent_amount,
 	start_date,
 	end_date,
+	actual_move_out_date,
 	rent_billing_cadence,
 	electricity_billing_cadence,
 	starting_meter_reading,
@@ -511,6 +516,7 @@ SELECT
 	l.rent_amount,
 	l.start_date,
 	l.end_date,
+	l.actual_move_out_date,
 	l.rent_billing_cadence,
 	l.electricity_billing_cadence,
 	l.starting_meter_reading,
@@ -583,6 +589,7 @@ RETURNING
 	rent_amount,
 	start_date,
 	end_date,
+	actual_move_out_date,
 	rent_billing_cadence,
 	electricity_billing_cadence,
 	starting_meter_reading,
@@ -627,6 +634,7 @@ SET status = 'terminated',
 	end_date = $2,
 	termination_reason = $3,
 	settlement_detail = COALESCE($4::jsonb, settlement_detail),
+	actual_move_out_date = COALESCE($5, actual_move_out_date),
 	updated_at = now(),
 	version = version + 1
 WHERE id = $1
@@ -639,6 +647,7 @@ RETURNING
 	rent_amount,
 	start_date,
 	end_date,
+	actual_move_out_date,
 	rent_billing_cadence,
 	electricity_billing_cadence,
 	starting_meter_reading,
@@ -664,7 +673,7 @@ RETURNING
 			return nil, fmt.Errorf("marshal settlement detail: %w", marshalErr)
 		}
 	}
-	lease, err := scanLease(tx.QueryRowContext(ctx, query, params.LeaseID, params.EndDate, params.TerminationReason, nullableJSON(settlementDetail)))
+	lease, err := scanLease(tx.QueryRowContext(ctx, query, params.LeaseID, params.EndDate, params.TerminationReason, nullableJSON(settlementDetail), params.ActualMoveOutDate))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrLeaseNotFound
@@ -679,8 +688,10 @@ func (r *SQLRepository) ForceTerminateLease(ctx context.Context, tx *sql.Tx, par
 	const query = `
 UPDATE leases
 SET status = 'force_terminated',
-	termination_reason = $2,
-	deposit_status = $3,
+	end_date = $2,
+	termination_reason = $3,
+	deposit_status = $4,
+	actual_move_out_date = COALESCE($5, actual_move_out_date),
 	updated_at = now(),
 	version = version + 1
 WHERE id = $1
@@ -693,6 +704,7 @@ RETURNING
 	rent_amount,
 	start_date,
 	end_date,
+	actual_move_out_date,
 	rent_billing_cadence,
 	electricity_billing_cadence,
 	starting_meter_reading,
@@ -710,7 +722,7 @@ RETURNING
 	version
 `
 
-	lease, err := scanLease(tx.QueryRowContext(ctx, query, params.LeaseID, params.TerminationReason, params.DepositStatus))
+	lease, err := scanLease(tx.QueryRowContext(ctx, query, params.LeaseID, params.TerminationDate, params.TerminationReason, params.DepositStatus, params.ActualMoveOutDate))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrLeaseNotFound
@@ -968,6 +980,7 @@ RETURNING
 	rent_amount,
 	start_date,
 	end_date,
+	actual_move_out_date,
 	rent_billing_cadence,
 	electricity_billing_cadence,
 	starting_meter_reading,
@@ -1015,6 +1028,7 @@ RETURNING
 	rent_amount,
 	start_date,
 	end_date,
+	actual_move_out_date,
 	rent_billing_cadence,
 	electricity_billing_cadence,
 	starting_meter_reading,
@@ -1249,6 +1263,7 @@ func scanLeaseWithExtra(row rowScanner, extras ...interface{}) (*Lease, error) {
 	var depositRefundAmount sql.NullInt64
 	var depositDeductionAmount sql.NullInt64
 	var startingMeterReading sql.NullInt64
+	var actualMoveOutDate sql.NullTime
 	var depositDeductionReason sql.NullString
 	var notes sql.NullString
 	var terminationReason sql.NullString
@@ -1262,6 +1277,7 @@ func scanLeaseWithExtra(row rowScanner, extras ...interface{}) (*Lease, error) {
 		&lease.RentAmount,
 		&lease.StartDate,
 		&lease.EndDate,
+		&actualMoveOutDate,
 		&lease.RentBillingCadence,
 		&lease.ElectricityBillingCadence,
 		&startingMeterReading,
@@ -1286,6 +1302,7 @@ func scanLeaseWithExtra(row rowScanner, extras ...interface{}) (*Lease, error) {
 	lease.DepositRefundAmount = nullIntPtr(depositRefundAmount)
 	lease.DepositDeductionAmount = nullIntPtr(depositDeductionAmount)
 	lease.StartingMeterReading = nullIntPtr(startingMeterReading)
+	lease.ActualMoveOutDate = nullTimePtr(actualMoveOutDate)
 	lease.DepositDeductionReason = nullStringPtr(depositDeductionReason)
 	lease.Notes = nullStringPtr(notes)
 	lease.TerminationReason = nullStringPtr(terminationReason)
@@ -1367,6 +1384,14 @@ func nullIntPtr(value sql.NullInt64) *int {
 		return nil
 	}
 	result := int(value.Int64)
+	return &result
+}
+
+func nullTimePtr(value sql.NullTime) *time.Time {
+	if !value.Valid {
+		return nil
+	}
+	result := value.Time
 	return &result
 }
 

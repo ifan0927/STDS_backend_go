@@ -1403,6 +1403,8 @@ func (s *APIServer) ForceTerminateLease(c *gin.Context, id string) {
 		ActorUserID:         principal.UserID,
 		AssignedPropertyIDs: principal.AssignedPropertyIDs,
 		LeaseID:             id,
+		TerminationDate:     request.TerminationDate.Time,
+		ActualMoveOutDate:   datePtrToTimePtr(request.ActualMoveOutDate),
 		Reason:              request.Reason,
 		DepositHandling:     string(request.DepositHandling),
 	})
@@ -1487,14 +1489,17 @@ func (s *APIServer) FinalizeLeaseCheckoutSettlement(c *gin.Context, id string) {
 	}
 
 	settlement, err := s.finalizeCheckout.Execute(c.Request.Context(), toCheckoutSettlementInput(principal, id, api.CheckoutSettlementInput{
-		CheckoutDate:      request.CheckoutDate,
-		CleaningFee:       request.CleaningFee,
-		FinalMeterReading: request.FinalMeterReading,
-		KeyCardLossFee:    request.KeyCardLossFee,
-		Notes:             request.Notes,
-		OtherFee:          request.OtherFee,
-		OtherFeeReason:    request.OtherFeeReason,
-		Reason:            request.Reason,
+		ActualMoveOutDate:      request.ActualMoveOutDate,
+		CheckoutDate:           request.CheckoutDate,
+		CleaningFee:            request.CleaningFee,
+		FinalMeterReading:      request.FinalMeterReading,
+		KeyCardLossFee:         request.KeyCardLossFee,
+		ManualRentRefundAmount: request.ManualRentRefundAmount,
+		ManualRentRefundReason: request.ManualRentRefundReason,
+		Notes:                  request.Notes,
+		OtherFee:               request.OtherFee,
+		OtherFeeReason:         request.OtherFeeReason,
+		Reason:                 request.Reason,
 	}, request.PreviewToken))
 	if err != nil {
 		c.Error(err)
@@ -3894,6 +3899,10 @@ func toTenantLeaseResponse(lease *dbtenantquery.Lease) api.LeaseResponse {
 	roomID, roomOK := parseUUID(lease.RoomID)
 	startDate := openapi_types.Date{Time: lease.StartDate}
 	endDate := openapi_types.Date{Time: lease.EndDate}
+	var actualMoveOutDate *openapi_types.Date
+	if lease.ActualMoveOutDate != nil {
+		actualMoveOutDate = &openapi_types.Date{Time: *lease.ActualMoveOutDate}
+	}
 	status := api.LeaseResponseStatus(lease.Status)
 	depositStatus := api.LeaseResponseDepositStatus(lease.DepositStatus)
 	rentCadence := api.LeaseResponseRentBillingCadence(lease.RentBillingCadence)
@@ -3907,6 +3916,7 @@ func toTenantLeaseResponse(lease *dbtenantquery.Lease) api.LeaseResponse {
 	response := api.LeaseResponse{
 		CreatedAt:                 &createdAt,
 		DepositAmount:             &depositAmount,
+		ActualMoveOutDate:         actualMoveOutDate,
 		DepositDeductionAmount:    lease.DepositDeductionAmount,
 		DepositDeductionReason:    lease.DepositDeductionReason,
 		DepositRefundAmount:       lease.DepositRefundAmount,
@@ -3949,6 +3959,7 @@ func toLeaseResponse(lease *dbleasequery.Lease) api.LeaseResponse {
 		RentAmount:                lease.RentAmount,
 		StartDate:                 lease.StartDate,
 		EndDate:                   lease.EndDate,
+		ActualMoveOutDate:         lease.ActualMoveOutDate,
 		RentBillingCadence:        lease.RentBillingCadence,
 		ElectricityBillingCadence: lease.ElectricityBillingCadence,
 		StartingMeterReading:      lease.StartingMeterReading,
@@ -4040,6 +4051,7 @@ func toCreatedLeaseResponse(lease *applease.Lease) api.LeaseResponse {
 		RentAmount:                lease.RentAmount,
 		StartDate:                 lease.StartDate,
 		EndDate:                   lease.EndDate,
+		ActualMoveOutDate:         lease.ActualMoveOutDate,
 		RentBillingCadence:        lease.RentBillingCadence,
 		ElectricityBillingCadence: lease.ElectricityBillingCadence,
 		StartingMeterReading:      lease.StartingMeterReading,
@@ -4141,18 +4153,21 @@ func toForceTerminationResponse(forceTermination *applease.ForceTermination) api
 
 func toCheckoutSettlementInput(principal requestctx.Principal, leaseID string, request api.CheckoutSettlementInput, previewToken string) applease.CheckoutSettlementInput {
 	return applease.CheckoutSettlementInput{
-		ActorRole:           principal.Role,
-		AssignedPropertyIDs: principal.AssignedPropertyIDs,
-		LeaseID:             leaseID,
-		CheckoutDate:        request.CheckoutDate.Time,
-		Reason:              request.Reason,
-		FinalMeterReading:   request.FinalMeterReading,
-		CleaningFee:         intValuePtr(request.CleaningFee),
-		KeyCardLossFee:      intValuePtr(request.KeyCardLossFee),
-		OtherFee:            intValuePtr(request.OtherFee),
-		OtherFeeReason:      request.OtherFeeReason,
-		Notes:               request.Notes,
-		PreviewToken:        previewToken,
+		ActorRole:              principal.Role,
+		AssignedPropertyIDs:    principal.AssignedPropertyIDs,
+		LeaseID:                leaseID,
+		CheckoutDate:           request.CheckoutDate.Time,
+		ActualMoveOutDate:      datePtrToTimePtr(request.ActualMoveOutDate),
+		Reason:                 request.Reason,
+		FinalMeterReading:      request.FinalMeterReading,
+		CleaningFee:            intValuePtr(request.CleaningFee),
+		KeyCardLossFee:         intValuePtr(request.KeyCardLossFee),
+		OtherFee:               intValuePtr(request.OtherFee),
+		OtherFeeReason:         request.OtherFeeReason,
+		ManualRentRefundAmount: intValuePtr(request.ManualRentRefundAmount),
+		ManualRentRefundReason: request.ManualRentRefundReason,
+		Notes:                  request.Notes,
+		PreviewToken:           previewToken,
 	}
 }
 
@@ -4207,29 +4222,37 @@ func toCheckoutSettlementResponse(settlement *applease.CheckoutSettlement) (api.
 		})
 	}
 
+	var actualMoveOutDate *openapi_types.Date
+	if settlement.ActualMoveOutDate != nil {
+		actualMoveOutDate = &openapi_types.Date{Time: *settlement.ActualMoveOutDate}
+	}
+
 	return api.CheckoutSettlementResponse{
-		Blockers:          blockers,
-		CheckoutDate:      openapi_types.Date{Time: settlement.CheckoutDate},
-		DepositAmount:     settlement.DepositAmount,
-		ExportAvailable:   settlement.ExportAvailable,
-		FinalMeterReading: settlement.FinalMeterReading,
-		FinalizedAt:       settlement.FinalizedAt,
-		LeaseId:           leaseID,
-		Lines:             lines,
-		NetAmount:         settlement.NetAmount,
-		NetDirection:      api.CheckoutSettlementResponseNetDirection(settlement.NetDirection),
-		Notes:             settlement.Notes,
-		PreviewToken:      settlement.PreviewToken,
-		PropertyId:        propertyID,
-		PropertyLabel:     settlement.PropertyLabel,
-		Reason:            settlement.Reason,
-		RoomId:            roomID,
-		RoomLabel:         settlement.RoomLabel,
-		TenantId:          tenantID,
-		TenantLabel:       settlement.TenantLabel,
-		TotalCharge:       settlement.TotalCharge,
-		TotalRefund:       settlement.TotalRefund,
-		Warnings:          warnings,
+		ActualMoveOutDate:      actualMoveOutDate,
+		Blockers:               blockers,
+		CheckoutDate:           openapi_types.Date{Time: settlement.CheckoutDate},
+		DepositAmount:          settlement.DepositAmount,
+		ExportAvailable:        settlement.ExportAvailable,
+		FinalMeterReading:      settlement.FinalMeterReading,
+		FinalizedAt:            settlement.FinalizedAt,
+		LeaseId:                leaseID,
+		Lines:                  lines,
+		ManualRentRefundAmount: &settlement.ManualRentRefundAmount,
+		ManualRentRefundReason: settlement.ManualRentRefundReason,
+		NetAmount:              settlement.NetAmount,
+		NetDirection:           api.CheckoutSettlementResponseNetDirection(settlement.NetDirection),
+		Notes:                  settlement.Notes,
+		PreviewToken:           settlement.PreviewToken,
+		PropertyId:             propertyID,
+		PropertyLabel:          settlement.PropertyLabel,
+		Reason:                 settlement.Reason,
+		RoomId:                 roomID,
+		RoomLabel:              settlement.RoomLabel,
+		TenantId:               tenantID,
+		TenantLabel:            settlement.TenantLabel,
+		TotalCharge:            settlement.TotalCharge,
+		TotalRefund:            settlement.TotalRefund,
+		Warnings:               warnings,
 	}, nil
 }
 

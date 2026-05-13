@@ -729,6 +729,14 @@ func TestExportMonthlyCashflowUsesCurrentMonthLiveRowsAndRunningBalance(t *testi
 					SourceRef:           []byte(`{"journal_log_id":"journal-1"}`),
 					CreatedAt:           time.Date(2026, 5, 5, 10, 0, 0, 0, time.UTC),
 				},
+				{
+					Category:            "rent_refund",
+					AccountingTitleCode: stringPtr("4604"),
+					AccountingTitleName: stringPtr("租金退回(減項)"),
+					Amount:              -3000,
+					SourceRef:           []byte(`{"type":"RentRefunded","lease_id":"lease-1","reason":"提前退租租金退回"}`),
+					CreatedAt:           time.Date(2026, 5, 6, 10, 0, 0, 0, time.UTC),
+				},
 			},
 		},
 		openingBalance: 1000,
@@ -764,10 +772,10 @@ func TestExportMonthlyCashflowUsesCurrentMonthLiveRowsAndRunningBalance(t *testi
 	if view.Title != "Demo Property收支表 (2026/05)" || view.PeriodLabel != "2026-05" {
 		t.Fatalf("unexpected view metadata: %+v", view)
 	}
-	if view.OpeningBalanceLabel != "NT$ 1,000" || view.MonthlyIncomeTotalLabel != "NT$ 18,000" || view.MonthlyExpenseTotalLabel != "NT$ 2,500" || view.EndingBalanceLabel != "NT$ 16,500" {
+	if view.OpeningBalanceLabel != "NT$ 1,000" || view.MonthlyIncomeTotalLabel != "NT$ 18,000" || view.MonthlyExpenseTotalLabel != "NT$ 5,500" || view.EndingBalanceLabel != "NT$ 13,500" {
 		t.Fatalf("unexpected totals: %+v", view)
 	}
-	if len(view.Rows) != 2 || view.Rows[0].BalanceLabel != "NT$ 19,000" || view.Rows[1].BalanceLabel != "NT$ 16,500" {
+	if len(view.Rows) != 3 || view.Rows[0].BalanceLabel != "NT$ 19,000" || view.Rows[1].BalanceLabel != "NT$ 16,500" || view.Rows[2].BalanceLabel != "NT$ 13,500" {
 		t.Fatalf("unexpected rows: %+v", view.Rows)
 	}
 	if view.Rows[0].DateLabel != "05/02" || view.Rows[0].SubjectLabel != "租金收入" || view.Rows[0].Note != "101 王小明 2026-05 租金" {
@@ -778,6 +786,9 @@ func TestExportMonthlyCashflowUsesCurrentMonthLiveRowsAndRunningBalance(t *testi
 	}
 	if view.Rows[1].Note != "" {
 		t.Fatalf("second row note = %q, want empty note without raw source_ref JSON", view.Rows[1].Note)
+	}
+	if view.Rows[2].SubjectLabel != "租金退回(減項)" || view.Rows[2].ExpenseLabel != "NT$ 3,000" || view.Rows[2].Note != "提前退租租金退回" {
+		t.Fatalf("rent refund row = %+v", view.Rows[2])
 	}
 	if document.Filename != "monthly-cashflow-demo-property-2026-05.html" {
 		t.Fatalf("filename = %q", document.Filename)
@@ -907,6 +918,14 @@ func TestFinancialReportEntrySourceFromRefNormalizesKnownSourceRefs(t *testing.T
 			wantType:   "lease",
 			wantID:     "10000000-0000-0000-0000-000000000013",
 			wantDetail: "deposit_refund",
+		},
+		{
+			name:       "rent refund",
+			category:   "rent_refund",
+			sourceRef:  []byte(`{"type":"RentRefunded","lease_id":"10000000-0000-0000-0000-000000000015"}`),
+			wantType:   "lease",
+			wantID:     "10000000-0000-0000-0000-000000000015",
+			wantDetail: "rent_refund",
 		},
 		{
 			name:       "deposit deduction",

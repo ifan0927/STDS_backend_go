@@ -478,15 +478,21 @@ type leaseRepositoryStub struct {
 }
 
 type depositAccountingRepositoryStub struct {
-	entries     []DepositAccountingEntryParams
-	createErr   error
-	createCalls int
+	entries             []DepositAccountingEntryParams
+	createErr           error
+	createErrByCategory map[string]error
+	createCalls         int
 }
 
 func (s *depositAccountingRepositoryStub) CreateDepositAccountingEntry(_ context.Context, _ *sql.Tx, params DepositAccountingEntryParams) error {
 	s.createCalls++
 	if s.createErr != nil {
 		return s.createErr
+	}
+	if s.createErrByCategory != nil {
+		if err := s.createErrByCategory[params.Category]; err != nil {
+			return err
+		}
 	}
 	s.entries = append(s.entries, params)
 	return nil
@@ -584,6 +590,7 @@ func (s *leaseRepositoryStub) TerminateLease(_ context.Context, _ *sql.Tx, param
 	}
 	s.lease.Status = "terminated"
 	s.lease.EndDate = params.EndDate
+	s.lease.ActualMoveOutDate = params.ActualMoveOutDate
 	s.lease.TerminationReason = &params.TerminationReason
 	if params.SettlementDetail != nil {
 		s.lease.SettlementDetail = &params.SettlementDetail
@@ -597,6 +604,8 @@ func (s *leaseRepositoryStub) ForceTerminateLease(_ context.Context, _ *sql.Tx, 
 		return nil, ErrLeaseNotFound
 	}
 	s.lease.Status = "force_terminated"
+	s.lease.EndDate = params.TerminationDate
+	s.lease.ActualMoveOutDate = params.ActualMoveOutDate
 	s.lease.TerminationReason = &params.TerminationReason
 	s.lease.DepositStatus = params.DepositStatus
 	return s.lease, nil

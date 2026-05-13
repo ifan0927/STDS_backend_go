@@ -162,6 +162,8 @@ func TestForceTerminateLeaseServiceWritesOffBillsAndPublishesEvent(t *testing.T)
 
 	publisher := &recordingPublisher{}
 	repo := terminationRepoStub()
+	terminationDate := time.Date(2026, 4, 30, 0, 0, 0, 0, time.UTC)
+	actualMoveOutDate := time.Date(2026, 4, 25, 0, 0, 0, 0, time.UTC)
 	repo.replacementBills = append(repo.replacementBills, Bill{
 		ID:          "50000000-0000-0000-0000-000000000010",
 		Type:        "rent",
@@ -176,6 +178,8 @@ func TestForceTerminateLeaseServiceWritesOffBillsAndPublishesEvent(t *testing.T)
 		ActorUserID:         "20000000-0000-0000-0000-000000000001",
 		AssignedPropertyIDs: []string{"property-1"},
 		LeaseID:             terminateLeaseTestLeaseID,
+		TerminationDate:     terminationDate,
+		ActualMoveOutDate:   &actualMoveOutDate,
 		Reason:              "tenant unreachable",
 		DepositHandling:     "write_off",
 	})
@@ -194,6 +198,12 @@ func TestForceTerminateLeaseServiceWritesOffBillsAndPublishesEvent(t *testing.T)
 	}
 	if repo.forceTerminateCalls != 1 {
 		t.Fatalf("forceTerminateCalls = %d, want 1", repo.forceTerminateCalls)
+	}
+	if !repo.lease.EndDate.Equal(terminationDate) {
+		t.Fatalf("end date = %v, want %v", repo.lease.EndDate, terminationDate)
+	}
+	if repo.lease.ActualMoveOutDate == nil || !repo.lease.ActualMoveOutDate.Equal(actualMoveOutDate) {
+		t.Fatalf("actual move-out date = %v, want %v", repo.lease.ActualMoveOutDate, actualMoveOutDate)
 	}
 	if repo.lease.DepositStatus != "written_off" {
 		t.Fatalf("deposit status = %q, want written_off", repo.lease.DepositStatus)
@@ -220,6 +230,7 @@ func TestForceTerminateLeaseServiceKeepsDepositHeld(t *testing.T) {
 
 	publisher := &recordingPublisher{}
 	repo := terminationRepoStub()
+	terminationDate := time.Date(2026, 4, 30, 0, 0, 0, 0, time.UTC)
 	repo.replacementBills = append(repo.replacementBills, Bill{
 		ID:          "50000000-0000-0000-0000-000000000010",
 		Type:        "rent",
@@ -234,6 +245,7 @@ func TestForceTerminateLeaseServiceKeepsDepositHeld(t *testing.T) {
 		ActorUserID:         "20000000-0000-0000-0000-000000000001",
 		AssignedPropertyIDs: []string{"property-1"},
 		LeaseID:             terminateLeaseTestLeaseID,
+		TerminationDate:     terminationDate,
 		Reason:              "tenant unreachable",
 		DepositHandling:     "keep_held",
 	})
@@ -249,6 +261,12 @@ func TestForceTerminateLeaseServiceKeepsDepositHeld(t *testing.T) {
 	}
 	if repo.forceTerminateCalls != 1 {
 		t.Fatalf("forceTerminateCalls = %d, want 1", repo.forceTerminateCalls)
+	}
+	if !repo.lease.EndDate.Equal(terminationDate) {
+		t.Fatalf("end date = %v, want %v", repo.lease.EndDate, terminationDate)
+	}
+	if repo.lease.ActualMoveOutDate != nil {
+		t.Fatalf("actual move-out date = %v, want nil", repo.lease.ActualMoveOutDate)
 	}
 	if repo.lease.DepositStatus != "held" {
 		t.Fatalf("deposit status = %q, want held", repo.lease.DepositStatus)
@@ -308,6 +326,52 @@ func TestForceTerminateLeaseServiceRejectsMissingDepositHandling(t *testing.T) {
 	}
 }
 
+func TestForceTerminateLeaseServiceRejectsMissingTerminationDate(t *testing.T) {
+	service := NewForceTerminateLeaseService(nil, nil)
+
+	_, err := service.Execute(context.Background(), ForceTerminateLeaseInput{
+		ActorRole:       "admin",
+		ActorUserID:     "20000000-0000-0000-0000-000000000001",
+		LeaseID:         terminateLeaseTestLeaseID,
+		Reason:          "tenant unreachable",
+		DepositHandling: "write_off",
+	})
+	var appErr *apperr.Error
+	if !errors.As(err, &appErr) || appErr.Code != apperr.CodeBadRequest {
+		t.Fatalf("expected BAD_REQUEST, got %v", err)
+	}
+	details, ok := appErr.Details.(map[string]interface{})
+	if !ok || details["field"] != "termination_date" {
+		t.Fatalf("expected termination_date field detail, got %+v", appErr.Details)
+	}
+}
+
+func TestForceTerminateLeaseServiceRejectsTerminationDateBeforeLeaseStart(t *testing.T) {
+	repo := terminationRepoStub()
+	service := NewForceTerminateLeaseService(repo, txRunnerForRollback(t))
+
+	_, err := service.Execute(context.Background(), ForceTerminateLeaseInput{
+		ActorRole:           "admin",
+		ActorUserID:         "20000000-0000-0000-0000-000000000001",
+		AssignedPropertyIDs: []string{"property-1"},
+		LeaseID:             terminateLeaseTestLeaseID,
+		TerminationDate:     time.Date(2025, 12, 31, 0, 0, 0, 0, time.UTC),
+		Reason:              "tenant unreachable",
+		DepositHandling:     "write_off",
+	})
+	var appErr *apperr.Error
+	if !errors.As(err, &appErr) || appErr.Code != apperr.CodeBadRequest {
+		t.Fatalf("expected BAD_REQUEST, got %v", err)
+	}
+	details, ok := appErr.Details.(map[string]interface{})
+	if !ok || details["field"] != "termination_date" {
+		t.Fatalf("expected termination_date field detail, got %+v", appErr.Details)
+	}
+	if repo.forceTerminateCalls != 0 {
+		t.Fatalf("forceTerminateCalls = %d, want 0", repo.forceTerminateCalls)
+	}
+}
+
 func TestForceTerminateLeaseServiceRejectsInvalidDepositHandling(t *testing.T) {
 	repo := terminationRepoStub()
 	service := NewForceTerminateLeaseService(repo, txRunnerForRollback(t))
@@ -317,6 +381,7 @@ func TestForceTerminateLeaseServiceRejectsInvalidDepositHandling(t *testing.T) {
 		ActorUserID:         "20000000-0000-0000-0000-000000000001",
 		AssignedPropertyIDs: []string{"property-1"},
 		LeaseID:             terminateLeaseTestLeaseID,
+		TerminationDate:     time.Date(2026, 4, 30, 0, 0, 0, 0, time.UTC),
 		Reason:              "tenant unreachable",
 		DepositHandling:     "refund",
 	})
@@ -407,7 +472,7 @@ func TestPreviewCheckoutSettlementReturnsTokenAndNoWrites(t *testing.T) {
 	}
 }
 
-func TestPreviewCheckoutSettlementBlocksEarlyCheckoutUntilRentRefundIsSupported(t *testing.T) {
+func TestPreviewCheckoutSettlementBlocksEarlyCheckoutWithoutManualRentRefundDecision(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("sqlmock.New: %v", err)
@@ -438,6 +503,98 @@ func TestPreviewCheckoutSettlementBlocksEarlyCheckoutUntilRentRefundIsSupported(
 	}
 }
 
+func TestPreviewCheckoutSettlementAllowsEarlyCheckoutWithNoRentRefundDecision(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+	defer verifySQLMockExpectations(t, mock)
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+
+	repo := terminationRepoStub()
+	service := NewPreviewCheckoutSettlementService(repo, dbtxrunner.New(db, nil))
+	reason := "雙方協議不退未到期租金"
+
+	result, err := service.Execute(context.Background(), CheckoutSettlementInput{
+		ActorRole:              "admin",
+		AssignedPropertyIDs:    []string{"property-1"},
+		LeaseID:                terminateLeaseTestLeaseID,
+		CheckoutDate:           time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC),
+		Reason:                 "tenant requested",
+		ManualRentRefundReason: &reason,
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if result.PreviewToken == nil || *result.PreviewToken == "" {
+		t.Fatalf("expected preview token, got %+v", result.PreviewToken)
+	}
+	if len(result.Blockers) != 0 {
+		t.Fatalf("unexpected blockers: %+v", result.Blockers)
+	}
+	if result.ManualRentRefundAmount != 0 || result.ManualRentRefundReason == nil || *result.ManualRentRefundReason != reason {
+		t.Fatalf("manual rent refund fields = amount %d reason %+v", result.ManualRentRefundAmount, result.ManualRentRefundReason)
+	}
+	for _, line := range result.Lines {
+		if line.Kind == checkoutLineRentRefund {
+			t.Fatalf("did not expect rent refund line for amount 0: %+v", line)
+		}
+	}
+}
+
+func TestPreviewCheckoutSettlementManualRentRefundAffectsTotalsButNotDepositInvariant(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+	defer verifySQLMockExpectations(t, mock)
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+
+	repo := terminationRepoStub()
+	service := NewPreviewCheckoutSettlementService(repo, dbtxrunner.New(db, nil))
+	reason := "退還 6 月未使用租金"
+	actualMoveOut := time.Date(2026, 6, 15, 13, 0, 0, 0, time.UTC)
+
+	result, err := service.Execute(context.Background(), CheckoutSettlementInput{
+		ActorRole:              "admin",
+		AssignedPropertyIDs:    []string{"property-1"},
+		LeaseID:                terminateLeaseTestLeaseID,
+		CheckoutDate:           time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC),
+		ActualMoveOutDate:      &actualMoveOut,
+		Reason:                 "tenant requested",
+		CleaningFee:            3000,
+		ManualRentRefundAmount: 5000,
+		ManualRentRefundReason: &reason,
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	var rentRefundLine *CheckoutSettlementLine
+	for i := range result.Lines {
+		if result.Lines[i].Kind == checkoutLineRentRefund {
+			rentRefundLine = &result.Lines[i]
+		}
+	}
+	if rentRefundLine == nil || rentRefundLine.Direction != checkoutDirectionRefund || rentRefundLine.Amount != 5000 {
+		t.Fatalf("rent refund line = %+v", rentRefundLine)
+	}
+	if result.TotalRefund != 25000 || result.TotalCharge != 3000 || result.NetDirection != checkoutNetRefund || result.NetAmount != 22000 {
+		t.Fatalf("unexpected totals: refund=%d charge=%d net=%s/%d", result.TotalRefund, result.TotalCharge, result.NetDirection, result.NetAmount)
+	}
+	depositRefund := result.DepositAmount - result.TotalCharge
+	depositDeduction := result.TotalCharge
+	if depositRefund+depositDeduction != result.DepositAmount {
+		t.Fatalf("deposit invariant failed: refund=%d deduction=%d deposit=%d", depositRefund, depositDeduction, result.DepositAmount)
+	}
+	if result.ActualMoveOutDate == nil || !result.ActualMoveOutDate.Equal(time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("ActualMoveOutDate = %+v", result.ActualMoveOutDate)
+	}
+}
+
 func TestPreviewCheckoutSettlementRejectsNegativeFinalMeterReading(t *testing.T) {
 	repo := terminationRepoStub()
 	service := NewPreviewCheckoutSettlementService(repo, nil)
@@ -458,6 +615,55 @@ func TestPreviewCheckoutSettlementRejectsNegativeFinalMeterReading(t *testing.T)
 	details, ok := appErr.Details.(map[string]interface{})
 	if !ok || details["field"] != "final_meter_reading" {
 		t.Fatalf("expected final_meter_reading field detail, got %+v", appErr.Details)
+	}
+}
+
+func TestPreviewCheckoutSettlementValidatesManualRentRefund(t *testing.T) {
+	service := NewPreviewCheckoutSettlementService(terminationRepoStub(), nil)
+	reason := "tenant requested"
+
+	tests := []struct {
+		name  string
+		input CheckoutSettlementInput
+		field string
+	}{
+		{
+			name: "negative amount",
+			input: CheckoutSettlementInput{
+				ActorRole:              "admin",
+				LeaseID:                terminateLeaseTestLeaseID,
+				CheckoutDate:           time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+				Reason:                 reason,
+				ManualRentRefundAmount: -1,
+				ManualRentRefundReason: &reason,
+			},
+			field: "manual_rent_refund_amount",
+		},
+		{
+			name: "positive amount blank reason",
+			input: CheckoutSettlementInput{
+				ActorRole:              "admin",
+				LeaseID:                terminateLeaseTestLeaseID,
+				CheckoutDate:           time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+				Reason:                 reason,
+				ManualRentRefundAmount: 1,
+			},
+			field: "manual_rent_refund_reason",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := service.Execute(context.Background(), tc.input)
+			var appErr *apperr.Error
+			if !errors.As(err, &appErr) || appErr.Code != apperr.CodeBadRequest {
+				t.Fatalf("expected BAD_REQUEST, got %v", err)
+			}
+			details, ok := appErr.Details.(map[string]interface{})
+			if !ok || details["field"] != tc.field {
+				t.Fatalf("expected %s field detail, got %+v", tc.field, appErr.Details)
+			}
+		})
 	}
 }
 
@@ -511,6 +717,56 @@ func TestFinalizeCheckoutSettlementRejectsStalePreviewToken(t *testing.T) {
 		Reason:              "tenant requested",
 		CleaningFee:         3000,
 		PreviewToken:        "stale",
+	})
+	var appErr *apperr.Error
+	if !errors.As(err, &appErr) || appErr.Code != codeCheckoutSettlementStale {
+		t.Fatalf("expected stale checkout error, got %v", err)
+	}
+	if repo.settleDepositCalls != 0 || repo.terminateCalls != 0 {
+		t.Fatalf("stale finalize should not write, settle=%d terminate=%d", repo.settleDepositCalls, repo.terminateCalls)
+	}
+}
+
+func TestFinalizeCheckoutSettlementRejectsStalePreviewTokenWhenManualRefundFieldsChange(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+	defer verifySQLMockExpectations(t, mock)
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+
+	repo := terminationRepoStub()
+	previewService := NewPreviewCheckoutSettlementService(repo, dbtxrunner.New(db, nil))
+	reason := "退還未使用租金"
+	actualMoveOut := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
+	preview, err := previewService.Execute(context.Background(), CheckoutSettlementInput{
+		ActorRole:              "admin",
+		AssignedPropertyIDs:    []string{"property-1"},
+		LeaseID:                terminateLeaseTestLeaseID,
+		CheckoutDate:           time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC),
+		ActualMoveOutDate:      &actualMoveOut,
+		Reason:                 "tenant requested",
+		ManualRentRefundAmount: 5000,
+		ManualRentRefundReason: &reason,
+	})
+	if err != nil {
+		t.Fatalf("preview Execute: %v", err)
+	}
+	changedReason := "改為不退租金"
+	service := NewFinalizeCheckoutSettlementService(repo, &depositAccountingRepositoryStub{}, txRunnerForRollback(t))
+
+	_, err = service.Execute(context.Background(), CheckoutSettlementInput{
+		ActorRole:              "admin",
+		AssignedPropertyIDs:    []string{"property-1"},
+		LeaseID:                terminateLeaseTestLeaseID,
+		CheckoutDate:           time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC),
+		ActualMoveOutDate:      &actualMoveOut,
+		Reason:                 "tenant requested",
+		ManualRentRefundAmount: 0,
+		ManualRentRefundReason: &changedReason,
+		PreviewToken:           *preview.PreviewToken,
 	})
 	var appErr *apperr.Error
 	if !errors.As(err, &appErr) || appErr.Code != codeCheckoutSettlementStale {
@@ -584,6 +840,137 @@ func TestFinalizeCheckoutSettlementPersistsSnapshotAndPublishesEvent(t *testing.
 	}
 	if len(publisher.events) != 3 {
 		t.Fatalf("events = %d, want deposit refund, deduction, termination", len(publisher.events))
+	}
+}
+
+func TestFinalizeCheckoutSettlementPersistsManualRentRefundAndAccounting(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+	defer verifySQLMockExpectations(t, mock)
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+
+	repo := terminationRepoStub()
+	previewService := NewPreviewCheckoutSettlementService(repo, dbtxrunner.New(db, nil))
+	reason := "退還 6 月未使用租金"
+	actualMoveOut := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
+	input := CheckoutSettlementInput{
+		ActorRole:              "admin",
+		AssignedPropertyIDs:    []string{"property-1"},
+		LeaseID:                terminateLeaseTestLeaseID,
+		CheckoutDate:           time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC),
+		ActualMoveOutDate:      &actualMoveOut,
+		Reason:                 "tenant requested",
+		CleaningFee:            3000,
+		ManualRentRefundAmount: 5000,
+		ManualRentRefundReason: &reason,
+	}
+	preview, err := previewService.Execute(context.Background(), input)
+	if err != nil {
+		t.Fatalf("preview Execute: %v", err)
+	}
+
+	db2, mock2, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db2.Close()
+	defer verifySQLMockExpectations(t, mock2)
+	mock2.ExpectBegin()
+	mock2.ExpectCommit()
+
+	publisher := &recordingPublisher{}
+	accountingRepo := &depositAccountingRepositoryStub{}
+	finalizeService := NewFinalizeCheckoutSettlementService(repo, accountingRepo, dbtxrunner.New(db2, publisher))
+	input.PreviewToken = *preview.PreviewToken
+	finalized, err := finalizeService.Execute(context.Background(), input)
+	if err != nil {
+		t.Fatalf("finalize Execute: %v", err)
+	}
+	if finalized.ActualMoveOutDate == nil || finalized.ManualRentRefundReason == nil || finalized.ManualRentRefundAmount != 5000 {
+		t.Fatalf("finalized manual refund fields = %+v", finalized)
+	}
+	if len(accountingRepo.entries) != 3 {
+		t.Fatalf("accounting entries = %d, want 3", len(accountingRepo.entries))
+	}
+	entry := accountingRepo.entries[2]
+	if entry.Category != rentRefundAccountingCategory || entry.AccountingTitleCode != rentRefundAccountingTitleCode || entry.Amount != -5000 {
+		t.Fatalf("rent refund accounting entry = %+v", entry)
+	}
+	if entry.Year != 2026 || entry.Month != 6 || entry.SourceDate == nil || !entry.SourceDate.Equal(time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("rent refund source period = year %d month %d date %+v", entry.Year, entry.Month, entry.SourceDate)
+	}
+	if entry.Description == nil || *entry.Description != reason || entry.DisplayNote == nil || *entry.DisplayNote != reason {
+		t.Fatalf("rent refund description/display = %+v/%+v", entry.Description, entry.DisplayNote)
+	}
+	if repo.lease.SettlementDetail == nil {
+		t.Fatal("expected settlement detail to be persisted")
+	}
+	decoded, err := checkoutSettlementFromDetailMap(*repo.lease.SettlementDetail)
+	if err != nil {
+		t.Fatalf("decode settlement detail: %v", err)
+	}
+	if decoded.ActualMoveOutDate == nil || decoded.ManualRentRefundReason == nil || decoded.ManualRentRefundAmount != 5000 {
+		t.Fatalf("decoded snapshot fields = %+v", decoded)
+	}
+	if decoded.DepositAmount != 20000 || repo.lease.DepositRefundAmount == nil || repo.lease.DepositDeductionAmount == nil || *repo.lease.DepositRefundAmount+*repo.lease.DepositDeductionAmount != decoded.DepositAmount {
+		t.Fatalf("deposit invariant failed: lease=%+v decoded=%+v", repo.lease, decoded)
+	}
+	if len(publisher.events) != 3 {
+		t.Fatalf("events = %d, want deposit refund, deduction, termination", len(publisher.events))
+	}
+}
+
+func TestFinalizeCheckoutSettlementRollsBackWhenRentRefundAccountingFails(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+	defer verifySQLMockExpectations(t, mock)
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+
+	repo := terminationRepoStub()
+	previewService := NewPreviewCheckoutSettlementService(repo, dbtxrunner.New(db, nil))
+	reason := "退還未使用租金"
+	input := CheckoutSettlementInput{
+		ActorRole:              "admin",
+		AssignedPropertyIDs:    []string{"property-1"},
+		LeaseID:                terminateLeaseTestLeaseID,
+		CheckoutDate:           time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC),
+		Reason:                 "tenant requested",
+		ManualRentRefundAmount: 5000,
+		ManualRentRefundReason: &reason,
+	}
+	preview, err := previewService.Execute(context.Background(), input)
+	if err != nil {
+		t.Fatalf("preview Execute: %v", err)
+	}
+
+	db2, mock2, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db2.Close()
+	defer verifySQLMockExpectations(t, mock2)
+	mock2.ExpectBegin()
+	mock2.ExpectRollback()
+
+	publisher := &recordingPublisher{}
+	accountingRepo := &depositAccountingRepositoryStub{createErrByCategory: map[string]error{rentRefundAccountingCategory: errors.New("insert failed")}}
+	finalizeService := NewFinalizeCheckoutSettlementService(repo, accountingRepo, dbtxrunner.New(db2, publisher))
+	input.PreviewToken = *preview.PreviewToken
+	_, err = finalizeService.Execute(context.Background(), input)
+	var appErr *apperr.Error
+	if !errors.As(err, &appErr) || appErr.Code != apperr.CodeInternalServerError {
+		t.Fatalf("expected internal server error, got %v", err)
+	}
+	if len(publisher.events) != 0 {
+		t.Fatalf("events should not publish on rollback: %+v", publisher.events)
 	}
 }
 

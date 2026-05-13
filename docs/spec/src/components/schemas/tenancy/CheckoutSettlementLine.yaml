@@ -7,6 +7,7 @@ required:
 properties:
   kind:
     type: string
+    description: rent_refund 表示 backend 接收的人工租金退款決策，不代表自動按比例計算的未到期租金退款。
     enum:
       - deposit_refund
       - cleaning_fee

@@ -585,9 +585,9 @@ SELECT
 	$2,
 	$3,
 	COALESCE(SUM(CASE WHEN ae.category IN ('rent_payment', 'electricity_payment', 'deposit_deduction') THEN ABS(ae.amount) ELSE 0 END), 0) AS total_income,
-	COALESCE(SUM(CASE WHEN ae.category IN ('deposit_refund', 'journal_expense') THEN ABS(ae.amount) ELSE 0 END), 0) AS total_expense,
+	COALESCE(SUM(CASE WHEN ae.category IN ('deposit_refund', 'rent_refund', 'journal_expense') THEN ABS(ae.amount) ELSE 0 END), 0) AS total_expense,
 	COALESCE(SUM(CASE WHEN ae.category IN ('rent_payment', 'electricity_payment', 'deposit_deduction') THEN ABS(ae.amount) ELSE 0 END), 0)
-		- COALESCE(SUM(CASE WHEN ae.category IN ('deposit_refund', 'journal_expense') THEN ABS(ae.amount) ELSE 0 END), 0) AS net
+		- COALESCE(SUM(CASE WHEN ae.category IN ('deposit_refund', 'rent_refund', 'journal_expense') THEN ABS(ae.amount) ELSE 0 END), 0) AS net
 FROM property_accounts pa
 JOIN properties p ON p.id = pa.property_id AND p.deleted_at IS NULL
 LEFT JOIN accounting_entries ae ON ae.property_account_id = pa.id
@@ -1415,9 +1415,9 @@ SELECT
 	$2::int AS year,
 	$3::int AS month,
 	COALESCE(SUM(CASE WHEN ae.category IN ('rent_payment', 'electricity_payment', 'deposit_deduction') THEN ABS(ae.amount) ELSE 0 END), 0) AS total_income,
-	COALESCE(SUM(CASE WHEN ae.category IN ('deposit_refund', 'journal_expense') THEN ABS(ae.amount) ELSE 0 END), 0) AS total_expense,
+	COALESCE(SUM(CASE WHEN ae.category IN ('deposit_refund', 'rent_refund', 'journal_expense') THEN ABS(ae.amount) ELSE 0 END), 0) AS total_expense,
 	COALESCE(SUM(CASE WHEN ae.category IN ('rent_payment', 'electricity_payment', 'deposit_deduction') THEN ABS(ae.amount) ELSE 0 END), 0)
-		- COALESCE(SUM(CASE WHEN ae.category IN ('deposit_refund', 'journal_expense') THEN ABS(ae.amount) ELSE 0 END), 0) AS net
+		- COALESCE(SUM(CASE WHEN ae.category IN ('deposit_refund', 'rent_refund', 'journal_expense') THEN ABS(ae.amount) ELSE 0 END), 0) AS net
 FROM property_accounts pa
 JOIN properties p ON p.id = pa.property_id AND p.deleted_at IS NULL
 LEFT JOIN accounting_entries ae ON ae.property_account_id = pa.id
@@ -1538,7 +1538,7 @@ SELECT
 	$2::int AS year,
 	$3::int AS month,
 	COALESCE(SUM(CASE WHEN ae.category IN ('rent_payment', 'electricity_payment', 'deposit_deduction') THEN ABS(ae.amount) ELSE 0 END), 0)::int AS total_income,
-	COALESCE(SUM(CASE WHEN ae.category IN ('deposit_refund', 'journal_expense') THEN ABS(ae.amount) ELSE 0 END), 0)::int AS total_expense
+	COALESCE(SUM(CASE WHEN ae.category IN ('deposit_refund', 'rent_refund', 'journal_expense') THEN ABS(ae.amount) ELSE 0 END), 0)::int AS total_expense
 FROM property_accounts pa
 JOIN properties p ON p.id = pa.property_id AND p.deleted_at IS NULL
 LEFT JOIN accounting_entries ae ON ae.property_account_id = pa.id
@@ -2462,6 +2462,7 @@ func profitLossCategoryCodeSQL(categoryExpr string) string {
 		WHEN 'rent_payment' THEN '4603'
 		WHEN 'electricity_payment' THEN '4605'
 		WHEN 'deposit_refund' THEN '4602'
+		WHEN 'rent_refund' THEN '4604'
 		WHEN 'deposit_deduction' THEN '4601'
 		WHEN 'journal_expense' THEN '6681'
 		ELSE NULL
@@ -2473,6 +2474,7 @@ func profitLossCategoryNameSQL(categoryExpr string) string {
 		WHEN 'rent_payment' THEN '租金收入'
 		WHEN 'electricity_payment' THEN '房客電費收入'
 		WHEN 'deposit_refund' THEN '押金退回(減項)'
+		WHEN 'rent_refund' THEN '租金退回(減項)'
 		WHEN 'deposit_deduction' THEN '押金收入(暫收款)'
 		WHEN 'journal_expense' THEN '其他支出'
 		ELSE NULL
@@ -2482,7 +2484,7 @@ func profitLossCategoryNameSQL(categoryExpr string) string {
 func profitLossSignedAmountSQL(categoryExpr string, amountExpr string) string {
 	return `CASE
 		WHEN ` + categoryExpr + ` IN ('rent_payment', 'electricity_payment', 'deposit_deduction') THEN ABS(` + amountExpr + `)
-		WHEN ` + categoryExpr + ` IN ('deposit_refund', 'journal_expense') THEN -ABS(` + amountExpr + `)
+		WHEN ` + categoryExpr + ` IN ('deposit_refund', 'rent_refund', 'journal_expense') THEN -ABS(` + amountExpr + `)
 		ELSE ` + amountExpr + `
 	END`
 }
@@ -3182,7 +3184,7 @@ func addFinancialReportAmount(report *FinancialReport, category string, amount i
 	switch category {
 	case "rent_payment", "electricity_payment", "deposit_deduction":
 		report.TotalIncome += absInt(amount)
-	case "deposit_refund", "journal_expense":
+	case "deposit_refund", "rent_refund", "journal_expense":
 		report.TotalExpense += absInt(amount)
 	}
 }

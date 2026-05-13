@@ -75,12 +75,12 @@ const (
 
 // Defines values for CheckoutSettlementBlockerCode.
 const (
-	CheckoutSettlementBlockerCodeChargeExceedsDeposit    CheckoutSettlementBlockerCode = "charge_exceeds_deposit"
-	CheckoutSettlementBlockerCodeDepositNotHeld          CheckoutSettlementBlockerCode = "deposit_not_held"
-	CheckoutSettlementBlockerCodeLeaseNotActive          CheckoutSettlementBlockerCode = "lease_not_active"
-	CheckoutSettlementBlockerCodePendingMeter            CheckoutSettlementBlockerCode = "pending_meter"
-	CheckoutSettlementBlockerCodeRentRefundNotCalculated CheckoutSettlementBlockerCode = "rent_refund_not_calculated"
-	CheckoutSettlementBlockerCodeUnpaidBill              CheckoutSettlementBlockerCode = "unpaid_bill"
+	CheckoutSettlementBlockerCodeChargeExceedsDeposit             CheckoutSettlementBlockerCode = "charge_exceeds_deposit"
+	CheckoutSettlementBlockerCodeDepositNotHeld                   CheckoutSettlementBlockerCode = "deposit_not_held"
+	CheckoutSettlementBlockerCodeLeaseNotActive                   CheckoutSettlementBlockerCode = "lease_not_active"
+	CheckoutSettlementBlockerCodeManualRentRefundDecisionRequired CheckoutSettlementBlockerCode = "manual_rent_refund_decision_required"
+	CheckoutSettlementBlockerCodePendingMeter                     CheckoutSettlementBlockerCode = "pending_meter"
+	CheckoutSettlementBlockerCodeUnpaidBill                       CheckoutSettlementBlockerCode = "unpaid_bill"
 )
 
 // Defines values for CheckoutSettlementLineDirection.
@@ -109,8 +109,8 @@ const (
 
 // Defines values for CheckoutSettlementWarningCode.
 const (
-	FinalMeterSnapshotOnly  CheckoutSettlementWarningCode = "final_meter_snapshot_only"
-	RentRefundNotCalculated CheckoutSettlementWarningCode = "rent_refund_not_calculated"
+	FinalMeterSnapshotOnly   CheckoutSettlementWarningCode = "final_meter_snapshot_only"
+	ManualRentRefundRecorded CheckoutSettlementWarningCode = "manual_rent_refund_recorded"
 )
 
 // Defines values for CreateLeaseRequestElectricityBillingCadence.
@@ -155,6 +155,7 @@ const (
 	FinancialReportEntryItemCategoryElectricityPayment FinancialReportEntryItemCategory = "electricity_payment"
 	FinancialReportEntryItemCategoryJournalExpense     FinancialReportEntryItemCategory = "journal_expense"
 	FinancialReportEntryItemCategoryRentPayment        FinancialReportEntryItemCategory = "rent_payment"
+	FinancialReportEntryItemCategoryRentRefund         FinancialReportEntryItemCategory = "rent_refund"
 )
 
 // Defines values for FinancialReportEntrySourceDetail.
@@ -163,6 +164,7 @@ const (
 	DepositRefund    FinancialReportEntrySourceDetail = "deposit_refund"
 	JournalExpense   FinancialReportEntrySourceDetail = "journal_expense"
 	Payment          FinancialReportEntrySourceDetail = "payment"
+	RentRefund       FinancialReportEntrySourceDetail = "rent_refund"
 )
 
 // Defines values for FinancialReportEntrySourceType.
@@ -599,13 +601,22 @@ type CheckoutSettlementBlockerCode string
 
 // CheckoutSettlementFinalizeRequest defines model for CheckoutSettlementFinalizeRequest.
 type CheckoutSettlementFinalizeRequest struct {
-	// CheckoutDate 實際退租日；backend 以此計算並保存結算快照。
+	// ActualMoveOutDate 實際搬出 / 點交日；僅作為營運紀錄，不影響 lease end_date、帳務期間或自動租金計算。
+	ActualMoveOutDate *openapi_types.Date `json:"actual_move_out_date"`
+
+	// CheckoutDate 結算生效日 / 租約終止日；backend 以此更新 lease end_date 並保存結算快照，不代表實際搬出日。
 	CheckoutDate openapi_types.Date `json:"checkout_date"`
 	CleaningFee  *int               `json:"cleaning_fee,omitempty"`
 
 	// FinalMeterReading 退租電表讀數；v1 僅作為快照顯示輸入，不由 frontend 計算電費。
 	FinalMeterReading *int `json:"final_meter_reading"`
 	KeyCardLossFee    *int `json:"key_card_loss_fee,omitempty"`
+
+	// ManualRentRefundAmount 人工決定的未到期租金退款金額；backend 不自動按比例計算。
+	ManualRentRefundAmount *int `json:"manual_rent_refund_amount,omitempty"`
+
+	// ManualRentRefundReason 人工租金退款決策原因；checkout_date 早於原租約 end_date 時必填，金額 0 加原因表示明確決定不退未到期租金。
+	ManualRentRefundReason *string `json:"manual_rent_refund_reason"`
 
 	// Notes 退租結算備註。
 	Notes    *string `json:"notes"`
@@ -623,13 +634,22 @@ type CheckoutSettlementFinalizeRequest struct {
 
 // CheckoutSettlementInput defines model for CheckoutSettlementInput.
 type CheckoutSettlementInput struct {
-	// CheckoutDate 實際退租日；backend 以此計算並保存結算快照。
+	// ActualMoveOutDate 實際搬出 / 點交日；僅作為營運紀錄，不影響 lease end_date、帳務期間或自動租金計算。
+	ActualMoveOutDate *openapi_types.Date `json:"actual_move_out_date"`
+
+	// CheckoutDate 結算生效日 / 租約終止日；backend 以此更新 lease end_date 並保存結算快照，不代表實際搬出日。
 	CheckoutDate openapi_types.Date `json:"checkout_date"`
 	CleaningFee  *int               `json:"cleaning_fee,omitempty"`
 
 	// FinalMeterReading 退租電表讀數；v1 僅作為快照顯示輸入，不由 frontend 計算電費。
 	FinalMeterReading *int `json:"final_meter_reading"`
 	KeyCardLossFee    *int `json:"key_card_loss_fee,omitempty"`
+
+	// ManualRentRefundAmount 人工決定的未到期租金退款金額；backend 不自動按比例計算。
+	ManualRentRefundAmount *int `json:"manual_rent_refund_amount,omitempty"`
+
+	// ManualRentRefundReason 人工租金退款決策原因；checkout_date 早於原租約 end_date 時必填，金額 0 加原因表示明確決定不退未到期租金。
+	ManualRentRefundReason *string `json:"manual_rent_refund_reason"`
 
 	// Notes 退租結算備註。
 	Notes    *string `json:"notes"`
@@ -648,15 +668,17 @@ type CheckoutSettlementLine struct {
 	Amount      int                             `json:"amount"`
 	Description *string                         `json:"description"`
 	Direction   CheckoutSettlementLineDirection `json:"direction"`
-	Kind        CheckoutSettlementLineKind      `json:"kind"`
-	Label       string                          `json:"label"`
-	SourceRef   *map[string]interface{}         `json:"source_ref"`
+
+	// Kind rent_refund 表示 backend 接收的人工租金退款決策，不代表自動按比例計算的未到期租金退款。
+	Kind      CheckoutSettlementLineKind `json:"kind"`
+	Label     string                     `json:"label"`
+	SourceRef *map[string]interface{}    `json:"source_ref"`
 }
 
 // CheckoutSettlementLineDirection defines model for CheckoutSettlementLine.Direction.
 type CheckoutSettlementLineDirection string
 
-// CheckoutSettlementLineKind defines model for CheckoutSettlementLine.Kind.
+// CheckoutSettlementLineKind rent_refund 表示 backend 接收的人工租金退款決策，不代表自動按比例計算的未到期租金退款。
 type CheckoutSettlementLineKind string
 
 // CheckoutSettlementPreviewRequest defines model for CheckoutSettlementPreviewRequest.
@@ -664,14 +686,24 @@ type CheckoutSettlementPreviewRequest = CheckoutSettlementInput
 
 // CheckoutSettlementResponse defines model for CheckoutSettlementResponse.
 type CheckoutSettlementResponse struct {
+	// ActualMoveOutDate 實際搬出 / 點交日；僅作為營運紀錄。
+	ActualMoveOutDate *openapi_types.Date         `json:"actual_move_out_date"`
 	Blockers          []CheckoutSettlementBlocker `json:"blockers"`
-	CheckoutDate      openapi_types.Date          `json:"checkout_date"`
-	DepositAmount     int                         `json:"deposit_amount"`
-	ExportAvailable   bool                        `json:"export_available"`
-	FinalMeterReading *int                        `json:"final_meter_reading"`
-	FinalizedAt       *time.Time                  `json:"finalized_at"`
-	LeaseId           openapi_types.UUID          `json:"lease_id"`
-	Lines             []CheckoutSettlementLine    `json:"lines"`
+
+	// CheckoutDate 結算生效日 / 租約終止日，不代表實際搬出日。
+	CheckoutDate      openapi_types.Date       `json:"checkout_date"`
+	DepositAmount     int                      `json:"deposit_amount"`
+	ExportAvailable   bool                     `json:"export_available"`
+	FinalMeterReading *int                     `json:"final_meter_reading"`
+	FinalizedAt       *time.Time               `json:"finalized_at"`
+	LeaseId           openapi_types.UUID       `json:"lease_id"`
+	Lines             []CheckoutSettlementLine `json:"lines"`
+
+	// ManualRentRefundAmount 人工決定的未到期租金退款金額；0 加 reason 表示明確不退。
+	ManualRentRefundAmount *int `json:"manual_rent_refund_amount,omitempty"`
+
+	// ManualRentRefundReason 人工租金退款決策原因。
+	ManualRentRefundReason *string `json:"manual_rent_refund_reason"`
 
 	// NetAmount Absolute net amount after refund and charge lines are balanced.
 	NetAmount    int                                    `json:"net_amount"`
@@ -911,9 +943,15 @@ type FinancialReportSummaryItem struct {
 
 // ForceTerminateRequest defines model for ForceTerminateRequest.
 type ForceTerminateRequest struct {
+	// ActualMoveOutDate 實際搬出 / 點交日；僅作為營運紀錄，不影響 write-off、deposit handling 或租金退款。
+	ActualMoveOutDate *openapi_types.Date `json:"actual_move_out_date"`
+
 	// DepositHandling Deposit handling decision during force termination; write_off marks the deposit as written_off, while keep_held leaves it held for later manual handling.
 	DepositHandling ForceTerminateRequestDepositHandling `json:"deposit_handling"`
 	Reason          string                               `json:"reason"`
+
+	// TerminationDate 強制終止生效日；backend 以此更新 lease end_date。
+	TerminationDate openapi_types.Date `json:"termination_date"`
 }
 
 // ForceTerminateRequestDepositHandling Deposit handling decision during force termination; write_off marks the deposit as written_off, while keep_held leaves it held for later manual handling.
@@ -1108,6 +1146,8 @@ type LeaseReplaceResponseReplacementDepositHandling string
 
 // LeaseResponse defines model for LeaseResponse.
 type LeaseResponse struct {
+	// ActualMoveOutDate 實際搬出 / 點交日；僅作為營運紀錄，不影響 lease end_date 或帳務。
+	ActualMoveOutDate         *openapi_types.Date                     `json:"actual_move_out_date"`
 	CreatedAt                 *time.Time                              `json:"created_at,omitempty"`
 	DepositAmount             *int                                    `json:"deposit_amount,omitempty"`
 	DepositDeductionAmount    *int                                    `json:"deposit_deduction_amount"`

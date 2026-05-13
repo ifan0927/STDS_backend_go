@@ -1521,7 +1521,7 @@ func cashflowIncomeExpense(category string, amount int) (int, int) {
 	switch category {
 	case "rent_payment", "electricity_payment", "deposit_deduction":
 		return absValue(amount), 0
-	case "deposit_refund", "journal_expense":
+	case "deposit_refund", "rent_refund", "journal_expense":
 		return 0, absValue(amount)
 	default:
 		return 0, 0
@@ -1545,6 +1545,8 @@ func cashflowCategoryLabel(category string) string {
 		return "押金扣抵收入"
 	case "deposit_refund":
 		return "押金退還"
+	case "rent_refund":
+		return "租金退回"
 	case "journal_expense":
 		return "支出"
 	default:
@@ -1666,6 +1668,9 @@ func depositSourceDetail(category string, sourceType string) *string {
 	switch {
 	case category == "deposit_refund" || sourceType == "DepositRefunded":
 		detail := "deposit_refund"
+		return &detail
+	case category == "rent_refund" || sourceType == "RentRefunded":
+		detail := "rent_refund"
 		return &detail
 	case category == "deposit_deduction" || sourceType == "DepositDeducted":
 		detail := "deposit_deduction"

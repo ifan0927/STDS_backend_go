@@ -6,7 +6,12 @@ properties:
   checkout_date:
     type: string
     format: date
-    description: 實際退租日；backend 以此計算並保存結算快照。
+    description: 結算生效日 / 租約終止日；backend 以此更新 lease end_date 並保存結算快照，不代表實際搬出日。
+  actual_move_out_date:
+    type: string
+    format: date
+    nullable: true
+    description: 實際搬出 / 點交日；僅作為營運紀錄，不影響 lease end_date、帳務期間或自動租金計算。
   reason:
     type: string
     description: 退租原因。
@@ -31,6 +36,15 @@ properties:
     type: string
     nullable: true
     description: other_fee 大於 0 時建議提供。
+  manual_rent_refund_amount:
+    type: integer
+    minimum: 0
+    default: 0
+    description: 人工決定的未到期租金退款金額；backend 不自動按比例計算。
+  manual_rent_refund_reason:
+    type: string
+    nullable: true
+    description: 人工租金退款決策原因；checkout_date 早於原租約 end_date 時必填，金額 0 加原因表示明確決定不退未到期租金。
   notes:
     type: string
     nullable: true

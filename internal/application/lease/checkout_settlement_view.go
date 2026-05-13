@@ -6,19 +6,21 @@ import (
 )
 
 type checkoutSettlementView struct {
-	PropertyLabel     string
-	TenantLabel       string
-	RoomLabel         string
-	CheckoutDateLabel string
-	Reason            string
-	FinalMeterReading *int
-	Notes             *string
-	Lines             []checkoutSettlementLineView
-	TotalRefundLabel  string
-	TotalChargeLabel  string
-	NetLabel          string
-	NetDirectionLabel string
-	FinalizedAtLabel  string
+	PropertyLabel          string
+	TenantLabel            string
+	RoomLabel              string
+	CheckoutDateLabel      string
+	ActualMoveOutDateLabel string
+	Reason                 string
+	FinalMeterReading      *int
+	ManualRentRefundReason *string
+	Notes                  *string
+	Lines                  []checkoutSettlementLineView
+	TotalRefundLabel       string
+	TotalChargeLabel       string
+	NetLabel               string
+	NetDirectionLabel      string
+	FinalizedAtLabel       string
 }
 
 type checkoutSettlementLineView struct {
@@ -45,20 +47,29 @@ func newCheckoutSettlementView(settlement *CheckoutSettlement) checkoutSettlemen
 	}
 
 	return checkoutSettlementView{
-		PropertyLabel:     settlement.PropertyLabel,
-		TenantLabel:       settlement.TenantLabel,
-		RoomLabel:         settlement.RoomLabel,
-		CheckoutDateLabel: settlement.CheckoutDate.Format("2006-01-02"),
-		Reason:            settlement.Reason,
-		FinalMeterReading: settlement.FinalMeterReading,
-		Notes:             settlement.Notes,
-		Lines:             lines,
-		TotalRefundLabel:  formatCheckoutAmount(settlement.TotalRefund),
-		TotalChargeLabel:  formatCheckoutAmount(settlement.TotalCharge),
-		NetLabel:          formatCheckoutAmount(settlement.NetAmount),
-		NetDirectionLabel: checkoutNetDirectionLabel(settlement.NetDirection),
-		FinalizedAtLabel:  finalizedAt,
+		PropertyLabel:          settlement.PropertyLabel,
+		TenantLabel:            settlement.TenantLabel,
+		RoomLabel:              settlement.RoomLabel,
+		CheckoutDateLabel:      settlement.CheckoutDate.Format("2006-01-02"),
+		ActualMoveOutDateLabel: checkoutDatePtrLabel(settlement.ActualMoveOutDate),
+		Reason:                 settlement.Reason,
+		FinalMeterReading:      settlement.FinalMeterReading,
+		ManualRentRefundReason: settlement.ManualRentRefundReason,
+		Notes:                  settlement.Notes,
+		Lines:                  lines,
+		TotalRefundLabel:       formatCheckoutAmount(settlement.TotalRefund),
+		TotalChargeLabel:       formatCheckoutAmount(settlement.TotalCharge),
+		NetLabel:               formatCheckoutAmount(settlement.NetAmount),
+		NetDirectionLabel:      checkoutNetDirectionLabel(settlement.NetDirection),
+		FinalizedAtLabel:       finalizedAt,
 	}
+}
+
+func checkoutDatePtrLabel(value *time.Time) string {
+	if value == nil {
+		return ""
+	}
+	return value.Format("2006-01-02")
 }
 
 func checkoutDirectionLabel(direction string) string {
