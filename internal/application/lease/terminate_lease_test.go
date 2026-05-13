@@ -172,7 +172,8 @@ func TestForceTerminateLeaseServiceWritesOffBillsAndPublishesEvent(t *testing.T)
 		PeriodStart: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
 		PeriodEnd:   time.Date(2026, 4, 30, 0, 0, 0, 0, time.UTC),
 	})
-	service := NewForceTerminateLeaseService(repo, dbtxrunner.New(db, publisher))
+	accountingRepo := &depositAccountingRepositoryStub{}
+	service := NewForceTerminateLeaseService(repo, accountingRepo, dbtxrunner.New(db, publisher))
 
 	result, err := service.Execute(context.Background(), ForceTerminateLeaseInput{
 		ActorRole:           "organizer",
@@ -209,6 +210,22 @@ func TestForceTerminateLeaseServiceWritesOffBillsAndPublishesEvent(t *testing.T)
 	if repo.lease.DepositStatus != "written_off" {
 		t.Fatalf("deposit status = %q, want written_off", repo.lease.DepositStatus)
 	}
+	if len(accountingRepo.entries) != 1 {
+		t.Fatalf("accounting entries = %d, want 1", len(accountingRepo.entries))
+	}
+	entry := accountingRepo.entries[0]
+	if entry.Category != depositAccountingCategoryDeduction || entry.AccountingTitleCode != depositAccountingTitleCodeDeduction || entry.Amount != 20000 {
+		t.Fatalf("deposit write-off accounting entry = %+v", entry)
+	}
+	if entry.SourceRef["type"] != "ForceTerminationDepositWrittenOff" || entry.SourceRef["lease_id"] != terminateLeaseTestLeaseID || entry.SourceRef["force_termination_id"] != "80000000-0000-0000-0000-000000000001" || entry.SourceRef["reason"] != "tenant unreachable" {
+		t.Fatalf("deposit write-off source_ref = %+v", entry.SourceRef)
+	}
+	if entry.SourceDate == nil || entry.SourceDate.Year() != 2026 || entry.SourceDate.Month() != time.April || entry.Year != 2026 || entry.Month != 4 {
+		t.Fatalf("deposit write-off source date = %+v year=%d month=%d", entry.SourceDate, entry.Year, entry.Month)
+	}
+	if entry.Description == nil || *entry.Description != "強制終止押金沒收：tenant unreachable" || entry.DisplayNote == nil || *entry.DisplayNote != "強制終止押金沒收：tenant unreachable" {
+		t.Fatalf("deposit write-off note fields = description %+v display %+v", entry.Description, entry.DisplayNote)
+	}
 	if len(publisher.events) != 1 {
 		t.Fatalf("events = %d, want 1", len(publisher.events))
 	}
@@ -239,7 +256,8 @@ func TestForceTerminateLeaseServiceKeepsDepositHeld(t *testing.T) {
 		PeriodStart: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
 		PeriodEnd:   time.Date(2026, 4, 30, 0, 0, 0, 0, time.UTC),
 	})
-	service := NewForceTerminateLeaseService(repo, dbtxrunner.New(db, publisher))
+	accountingRepo := &depositAccountingRepositoryStub{}
+	service := NewForceTerminateLeaseService(repo, accountingRepo, dbtxrunner.New(db, publisher))
 
 	result, err := service.Execute(context.Background(), ForceTerminateLeaseInput{
 		ActorRole:           "admin",
@@ -275,6 +293,9 @@ func TestForceTerminateLeaseServiceKeepsDepositHeld(t *testing.T) {
 	if result.DepositHandling != "keep_held" {
 		t.Fatalf("deposit handling = %q, want keep_held", result.DepositHandling)
 	}
+	if len(accountingRepo.entries) != 0 {
+		t.Fatalf("accounting entries = %d, want 0", len(accountingRepo.entries))
+	}
 	if len(publisher.events) != 1 {
 		t.Fatalf("events = %d, want 1", len(publisher.events))
 	}
@@ -284,8 +305,45 @@ func TestForceTerminateLeaseServiceKeepsDepositHeld(t *testing.T) {
 	}
 }
 
+func TestForceTerminateLeaseServiceRollsBackWhenDepositAccountingFails(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+	defer verifySQLMockExpectations(t, mock)
+
+	mock.ExpectBegin()
+	mock.ExpectRollback()
+
+	publisher := &recordingPublisher{}
+	repo := terminationRepoStub()
+	accountingRepo := &depositAccountingRepositoryStub{createErr: errors.New("accounting failed")}
+	service := NewForceTerminateLeaseService(repo, accountingRepo, dbtxrunner.New(db, publisher))
+
+	_, err = service.Execute(context.Background(), ForceTerminateLeaseInput{
+		ActorRole:           "admin",
+		ActorUserID:         "20000000-0000-0000-0000-000000000001",
+		AssignedPropertyIDs: []string{"property-1"},
+		LeaseID:             terminateLeaseTestLeaseID,
+		TerminationDate:     time.Date(2026, 4, 30, 0, 0, 0, 0, time.UTC),
+		Reason:              "tenant unreachable",
+		DepositHandling:     "write_off",
+	})
+	var appErr *apperr.Error
+	if !errors.As(err, &appErr) || appErr.Code != apperr.CodeInternalServerError {
+		t.Fatalf("expected internal server error, got %v", err)
+	}
+	if accountingRepo.createCalls != 1 {
+		t.Fatalf("CreateDepositAccountingEntry calls = %d, want 1", accountingRepo.createCalls)
+	}
+	if len(publisher.events) != 0 {
+		t.Fatalf("events should not publish on rollback: %+v", publisher.events)
+	}
+}
+
 func TestForceTerminateLeaseServiceRejectsLowPrivilegeRole(t *testing.T) {
-	service := NewForceTerminateLeaseService(nil, nil)
+	service := NewForceTerminateLeaseService(nil, nil, nil)
 
 	_, err := service.Execute(context.Background(), ForceTerminateLeaseInput{
 		ActorRole:       "staff",
@@ -300,7 +358,7 @@ func TestForceTerminateLeaseServiceRejectsLowPrivilegeRole(t *testing.T) {
 }
 
 func TestForceTerminateLeaseServiceRejectsMissingReason(t *testing.T) {
-	service := NewForceTerminateLeaseService(nil, nil)
+	service := NewForceTerminateLeaseService(nil, nil, nil)
 
 	_, err := service.Execute(context.Background(), ForceTerminateLeaseInput{
 		ActorRole:       "admin",
@@ -314,7 +372,7 @@ func TestForceTerminateLeaseServiceRejectsMissingReason(t *testing.T) {
 }
 
 func TestForceTerminateLeaseServiceRejectsMissingDepositHandling(t *testing.T) {
-	service := NewForceTerminateLeaseService(nil, nil)
+	service := NewForceTerminateLeaseService(nil, nil, nil)
 
 	_, err := service.Execute(context.Background(), ForceTerminateLeaseInput{
 		ActorRole:   "admin",
@@ -328,7 +386,7 @@ func TestForceTerminateLeaseServiceRejectsMissingDepositHandling(t *testing.T) {
 }
 
 func TestForceTerminateLeaseServiceRejectsMissingTerminationDate(t *testing.T) {
-	service := NewForceTerminateLeaseService(nil, nil)
+	service := NewForceTerminateLeaseService(nil, nil, nil)
 
 	_, err := service.Execute(context.Background(), ForceTerminateLeaseInput{
 		ActorRole:       "admin",
@@ -349,7 +407,7 @@ func TestForceTerminateLeaseServiceRejectsMissingTerminationDate(t *testing.T) {
 
 func TestForceTerminateLeaseServiceRejectsTerminationDateBeforeLeaseStart(t *testing.T) {
 	repo := terminationRepoStub()
-	service := NewForceTerminateLeaseService(repo, txRunnerForRollback(t))
+	service := NewForceTerminateLeaseService(repo, nil, txRunnerForRollback(t))
 
 	_, err := service.Execute(context.Background(), ForceTerminateLeaseInput{
 		ActorRole:           "admin",
@@ -375,7 +433,7 @@ func TestForceTerminateLeaseServiceRejectsTerminationDateBeforeLeaseStart(t *tes
 
 func TestForceTerminateLeaseServiceRejectsInvalidDepositHandling(t *testing.T) {
 	repo := terminationRepoStub()
-	service := NewForceTerminateLeaseService(repo, txRunnerForRollback(t))
+	service := NewForceTerminateLeaseService(repo, nil, txRunnerForRollback(t))
 
 	_, err := service.Execute(context.Background(), ForceTerminateLeaseInput{
 		ActorRole:           "admin",

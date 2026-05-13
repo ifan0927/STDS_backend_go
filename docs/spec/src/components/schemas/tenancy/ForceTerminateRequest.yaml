@@ -18,7 +18,7 @@ properties:
     minLength: 1
   deposit_handling:
     type: string
-    description: Deposit handling decision during force termination; write_off marks the deposit as written_off, while keep_held leaves it held for later manual handling.
+    description: Deposit handling decision during force termination; write_off marks the deposit as written_off and records the full deposit amount as deposit_deduction accounting, while keep_held leaves it held for later manual handling without creating a deposit accounting entry.
     enum:
       - write_off
       - keep_held

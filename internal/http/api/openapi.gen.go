@@ -955,7 +955,7 @@ type ForceTerminateRequest struct {
 	// ActualMoveOutDate Actual move-out or handover date. This is operational metadata only and does not affect write-off handling, deposit handling, or rent refund behavior.
 	ActualMoveOutDate *openapi_types.Date `json:"actual_move_out_date"`
 
-	// DepositHandling Deposit handling decision during force termination; write_off marks the deposit as written_off, while keep_held leaves it held for later manual handling.
+	// DepositHandling Deposit handling decision during force termination; write_off marks the deposit as written_off and records the full deposit amount as deposit_deduction accounting, while keep_held leaves it held for later manual handling without creating a deposit accounting entry.
 	DepositHandling ForceTerminateRequestDepositHandling `json:"deposit_handling"`
 	Reason          string                               `json:"reason"`
 
@@ -963,7 +963,7 @@ type ForceTerminateRequest struct {
 	TerminationDate openapi_types.Date `json:"termination_date"`
 }
 
-// ForceTerminateRequestDepositHandling Deposit handling decision during force termination; write_off marks the deposit as written_off, while keep_held leaves it held for later manual handling.
+// ForceTerminateRequestDepositHandling Deposit handling decision during force termination; write_off marks the deposit as written_off and records the full deposit amount as deposit_deduction accounting, while keep_held leaves it held for later manual handling without creating a deposit accounting entry.
 type ForceTerminateRequestDepositHandling string
 
 // ForceTerminationResponse defines model for ForceTerminationResponse.
