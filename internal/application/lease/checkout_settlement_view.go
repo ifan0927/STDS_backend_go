@@ -2,6 +2,7 @@ package lease
 
 import (
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -37,7 +38,7 @@ func newCheckoutSettlementView(settlement *CheckoutSettlement) checkoutSettlemen
 			Label:       line.Label,
 			Direction:   checkoutDirectionLabel(line.Direction),
 			AmountLabel: formatCheckoutAmount(line.Amount),
-			Description: line.Description,
+			Description: checkoutSettlementLineDescription(line),
 		})
 	}
 
@@ -96,4 +97,81 @@ func checkoutNetDirectionLabel(direction string) string {
 
 func formatCheckoutAmount(amount int) string {
 	return "NT$" + strconv.Itoa(amount)
+}
+
+func checkoutSettlementLineDescription(line CheckoutSettlementLine) *string {
+	description := line.Description
+	if line.Kind != checkoutLineElectricSettlement {
+		return description
+	}
+
+	detail, ok := checkoutElectricitySettlementDetail(line.SourceRef)
+	if !ok {
+		return description
+	}
+	if description == nil || strings.TrimSpace(*description) == "" {
+		return &detail
+	}
+
+	combined := strings.TrimSpace(*description) + "\n" + detail
+	return &combined
+}
+
+func checkoutElectricitySettlementDetail(sourceRef map[string]interface{}) (string, bool) {
+	previousReading, ok := checkoutSourceRefDisplayValue(sourceRef["previous_reading"])
+	if !ok {
+		return "", false
+	}
+	currentReading, ok := checkoutSourceRefDisplayValue(sourceRef["final_meter_reading"])
+	if !ok {
+		currentReading, ok = checkoutSourceRefDisplayValue(sourceRef["current_reading"])
+	}
+	if !ok {
+		return "", false
+	}
+	usage, ok := checkoutSourceRefDisplayValue(sourceRef["usage"])
+	if !ok {
+		return "", false
+	}
+	unitPrice, ok := checkoutSourceRefDisplayValue(sourceRef["unit_price"])
+	if !ok {
+		return "", false
+	}
+
+	detail := "前次讀數 " + previousReading + "，退租讀數 " + currentReading + "，用電 " + usage + " 度，單價 NT$" + unitPrice + "/度"
+	return detail, true
+}
+
+func checkoutSourceRefDisplayValue(value interface{}) (string, bool) {
+	switch v := value.(type) {
+	case int:
+		return strconv.Itoa(v), true
+	case int8:
+		return strconv.FormatInt(int64(v), 10), true
+	case int16:
+		return strconv.FormatInt(int64(v), 10), true
+	case int32:
+		return strconv.FormatInt(int64(v), 10), true
+	case int64:
+		return strconv.FormatInt(v, 10), true
+	case uint:
+		return strconv.FormatUint(uint64(v), 10), true
+	case uint8:
+		return strconv.FormatUint(uint64(v), 10), true
+	case uint16:
+		return strconv.FormatUint(uint64(v), 10), true
+	case uint32:
+		return strconv.FormatUint(uint64(v), 10), true
+	case uint64:
+		return strconv.FormatUint(v, 10), true
+	case float32:
+		return strconv.FormatFloat(float64(v), 'f', -1, 32), true
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64), true
+	case string:
+		trimmed := strings.TrimSpace(v)
+		return trimmed, trimmed != ""
+	default:
+		return "", false
+	}
 }

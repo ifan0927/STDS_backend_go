@@ -11,10 +11,12 @@ import (
 )
 
 var (
-	ErrLeaseNotFound            = errors.New("lease not found")
-	ErrTenantNotFound           = errors.New("tenant not found")
-	ErrRoomNotFound             = errors.New("room not found")
-	ErrForceTerminationNotFound = errors.New("force termination not found")
+	ErrLeaseNotFound                   = errors.New("lease not found")
+	ErrTenantNotFound                  = errors.New("tenant not found")
+	ErrRoomNotFound                    = errors.New("room not found")
+	ErrPropertyNotFound                = errors.New("property not found")
+	ErrForceTerminationNotFound        = errors.New("force termination not found")
+	ErrCheckoutElectricityBillNotFound = errors.New("checkout electricity bill not found")
 )
 
 // CommandRepository defines lease write persistence used by application services.
@@ -29,6 +31,9 @@ type CommandRepository interface {
 	TerminateLease(ctx context.Context, tx *sql.Tx, params TerminateLeaseParams) (*Lease, error)
 	ForceTerminateLease(ctx context.Context, tx *sql.Tx, params ForceTerminateLeaseParams) (*Lease, error)
 	ListBillsByLeaseIDForUpdate(ctx context.Context, tx *sql.Tx, leaseID string) ([]Bill, error)
+	FindPreviousElectricityReading(ctx context.Context, tx *sql.Tx, leaseID string, beforePeriodStart time.Time) (int, error)
+	FindPropertyElectricityUnitPrice(ctx context.Context, tx *sql.Tx, propertyID string) (*float64, error)
+	SettleCheckoutElectricityBill(ctx context.Context, tx *sql.Tx, params SettleCheckoutElectricityBillParams) error
 	CreateForceTermination(ctx context.Context, tx *sql.Tx, params CreateForceTerminationParams) (*ForceTermination, error)
 	CreateForceTerminationBills(ctx context.Context, tx *sql.Tx, forceTerminationID string, billIDs []string) error
 	WriteOffBills(ctx context.Context, tx *sql.Tx, billIDs []string, reason string) error
@@ -123,6 +128,18 @@ type Bill struct {
 	Status      string
 	PeriodStart time.Time
 	PeriodEnd   time.Time
+	Version     int
+}
+
+// SettleCheckoutElectricityBillParams contains final meter data settled by checkout.
+type SettleCheckoutElectricityBillParams struct {
+	BillID          string
+	PreviousReading int
+	CurrentReading  int
+	UnitPrice       float64
+	Amount          int
+	SettledAt       time.Time
+	ExpectedVersion int
 }
 
 // CheckoutSettlementContext contains lease state plus display labels for checkout settlement.
@@ -735,7 +752,7 @@ RETURNING
 
 func (r *SQLRepository) ListBillsByLeaseIDForUpdate(ctx context.Context, tx *sql.Tx, leaseID string) ([]Bill, error) {
 	const query = `
-SELECT id, type, status, period_start, period_end
+SELECT id, type, status, period_start, period_end, version
 FROM bills
 WHERE lease_id = $1
   AND deleted_at IS NULL
@@ -754,7 +771,7 @@ FOR UPDATE
 	bills := make([]Bill, 0)
 	for rows.Next() {
 		var bill Bill
-		if err := rows.Scan(&bill.ID, &bill.Type, &bill.Status, &bill.PeriodStart, &bill.PeriodEnd); err != nil {
+		if err := rows.Scan(&bill.ID, &bill.Type, &bill.Status, &bill.PeriodStart, &bill.PeriodEnd, &bill.Version); err != nil {
 			return nil, fmt.Errorf("scan replacement bill: %w", err)
 		}
 		bills = append(bills, bill)
@@ -764,6 +781,104 @@ FOR UPDATE
 	}
 
 	return bills, nil
+}
+
+func (r *SQLRepository) FindPreviousElectricityReading(ctx context.Context, tx *sql.Tx, leaseID string, beforePeriodStart time.Time) (int, error) {
+	const query = `
+SELECT COALESCE(previous.meter_current_reading, l.starting_meter_reading, 0)
+FROM leases l
+LEFT JOIN LATERAL (
+	SELECT b.meter_current_reading
+	FROM bills b
+	WHERE b.lease_id = l.id
+	  AND b.type = 'electricity'
+	  AND b.meter_current_reading IS NOT NULL
+	  AND b.period_end < $2
+	  AND b.deleted_at IS NULL
+	ORDER BY b.period_end DESC, b.due_date DESC, b.created_at DESC
+	LIMIT 1
+) previous ON true
+WHERE l.id = $1
+  AND l.deleted_at IS NULL
+FOR UPDATE OF l
+`
+
+	var reading int
+	if err := tx.QueryRowContext(ctx, query, leaseID, beforePeriodStart).Scan(&reading); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, ErrLeaseNotFound
+		}
+		return 0, fmt.Errorf("find previous electricity reading: %w", err)
+	}
+
+	return reading, nil
+}
+
+func (r *SQLRepository) FindPropertyElectricityUnitPrice(ctx context.Context, tx *sql.Tx, propertyID string) (*float64, error) {
+	const query = `
+SELECT electricity_unit_price
+FROM properties
+WHERE id = $1
+  AND deleted_at IS NULL
+FOR UPDATE
+`
+
+	var unitPrice sql.NullFloat64
+	if err := tx.QueryRowContext(ctx, query, propertyID).Scan(&unitPrice); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrPropertyNotFound
+		}
+		return nil, fmt.Errorf("find property electricity unit price: %w", err)
+	}
+	if !unitPrice.Valid {
+		return nil, nil
+	}
+
+	return &unitPrice.Float64, nil
+}
+
+func (r *SQLRepository) SettleCheckoutElectricityBill(ctx context.Context, tx *sql.Tx, params SettleCheckoutElectricityBillParams) error {
+	const query = `
+UPDATE bills
+SET meter_previous_reading = $3,
+	meter_current_reading = $4,
+	meter_unit_price = $5,
+	meter_recorded_at = $6,
+	amount = $7,
+	paid_amount = $7,
+	paid_at = $6,
+	payment_method = 'other',
+	status = 'paid',
+	updated_at = now(),
+	version = version + 1
+WHERE id = $1
+  AND version = $2
+  AND type = 'electricity'
+  AND status = 'pending_meter'
+  AND deleted_at IS NULL
+`
+
+	result, err := tx.ExecContext(ctx, query,
+		params.BillID,
+		params.ExpectedVersion,
+		params.PreviousReading,
+		params.CurrentReading,
+		params.UnitPrice,
+		params.SettledAt,
+		params.Amount,
+	)
+	if err != nil {
+		return fmt.Errorf("settle checkout electricity bill: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read settle checkout electricity bill affected rows: %w", err)
+	}
+	if affected == 0 {
+		return ErrCheckoutElectricityBillNotFound
+	}
+
+	return nil
 }
 
 func (r *SQLRepository) CreateForceTermination(ctx context.Context, tx *sql.Tx, params CreateForceTerminationParams) (*ForceTermination, error) {

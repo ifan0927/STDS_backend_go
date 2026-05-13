@@ -6349,6 +6349,19 @@ func (f fakeLeaseRepo) ListBillsByLeaseIDForUpdate(_ context.Context, _ *sql.Tx,
 	}, nil
 }
 
+func (f fakeLeaseRepo) FindPreviousElectricityReading(_ context.Context, _ *sql.Tx, _ string, _ time.Time) (int, error) {
+	return 0, nil
+}
+
+func (f fakeLeaseRepo) FindPropertyElectricityUnitPrice(_ context.Context, _ *sql.Tx, _ string) (*float64, error) {
+	unitPrice := 4.5
+	return &unitPrice, nil
+}
+
+func (f fakeLeaseRepo) SettleCheckoutElectricityBill(context.Context, *sql.Tx, applease.SettleCheckoutElectricityBillParams) error {
+	return nil
+}
+
 func (f fakeLeaseRepo) CreateForceTermination(_ context.Context, _ *sql.Tx, params applease.CreateForceTerminationParams) (*applease.ForceTermination, error) {
 	return &applease.ForceTermination{
 		ID:              "80000000-0000-0000-0000-000000000001",

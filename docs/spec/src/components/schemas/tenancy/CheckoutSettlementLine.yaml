@@ -31,5 +31,6 @@ properties:
     nullable: true
   source_ref:
     type: object
+    description: Optional backend-owned source details for the line. For electricity_settlement, this includes previous_reading, final_meter_reading, usage, unit_price, amount, nullable source_bill_id, and source_type so export/reprint can display the calculation without frontend recomputation.
     additionalProperties: true
     nullable: true

@@ -5,6 +5,7 @@ required:
 properties:
   code:
     type: string
+    description: Blocking condition code. unpaid_bill covers non-meter unpaid bills and non-resolvable unsettled bills. pending_meter is returned only for pending meter bills that checkout cannot resolve with the provided final meter reading; a resolvable final electricity period may instead produce an electricity_settlement charge line.
     enum:
       - unpaid_bill
       - pending_meter
@@ -18,3 +19,4 @@ properties:
   source_id:
     type: string
     nullable: true
+    description: Optional related bill, lease, or source identifier for the blocker.

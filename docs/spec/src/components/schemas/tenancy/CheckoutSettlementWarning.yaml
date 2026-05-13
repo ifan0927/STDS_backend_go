@@ -5,8 +5,10 @@ required:
 properties:
   code:
     type: string
+    description: Informational warning code. Warnings do not authorize frontend-side settlement calculation; frontend must display backend lines and totals as returned.
     enum:
       - manual_rent_refund_recorded
       - final_meter_snapshot_only
   message:
     type: string
+    description: Human-readable warning message for operator display.

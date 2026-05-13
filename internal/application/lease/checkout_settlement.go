@@ -6,9 +6,11 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
+	domainbilling "stds_backend/internal/domain/billing"
 	domainevents "stds_backend/internal/domain/events"
 	domainlease "stds_backend/internal/domain/lease"
 	"stds_backend/internal/platform/database/txrunner"
@@ -31,6 +33,8 @@ const (
 	checkoutNetZero                    = "zero"
 	checkoutWarningRentRefund          = "rent_refund_not_calculated"
 	checkoutWarningFinalMeter          = "final_meter_snapshot_only"
+	checkoutElectricitySourcePending   = "pending_meter_bill"
+	checkoutElectricitySourceFinal     = "checkout_final_meter"
 	checkoutBlockerUnpaidBill          = "unpaid_bill"
 	checkoutBlockerPendingMeter        = "pending_meter"
 	checkoutBlockerLeaseNotActive      = "lease_not_active"
@@ -40,7 +44,19 @@ const (
 	checkoutBlockerCheckoutBeforeStart = "checkout_date_before_lease_start"
 	rentRefundAccountingCategory       = "rent_refund"
 	rentRefundAccountingTitleCode      = "4604"
+	electricityAccountingCategory      = "electricity_payment"
+	electricityAccountingTitleCode     = "4605"
 )
+
+type checkoutElectricityCalculation struct {
+	PreviousReading int
+	CurrentReading  int
+	Usage           int
+	UnitPrice       float64
+	Amount          int
+	SourceBill      *Bill
+	SourceType      string
+}
 
 // CheckoutSettlementInput is the shared input for preview and finalize.
 type CheckoutSettlementInput struct {
@@ -150,7 +166,12 @@ func (s *PreviewCheckoutSettlementService) Execute(ctx context.Context, input Ch
 			return apperr.ErrInternalServerError.WithCause(err)
 		}
 
-		settlement = buildCheckoutSettlement(*current, bills, normalized, nil)
+		electricity, err := s.checkoutElectricityCalculation(ctx, tx, *current, bills, normalized)
+		if err != nil {
+			return err
+		}
+
+		settlement = buildCheckoutSettlement(*current, bills, normalized, electricity, nil)
 		return nil
 	})
 	if err != nil {
@@ -202,7 +223,12 @@ func (s *FinalizeCheckoutSettlementService) Execute(ctx context.Context, input C
 			return apperr.ErrInternalServerError.WithCause(err)
 		}
 
-		proposal := buildCheckoutSettlement(*current, bills, normalized, nil)
+		electricity, err := s.checkoutElectricityCalculation(ctx, tx, *current, bills, normalized)
+		if err != nil {
+			return err
+		}
+
+		proposal := buildCheckoutSettlement(*current, bills, normalized, electricity, nil)
 		if len(proposal.Blockers) > 0 {
 			return errCheckoutSettlementBlocked.WithDetails(map[string]interface{}{"blockers": proposal.Blockers})
 		}
@@ -278,11 +304,25 @@ func (s *FinalizeCheckoutSettlementService) Execute(ctx context.Context, input C
 			return mapLeaseLookupError(err)
 		}
 
-		if err := recordDepositAccountingEntries(ctx, tx, s.accountingRepo, settled, refundAmount, deductionAmount, depositReasonValue(deductionReason), occurredAt); err != nil {
+		depositAccountingDeductionAmount := deductionAmount
+		depositAccountingDeductionReason := deductionReason
+		if electricity != nil {
+			depositAccountingDeductionAmount -= electricity.Amount
+			if depositAccountingDeductionAmount < 0 {
+				depositAccountingDeductionAmount = 0
+			}
+			depositAccountingDeductionReason = checkoutDeductionReasonExcludingKind(proposal, checkoutLineElectricSettlement)
+		}
+		if err := recordDepositAccountingEntries(ctx, tx, s.accountingRepo, settled, refundAmount, depositAccountingDeductionAmount, depositReasonValue(depositAccountingDeductionReason), occurredAt); err != nil {
 			return err
 		}
 		if err := recordRentRefundAccountingEntry(ctx, tx, s.accountingRepo, settled, proposal); err != nil {
 			return err
+		}
+		if electricity != nil {
+			if err := settleCheckoutElectricity(ctx, tx, s.repo, s.accountingRepo, settled, proposal, *electricity, occurredAt); err != nil {
+				return err
+			}
 		}
 		if refundAmount > 0 {
 			recorder.Record(domainevents.DepositRefunded{
@@ -319,6 +359,14 @@ func (s *FinalizeCheckoutSettlementService) Execute(ctx context.Context, input C
 	}
 
 	return finalized, nil
+}
+
+func (s *PreviewCheckoutSettlementService) checkoutElectricityCalculation(ctx context.Context, tx *sql.Tx, current CheckoutSettlementContext, bills []Bill, input CheckoutSettlementInput) (*checkoutElectricityCalculation, error) {
+	return calculateCheckoutElectricity(ctx, tx, s.repo, current, bills, input)
+}
+
+func (s *FinalizeCheckoutSettlementService) checkoutElectricityCalculation(ctx context.Context, tx *sql.Tx, current CheckoutSettlementContext, bills []Bill, input CheckoutSettlementInput) (*checkoutElectricityCalculation, error) {
+	return calculateCheckoutElectricity(ctx, tx, s.repo, current, bills, input)
 }
 
 // ExportCheckoutSettlementService renders a finalized checkout settlement snapshot.
@@ -427,7 +475,7 @@ func authorizeCheckoutSettlement(actorRole string, assignedPropertyIDs []string,
 	}
 }
 
-func buildCheckoutSettlement(current CheckoutSettlementContext, bills []Bill, input CheckoutSettlementInput, finalizedAt *time.Time) *CheckoutSettlement {
+func buildCheckoutSettlement(current CheckoutSettlementContext, bills []Bill, input CheckoutSettlementInput, electricity *checkoutElectricityCalculation, finalizedAt *time.Time) *CheckoutSettlement {
 	lines := []CheckoutSettlementLine{
 		{
 			Kind:      checkoutLineDepositRefund,
@@ -459,14 +507,13 @@ func buildCheckoutSettlement(current CheckoutSettlementContext, bills []Bill, in
 			},
 		})
 	}
-	if input.FinalMeterReading != nil {
+	if electricity != nil {
 		lines = append(lines, CheckoutSettlementLine{
-			Kind:        checkoutLineElectricSettlement,
-			Label:       "退租電表讀數",
-			Direction:   checkoutDirectionInfo,
-			Amount:      0,
-			Description: stringPtr("電費結算由後端保留為快照資訊；v1 不由 frontend 計算。"),
-			SourceRef:   map[string]interface{}{"final_meter_reading": *input.FinalMeterReading},
+			Kind:      checkoutLineElectricSettlement,
+			Label:     "退租電費結算",
+			Direction: checkoutDirectionCharge,
+			Amount:    electricity.Amount,
+			SourceRef: checkoutElectricitySourceRef(electricity),
 		})
 	}
 
@@ -530,8 +577,10 @@ func checkoutSettlementBlockers(lease Lease, bills []Bill, input CheckoutSettlem
 			sourceID := bill.ID
 			blockers = append(blockers, CheckoutSettlementBlocker{Code: checkoutBlockerUnpaidBill, Message: "租約仍有未結清帳單。", SourceID: &sourceID})
 		case "pending_meter":
-			sourceID := bill.ID
-			blockers = append(blockers, CheckoutSettlementBlocker{Code: checkoutBlockerPendingMeter, Message: "租約仍有待抄表帳單。", SourceID: &sourceID})
+			if !checkoutPendingMeterBillResolvable(bills, bill, input) {
+				sourceID := bill.ID
+				blockers = append(blockers, CheckoutSettlementBlocker{Code: checkoutBlockerPendingMeter, Message: "租約仍有待抄表帳單。", SourceID: &sourceID})
+			}
 		}
 	}
 	_, totalCharge := checkoutSettlementTotals(lines)
@@ -543,9 +592,6 @@ func checkoutSettlementBlockers(lease Lease, bills []Bill, input CheckoutSettlem
 
 func checkoutSettlementWarnings(lease Lease, input CheckoutSettlementInput) []CheckoutSettlementWarning {
 	warnings := make([]CheckoutSettlementWarning, 0)
-	if input.FinalMeterReading != nil {
-		warnings = append(warnings, CheckoutSettlementWarning{Code: checkoutWarningFinalMeter, Message: "退租電表讀數已保存於結算快照；本次不由前端計算電費。"})
-	}
 	return warnings
 }
 
@@ -561,6 +607,147 @@ func checkoutSettlementTotals(lines []CheckoutSettlementLine) (int, int) {
 		}
 	}
 	return totalRefund, totalCharge
+}
+
+func calculateCheckoutElectricity(ctx context.Context, tx *sql.Tx, repo Repository, current CheckoutSettlementContext, bills []Bill, input CheckoutSettlementInput) (*checkoutElectricityCalculation, error) {
+	if input.FinalMeterReading == nil {
+		return nil, nil
+	}
+	if !checkoutElectricityCalculationAllowed(bills, input) {
+		return nil, nil
+	}
+	sourceBill := checkoutResolvablePendingMeterBill(bills, input)
+	beforePeriodStart := normalizeDate(input.CheckoutDate).AddDate(0, 0, 1)
+	sourceType := checkoutElectricitySourceFinal
+	if sourceBill != nil {
+		beforePeriodStart = sourceBill.PeriodStart
+		sourceType = checkoutElectricitySourcePending
+	}
+	previousReading, err := repo.FindPreviousElectricityReading(ctx, tx, current.Lease.ID, beforePeriodStart)
+	if err != nil {
+		return nil, apperr.ErrInternalServerError.WithCause(err)
+	}
+	unitPrice, err := repo.FindPropertyElectricityUnitPrice(ctx, tx, current.Lease.PropertyID)
+	if err != nil {
+		return nil, apperr.ErrInternalServerError.WithCause(err)
+	}
+	if unitPrice == nil {
+		return nil, apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"field": "electricity_unit_price"})
+	}
+
+	aggregate := domainbilling.Rehydrate(domainbilling.State{
+		ID:          sourceBillID(sourceBill),
+		LeaseID:     current.Lease.ID,
+		TenantID:    current.Lease.TenantID,
+		RoomID:      current.Lease.RoomID,
+		PropertyID:  current.Lease.PropertyID,
+		Type:        domainbilling.TypeElectricity,
+		Status:      domainbilling.StatusPendingMeter,
+		PeriodStart: beforePeriodStart,
+		PeriodEnd:   normalizeDate(input.CheckoutDate),
+	})
+	if err := aggregate.RecordMeter(previousReading, *input.FinalMeterReading, *unitPrice, time.Now().UTC()); err != nil {
+		return nil, mapCheckoutMeterDomainError(err, previousReading, *input.FinalMeterReading)
+	}
+	state := aggregate.State()
+	if sourceBill == nil && *state.Amount == 0 {
+		return nil, nil
+	}
+	return &checkoutElectricityCalculation{
+		PreviousReading: *state.MeterPreviousReading,
+		CurrentReading:  *state.MeterCurrentReading,
+		Usage:           *state.MeterCurrentReading - *state.MeterPreviousReading,
+		UnitPrice:       *state.MeterUnitPrice,
+		Amount:          *state.Amount,
+		SourceBill:      sourceBill,
+		SourceType:      sourceType,
+	}, nil
+}
+
+func checkoutElectricityCalculationAllowed(bills []Bill, input CheckoutSettlementInput) bool {
+	if input.FinalMeterReading == nil {
+		return false
+	}
+	hasPendingMeter := false
+	for _, bill := range bills {
+		switch bill.Status {
+		case domainbilling.StatusPendingPayment, domainbilling.StatusOverdue:
+			return false
+		case domainbilling.StatusPendingMeter:
+			hasPendingMeter = true
+		}
+	}
+	if !hasPendingMeter {
+		return true
+	}
+	return checkoutResolvablePendingMeterBill(bills, input) != nil
+}
+
+func checkoutResolvablePendingMeterBill(bills []Bill, input CheckoutSettlementInput) *Bill {
+	if input.FinalMeterReading == nil {
+		return nil
+	}
+	var candidate *Bill
+	for i := range bills {
+		if bills[i].Status != domainbilling.StatusPendingMeter {
+			continue
+		}
+		if candidate != nil {
+			return nil
+		}
+		if bills[i].Type != domainbilling.TypeElectricity {
+			return nil
+		}
+		checkoutDate := normalizeDate(input.CheckoutDate)
+		if !checkoutDate.Equal(normalizeDate(bills[i].PeriodEnd)) {
+			return nil
+		}
+		candidate = &bills[i]
+	}
+	return candidate
+}
+
+func checkoutPendingMeterBillResolvable(bills []Bill, bill Bill, input CheckoutSettlementInput) bool {
+	resolvable := checkoutResolvablePendingMeterBill(bills, input)
+	return resolvable != nil && resolvable.ID == bill.ID
+}
+
+func checkoutElectricitySourceRef(electricity *checkoutElectricityCalculation) map[string]interface{} {
+	sourceRef := map[string]interface{}{
+		"previous_reading":    electricity.PreviousReading,
+		"final_meter_reading": electricity.CurrentReading,
+		"current_reading":     electricity.CurrentReading,
+		"usage":               electricity.Usage,
+		"unit_price":          electricity.UnitPrice,
+		"amount":              electricity.Amount,
+		"source_type":         electricity.SourceType,
+		"source_bill_id":      nil,
+	}
+	if electricity.SourceBill != nil {
+		sourceRef["source_bill_id"] = electricity.SourceBill.ID
+	}
+	return sourceRef
+}
+
+func sourceBillID(sourceBill *Bill) string {
+	if sourceBill == nil {
+		return "checkout-electricity-settlement"
+	}
+	return sourceBill.ID
+}
+
+func mapCheckoutMeterDomainError(err error, previousReading int, currentReading int) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, domainbilling.ErrMeterReadingLessThanPrevious) {
+		return apperr.ErrBadRequest.WithCause(err).WithDetails(map[string]interface{}{
+			"field":            "final_meter_reading",
+			"previous_reading": previousReading,
+			"current_reading":  currentReading,
+		})
+	}
+	return apperr.ErrInternalServerError.WithCause(err)
 }
 
 func checkoutSettlementNet(totalRefund int, totalCharge int) (string, int) {
@@ -601,9 +788,16 @@ func checkoutSettlementToken(lease Lease, bills []Bill, input CheckoutSettlement
 }
 
 func checkoutDeductionReason(settlement *CheckoutSettlement) *string {
+	return checkoutDeductionReasonExcludingKind(settlement, "")
+}
+
+func checkoutDeductionReasonExcludingKind(settlement *CheckoutSettlement, excludedKind string) *string {
 	reasons := make([]string, 0)
 	for _, line := range settlement.Lines {
 		if line.Direction != checkoutDirectionCharge || line.Amount <= 0 {
+			continue
+		}
+		if excludedKind != "" && line.Kind == excludedKind {
 			continue
 		}
 		if line.Description != nil && strings.TrimSpace(*line.Description) != "" {
@@ -678,6 +872,69 @@ func recordRentRefundAccountingEntry(ctx context.Context, tx *sql.Tx, repo Depos
 		return mapDepositAccountingError(err)
 	}
 	return nil
+}
+
+func settleCheckoutElectricity(ctx context.Context, tx *sql.Tx, leaseRepo Repository, accountingRepo DepositAccountingRepository, lease *Lease, settlement *CheckoutSettlement, electricity checkoutElectricityCalculation, occurredAt time.Time) error {
+	if electricity.SourceBill != nil {
+		if err := leaseRepo.SettleCheckoutElectricityBill(ctx, tx, SettleCheckoutElectricityBillParams{
+			BillID:          electricity.SourceBill.ID,
+			PreviousReading: electricity.PreviousReading,
+			CurrentReading:  electricity.CurrentReading,
+			UnitPrice:       electricity.UnitPrice,
+			Amount:          electricity.Amount,
+			SettledAt:       occurredAt,
+			ExpectedVersion: electricity.SourceBill.Version,
+		}); err != nil {
+			return mapLeaseLookupError(err)
+		}
+	}
+	if electricity.Amount == 0 {
+		return nil
+	}
+	if accountingRepo == nil {
+		return apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "electricity_accounting"})
+	}
+
+	sourceDate := normalizeDate(settlement.CheckoutDate)
+	displayNote := "退租電費結算"
+	description := displayNote
+	sourceRef := map[string]interface{}{
+		"type":                "CheckoutElectricitySettled",
+		"lease_id":            lease.ID,
+		"source_type":         electricity.SourceType,
+		"source_bill_id":      sourceBillIDPtrValue(electricity.SourceBill),
+		"previous_reading":    electricity.PreviousReading,
+		"final_meter_reading": electricity.CurrentReading,
+		"usage":               electricity.Usage,
+		"unit_price":          electricity.UnitPrice,
+		"amount":              electricity.Amount,
+	}
+	if electricity.SourceBill != nil {
+		sourceRef["bill_id"] = electricity.SourceBill.ID
+	}
+	if err := accountingRepo.CreateDepositAccountingEntry(ctx, tx, DepositAccountingEntryParams{
+		PropertyID:          lease.PropertyID,
+		Category:            electricityAccountingCategory,
+		AccountingTitleCode: electricityAccountingTitleCode,
+		Amount:              electricity.Amount,
+		Description:         &description,
+		SourceRef:           sourceRef,
+		Year:                sourceDate.Year(),
+		Month:               int(sourceDate.Month()),
+		SourceDate:          &sourceDate,
+		TenantLabel:         &settlement.TenantLabel,
+		DisplayNote:         &displayNote,
+	}); err != nil {
+		return mapDepositAccountingError(err)
+	}
+	return nil
+}
+
+func sourceBillIDPtrValue(sourceBill *Bill) interface{} {
+	if sourceBill == nil {
+		return nil
+	}
+	return sourceBill.ID
 }
 
 func stringPtr(value string) *string {
