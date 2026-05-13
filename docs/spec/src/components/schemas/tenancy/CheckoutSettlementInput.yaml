@@ -19,7 +19,7 @@ properties:
     type: integer
     minimum: 0
     nullable: true
-    description: Final meter reading at checkout. In v1 this is stored for snapshot display only and must not be used by the frontend to calculate electricity fees.
+    description: Final meter reading at checkout. When provided and resolvable by the backend, it is used as backend-owned input for the final electricity settlement calculation. Frontend must not calculate electricity fees locally.
   cleaning_fee:
     type: integer
     minimum: 0

@@ -452,29 +452,33 @@ func TestCreateLeaseServiceRejectsBusinessRuleViolationsAndMissingReferences(t *
 }
 
 type leaseRepositoryStub struct {
-	tenant              *Tenant
-	tenantErr           error
-	room                *Room
-	roomErr             error
-	lease               *Lease
-	leaseErr            error
-	createdLease        *Lease
-	createLeaseErr      error
-	createBillsErr      error
-	updatedLease        *Lease
-	settledLease        *Lease
-	lockedRentBills     bool
-	voidRentDueDate     *time.Time
-	createLeaseParams   *CreateLeaseParams
-	terminateCalls      int
-	forceTerminateCalls int
-	forceTermination    *ForceTermination
-	voidBillsBoundary   *time.Time
-	updateLeaseCalls    int
-	settleDepositCalls  int
-	writeOffBillIDs     []string
-	createdBills        []CreateBillParams
-	replacementBills    []Bill
+	tenant                *Tenant
+	tenantErr             error
+	room                  *Room
+	roomErr               error
+	lease                 *Lease
+	leaseErr              error
+	createdLease          *Lease
+	createLeaseErr        error
+	createBillsErr        error
+	updatedLease          *Lease
+	settledLease          *Lease
+	lockedRentBills       bool
+	voidRentDueDate       *time.Time
+	createLeaseParams     *CreateLeaseParams
+	terminateCalls        int
+	forceTerminateCalls   int
+	forceTermination      *ForceTermination
+	voidBillsBoundary     *time.Time
+	updateLeaseCalls      int
+	settleDepositCalls    int
+	writeOffBillIDs       []string
+	createdBills          []CreateBillParams
+	replacementBills      []Bill
+	previousReading       int
+	previousReadingCutoff time.Time
+	unitPrice             *float64
+	settleElectricity     *SettleCheckoutElectricityBillParams
 }
 
 type depositAccountingRepositoryStub struct {
@@ -613,6 +617,20 @@ func (s *leaseRepositoryStub) ForceTerminateLease(_ context.Context, _ *sql.Tx, 
 
 func (s *leaseRepositoryStub) ListBillsByLeaseIDForUpdate(context.Context, *sql.Tx, string) ([]Bill, error) {
 	return s.replacementBills, nil
+}
+
+func (s *leaseRepositoryStub) FindPreviousElectricityReading(_ context.Context, _ *sql.Tx, _ string, beforePeriodStart time.Time) (int, error) {
+	s.previousReadingCutoff = beforePeriodStart
+	return s.previousReading, nil
+}
+
+func (s *leaseRepositoryStub) FindPropertyElectricityUnitPrice(context.Context, *sql.Tx, string) (*float64, error) {
+	return s.unitPrice, nil
+}
+
+func (s *leaseRepositoryStub) SettleCheckoutElectricityBill(_ context.Context, _ *sql.Tx, params SettleCheckoutElectricityBillParams) error {
+	s.settleElectricity = &params
+	return nil
 }
 
 func (s *leaseRepositoryStub) CreateForceTermination(_ context.Context, _ *sql.Tx, params CreateForceTerminationParams) (*ForceTermination, error) {

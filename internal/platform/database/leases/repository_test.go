@@ -824,23 +824,191 @@ func TestListBillsByLeaseIDForUpdateLocksBills(t *testing.T) {
 	periodStart := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
 	periodEnd := time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC)
 
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, type, status, period_start, period_end
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, type, status, period_start, period_end, version
 FROM bills
 WHERE lease_id = $1
   AND deleted_at IS NULL
 ORDER BY period_start ASC, type ASC, id ASC
 FOR UPDATE`)).
 		WithArgs("lease-1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "type", "status", "period_start", "period_end"}).
-			AddRow("bill-1", "rent", "pending_payment", periodStart, periodEnd).
-			AddRow("bill-2", "electricity", "pending_meter", periodStart, periodEnd))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "type", "status", "period_start", "period_end", "version"}).
+			AddRow("bill-1", "rent", "pending_payment", periodStart, periodEnd, 1).
+			AddRow("bill-2", "electricity", "pending_meter", periodStart, periodEnd, 2))
 
 	bills, err := repo.ListBillsByLeaseIDForUpdate(context.Background(), tx, "lease-1")
 	if err != nil {
 		t.Fatalf("ListBillsByLeaseIDForUpdate: %v", err)
 	}
-	if len(bills) != 2 || bills[0].ID != "bill-1" || bills[1].Type != "electricity" {
+	if len(bills) != 2 || bills[0].ID != "bill-1" || bills[1].Type != "electricity" || bills[1].Version != 2 {
 		t.Fatalf("unexpected bills: %+v", bills)
+	}
+
+	mock.ExpectRollback()
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("Rollback: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestSettleCheckoutElectricityBillMarksExpectedPendingMeterPaid(t *testing.T) {
+	db, mock, repo := newLeaseRepoTest(t)
+	defer closeLeaseDB(t, db)
+	tx := beginLeaseTx(t, db, mock)
+	settledAt := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE bills
+SET meter_previous_reading = $3,
+	meter_current_reading = $4,
+	meter_unit_price = $5,
+	meter_recorded_at = $6,
+	amount = $7,
+	paid_amount = $7,
+	paid_at = $6,
+	payment_method = 'other',
+	status = 'paid',
+	updated_at = now(),
+	version = version + 1
+WHERE id = $1
+  AND version = $2
+  AND type = 'electricity'
+  AND status = 'pending_meter'
+  AND deleted_at IS NULL`)).
+		WithArgs("bill-1", 3, 1250, 1380, 4.5, settledAt, 585).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	err := repo.SettleCheckoutElectricityBill(context.Background(), tx, SettleCheckoutElectricityBillParams{
+		BillID:          "bill-1",
+		PreviousReading: 1250,
+		CurrentReading:  1380,
+		UnitPrice:       4.5,
+		SettledAt:       settledAt,
+		Amount:          585,
+		ExpectedVersion: 3,
+	})
+	if err != nil {
+		t.Fatalf("SettleCheckoutElectricityBill: %v", err)
+	}
+
+	mock.ExpectRollback()
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("Rollback: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestSettleCheckoutElectricityBillRowsAffectedZeroMapsToSentinel(t *testing.T) {
+	db, mock, repo := newLeaseRepoTest(t)
+	defer closeLeaseDB(t, db)
+	tx := beginLeaseTx(t, db, mock)
+	settledAt := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE bills
+SET meter_previous_reading = $3,
+	meter_current_reading = $4,
+	meter_unit_price = $5,
+	meter_recorded_at = $6,
+	amount = $7,
+	paid_amount = $7,
+	paid_at = $6,
+	payment_method = 'other',
+	status = 'paid',
+	updated_at = now(),
+	version = version + 1
+WHERE id = $1
+  AND version = $2
+  AND type = 'electricity'
+  AND status = 'pending_meter'
+  AND deleted_at IS NULL`)).
+		WithArgs("bill-1", 3, 1250, 1380, 4.5, settledAt, 585).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	err := repo.SettleCheckoutElectricityBill(context.Background(), tx, SettleCheckoutElectricityBillParams{
+		BillID:          "bill-1",
+		PreviousReading: 1250,
+		CurrentReading:  1380,
+		UnitPrice:       4.5,
+		SettledAt:       settledAt,
+		Amount:          585,
+		ExpectedVersion: 3,
+	})
+	if !errors.Is(err, ErrCheckoutElectricityBillNotFound) {
+		t.Fatalf("expected ErrCheckoutElectricityBillNotFound, got %v", err)
+	}
+
+	mock.ExpectRollback()
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("Rollback: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestFindPreviousElectricityReadingUsesBillingFallback(t *testing.T) {
+	db, mock, repo := newLeaseRepoTest(t)
+	defer closeLeaseDB(t, db)
+	tx := beginLeaseTx(t, db, mock)
+	periodStart := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT COALESCE(previous.meter_current_reading, l.starting_meter_reading, 0)
+FROM leases l
+LEFT JOIN LATERAL (
+	SELECT b.meter_current_reading
+	FROM bills b
+	WHERE b.lease_id = l.id
+	  AND b.type = 'electricity'
+	  AND b.meter_current_reading IS NOT NULL
+	  AND b.period_end < $2
+	  AND b.deleted_at IS NULL
+	ORDER BY b.period_end DESC, b.due_date DESC, b.created_at DESC
+	LIMIT 1
+) previous ON true
+WHERE l.id = $1
+  AND l.deleted_at IS NULL
+FOR UPDATE OF l`)).
+		WithArgs("lease-1", periodStart).
+		WillReturnRows(sqlmock.NewRows([]string{"reading"}).AddRow(1250))
+
+	reading, err := repo.FindPreviousElectricityReading(context.Background(), tx, "lease-1", periodStart)
+	if err != nil {
+		t.Fatalf("FindPreviousElectricityReading: %v", err)
+	}
+	if reading != 1250 {
+		t.Fatalf("reading = %d, want 1250", reading)
+	}
+
+	mock.ExpectRollback()
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("Rollback: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestFindPropertyElectricityUnitPricePreservesNull(t *testing.T) {
+	db, mock, repo := newLeaseRepoTest(t)
+	defer closeLeaseDB(t, db)
+	tx := beginLeaseTx(t, db, mock)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT electricity_unit_price
+FROM properties
+WHERE id = $1
+  AND deleted_at IS NULL
+FOR UPDATE`)).
+		WithArgs("property-1").
+		WillReturnRows(sqlmock.NewRows([]string{"electricity_unit_price"}).AddRow(nil))
+
+	unitPrice, err := repo.FindPropertyElectricityUnitPrice(context.Background(), tx, "property-1")
+	if err != nil {
+		t.Fatalf("FindPropertyElectricityUnitPrice: %v", err)
+	}
+	if unitPrice != nil {
+		t.Fatalf("unitPrice = %v, want nil", unitPrice)
 	}
 
 	mock.ExpectRollback()

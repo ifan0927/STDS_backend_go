@@ -197,10 +197,51 @@ func (a leaseRepositoryAdapter) ListBillsByLeaseIDForUpdate(ctx context.Context,
 			Status:      bill.Status,
 			PeriodStart: bill.PeriodStart,
 			PeriodEnd:   bill.PeriodEnd,
+			Version:     bill.Version,
 		})
 	}
 
 	return items, nil
+}
+
+func (a leaseRepositoryAdapter) FindPreviousElectricityReading(ctx context.Context, tx *sql.Tx, leaseID string, beforePeriodStart time.Time) (int, error) {
+	reading, err := a.repo.FindPreviousElectricityReading(ctx, tx, leaseID, beforePeriodStart)
+	if err != nil {
+		switch err {
+		case dbleases.ErrLeaseNotFound:
+			return 0, applease.ErrLeaseNotFound
+		default:
+			return 0, err
+		}
+	}
+
+	return reading, nil
+}
+
+func (a leaseRepositoryAdapter) FindPropertyElectricityUnitPrice(ctx context.Context, tx *sql.Tx, propertyID string) (*float64, error) {
+	return a.repo.FindPropertyElectricityUnitPrice(ctx, tx, propertyID)
+}
+
+func (a leaseRepositoryAdapter) SettleCheckoutElectricityBill(ctx context.Context, tx *sql.Tx, params applease.SettleCheckoutElectricityBillParams) error {
+	err := a.repo.SettleCheckoutElectricityBill(ctx, tx, dbleases.SettleCheckoutElectricityBillParams{
+		BillID:          params.BillID,
+		PreviousReading: params.PreviousReading,
+		CurrentReading:  params.CurrentReading,
+		UnitPrice:       params.UnitPrice,
+		Amount:          params.Amount,
+		SettledAt:       params.SettledAt,
+		ExpectedVersion: params.ExpectedVersion,
+	})
+	if err != nil {
+		switch err {
+		case dbleases.ErrCheckoutElectricityBillNotFound:
+			return applease.ErrCheckoutElectricityBillNotFound
+		default:
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (a leaseRepositoryAdapter) CreateForceTermination(ctx context.Context, tx *sql.Tx, params applease.CreateForceTerminationParams) (*applease.ForceTermination, error) {
@@ -385,7 +426,7 @@ func toApplicationLease(lease *dbleases.Lease) *applease.Lease {
 		RentAmount:                lease.RentAmount,
 		StartDate:                 lease.StartDate,
 		EndDate:                   lease.EndDate,
-		ActualMoveOutDate:        lease.ActualMoveOutDate,
+		ActualMoveOutDate:         lease.ActualMoveOutDate,
 		RentBillingCadence:        lease.RentBillingCadence,
 		ElectricityBillingCadence: lease.ElectricityBillingCadence,
 		StartingMeterReading:      lease.StartingMeterReading,

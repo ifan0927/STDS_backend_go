@@ -8,11 +8,12 @@ import (
 )
 
 var (
-	ErrLeaseNotFound            = errors.New("lease not found")
-	ErrTenantNotFound           = errors.New("tenant not found")
-	ErrRoomNotFound             = errors.New("room not found")
-	ErrForceTerminationNotFound = errors.New("force termination not found")
-	ErrPropertyAccountNotFound  = errors.New("property account not found")
+	ErrLeaseNotFound                   = errors.New("lease not found")
+	ErrTenantNotFound                  = errors.New("tenant not found")
+	ErrRoomNotFound                    = errors.New("room not found")
+	ErrForceTerminationNotFound        = errors.New("force termination not found")
+	ErrPropertyAccountNotFound         = errors.New("property account not found")
+	ErrCheckoutElectricityBillNotFound = errors.New("checkout electricity bill not found")
 )
 
 // Lease is the application-facing lease shape.
@@ -92,6 +93,7 @@ type Bill struct {
 	Status      string
 	PeriodStart time.Time
 	PeriodEnd   time.Time
+	Version     int
 }
 
 // CheckoutSettlementContext contains locked lease state plus stable display labels.
@@ -161,6 +163,17 @@ type DepositAccountingEntryParams struct {
 	DisplayNote         *string
 }
 
+// SettleCheckoutElectricityBillParams contains final meter data settled by checkout.
+type SettleCheckoutElectricityBillParams struct {
+	BillID          string
+	PreviousReading int
+	CurrentReading  int
+	UnitPrice       float64
+	Amount          int
+	SettledAt       time.Time
+	ExpectedVersion int
+}
+
 // TerminateLeaseParams contains fields for predecessor termination.
 type TerminateLeaseParams struct {
 	LeaseID           string
@@ -199,6 +212,9 @@ type Repository interface {
 	TerminateLease(ctx context.Context, tx *sql.Tx, params TerminateLeaseParams) (*Lease, error)
 	ForceTerminateLease(ctx context.Context, tx *sql.Tx, params ForceTerminateLeaseParams) (*Lease, error)
 	ListBillsByLeaseIDForUpdate(ctx context.Context, tx *sql.Tx, leaseID string) ([]Bill, error)
+	FindPreviousElectricityReading(ctx context.Context, tx *sql.Tx, leaseID string, beforePeriodStart time.Time) (int, error)
+	FindPropertyElectricityUnitPrice(ctx context.Context, tx *sql.Tx, propertyID string) (*float64, error)
+	SettleCheckoutElectricityBill(ctx context.Context, tx *sql.Tx, params SettleCheckoutElectricityBillParams) error
 	CreateForceTermination(ctx context.Context, tx *sql.Tx, params CreateForceTerminationParams) (*ForceTermination, error)
 	CreateForceTerminationBills(ctx context.Context, tx *sql.Tx, forceTerminationID string, billIDs []string) error
 	WriteOffBills(ctx context.Context, tx *sql.Tx, billIDs []string, reason string) error

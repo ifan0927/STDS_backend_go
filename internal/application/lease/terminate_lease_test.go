@@ -3,6 +3,7 @@ package lease
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -461,14 +462,167 @@ func TestPreviewCheckoutSettlementReturnsTokenAndNoWrites(t *testing.T) {
 	if result.PreviewToken == nil || *result.PreviewToken == "" {
 		t.Fatalf("expected preview token, got %+v", result.PreviewToken)
 	}
-	if result.NetDirection != checkoutNetRefund || result.NetAmount != 16000 {
+	if result.NetDirection != checkoutNetRefund || result.NetAmount != 14947 {
 		t.Fatalf("unexpected net result: %+v", result)
 	}
-	if len(result.Warnings) != 1 || result.Warnings[0].Code != checkoutWarningFinalMeter {
-		t.Fatalf("warnings = %+v, want final meter warning", result.Warnings)
+	var electricityLine *CheckoutSettlementLine
+	for i := range result.Lines {
+		if result.Lines[i].Kind == checkoutLineElectricSettlement {
+			electricityLine = &result.Lines[i]
+		}
+	}
+	if electricityLine == nil || electricityLine.Direction != checkoutDirectionCharge || electricityLine.Amount != 1053 {
+		t.Fatalf("electricity line = %+v", electricityLine)
+	}
+	if electricityLine.SourceRef["previous_reading"] != 1000 || electricityLine.SourceRef["final_meter_reading"] != 1234 || electricityLine.SourceRef["usage"] != 234 {
+		t.Fatalf("electricity source_ref = %+v", electricityLine.SourceRef)
+	}
+	if electricityLine.SourceRef["unit_price"] != 4.5 || electricityLine.SourceRef["source_bill_id"] != nil || electricityLine.SourceRef["source_type"] != checkoutElectricitySourceFinal {
+		t.Fatalf("electricity source_ref = %+v", electricityLine.SourceRef)
+	}
+	if len(result.Warnings) != 0 {
+		t.Fatalf("warnings = %+v, want none", result.Warnings)
 	}
 	if repo.settleDepositCalls != 0 || repo.terminateCalls != 0 {
 		t.Fatalf("preview should not write, settle=%d terminate=%d", repo.settleDepositCalls, repo.terminateCalls)
+	}
+}
+
+func TestPreviewCheckoutSettlementDoesNotRechargeElectricityCoveredThroughCheckoutDate(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+	defer verifySQLMockExpectations(t, mock)
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+
+	repo := terminationRepoStub()
+	repo.previousReading = 1234
+	service := NewPreviewCheckoutSettlementService(repo, dbtxrunner.New(db, nil))
+	finalMeter := 1234
+	checkoutDate := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
+
+	result, err := service.Execute(context.Background(), CheckoutSettlementInput{
+		ActorRole:           "admin",
+		AssignedPropertyIDs: []string{"property-1"},
+		LeaseID:             terminateLeaseTestLeaseID,
+		CheckoutDate:        checkoutDate,
+		Reason:              "tenant requested",
+		FinalMeterReading:   &finalMeter,
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if result.PreviewToken == nil || len(result.Blockers) != 0 {
+		t.Fatalf("unexpected token/blockers: token=%+v blockers=%+v", result.PreviewToken, result.Blockers)
+	}
+	for _, line := range result.Lines {
+		if line.Kind == checkoutLineElectricSettlement {
+			t.Fatalf("did not expect duplicate electricity charge line when paid meter covers checkout date: %+v", line)
+		}
+	}
+	wantCutoff := checkoutDate.AddDate(0, 0, 1)
+	if !repo.previousReadingCutoff.Equal(wantCutoff) {
+		t.Fatalf("previous reading cutoff = %s, want %s", repo.previousReadingCutoff, wantCutoff)
+	}
+}
+
+func TestPreviewCheckoutSettlementAllowsFinalPendingMeterBill(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+	defer verifySQLMockExpectations(t, mock)
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+
+	repo := terminationRepoStub()
+	repo.replacementBills = append(repo.replacementBills, Bill{
+		ID:          "50000000-0000-0000-0000-000000000010",
+		Type:        "electricity",
+		Status:      "pending_meter",
+		PeriodStart: time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC),
+		PeriodEnd:   time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+		Version:     7,
+	})
+	service := NewPreviewCheckoutSettlementService(repo, dbtxrunner.New(db, nil))
+	finalMeter := 1101
+
+	result, err := service.Execute(context.Background(), CheckoutSettlementInput{
+		ActorRole:           "admin",
+		AssignedPropertyIDs: []string{"property-1"},
+		LeaseID:             terminateLeaseTestLeaseID,
+		CheckoutDate:        time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+		Reason:              "tenant requested",
+		FinalMeterReading:   &finalMeter,
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if len(result.Blockers) != 0 || result.PreviewToken == nil {
+		t.Fatalf("unexpected blockers/token: blockers=%+v token=%+v", result.Blockers, result.PreviewToken)
+	}
+	var electricityLine *CheckoutSettlementLine
+	for i := range result.Lines {
+		if result.Lines[i].Kind == checkoutLineElectricSettlement {
+			electricityLine = &result.Lines[i]
+		}
+	}
+	if electricityLine == nil || electricityLine.Amount != 455 {
+		t.Fatalf("electricity line = %+v", electricityLine)
+	}
+	if electricityLine.SourceRef["source_bill_id"] != "50000000-0000-0000-0000-000000000010" || electricityLine.SourceRef["source_type"] != checkoutElectricitySourcePending {
+		t.Fatalf("electricity source_ref = %+v", electricityLine.SourceRef)
+	}
+}
+
+func TestPreviewCheckoutSettlementBlocksMidPeriodPendingMeterBillWithFinalReading(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+	defer verifySQLMockExpectations(t, mock)
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+
+	repo := terminationRepoStub()
+	repo.replacementBills = append(repo.replacementBills, Bill{
+		ID:          "50000000-0000-0000-0000-000000000010",
+		Type:        "electricity",
+		Status:      "pending_meter",
+		PeriodStart: time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC),
+		PeriodEnd:   time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+	})
+	service := NewPreviewCheckoutSettlementService(repo, dbtxrunner.New(db, nil))
+	finalMeter := 1101
+	reason := "雙方協議不退未到期租金"
+
+	result, err := service.Execute(context.Background(), CheckoutSettlementInput{
+		ActorRole:              "admin",
+		AssignedPropertyIDs:    []string{"property-1"},
+		LeaseID:                terminateLeaseTestLeaseID,
+		CheckoutDate:           time.Date(2026, 12, 15, 0, 0, 0, 0, time.UTC),
+		Reason:                 "tenant requested",
+		FinalMeterReading:      &finalMeter,
+		ManualRentRefundReason: &reason,
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if result.PreviewToken != nil {
+		t.Fatalf("expected no token when blocked, got %q", *result.PreviewToken)
+	}
+	if len(result.Blockers) != 1 || result.Blockers[0].Code != checkoutBlockerPendingMeter || result.Blockers[0].SourceID == nil || *result.Blockers[0].SourceID != "50000000-0000-0000-0000-000000000010" {
+		t.Fatalf("unexpected blockers: %+v", result.Blockers)
+	}
+	for _, line := range result.Lines {
+		if line.Kind == checkoutLineElectricSettlement {
+			t.Fatalf("did not expect electricity charge line when pending meter blocks checkout: %+v", line)
+		}
 	}
 }
 
@@ -651,6 +805,38 @@ func TestPreviewCheckoutSettlementRejectsNegativeFinalMeterReading(t *testing.T)
 	}
 }
 
+func TestPreviewCheckoutSettlementRejectsFinalMeterLessThanPrevious(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+	defer verifySQLMockExpectations(t, mock)
+	mock.ExpectBegin()
+	mock.ExpectRollback()
+
+	repo := terminationRepoStub()
+	service := NewPreviewCheckoutSettlementService(repo, dbtxrunner.New(db, nil))
+	finalMeter := 999
+
+	_, err = service.Execute(context.Background(), CheckoutSettlementInput{
+		ActorRole:           "admin",
+		AssignedPropertyIDs: []string{"property-1"},
+		LeaseID:             terminateLeaseTestLeaseID,
+		CheckoutDate:        time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+		Reason:              "tenant requested",
+		FinalMeterReading:   &finalMeter,
+	})
+	var appErr *apperr.Error
+	if !errors.As(err, &appErr) || appErr.Code != apperr.CodeBadRequest {
+		t.Fatalf("expected BAD_REQUEST, got %v", err)
+	}
+	details, ok := appErr.Details.(map[string]interface{})
+	if !ok || details["field"] != "final_meter_reading" || details["previous_reading"] != 1000 || details["current_reading"] != 999 {
+		t.Fatalf("unexpected error details: %+v", appErr.Details)
+	}
+}
+
 func TestPreviewCheckoutSettlementValidatesManualRentRefund(t *testing.T) {
 	service := NewPreviewCheckoutSettlementService(terminationRepoStub(), nil)
 	reason := "tenant requested"
@@ -735,6 +921,55 @@ func TestPreviewCheckoutSettlementReturnsBlockersForUnsettledBills(t *testing.T)
 	}
 	if len(result.Blockers) != 1 || result.Blockers[0].Code != checkoutBlockerPendingMeter {
 		t.Fatalf("unexpected blockers: %+v", result.Blockers)
+	}
+}
+
+func TestPreviewCheckoutSettlementBlocksNonFinalPendingMetersWithFinalReading(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+	defer verifySQLMockExpectations(t, mock)
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+
+	repo := terminationRepoStub()
+	repo.replacementBills = append(repo.replacementBills,
+		Bill{
+			ID:          "50000000-0000-0000-0000-000000000010",
+			Type:        "electricity",
+			Status:      "pending_meter",
+			PeriodStart: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC),
+			PeriodEnd:   time.Date(2026, 11, 30, 0, 0, 0, 0, time.UTC),
+		},
+		Bill{
+			ID:          "50000000-0000-0000-0000-000000000011",
+			Type:        "electricity",
+			Status:      "pending_meter",
+			PeriodStart: time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC),
+			PeriodEnd:   time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+		},
+	)
+	service := NewPreviewCheckoutSettlementService(repo, dbtxrunner.New(db, nil))
+	finalMeter := 1100
+
+	result, err := service.Execute(context.Background(), CheckoutSettlementInput{
+		ActorRole:           "admin",
+		AssignedPropertyIDs: []string{"property-1"},
+		LeaseID:             terminateLeaseTestLeaseID,
+		CheckoutDate:        time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+		Reason:              "tenant requested",
+		FinalMeterReading:   &finalMeter,
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if result.PreviewToken != nil {
+		t.Fatalf("expected no token when blocked, got %q", *result.PreviewToken)
+	}
+	if len(result.Blockers) != 2 {
+		t.Fatalf("blockers = %+v, want both pending meters", result.Blockers)
 	}
 }
 
@@ -957,6 +1192,222 @@ func TestFinalizeCheckoutSettlementPersistsManualRentRefundAndAccounting(t *test
 	}
 }
 
+func TestFinalizeCheckoutSettlementSettlesCheckoutElectricity(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+	defer verifySQLMockExpectations(t, mock)
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+
+	repo := terminationRepoStub()
+	repo.replacementBills = append(repo.replacementBills, Bill{
+		ID:          "50000000-0000-0000-0000-000000000010",
+		Type:        "electricity",
+		Status:      "pending_meter",
+		PeriodStart: time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC),
+		PeriodEnd:   time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+		Version:     7,
+	})
+	previewService := NewPreviewCheckoutSettlementService(repo, dbtxrunner.New(db, nil))
+	finalMeter := 1101
+	input := CheckoutSettlementInput{
+		ActorRole:           "admin",
+		AssignedPropertyIDs: []string{"property-1"},
+		LeaseID:             terminateLeaseTestLeaseID,
+		CheckoutDate:        time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+		Reason:              "tenant requested",
+		FinalMeterReading:   &finalMeter,
+	}
+	preview, err := previewService.Execute(context.Background(), input)
+	if err != nil {
+		t.Fatalf("preview Execute: %v", err)
+	}
+
+	db2, mock2, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer func() { _ = db2.Close() }()
+	defer verifySQLMockExpectations(t, mock2)
+	mock2.ExpectBegin()
+	mock2.ExpectCommit()
+
+	publisher := &recordingPublisher{}
+	accountingRepo := &depositAccountingRepositoryStub{}
+	finalizeService := NewFinalizeCheckoutSettlementService(repo, accountingRepo, dbtxrunner.New(db2, publisher))
+	input.PreviewToken = *preview.PreviewToken
+	finalized, err := finalizeService.Execute(context.Background(), input)
+	if err != nil {
+		t.Fatalf("finalize Execute: %v", err)
+	}
+	if finalized.TotalCharge != 455 || finalized.NetAmount != 19545 {
+		t.Fatalf("unexpected finalized totals: %+v", finalized)
+	}
+	if repo.settleElectricity == nil {
+		t.Fatal("expected source pending_meter bill to be settled")
+	}
+	if repo.settleElectricity.BillID != "50000000-0000-0000-0000-000000000010" || repo.settleElectricity.PreviousReading != 1000 || repo.settleElectricity.CurrentReading != 1101 || repo.settleElectricity.Amount != 455 || repo.settleElectricity.ExpectedVersion != 7 {
+		t.Fatalf("settle electricity params = %+v", repo.settleElectricity)
+	}
+	if len(accountingRepo.entries) != 2 {
+		t.Fatalf("accounting entries = %d, want deposit refund and electricity", len(accountingRepo.entries))
+	}
+	entry := accountingRepo.entries[1]
+	if entry.Category != electricityAccountingCategory || entry.AccountingTitleCode != electricityAccountingTitleCode || entry.Amount != 455 {
+		t.Fatalf("electricity accounting entry = %+v", entry)
+	}
+	if entry.SourceRef["source_bill_id"] != "50000000-0000-0000-0000-000000000010" || entry.SourceRef["bill_id"] != "50000000-0000-0000-0000-000000000010" || entry.SourceRef["usage"] != 101 {
+		t.Fatalf("electricity accounting source_ref = %+v", entry.SourceRef)
+	}
+	decoded, err := checkoutSettlementFromDetailMap(*repo.lease.SettlementDetail)
+	if err != nil {
+		t.Fatalf("decode settlement detail: %v", err)
+	}
+	var electricityLine *CheckoutSettlementLine
+	for i := range decoded.Lines {
+		if decoded.Lines[i].Kind == checkoutLineElectricSettlement {
+			electricityLine = &decoded.Lines[i]
+		}
+	}
+	if electricityLine == nil || electricityLine.Amount != 455 || electricityLine.SourceRef["source_bill_id"] != "50000000-0000-0000-0000-000000000010" {
+		t.Fatalf("decoded electricity line = %+v", electricityLine)
+	}
+}
+
+func TestFinalizeCheckoutSettlementRecordsFinalElectricityWithoutSourceBill(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+	defer verifySQLMockExpectations(t, mock)
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+
+	repo := terminationRepoStub()
+	previewService := NewPreviewCheckoutSettlementService(repo, dbtxrunner.New(db, nil))
+	finalMeter := 1100
+	input := CheckoutSettlementInput{
+		ActorRole:           "admin",
+		AssignedPropertyIDs: []string{"property-1"},
+		LeaseID:             terminateLeaseTestLeaseID,
+		CheckoutDate:        time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+		Reason:              "tenant requested",
+		FinalMeterReading:   &finalMeter,
+	}
+	preview, err := previewService.Execute(context.Background(), input)
+	if err != nil {
+		t.Fatalf("preview Execute: %v", err)
+	}
+
+	db2, mock2, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer func() { _ = db2.Close() }()
+	defer verifySQLMockExpectations(t, mock2)
+	mock2.ExpectBegin()
+	mock2.ExpectCommit()
+
+	accountingRepo := &depositAccountingRepositoryStub{}
+	finalizeService := NewFinalizeCheckoutSettlementService(repo, accountingRepo, dbtxrunner.New(db2, &recordingPublisher{}))
+	input.PreviewToken = *preview.PreviewToken
+	finalized, err := finalizeService.Execute(context.Background(), input)
+	if err != nil {
+		t.Fatalf("finalize Execute: %v", err)
+	}
+	if finalized.TotalCharge != 450 {
+		t.Fatalf("total charge = %d, want 450", finalized.TotalCharge)
+	}
+	if repo.settleElectricity != nil {
+		t.Fatalf("did not expect source bill settlement, got %+v", repo.settleElectricity)
+	}
+	if len(accountingRepo.entries) != 2 {
+		t.Fatalf("accounting entries = %d, want deposit refund and electricity", len(accountingRepo.entries))
+	}
+	entry := accountingRepo.entries[1]
+	if entry.Category != electricityAccountingCategory || entry.Amount != 450 || entry.SourceRef["source_bill_id"] != nil || entry.SourceRef["source_type"] != checkoutElectricitySourceFinal {
+		t.Fatalf("electricity accounting entry = %+v", entry)
+	}
+	if _, ok := entry.SourceRef["bill_id"]; ok {
+		t.Fatalf("did not expect bill_id without source bill, got %+v", entry.SourceRef)
+	}
+}
+
+func TestExportCheckoutSettlementIncludesElectricityDetailFromSnapshotSourceRef(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+	defer verifySQLMockExpectations(t, mock)
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+
+	settlementDetail := map[string]interface{}{
+		"lease_id":       terminateLeaseTestLeaseID,
+		"property_id":    "property-1",
+		"tenant_id":      "tenant-1",
+		"room_id":        "room-1",
+		"property_label": "Test Property",
+		"tenant_label":   "Test Tenant",
+		"room_label":     "101",
+		"checkout_date":  "2026-12-31T00:00:00Z",
+		"reason":         "tenant requested",
+		"lines": []interface{}{
+			map[string]interface{}{
+				"kind":        checkoutLineElectricSettlement,
+				"label":       "電費結算",
+				"direction":   checkoutDirectionCharge,
+				"amount":      float64(455),
+				"description": "退租電費",
+				"source_ref": map[string]interface{}{
+					"previous_reading": float64(1000),
+					"current_reading":  float64(1101),
+					"usage":            float64(101),
+					"unit_price":       float64(4.5),
+					"amount":           float64(455),
+					"source_bill_id":   "50000000-0000-0000-0000-000000000010",
+					"source_type":      checkoutElectricitySourcePending,
+				},
+			},
+		},
+		"blockers":         []interface{}{},
+		"warnings":         []interface{}{},
+		"deposit_amount":   float64(20000),
+		"total_refund":     float64(20000),
+		"total_charge":     float64(455),
+		"net_amount":       float64(19545),
+		"net_direction":    checkoutNetRefund,
+		"export_available": true,
+		"finalized_at":     "2026-12-31T10:00:00Z",
+	}
+
+	repo := terminationRepoStub()
+	repo.lease.SettlementDetail = &settlementDetail
+	service := NewExportCheckoutSettlementService(repo, MustNewCheckoutSettlementRenderer(), dbtxrunner.New(db, nil))
+
+	doc, err := service.Execute(context.Background(), CheckoutSettlementInput{
+		ActorRole:           "admin",
+		AssignedPropertyIDs: []string{"property-1"},
+		LeaseID:             terminateLeaseTestLeaseID,
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	html := string(doc.HTML)
+	if !strings.Contains(html, "退租電費") {
+		t.Fatalf("expected original description in HTML, got %s", doc.HTML)
+	}
+	expectedDetail := "前次讀數 1000，退租讀數 1101，用電 101 度，單價 NT$4.5/度"
+	if !strings.Contains(html, expectedDetail) {
+		t.Fatalf("expected electricity detail %q in HTML, got %s", expectedDetail, doc.HTML)
+	}
+}
+
 func TestFinalizeCheckoutSettlementRollsBackWhenRentRefundAccountingFails(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -1008,6 +1459,7 @@ func TestFinalizeCheckoutSettlementRollsBackWhenRentRefundAccountingFails(t *tes
 }
 
 func terminationRepoStub() *leaseRepositoryStub {
+	unitPrice := 4.5
 	return &leaseRepositoryStub{
 		lease: &Lease{
 			ID:                        terminateLeaseTestLeaseID,
@@ -1031,6 +1483,8 @@ func terminationRepoStub() *leaseRepositoryStub {
 				PeriodEnd:   time.Date(2026, 1, 31, 0, 0, 0, 0, time.UTC),
 			},
 		},
+		previousReading: 1000,
+		unitPrice:       &unitPrice,
 	}
 }
 

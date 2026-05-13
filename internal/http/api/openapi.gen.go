@@ -592,12 +592,15 @@ type CancelRepairRequest struct {
 
 // CheckoutSettlementBlocker defines model for CheckoutSettlementBlocker.
 type CheckoutSettlementBlocker struct {
-	Code     CheckoutSettlementBlockerCode `json:"code"`
-	Message  string                        `json:"message"`
-	SourceId *string                       `json:"source_id"`
+	// Code Blocking condition code. unpaid_bill covers non-meter unpaid bills and non-resolvable unsettled bills. pending_meter is returned only for pending meter bills that checkout cannot resolve with the provided final meter reading; a resolvable final electricity period may instead produce an electricity_settlement charge line.
+	Code    CheckoutSettlementBlockerCode `json:"code"`
+	Message string                        `json:"message"`
+
+	// SourceId Optional related bill, lease, or source identifier for the blocker.
+	SourceId *string `json:"source_id"`
 }
 
-// CheckoutSettlementBlockerCode defines model for CheckoutSettlementBlocker.Code.
+// CheckoutSettlementBlockerCode Blocking condition code. unpaid_bill covers non-meter unpaid bills and non-resolvable unsettled bills. pending_meter is returned only for pending meter bills that checkout cannot resolve with the provided final meter reading; a resolvable final electricity period may instead produce an electricity_settlement charge line.
 type CheckoutSettlementBlockerCode string
 
 // CheckoutSettlementFinalizeRequest defines model for CheckoutSettlementFinalizeRequest.
@@ -609,7 +612,7 @@ type CheckoutSettlementFinalizeRequest struct {
 	CheckoutDate openapi_types.Date `json:"checkout_date"`
 	CleaningFee  *int               `json:"cleaning_fee,omitempty"`
 
-	// FinalMeterReading Final meter reading at checkout. In v1 this is stored for snapshot display only and must not be used by the frontend to calculate electricity fees.
+	// FinalMeterReading Final meter reading at checkout. When provided and resolvable by the backend, it is used as backend-owned input for the final electricity settlement calculation. Frontend must not calculate electricity fees locally.
 	FinalMeterReading *int `json:"final_meter_reading"`
 	KeyCardLossFee    *int `json:"key_card_loss_fee,omitempty"`
 
@@ -642,7 +645,7 @@ type CheckoutSettlementInput struct {
 	CheckoutDate openapi_types.Date `json:"checkout_date"`
 	CleaningFee  *int               `json:"cleaning_fee,omitempty"`
 
-	// FinalMeterReading Final meter reading at checkout. In v1 this is stored for snapshot display only and must not be used by the frontend to calculate electricity fees.
+	// FinalMeterReading Final meter reading at checkout. When provided and resolvable by the backend, it is used as backend-owned input for the final electricity settlement calculation. Frontend must not calculate electricity fees locally.
 	FinalMeterReading *int `json:"final_meter_reading"`
 	KeyCardLossFee    *int `json:"key_card_loss_fee,omitempty"`
 
@@ -671,9 +674,11 @@ type CheckoutSettlementLine struct {
 	Direction   CheckoutSettlementLineDirection `json:"direction"`
 
 	// Kind rent_refund means a manual rent refund decision accepted by the backend. It does not represent an automatically prorated unexpired-rent refund.
-	Kind      CheckoutSettlementLineKind `json:"kind"`
-	Label     string                     `json:"label"`
-	SourceRef *map[string]interface{}    `json:"source_ref"`
+	Kind  CheckoutSettlementLineKind `json:"kind"`
+	Label string                     `json:"label"`
+
+	// SourceRef Optional backend-owned source details for the line. For electricity_settlement, this includes previous_reading, final_meter_reading, usage, unit_price, amount, nullable source_bill_id, and source_type so export/reprint can display the calculation without frontend recomputation.
+	SourceRef *map[string]interface{} `json:"source_ref"`
 }
 
 // CheckoutSettlementLineDirection defines model for CheckoutSettlementLine.Direction.
@@ -730,11 +735,14 @@ type CheckoutSettlementResponseNetDirection string
 
 // CheckoutSettlementWarning defines model for CheckoutSettlementWarning.
 type CheckoutSettlementWarning struct {
-	Code    CheckoutSettlementWarningCode `json:"code"`
-	Message string                        `json:"message"`
+	// Code Informational warning code. Warnings do not authorize frontend-side settlement calculation; frontend must display backend lines and totals as returned.
+	Code CheckoutSettlementWarningCode `json:"code"`
+
+	// Message Human-readable warning message for operator display.
+	Message string `json:"message"`
 }
 
-// CheckoutSettlementWarningCode defines model for CheckoutSettlementWarning.Code.
+// CheckoutSettlementWarningCode Informational warning code. Warnings do not authorize frontend-side settlement calculation; frontend must display backend lines and totals as returned.
 type CheckoutSettlementWarningCode string
 
 // CreateJournalLogRequest defines model for CreateJournalLogRequest.
