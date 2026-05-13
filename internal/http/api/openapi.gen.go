@@ -75,12 +75,13 @@ const (
 
 // Defines values for CheckoutSettlementBlockerCode.
 const (
-	CheckoutSettlementBlockerCodeChargeExceedsDeposit    CheckoutSettlementBlockerCode = "charge_exceeds_deposit"
-	CheckoutSettlementBlockerCodeDepositNotHeld          CheckoutSettlementBlockerCode = "deposit_not_held"
-	CheckoutSettlementBlockerCodeLeaseNotActive          CheckoutSettlementBlockerCode = "lease_not_active"
-	CheckoutSettlementBlockerCodePendingMeter            CheckoutSettlementBlockerCode = "pending_meter"
-	CheckoutSettlementBlockerCodeRentRefundNotCalculated CheckoutSettlementBlockerCode = "rent_refund_not_calculated"
-	CheckoutSettlementBlockerCodeUnpaidBill              CheckoutSettlementBlockerCode = "unpaid_bill"
+	CheckoutSettlementBlockerCodeChargeExceedsDeposit             CheckoutSettlementBlockerCode = "charge_exceeds_deposit"
+	CheckoutSettlementBlockerCodeCheckoutDateBeforeLeaseStart     CheckoutSettlementBlockerCode = "checkout_date_before_lease_start"
+	CheckoutSettlementBlockerCodeDepositNotHeld                   CheckoutSettlementBlockerCode = "deposit_not_held"
+	CheckoutSettlementBlockerCodeLeaseNotActive                   CheckoutSettlementBlockerCode = "lease_not_active"
+	CheckoutSettlementBlockerCodeManualRentRefundDecisionRequired CheckoutSettlementBlockerCode = "manual_rent_refund_decision_required"
+	CheckoutSettlementBlockerCodePendingMeter                     CheckoutSettlementBlockerCode = "pending_meter"
+	CheckoutSettlementBlockerCodeUnpaidBill                       CheckoutSettlementBlockerCode = "unpaid_bill"
 )
 
 // Defines values for CheckoutSettlementLineDirection.
@@ -109,8 +110,8 @@ const (
 
 // Defines values for CheckoutSettlementWarningCode.
 const (
-	FinalMeterSnapshotOnly  CheckoutSettlementWarningCode = "final_meter_snapshot_only"
-	RentRefundNotCalculated CheckoutSettlementWarningCode = "rent_refund_not_calculated"
+	FinalMeterSnapshotOnly   CheckoutSettlementWarningCode = "final_meter_snapshot_only"
+	ManualRentRefundRecorded CheckoutSettlementWarningCode = "manual_rent_refund_recorded"
 )
 
 // Defines values for CreateLeaseRequestElectricityBillingCadence.
@@ -155,6 +156,7 @@ const (
 	FinancialReportEntryItemCategoryElectricityPayment FinancialReportEntryItemCategory = "electricity_payment"
 	FinancialReportEntryItemCategoryJournalExpense     FinancialReportEntryItemCategory = "journal_expense"
 	FinancialReportEntryItemCategoryRentPayment        FinancialReportEntryItemCategory = "rent_payment"
+	FinancialReportEntryItemCategoryRentRefund         FinancialReportEntryItemCategory = "rent_refund"
 )
 
 // Defines values for FinancialReportEntrySourceDetail.
@@ -163,6 +165,7 @@ const (
 	DepositRefund    FinancialReportEntrySourceDetail = "deposit_refund"
 	JournalExpense   FinancialReportEntrySourceDetail = "journal_expense"
 	Payment          FinancialReportEntrySourceDetail = "payment"
+	RentRefund       FinancialReportEntrySourceDetail = "rent_refund"
 )
 
 // Defines values for FinancialReportEntrySourceType.
@@ -599,46 +602,64 @@ type CheckoutSettlementBlockerCode string
 
 // CheckoutSettlementFinalizeRequest defines model for CheckoutSettlementFinalizeRequest.
 type CheckoutSettlementFinalizeRequest struct {
-	// CheckoutDate 實際退租日；backend 以此計算並保存結算快照。
+	// ActualMoveOutDate Actual move-out or handover date. This is operational metadata only and does not affect lease end_date, accounting periods, or automatic rent calculation.
+	ActualMoveOutDate *openapi_types.Date `json:"actual_move_out_date"`
+
+	// CheckoutDate Settlement effective date and lease termination date. The backend writes this value to lease end_date and stores it in the finalized settlement snapshot. It is not the actual move-out date.
 	CheckoutDate openapi_types.Date `json:"checkout_date"`
 	CleaningFee  *int               `json:"cleaning_fee,omitempty"`
 
-	// FinalMeterReading 退租電表讀數；v1 僅作為快照顯示輸入，不由 frontend 計算電費。
+	// FinalMeterReading Final meter reading at checkout. In v1 this is stored for snapshot display only and must not be used by the frontend to calculate electricity fees.
 	FinalMeterReading *int `json:"final_meter_reading"`
 	KeyCardLossFee    *int `json:"key_card_loss_fee,omitempty"`
 
-	// Notes 退租結算備註。
+	// ManualRentRefundAmount Manually decided unexpired-rent refund amount. The backend never calculates a prorated rent refund automatically.
+	ManualRentRefundAmount *int `json:"manual_rent_refund_amount,omitempty"`
+
+	// ManualRentRefundReason Manual rent refund decision reason. Required when checkout_date is earlier than the original lease end_date or when manual_rent_refund_amount is greater than 0. Otherwise nullable. Amount 0 with a reason records an explicit decision not to refund unexpired rent.
+	ManualRentRefundReason *string `json:"manual_rent_refund_reason"`
+
+	// Notes Checkout settlement notes.
 	Notes    *string `json:"notes"`
 	OtherFee *int    `json:"other_fee,omitempty"`
 
-	// OtherFeeReason other_fee 大於 0 時建議提供。
+	// OtherFeeReason Recommended when other_fee is greater than 0.
 	OtherFeeReason *string `json:"other_fee_reason"`
 
 	// PreviewToken Preview response token. Finalize rejects mismatched or stale tokens.
 	PreviewToken string `json:"preview_token"`
 
-	// Reason 退租原因。
+	// Reason Checkout settlement reason.
 	Reason string `json:"reason"`
 }
 
 // CheckoutSettlementInput defines model for CheckoutSettlementInput.
 type CheckoutSettlementInput struct {
-	// CheckoutDate 實際退租日；backend 以此計算並保存結算快照。
+	// ActualMoveOutDate Actual move-out or handover date. This is operational metadata only and does not affect lease end_date, accounting periods, or automatic rent calculation.
+	ActualMoveOutDate *openapi_types.Date `json:"actual_move_out_date"`
+
+	// CheckoutDate Settlement effective date and lease termination date. The backend writes this value to lease end_date and stores it in the finalized settlement snapshot. It is not the actual move-out date.
 	CheckoutDate openapi_types.Date `json:"checkout_date"`
 	CleaningFee  *int               `json:"cleaning_fee,omitempty"`
 
-	// FinalMeterReading 退租電表讀數；v1 僅作為快照顯示輸入，不由 frontend 計算電費。
+	// FinalMeterReading Final meter reading at checkout. In v1 this is stored for snapshot display only and must not be used by the frontend to calculate electricity fees.
 	FinalMeterReading *int `json:"final_meter_reading"`
 	KeyCardLossFee    *int `json:"key_card_loss_fee,omitempty"`
 
-	// Notes 退租結算備註。
+	// ManualRentRefundAmount Manually decided unexpired-rent refund amount. The backend never calculates a prorated rent refund automatically.
+	ManualRentRefundAmount *int `json:"manual_rent_refund_amount,omitempty"`
+
+	// ManualRentRefundReason Manual rent refund decision reason. Required when checkout_date is earlier than the original lease end_date or when manual_rent_refund_amount is greater than 0. Otherwise nullable. Amount 0 with a reason records an explicit decision not to refund unexpired rent.
+	ManualRentRefundReason *string `json:"manual_rent_refund_reason"`
+
+	// Notes Checkout settlement notes.
 	Notes    *string `json:"notes"`
 	OtherFee *int    `json:"other_fee,omitempty"`
 
-	// OtherFeeReason other_fee 大於 0 時建議提供。
+	// OtherFeeReason Recommended when other_fee is greater than 0.
 	OtherFeeReason *string `json:"other_fee_reason"`
 
-	// Reason 退租原因。
+	// Reason Checkout settlement reason.
 	Reason string `json:"reason"`
 }
 
@@ -648,15 +669,17 @@ type CheckoutSettlementLine struct {
 	Amount      int                             `json:"amount"`
 	Description *string                         `json:"description"`
 	Direction   CheckoutSettlementLineDirection `json:"direction"`
-	Kind        CheckoutSettlementLineKind      `json:"kind"`
-	Label       string                          `json:"label"`
-	SourceRef   *map[string]interface{}         `json:"source_ref"`
+
+	// Kind rent_refund means a manual rent refund decision accepted by the backend. It does not represent an automatically prorated unexpired-rent refund.
+	Kind      CheckoutSettlementLineKind `json:"kind"`
+	Label     string                     `json:"label"`
+	SourceRef *map[string]interface{}    `json:"source_ref"`
 }
 
 // CheckoutSettlementLineDirection defines model for CheckoutSettlementLine.Direction.
 type CheckoutSettlementLineDirection string
 
-// CheckoutSettlementLineKind defines model for CheckoutSettlementLine.Kind.
+// CheckoutSettlementLineKind rent_refund means a manual rent refund decision accepted by the backend. It does not represent an automatically prorated unexpired-rent refund.
 type CheckoutSettlementLineKind string
 
 // CheckoutSettlementPreviewRequest defines model for CheckoutSettlementPreviewRequest.
@@ -664,14 +687,24 @@ type CheckoutSettlementPreviewRequest = CheckoutSettlementInput
 
 // CheckoutSettlementResponse defines model for CheckoutSettlementResponse.
 type CheckoutSettlementResponse struct {
+	// ActualMoveOutDate Actual move-out or handover date. This is operational metadata only.
+	ActualMoveOutDate *openapi_types.Date         `json:"actual_move_out_date"`
 	Blockers          []CheckoutSettlementBlocker `json:"blockers"`
-	CheckoutDate      openapi_types.Date          `json:"checkout_date"`
-	DepositAmount     int                         `json:"deposit_amount"`
-	ExportAvailable   bool                        `json:"export_available"`
-	FinalMeterReading *int                        `json:"final_meter_reading"`
-	FinalizedAt       *time.Time                  `json:"finalized_at"`
-	LeaseId           openapi_types.UUID          `json:"lease_id"`
-	Lines             []CheckoutSettlementLine    `json:"lines"`
+
+	// CheckoutDate Settlement effective date and lease termination date. This is not the actual move-out date.
+	CheckoutDate      openapi_types.Date       `json:"checkout_date"`
+	DepositAmount     int                      `json:"deposit_amount"`
+	ExportAvailable   bool                     `json:"export_available"`
+	FinalMeterReading *int                     `json:"final_meter_reading"`
+	FinalizedAt       *time.Time               `json:"finalized_at"`
+	LeaseId           openapi_types.UUID       `json:"lease_id"`
+	Lines             []CheckoutSettlementLine `json:"lines"`
+
+	// ManualRentRefundAmount Manually decided unexpired-rent refund amount. Amount 0 with a reason records an explicit no-refund decision.
+	ManualRentRefundAmount *int `json:"manual_rent_refund_amount,omitempty"`
+
+	// ManualRentRefundReason Manual rent refund decision reason. Required when checkout_date is earlier than the original lease end_date or when manual_rent_refund_amount is greater than 0. Otherwise nullable.
+	ManualRentRefundReason *string `json:"manual_rent_refund_reason"`
 
 	// NetAmount Absolute net amount after refund and charge lines are balanced.
 	NetAmount    int                                    `json:"net_amount"`
@@ -911,9 +944,15 @@ type FinancialReportSummaryItem struct {
 
 // ForceTerminateRequest defines model for ForceTerminateRequest.
 type ForceTerminateRequest struct {
+	// ActualMoveOutDate Actual move-out or handover date. This is operational metadata only and does not affect write-off handling, deposit handling, or rent refund behavior.
+	ActualMoveOutDate *openapi_types.Date `json:"actual_move_out_date"`
+
 	// DepositHandling Deposit handling decision during force termination; write_off marks the deposit as written_off, while keep_held leaves it held for later manual handling.
 	DepositHandling ForceTerminateRequestDepositHandling `json:"deposit_handling"`
 	Reason          string                               `json:"reason"`
+
+	// TerminationDate Force-termination effective date. The backend writes this value to lease end_date.
+	TerminationDate openapi_types.Date `json:"termination_date"`
 }
 
 // ForceTerminateRequestDepositHandling Deposit handling decision during force termination; write_off marks the deposit as written_off, while keep_held leaves it held for later manual handling.
@@ -1108,6 +1147,8 @@ type LeaseReplaceResponseReplacementDepositHandling string
 
 // LeaseResponse defines model for LeaseResponse.
 type LeaseResponse struct {
+	// ActualMoveOutDate Actual move-out or handover date. This is operational metadata only and does not affect lease end_date or accounting.
+	ActualMoveOutDate         *openapi_types.Date                     `json:"actual_move_out_date"`
 	CreatedAt                 *time.Time                              `json:"created_at,omitempty"`
 	DepositAmount             *int                                    `json:"deposit_amount,omitempty"`
 	DepositDeductionAmount    *int                                    `json:"deposit_deduction_amount"`

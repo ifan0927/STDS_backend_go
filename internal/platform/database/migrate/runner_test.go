@@ -35,6 +35,7 @@ var expectedMigrationVersions = []string{
 	"000017",
 	"000018",
 	"000019",
+	"000020",
 }
 
 func TestRunnerUpAppliesMigrationsAndRecordsVersions(t *testing.T) {
@@ -80,8 +81,8 @@ func TestRunnerDownRollsBackAppliedMigrationsInDescendingOrder(t *testing.T) {
 	defer db.Close()
 
 	migrations := migrationsByVersion(t, "down")
-	appliedVersions := []string{"000012", "000013", "000014", "000015", "000016", "000017", "000018", "000019"}
-	expectedRollbackOrder := []string{"000019", "000018", "000017", "000016", "000015", "000014", "000013", "000012"}
+	appliedVersions := []string{"000012", "000013", "000014", "000015", "000016", "000017", "000018", "000019", "000020"}
+	expectedRollbackOrder := []string{"000020", "000019", "000018", "000017", "000016", "000015", "000014", "000013", "000012"}
 
 	expectSchemaMigrationsQuery(mock, appliedVersions)
 	for _, version := range expectedRollbackOrder {
@@ -187,6 +188,40 @@ func TestAccountingEntryDisplayFieldsMigrationAddsNullableFields(t *testing.T) {
 		if !strings.Contains(downSQL, snippet) {
 			t.Fatalf("000017 down migration missing %q", snippet)
 		}
+	}
+}
+
+func TestCheckoutDatesAndRentRefundMigrationAddsNullableColumnAndCategories(t *testing.T) {
+	migrations := migrationsByVersion(t, "up")
+	sql := migrations["000020"].SQL
+
+	requiredSnippets := []string{
+		"ALTER TABLE leases",
+		"ADD COLUMN IF NOT EXISTS actual_move_out_date DATE",
+		"accounting_entries_category_check",
+		"monthly_snapshot_entries_category_check",
+		"'rent_refund'",
+	}
+	for _, snippet := range requiredSnippets {
+		if !strings.Contains(sql, snippet) {
+			t.Fatalf("000020 migration missing %q", snippet)
+		}
+	}
+	forbiddenSnippets := []string{
+		"UPDATE leases",
+		"COALESCE",
+		"end_date",
+		"checkout_date",
+	}
+	for _, snippet := range forbiddenSnippets {
+		if strings.Contains(sql, snippet) {
+			t.Fatalf("000020 migration should not backfill actual_move_out_date using %q", snippet)
+		}
+	}
+
+	downSQL := migrationsByVersion(t, "down")["000020"].SQL
+	if !strings.Contains(downSQL, "DROP COLUMN IF EXISTS actual_move_out_date") {
+		t.Fatal("000020 down migration missing actual_move_out_date drop")
 	}
 }
 

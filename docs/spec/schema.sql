@@ -166,6 +166,7 @@ CREATE TABLE leases (
     rent_amount             INTEGER      NOT NULL CHECK (rent_amount > 0),  -- BR-02
     start_date              DATE         NOT NULL,
     end_date                DATE         NOT NULL,
+    actual_move_out_date    DATE,
     rent_billing_cadence     VARCHAR(20)  NOT NULL DEFAULT 'monthly' CHECK (rent_billing_cadence IN ('monthly', 'quarterly', 'semiannual', 'annual')),
     electricity_billing_cadence VARCHAR(20) NOT NULL DEFAULT 'monthly' CHECK (electricity_billing_cadence IN ('monthly', 'bimonthly')),
     starting_meter_reading  INTEGER CHECK (starting_meter_reading IS NULL OR starting_meter_reading >= 0),
@@ -337,7 +338,8 @@ CREATE TABLE accounting_entries (
     -- category：財報分類
     category            VARCHAR(50)  NOT NULL CHECK (category IN (
                             'rent_payment', 'electricity_payment',
-                            'deposit_refund', 'deposit_deduction', 'journal_expense'
+                            'deposit_refund', 'deposit_deduction',
+                            'journal_expense', 'rent_refund'
                         )),
     -- accounting_title_*：穩定會計科目維度；category 仍是財報 total classification
     accounting_title_id   UUID        REFERENCES accounting_titles(id),
@@ -398,7 +400,8 @@ CREATE TABLE monthly_snapshot_entries (
     snapshot_id     UUID        NOT NULL REFERENCES monthly_snapshots(id),
     category        VARCHAR(50)  NOT NULL CHECK (category IN (
                         'rent_payment', 'electricity_payment',
-                        'deposit_refund', 'deposit_deduction', 'journal_expense'
+                        'deposit_refund', 'deposit_deduction',
+                        'journal_expense', 'rent_refund'
                     )),
     -- snapshot copy 保護 finalized historical report 不受 accounting title rename 影響
     accounting_title_id   UUID        REFERENCES accounting_titles(id),

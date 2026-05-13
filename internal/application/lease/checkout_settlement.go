@@ -17,42 +17,48 @@ import (
 )
 
 const (
-	checkoutLineDepositRefund       = "deposit_refund"
-	checkoutLineCleaningFee         = "cleaning_fee"
-	checkoutLineKeyCardLoss         = "key_card_loss"
-	checkoutLineOtherFee            = "other_fee"
-	checkoutLineElectricSettlement  = "electricity_settlement"
-	checkoutLineRentRefund          = "rent_refund"
-	checkoutDirectionRefund         = "refund"
-	checkoutDirectionCharge         = "charge"
-	checkoutDirectionInfo           = "info"
-	checkoutNetRefund               = "refund"
-	checkoutNetPayable              = "payable"
-	checkoutNetZero                 = "zero"
-	checkoutWarningRentRefund       = "rent_refund_not_calculated"
-	checkoutWarningFinalMeter       = "final_meter_snapshot_only"
-	checkoutBlockerUnpaidBill       = "unpaid_bill"
-	checkoutBlockerPendingMeter     = "pending_meter"
-	checkoutBlockerLeaseNotActive   = "lease_not_active"
-	checkoutBlockerDepositNotHeld   = "deposit_not_held"
-	checkoutBlockerChargeExceedsDep = "charge_exceeds_deposit"
-	checkoutBlockerRentRefund       = "rent_refund_not_calculated"
+	checkoutLineDepositRefund          = "deposit_refund"
+	checkoutLineCleaningFee            = "cleaning_fee"
+	checkoutLineKeyCardLoss            = "key_card_loss"
+	checkoutLineOtherFee               = "other_fee"
+	checkoutLineElectricSettlement     = "electricity_settlement"
+	checkoutLineRentRefund             = "rent_refund"
+	checkoutDirectionRefund            = "refund"
+	checkoutDirectionCharge            = "charge"
+	checkoutDirectionInfo              = "info"
+	checkoutNetRefund                  = "refund"
+	checkoutNetPayable                 = "payable"
+	checkoutNetZero                    = "zero"
+	checkoutWarningRentRefund          = "rent_refund_not_calculated"
+	checkoutWarningFinalMeter          = "final_meter_snapshot_only"
+	checkoutBlockerUnpaidBill          = "unpaid_bill"
+	checkoutBlockerPendingMeter        = "pending_meter"
+	checkoutBlockerLeaseNotActive      = "lease_not_active"
+	checkoutBlockerDepositNotHeld      = "deposit_not_held"
+	checkoutBlockerChargeExceedsDep    = "charge_exceeds_deposit"
+	checkoutBlockerRentRefund          = "manual_rent_refund_decision_required"
+	checkoutBlockerCheckoutBeforeStart = "checkout_date_before_lease_start"
+	rentRefundAccountingCategory       = "rent_refund"
+	rentRefundAccountingTitleCode      = "4604"
 )
 
 // CheckoutSettlementInput is the shared input for preview and finalize.
 type CheckoutSettlementInput struct {
-	ActorRole           string
-	AssignedPropertyIDs []string
-	LeaseID             string
-	CheckoutDate        time.Time
-	Reason              string
-	FinalMeterReading   *int
-	CleaningFee         int
-	KeyCardLossFee      int
-	OtherFee            int
-	OtherFeeReason      *string
-	Notes               *string
-	PreviewToken        string
+	ActorRole              string
+	AssignedPropertyIDs    []string
+	LeaseID                string
+	CheckoutDate           time.Time
+	ActualMoveOutDate      *time.Time
+	Reason                 string
+	FinalMeterReading      *int
+	CleaningFee            int
+	KeyCardLossFee         int
+	OtherFee               int
+	OtherFeeReason         *string
+	ManualRentRefundAmount int
+	ManualRentRefundReason *string
+	Notes                  *string
+	PreviewToken           string
 }
 
 // CheckoutSettlementLine is one typed settlement item.
@@ -80,28 +86,31 @@ type CheckoutSettlementWarning struct {
 
 // CheckoutSettlement is the backend-owned checkout settlement snapshot.
 type CheckoutSettlement struct {
-	LeaseID           string                      `json:"lease_id"`
-	PropertyID        string                      `json:"property_id"`
-	TenantID          string                      `json:"tenant_id"`
-	RoomID            string                      `json:"room_id"`
-	PropertyLabel     string                      `json:"property_label"`
-	TenantLabel       string                      `json:"tenant_label"`
-	RoomLabel         string                      `json:"room_label"`
-	CheckoutDate      time.Time                   `json:"checkout_date"`
-	Reason            string                      `json:"reason"`
-	FinalMeterReading *int                        `json:"final_meter_reading,omitempty"`
-	Notes             *string                     `json:"notes,omitempty"`
-	Lines             []CheckoutSettlementLine    `json:"lines"`
-	Blockers          []CheckoutSettlementBlocker `json:"blockers"`
-	Warnings          []CheckoutSettlementWarning `json:"warnings"`
-	DepositAmount     int                         `json:"deposit_amount"`
-	TotalRefund       int                         `json:"total_refund"`
-	TotalCharge       int                         `json:"total_charge"`
-	NetAmount         int                         `json:"net_amount"`
-	NetDirection      string                      `json:"net_direction"`
-	PreviewToken      *string                     `json:"preview_token,omitempty"`
-	ExportAvailable   bool                        `json:"export_available"`
-	FinalizedAt       *time.Time                  `json:"finalized_at,omitempty"`
+	LeaseID                string                      `json:"lease_id"`
+	PropertyID             string                      `json:"property_id"`
+	TenantID               string                      `json:"tenant_id"`
+	RoomID                 string                      `json:"room_id"`
+	PropertyLabel          string                      `json:"property_label"`
+	TenantLabel            string                      `json:"tenant_label"`
+	RoomLabel              string                      `json:"room_label"`
+	CheckoutDate           time.Time                   `json:"checkout_date"`
+	ActualMoveOutDate      *time.Time                  `json:"actual_move_out_date,omitempty"`
+	Reason                 string                      `json:"reason"`
+	FinalMeterReading      *int                        `json:"final_meter_reading,omitempty"`
+	ManualRentRefundAmount int                         `json:"manual_rent_refund_amount"`
+	ManualRentRefundReason *string                     `json:"manual_rent_refund_reason,omitempty"`
+	Notes                  *string                     `json:"notes,omitempty"`
+	Lines                  []CheckoutSettlementLine    `json:"lines"`
+	Blockers               []CheckoutSettlementBlocker `json:"blockers"`
+	Warnings               []CheckoutSettlementWarning `json:"warnings"`
+	DepositAmount          int                         `json:"deposit_amount"`
+	TotalRefund            int                         `json:"total_refund"`
+	TotalCharge            int                         `json:"total_charge"`
+	NetAmount              int                         `json:"net_amount"`
+	NetDirection           string                      `json:"net_direction"`
+	PreviewToken           *string                     `json:"preview_token,omitempty"`
+	ExportAvailable        bool                        `json:"export_available"`
+	FinalizedAt            *time.Time                  `json:"finalized_at,omitempty"`
 }
 
 // PreviewCheckoutSettlementService calculates checkout settlement without mutation.
@@ -261,6 +270,7 @@ func (s *FinalizeCheckoutSettlementService) Execute(ctx context.Context, input C
 		terminatedLease, err := s.repo.TerminateLease(ctx, tx, TerminateLeaseParams{
 			LeaseID:           leaseID,
 			EndDate:           normalizeDate(normalized.CheckoutDate),
+			ActualMoveOutDate: normalized.ActualMoveOutDate,
 			TerminationReason: normalized.Reason,
 			SettlementDetail:  detail,
 		})
@@ -269,6 +279,9 @@ func (s *FinalizeCheckoutSettlementService) Execute(ctx context.Context, input C
 		}
 
 		if err := recordDepositAccountingEntries(ctx, tx, s.accountingRepo, settled, refundAmount, deductionAmount, depositReasonValue(deductionReason), occurredAt); err != nil {
+			return err
+		}
+		if err := recordRentRefundAccountingEntry(ctx, tx, s.accountingRepo, settled, proposal); err != nil {
 			return err
 		}
 		if refundAmount > 0 {
@@ -387,7 +400,15 @@ func normalizeCheckoutSettlementInput(input CheckoutSettlementInput) (CheckoutSe
 	if input.CleaningFee < 0 || input.KeyCardLossFee < 0 || input.OtherFee < 0 {
 		return input, errSettlementNegative
 	}
+	if input.ManualRentRefundAmount < 0 {
+		return input, apperr.ErrBadRequest.WithDetails(map[string]interface{}{"field": "manual_rent_refund_amount"})
+	}
 	input.OtherFeeReason = trimmedStringPtr(input.OtherFeeReason)
+	input.ManualRentRefundReason = trimmedStringPtr(input.ManualRentRefundReason)
+	if input.ManualRentRefundAmount > 0 && input.ManualRentRefundReason == nil {
+		return input, apperr.ErrBadRequest.WithDetails(map[string]interface{}{"field": "manual_rent_refund_reason"})
+	}
+	input.ActualMoveOutDate = normalizedDatePtr(input.ActualMoveOutDate)
 	input.Notes = trimmedStringPtr(input.Notes)
 	return input, nil
 }
@@ -424,6 +445,20 @@ func buildCheckoutSettlement(current CheckoutSettlementContext, bills []Bill, in
 	if input.OtherFee > 0 {
 		lines = append(lines, CheckoutSettlementLine{Kind: checkoutLineOtherFee, Label: "其他費用", Direction: checkoutDirectionCharge, Amount: input.OtherFee, Description: input.OtherFeeReason})
 	}
+	if input.ManualRentRefundAmount > 0 {
+		lines = append(lines, CheckoutSettlementLine{
+			Kind:        checkoutLineRentRefund,
+			Label:       "未到期租金手動退回",
+			Direction:   checkoutDirectionRefund,
+			Amount:      input.ManualRentRefundAmount,
+			Description: input.ManualRentRefundReason,
+			SourceRef: map[string]interface{}{
+				"type":     "manual_rent_refund",
+				"lease_id": current.Lease.ID,
+				"reason":   stringValue(input.ManualRentRefundReason),
+			},
+		})
+	}
 	if input.FinalMeterReading != nil {
 		lines = append(lines, CheckoutSettlementLine{
 			Kind:        checkoutLineElectricSettlement,
@@ -441,27 +476,30 @@ func buildCheckoutSettlement(current CheckoutSettlementContext, bills []Bill, in
 	netDirection, netAmount := checkoutSettlementNet(totalRefund, totalCharge)
 
 	settlement := &CheckoutSettlement{
-		LeaseID:           current.Lease.ID,
-		PropertyID:        current.Lease.PropertyID,
-		TenantID:          current.Lease.TenantID,
-		RoomID:            current.Lease.RoomID,
-		PropertyLabel:     current.PropertyName,
-		TenantLabel:       current.TenantName,
-		RoomLabel:         current.RoomName,
-		CheckoutDate:      normalizeDate(input.CheckoutDate),
-		Reason:            input.Reason,
-		FinalMeterReading: input.FinalMeterReading,
-		Notes:             input.Notes,
-		Lines:             lines,
-		Blockers:          blockers,
-		Warnings:          warnings,
-		DepositAmount:     current.Lease.DepositAmount,
-		TotalRefund:       totalRefund,
-		TotalCharge:       totalCharge,
-		NetAmount:         netAmount,
-		NetDirection:      netDirection,
-		ExportAvailable:   finalizedAt != nil,
-		FinalizedAt:       finalizedAt,
+		LeaseID:                current.Lease.ID,
+		PropertyID:             current.Lease.PropertyID,
+		TenantID:               current.Lease.TenantID,
+		RoomID:                 current.Lease.RoomID,
+		PropertyLabel:          current.PropertyName,
+		TenantLabel:            current.TenantName,
+		RoomLabel:              current.RoomName,
+		CheckoutDate:           normalizeDate(input.CheckoutDate),
+		ActualMoveOutDate:      input.ActualMoveOutDate,
+		Reason:                 input.Reason,
+		FinalMeterReading:      input.FinalMeterReading,
+		ManualRentRefundAmount: input.ManualRentRefundAmount,
+		ManualRentRefundReason: input.ManualRentRefundReason,
+		Notes:                  input.Notes,
+		Lines:                  lines,
+		Blockers:               blockers,
+		Warnings:               warnings,
+		DepositAmount:          current.Lease.DepositAmount,
+		TotalRefund:            totalRefund,
+		TotalCharge:            totalCharge,
+		NetAmount:              netAmount,
+		NetDirection:           netDirection,
+		ExportAvailable:        finalizedAt != nil,
+		FinalizedAt:            finalizedAt,
 	}
 	if len(blockers) == 0 && finalizedAt == nil {
 		token := checkoutSettlementToken(current.Lease, bills, input, lines, totalRefund, totalCharge)
@@ -478,8 +516,13 @@ func checkoutSettlementBlockers(lease Lease, bills []Bill, input CheckoutSettlem
 	if lease.DepositStatus != domainlease.DepositStatusHeld {
 		blockers = append(blockers, CheckoutSettlementBlocker{Code: checkoutBlockerDepositNotHeld, Message: "押金狀態不是 held，無法執行退租結算。"})
 	}
+	if normalizeDate(input.CheckoutDate).Before(normalizeDate(lease.StartDate)) {
+		blockers = append(blockers, CheckoutSettlementBlocker{Code: checkoutBlockerCheckoutBeforeStart, Message: "Checkout effective date cannot be before the lease start date."})
+	}
 	if normalizeDate(input.CheckoutDate).Before(normalizeDate(lease.EndDate)) {
-		blockers = append(blockers, CheckoutSettlementBlocker{Code: checkoutBlockerRentRefund, Message: "v1 尚未自動計算未到期租金退款，不能定稿退租結算。"})
+		if input.ManualRentRefundReason == nil {
+			blockers = append(blockers, CheckoutSettlementBlocker{Code: checkoutBlockerRentRefund, Message: "Early checkout requires an explicit manual rent refund decision reason; the amount may be 0."})
+		}
 	}
 	for _, bill := range bills {
 		switch bill.Status {
@@ -533,21 +576,24 @@ func checkoutSettlementNet(totalRefund int, totalCharge int) (string, int) {
 
 func checkoutSettlementToken(lease Lease, bills []Bill, input CheckoutSettlementInput, lines []CheckoutSettlementLine, totalRefund int, totalCharge int) string {
 	payload := map[string]interface{}{
-		"lease_id":       lease.ID,
-		"lease_version":  lease.Version,
-		"checkout_date":  normalizeDate(input.CheckoutDate).Format("2006-01-02"),
-		"reason":         input.Reason,
-		"final_meter":    input.FinalMeterReading,
-		"cleaning_fee":   input.CleaningFee,
-		"key_card_fee":   input.KeyCardLossFee,
-		"other_fee":      input.OtherFee,
-		"other_reason":   stringValue(input.OtherFeeReason),
-		"notes":          stringValue(input.Notes),
-		"bills":          bills,
-		"lines":          lines,
-		"total_refund":   totalRefund,
-		"total_charge":   totalCharge,
-		"deposit_amount": lease.DepositAmount,
+		"lease_id":                  lease.ID,
+		"lease_version":             lease.Version,
+		"checkout_date":             normalizeDate(input.CheckoutDate).Format("2006-01-02"),
+		"actual_move_out_date":      dateStringValue(input.ActualMoveOutDate),
+		"reason":                    input.Reason,
+		"final_meter":               input.FinalMeterReading,
+		"cleaning_fee":              input.CleaningFee,
+		"key_card_fee":              input.KeyCardLossFee,
+		"other_fee":                 input.OtherFee,
+		"other_reason":              stringValue(input.OtherFeeReason),
+		"manual_rent_refund_amount": input.ManualRentRefundAmount,
+		"manual_rent_refund_reason": stringValue(input.ManualRentRefundReason),
+		"notes":                     stringValue(input.Notes),
+		"bills":                     bills,
+		"lines":                     lines,
+		"total_refund":              totalRefund,
+		"total_charge":              totalCharge,
+		"deposit_amount":            lease.DepositAmount,
 	}
 	data, _ := json.Marshal(payload)
 	sum := sha256.Sum256(data)
@@ -597,6 +643,43 @@ func checkoutSettlementFromDetailMap(detail map[string]interface{}) (*CheckoutSe
 	return &settlement, nil
 }
 
+func recordRentRefundAccountingEntry(ctx context.Context, tx *sql.Tx, repo DepositAccountingRepository, lease *Lease, settlement *CheckoutSettlement) error {
+	if settlement.ManualRentRefundAmount == 0 {
+		return nil
+	}
+	if repo == nil {
+		return apperr.ErrInternalServerError.WithDetails(map[string]interface{}{"dependency": "rent_refund_accounting"})
+	}
+
+	sourceDate := normalizeDate(settlement.CheckoutDate)
+	description := stringValue(settlement.ManualRentRefundReason)
+	displayNote := "租金退回"
+	if settlement.ManualRentRefundReason != nil {
+		displayNote = *settlement.ManualRentRefundReason
+	}
+	if err := repo.CreateDepositAccountingEntry(ctx, tx, DepositAccountingEntryParams{
+		PropertyID:          lease.PropertyID,
+		Category:            rentRefundAccountingCategory,
+		AccountingTitleCode: rentRefundAccountingTitleCode,
+		Amount:              -settlement.ManualRentRefundAmount,
+		Description:         &description,
+		SourceRef: map[string]interface{}{
+			"type":          "RentRefunded",
+			"lease_id":      lease.ID,
+			"checkout_date": sourceDate.Format("2006-01-02"),
+			"reason":        description,
+		},
+		Year:        sourceDate.Year(),
+		Month:       int(sourceDate.Month()),
+		SourceDate:  &sourceDate,
+		TenantLabel: &settlement.TenantLabel,
+		DisplayNote: &displayNote,
+	}); err != nil {
+		return mapDepositAccountingError(err)
+	}
+	return nil
+}
+
 func stringPtr(value string) *string {
 	return &value
 }
@@ -612,9 +695,24 @@ func trimmedStringPtr(value *string) *string {
 	return &trimmed
 }
 
+func normalizedDatePtr(value *time.Time) *time.Time {
+	if value == nil {
+		return nil
+	}
+	normalized := normalizeDate(*value)
+	return &normalized
+}
+
 func stringValue(value *string) string {
 	if value == nil {
 		return ""
 	}
 	return *value
+}
+
+func dateStringValue(value *time.Time) string {
+	if value == nil {
+		return ""
+	}
+	return normalizeDate(*value).Format("2006-01-02")
 }

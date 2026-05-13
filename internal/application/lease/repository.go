@@ -24,6 +24,7 @@ type Lease struct {
 	RentAmount                int
 	StartDate                 time.Time
 	EndDate                   time.Time
+	ActualMoveOutDate         *time.Time
 	RentBillingCadence        string
 	ElectricityBillingCadence string
 	StartingMeterReading      *int
@@ -164,6 +165,7 @@ type DepositAccountingEntryParams struct {
 type TerminateLeaseParams struct {
 	LeaseID           string
 	EndDate           time.Time
+	ActualMoveOutDate *time.Time
 	TerminationReason string
 	SettlementDetail  map[string]interface{}
 }
@@ -171,6 +173,8 @@ type TerminateLeaseParams struct {
 // ForceTerminateLeaseParams contains fields for forced termination.
 type ForceTerminateLeaseParams struct {
 	LeaseID           string
+	TerminationDate   time.Time
+	ActualMoveOutDate *time.Time
 	TerminationReason string
 	DepositStatus     string
 }

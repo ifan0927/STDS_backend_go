@@ -40,6 +40,12 @@ properties:
   checkout_date:
     type: string
     format: date
+    description: Settlement effective date and lease termination date. This is not the actual move-out date.
+  actual_move_out_date:
+    type: string
+    format: date
+    nullable: true
+    description: Actual move-out or handover date. This is operational metadata only.
   reason:
     type: string
   final_meter_reading:
@@ -48,6 +54,14 @@ properties:
   notes:
     type: string
     nullable: true
+  manual_rent_refund_amount:
+    type: integer
+    minimum: 0
+    description: Manually decided unexpired-rent refund amount. Amount 0 with a reason records an explicit no-refund decision.
+  manual_rent_refund_reason:
+    type: string
+    nullable: true
+    description: Manual rent refund decision reason. Required when checkout_date is earlier than the original lease end_date or when manual_rent_refund_amount is greater than 0. Otherwise nullable.
   lines:
     type: array
     items:

@@ -6,7 +6,7 @@ properties:
   code:
     type: string
     enum:
-      - rent_refund_not_calculated
+      - manual_rent_refund_recorded
       - final_meter_snapshot_only
   message:
     type: string

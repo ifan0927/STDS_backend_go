@@ -33,6 +33,11 @@ properties:
   end_date:
     type: string
     format: date
+  actual_move_out_date:
+    type: string
+    format: date
+    nullable: true
+    description: Actual move-out or handover date. This is operational metadata only and does not affect lease end_date or accounting.
   electricity_billing_cadence:
     type: string
     enum:

@@ -69,7 +69,7 @@ Lease 於建立時也決定 `electricityBillingCadence`（`monthly | bimonthly`�
 
 **LeaseTerminated 後的處理**：目前沒有 Billing BC runtime subscriber。正常終止時帳單應已全清；強制終止時未結清帳單在 command 內同步標記 `written_off`、記錄 force termination progress，並完成 force termination。若未來需要處理剩餘預產帳單 void，應先確認是否需與 termination command 強一致。
 
-**強制終止租約**（呆帳情境）：由主辦以上角色執行，流程記錄於 `force_terminations` table（Billing BC），在同一 command 中同步將未結清帳單標記為 `written_off`、記錄 `deposit_handling` 決策、完成 ForceTermination，並發出 `LeaseTerminated`。
+**強制終止租約**（呆帳情境）：由主辦以上角色執行，流程記錄於 `force_terminations` table（Billing BC），在同一 command 中同步將未結清帳單標記為 `written_off`、記錄 `termination_date` 與 `deposit_handling` 決策、完成 ForceTermination，並發出 `LeaseTerminated`。`termination_date` 會寫入 `leases.end_date`；`actual_move_out_date` 為可選實際搬出 / 點交日 metadata，不影響 write-off、押金處理或租金退費。
 
 ### Journal
 
@@ -514,7 +514,7 @@ PropertyOwnerView
 | Tenant Index | `(status)` on tenants table |
 | 維修 Index | `(property_id, status)` on repair_requests table |
 | 日誌 Index | `(property_id, created_at)` on journal_logs table |
-| ForceTermination table | 欄位：`id, lease_id, initiated_by, reason, deposit_handling: write_off \| keep_held, status: completed, created_at`（bill_ids[] 移除，改用 force_termination_bills table；`in_progress` 為已棄用的補償流程歷史狀態） |
+| ForceTermination table | 欄位：`id, lease_id, initiated_by, reason, deposit_handling: write_off \| keep_held, status: completed, created_at`（bill_ids[] 移除，改用 force_termination_bills table；`in_progress` 為已棄用的補償流程歷史狀態）。強制終止生效日存於 `leases.end_date`；實際搬出 / 點交日可選存於 `leases.actual_move_out_date`。 |
 | PropertyAccount 架構 | 月結快照拆兩層：summary + entries |
 | accounting_titles table | 欄位：`id, code, name, kind: income \| expense, legacy_kind, is_active, created_at, updated_at`；runtime master data；`kind` 不取代 `category` 的財報 total classification |
 | legacy_accounting_title_mappings table | 欄位：`legacy_accounting_id, legacy_accounting_title_id, accounting_title_id, legacy_accounting_kind, legacy_accounting_title, source_table, created_at`；保存 legacy `xx_accounting_title` 對 canonical title 的 mapping |
@@ -546,9 +546,10 @@ PropertyOwnerView
 ### 強制終止（呆帳）
 
 ```
-主辦以上角色發起強制終止，填寫原因
-  → 建立 ForceTermination 記錄（leaseId, billIds[], reason, deposit_handling）
+主辦以上角色發起強制終止，填寫原因、termination_date，並可選填 actual_move_out_date
+  → 建立 ForceTermination 記錄（leaseId, force_termination_bills, reason, deposit_handling）
   → 同步將未結清帳單標記為 written_off，每筆成功記錄進度
+  → 將 leases.end_date 更新為 termination_date，若提供則保存 actual_move_out_date
   → 全部成功後將 ForceTermination 標記 completed
   → 全部 written_off 完成 → 依 deposit_handling 人工決定將押金標記 written_off，或維持 held 等待後續押金處理
   → LeaseTerminated event（forced: true）

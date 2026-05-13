@@ -166,6 +166,8 @@ type ForceTerminateLeaseInput struct {
 	ActorUserID         string
 	AssignedPropertyIDs []string
 	LeaseID             string
+	TerminationDate     time.Time
+	ActualMoveOutDate   *time.Time
 	Reason              string
 	DepositHandling     string
 }
@@ -210,6 +212,15 @@ func (s *ForceTerminateLeaseService) Execute(ctx context.Context, input ForceTer
 	if depositHandling == "" {
 		return nil, errForceTerminationDepositHandlingRequired
 	}
+	terminationDate := normalizeDate(input.TerminationDate)
+	if terminationDate.IsZero() {
+		return nil, apperr.ErrBadRequest.WithDetails(map[string]interface{}{"field": "termination_date"})
+	}
+	var actualMoveOutDate *time.Time
+	if input.ActualMoveOutDate != nil {
+		normalizedActualMoveOutDate := normalizeDate(*input.ActualMoveOutDate)
+		actualMoveOutDate = &normalizedActualMoveOutDate
+	}
 
 	var forceTermination *ForceTermination
 	err = s.txRunner.WithinTransaction(ctx, func(ctx context.Context, tx *sql.Tx, recorder *txrunner.EventRecorder) error {
@@ -219,6 +230,9 @@ func (s *ForceTerminateLeaseService) Execute(ctx context.Context, input ForceTer
 		}
 		if actorRole == "organizer" && !containsAssignedProperty(input.AssignedPropertyIDs, current.PropertyID) {
 			return apperr.ErrForbidden
+		}
+		if terminationDate.Before(normalizeDate(current.StartDate)) {
+			return apperr.ErrBadRequest.WithDetails(map[string]interface{}{"field": "termination_date"})
 		}
 		aggregate, err := domainlease.Rehydrate(domainlease.State{
 			ID:                        current.ID,
@@ -272,6 +286,8 @@ func (s *ForceTerminateLeaseService) Execute(ctx context.Context, input ForceTer
 
 		terminatedLease, err := s.repo.ForceTerminateLease(ctx, tx, ForceTerminateLeaseParams{
 			LeaseID:           leaseID,
+			TerminationDate:   terminationDate,
+			ActualMoveOutDate: actualMoveOutDate,
 			TerminationReason: reason,
 			DepositStatus:     state.DepositStatus,
 		})

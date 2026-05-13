@@ -7,6 +7,7 @@ required:
 properties:
   kind:
     type: string
+    description: rent_refund means a manual rent refund decision accepted by the backend. It does not represent an automatically prorated unexpired-rent refund.
     enum:
       - deposit_refund
       - cleaning_fee

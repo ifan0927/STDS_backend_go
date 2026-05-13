@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -821,6 +822,32 @@ func TestGetFinancialReportLiveMapsAccountingEntriesAndAggregatesTotals(t *testi
 	}
 }
 
+func TestFinancialReportAmountTreatsRentRefundAsExpense(t *testing.T) {
+	report := &FinancialReport{}
+
+	addFinancialReportAmount(report, "rent_refund", -5000)
+
+	if report.TotalIncome != 0 || report.TotalExpense != 5000 {
+		t.Fatalf("report totals = income %d expense %d, want 0 5000", report.TotalIncome, report.TotalExpense)
+	}
+}
+
+func TestProfitLossFallbackMapsRentRefundToTitleAndNegativeAmount(t *testing.T) {
+	codeSQL := profitLossCategoryCodeSQL("'rent_refund'")
+	nameSQL := profitLossCategoryNameSQL("'rent_refund'")
+	amountSQL := profitLossSignedAmountSQL("'rent_refund'", "-5000")
+
+	if !strings.Contains(codeSQL, "WHEN 'rent_refund' THEN '4604'") {
+		t.Fatalf("rent_refund title code fallback missing from %s", codeSQL)
+	}
+	if !strings.Contains(nameSQL, "WHEN 'rent_refund' THEN '租金退回(減項)'") {
+		t.Fatalf("rent_refund title name fallback missing from %s", nameSQL)
+	}
+	if !strings.Contains(amountSQL, "'rent_refund'") || !strings.Contains(amountSQL, "THEN -ABS(-5000)") {
+		t.Fatalf("rent_refund negative amount mapping missing from %s", amountSQL)
+	}
+}
+
 func TestGetFinancialReportFinalizedAllowsEmptyEntries(t *testing.T) {
 	db, mock, repo := newBillingRepoTest(t)
 	defer closeBillingDB(t, db)
@@ -1131,10 +1158,11 @@ func TestGetProfitLossPeriodLiveSQLDefinesFixedMappingSignedAmountAndUnsupported
 		"WHEN 'rent_payment' THEN '4603'",
 		"WHEN 'electricity_payment' THEN '4605'",
 		"WHEN 'deposit_refund' THEN '4602'",
+		"WHEN 'rent_refund' THEN '4604'",
 		"WHEN 'deposit_deduction' THEN '4601'",
 		"WHEN 'journal_expense' THEN '6681'",
 		"WHEN ae.category IN ('rent_payment', 'electricity_payment', 'deposit_deduction') THEN ABS(ae.amount)",
-		"WHEN ae.category IN ('deposit_refund', 'journal_expense') THEN -ABS(ae.amount)",
+		"WHEN ae.category IN ('deposit_refund', 'rent_refund', 'journal_expense') THEN -ABS(ae.amount)",
 		"ELSE ae.amount",
 		"WHEN ae.accounting_title_code IS NULL AND CASE ae.category",
 		"THEN '未支援會計分類：' || ae.category",

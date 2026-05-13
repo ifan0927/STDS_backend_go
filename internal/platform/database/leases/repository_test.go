@@ -92,6 +92,7 @@ func TestFindLeaseByIDForUpdateScansNullableFieldsAndSettlementDetail(t *testing
 	rent_amount,
 	start_date,
 	end_date,
+	actual_move_out_date,
 	rent_billing_cadence,
 	electricity_billing_cadence,
 	starting_meter_reading,
@@ -113,7 +114,7 @@ WHERE id = $1
 FOR UPDATE`)).
 		WithArgs("lease-1").
 		WillReturnRows(newLeaseRows().AddRow(
-			"lease-1", "tenant-1", "property-1", "room-1", 25000, startDate, endDate, "monthly", "monthly", nil,
+			"lease-1", "tenant-1", "property-1", "room-1", 25000, startDate, endDate, nil, "monthly", "monthly", nil,
 			"terminated", 50000, 30000, 20000, "settled", "cleaning", "renewal candidate",
 			"tenant requested move-out", `{"deductions":[{"type":"cleaning","amount":20000}],"refund":30000}`,
 			now, now, 7,
@@ -182,6 +183,7 @@ RETURNING
 	rent_amount,
 	start_date,
 	end_date,
+	actual_move_out_date,
 	rent_billing_cadence,
 	electricity_billing_cadence,
 	starting_meter_reading,
@@ -199,7 +201,7 @@ RETURNING
 	version`)).
 		WithArgs("tenant-1", "room-1", "property-1", 25000, startDate, endDate, "monthly", "monthly", 1250, 50000, &notes).
 		WillReturnRows(newLeaseRows().AddRow(
-			"lease-1", "tenant-1", "property-1", "room-1", 25000, startDate, endDate, "monthly", "monthly", 1250,
+			"lease-1", "tenant-1", "property-1", "room-1", 25000, startDate, endDate, nil, "monthly", "monthly", 1250,
 			"active", 50000, nil, nil, "held", nil, notes, nil, nil, now, now, 1,
 		))
 
@@ -265,6 +267,7 @@ RETURNING
 	rent_amount,
 	start_date,
 	end_date,
+	actual_move_out_date,
 	rent_billing_cadence,
 	electricity_billing_cadence,
 	starting_meter_reading,
@@ -282,7 +285,7 @@ RETURNING
 	version`)).
 		WithArgs("tenant-1", "room-1", "property-1", 54000, startDate, endDate, "quarterly", "monthly", 1300, 50000, nil).
 		WillReturnRows(newLeaseRowsWithRentCadence().AddRow(
-			"lease-1", "tenant-1", "property-1", "room-1", 54000, startDate, endDate, "quarterly", "monthly", 1300,
+			"lease-1", "tenant-1", "property-1", "room-1", 54000, startDate, endDate, nil, "quarterly", "monthly", 1300,
 			"active", 50000, nil, nil, "held", nil, nil, nil, nil, now, now, 1,
 		))
 
@@ -336,8 +339,10 @@ func TestLeaseReturningCommandsMapNoRowsToNotFound(t *testing.T) {
 		{
 			name: "ForceTerminateLease",
 			run: func(ctx context.Context, repo *SQLRepository, tx *sql.Tx) (*Lease, error) {
+				terminationDate := time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)
 				return repo.ForceTerminateLease(ctx, tx, ForceTerminateLeaseParams{
 					LeaseID:           "lease-1",
+					TerminationDate:   terminationDate,
 					TerminationReason: "breach",
 					DepositStatus:     "forfeited",
 				})
@@ -404,6 +409,7 @@ SET status = 'terminated',
 	end_date = $2,
 	termination_reason = $3,
 	settlement_detail = COALESCE($4::jsonb, settlement_detail),
+	actual_move_out_date = COALESCE($5, actual_move_out_date),
 	updated_at = now(),
 	version = version + 1
 WHERE id = $1
@@ -416,6 +422,7 @@ RETURNING
 	rent_amount,
 	start_date,
 	end_date,
+	actual_move_out_date,
 	rent_billing_cadence,
 	electricity_billing_cadence,
 	starting_meter_reading,
@@ -431,9 +438,9 @@ RETURNING
 	created_at,
 	updated_at,
 	version`)).
-		WithArgs("lease-1", endDate, "tenant requested", nil).
+		WithArgs("lease-1", endDate, "tenant requested", nil, nil).
 		WillReturnRows(newLeaseRows().AddRow(
-			"lease-1", "tenant-1", "property-1", "room-1", 25000, startDate, endDate, "monthly", "monthly", nil,
+			"lease-1", "tenant-1", "property-1", "room-1", 25000, startDate, endDate, nil, "monthly", "monthly", nil,
 			"terminated", 50000, nil, nil, "held", nil, nil, "tenant requested", nil, now, now, 2,
 		))
 
@@ -477,6 +484,7 @@ SET status = 'terminated',
 	end_date = $2,
 	termination_reason = $3,
 	settlement_detail = COALESCE($4::jsonb, settlement_detail),
+	actual_move_out_date = COALESCE($5, actual_move_out_date),
 	updated_at = now(),
 	version = version + 1
 WHERE id = $1
@@ -489,6 +497,7 @@ RETURNING
 	rent_amount,
 	start_date,
 	end_date,
+	actual_move_out_date,
 	rent_billing_cadence,
 	electricity_billing_cadence,
 	starting_meter_reading,
@@ -504,9 +513,9 @@ RETURNING
 	created_at,
 	updated_at,
 	version`)).
-		WithArgs("lease-1", endDate, "tenant requested", `{"ExportAvailable":true,"LeaseID":"lease-1","NetAmount":45000,"NetDirection":"refund"}`).
+		WithArgs("lease-1", endDate, "tenant requested", `{"ExportAvailable":true,"LeaseID":"lease-1","NetAmount":45000,"NetDirection":"refund"}`, nil).
 		WillReturnRows(newLeaseRows().AddRow(
-			"lease-1", "tenant-1", "property-1", "room-1", 25000, startDate, endDate, "monthly", "monthly", nil,
+			"lease-1", "tenant-1", "property-1", "room-1", 25000, startDate, endDate, nil, "monthly", "monthly", nil,
 			"terminated", 50000, nil, nil, "held", nil, nil, "tenant requested",
 			`{"ExportAvailable":true,"LeaseID":"lease-1","NetAmount":45000,"NetDirection":"refund"}`,
 			now, now, 2,
@@ -531,18 +540,21 @@ RETURNING
 	}
 }
 
-func TestForceTerminateLeaseUpdatesReasonAndDepositStatus(t *testing.T) {
+func TestTerminateLeasePersistsActualMoveOutDateWhenProvided(t *testing.T) {
 	db, mock, repo := newLeaseRepoTest(t)
 	defer closeLeaseDB(t, db)
 	tx := beginLeaseTx(t, db, mock)
 	now := time.Date(2026, 4, 29, 10, 0, 0, 0, time.UTC)
 	startDate := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
-	endDate := time.Date(2027, 4, 30, 0, 0, 0, 0, time.UTC)
+	endDate := time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)
+	actualMoveOutDate := time.Date(2026, 9, 25, 0, 0, 0, 0, time.UTC)
 
 	mock.ExpectQuery(regexp.QuoteMeta(`UPDATE leases
-SET status = 'force_terminated',
-	termination_reason = $2,
-	deposit_status = $3,
+SET status = 'terminated',
+	end_date = $2,
+	termination_reason = $3,
+	settlement_detail = COALESCE($4::jsonb, settlement_detail),
+	actual_move_out_date = COALESCE($5, actual_move_out_date),
 	updated_at = now(),
 	version = version + 1
 WHERE id = $1
@@ -555,6 +567,7 @@ RETURNING
 	rent_amount,
 	start_date,
 	end_date,
+	actual_move_out_date,
 	rent_billing_cadence,
 	electricity_billing_cadence,
 	starting_meter_reading,
@@ -570,21 +583,94 @@ RETURNING
 	created_at,
 	updated_at,
 	version`)).
-		WithArgs("lease-1", "breach", "forfeited").
+		WithArgs("lease-1", endDate, "tenant requested", nil, &actualMoveOutDate).
 		WillReturnRows(newLeaseRows().AddRow(
-			"lease-1", "tenant-1", "property-1", "room-1", 25000, startDate, endDate, "monthly", "monthly", nil,
+			"lease-1", "tenant-1", "property-1", "room-1", 25000, startDate, endDate, actualMoveOutDate, "monthly", "monthly", nil,
+			"terminated", 50000, nil, nil, "held", nil, nil, "tenant requested", nil, now, now, 2,
+		))
+
+	lease, err := repo.TerminateLease(context.Background(), tx, TerminateLeaseParams{
+		LeaseID:           "lease-1",
+		EndDate:           endDate,
+		ActualMoveOutDate: &actualMoveOutDate,
+		TerminationReason: "tenant requested",
+	})
+	if err != nil {
+		t.Fatalf("TerminateLease: %v", err)
+	}
+	if lease.ActualMoveOutDate == nil || !lease.ActualMoveOutDate.Equal(actualMoveOutDate) {
+		t.Fatalf("actual move-out date = %v, want %v", lease.ActualMoveOutDate, actualMoveOutDate)
+	}
+
+	mock.ExpectRollback()
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("Rollback: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestForceTerminateLeaseUpdatesReasonAndDepositStatus(t *testing.T) {
+	db, mock, repo := newLeaseRepoTest(t)
+	defer closeLeaseDB(t, db)
+	tx := beginLeaseTx(t, db, mock)
+	now := time.Date(2026, 4, 29, 10, 0, 0, 0, time.UTC)
+	startDate := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	endDate := time.Date(2027, 4, 30, 0, 0, 0, 0, time.UTC)
+	actualMoveOutDate := time.Date(2026, 4, 25, 0, 0, 0, 0, time.UTC)
+
+	mock.ExpectQuery(regexp.QuoteMeta(`UPDATE leases
+SET status = 'force_terminated',
+	end_date = $2,
+	termination_reason = $3,
+	deposit_status = $4,
+	actual_move_out_date = COALESCE($5, actual_move_out_date),
+	updated_at = now(),
+	version = version + 1
+WHERE id = $1
+  AND deleted_at IS NULL
+RETURNING
+	id,
+	tenant_id,
+	property_id,
+	room_id,
+	rent_amount,
+	start_date,
+	end_date,
+	actual_move_out_date,
+	rent_billing_cadence,
+	electricity_billing_cadence,
+	starting_meter_reading,
+	status,
+	deposit_amount,
+	deposit_refund_amount,
+	deposit_deduction_amount,
+	deposit_status,
+	deposit_deduction_reason,
+	notes,
+	termination_reason,
+	settlement_detail::text,
+	created_at,
+	updated_at,
+	version`)).
+		WithArgs("lease-1", endDate, "breach", "forfeited", &actualMoveOutDate).
+		WillReturnRows(newLeaseRows().AddRow(
+			"lease-1", "tenant-1", "property-1", "room-1", 25000, startDate, endDate, actualMoveOutDate, "monthly", "monthly", nil,
 			"force_terminated", 50000, nil, nil, "forfeited", nil, nil, "breach", nil, now, now, 3,
 		))
 
 	lease, err := repo.ForceTerminateLease(context.Background(), tx, ForceTerminateLeaseParams{
 		LeaseID:           "lease-1",
+		TerminationDate:   endDate,
+		ActualMoveOutDate: &actualMoveOutDate,
 		TerminationReason: "breach",
 		DepositStatus:     "forfeited",
 	})
 	if err != nil {
 		t.Fatalf("ForceTerminateLease: %v", err)
 	}
-	if lease.Status != "force_terminated" || lease.DepositStatus != "forfeited" {
+	if lease.Status != "force_terminated" || lease.DepositStatus != "forfeited" || lease.ActualMoveOutDate == nil || !lease.ActualMoveOutDate.Equal(actualMoveOutDate) {
 		t.Fatalf("unexpected lease: %+v", lease)
 	}
 
@@ -619,6 +705,7 @@ RETURNING
 	rent_amount,
 	start_date,
 	end_date,
+	actual_move_out_date,
 	rent_billing_cadence,
 	electricity_billing_cadence,
 	starting_meter_reading,
@@ -636,7 +723,7 @@ RETURNING
 	version`)).
 		WithArgs("lease-1", 28000).
 		WillReturnRows(newLeaseRows().AddRow(
-			"lease-1", "tenant-1", "property-1", "room-1", 28000, startDate, endDate, "monthly", "monthly", nil,
+			"lease-1", "tenant-1", "property-1", "room-1", 28000, startDate, endDate, nil, "monthly", "monthly", nil,
 			"active", 50000, nil, nil, "held", nil, nil, nil, nil, now, now, 4,
 		))
 
@@ -686,6 +773,7 @@ RETURNING
 	rent_amount,
 	start_date,
 	end_date,
+	actual_move_out_date,
 	rent_billing_cadence,
 	electricity_billing_cadence,
 	starting_meter_reading,
@@ -703,7 +791,7 @@ RETURNING
 	version`)).
 		WithArgs("lease-1", 30000, 20000, reason).
 		WillReturnRows(newLeaseRows().AddRow(
-			"lease-1", "tenant-1", "property-1", "room-1", 25000, startDate, endDate, "monthly", "monthly", nil,
+			"lease-1", "tenant-1", "property-1", "room-1", 25000, startDate, endDate, nil, "monthly", "monthly", nil,
 			"terminated", 50000, 30000, 20000, "settled", reason, nil, nil, nil, now, now, 5,
 		))
 
@@ -1207,6 +1295,7 @@ func newLeaseRows() *sqlmock.Rows {
 		"rent_amount",
 		"start_date",
 		"end_date",
+		"actual_move_out_date",
 		"rent_billing_cadence",
 		"electricity_billing_cadence",
 		"starting_meter_reading",
@@ -1234,6 +1323,7 @@ func newLeaseRowsWithRentCadence() *sqlmock.Rows {
 		"rent_amount",
 		"start_date",
 		"end_date",
+		"actual_move_out_date",
 		"rent_billing_cadence",
 		"electricity_billing_cadence",
 		"starting_meter_reading",

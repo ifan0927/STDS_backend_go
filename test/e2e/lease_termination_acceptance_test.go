@@ -73,8 +73,10 @@ func TestE2ELeaseTerminationAcceptance(t *testing.T) {
 		}
 
 		resp, body, err := adminClient.postJSON(ctx, "/api/v1/leases/"+fixture.Lease.ID+"/force-terminate", map[string]any{
-			"reason":           "E2E forced termination for unpaid bills",
-			"deposit_handling": "write_off",
+			"termination_date":     "2026-07-15",
+			"actual_move_out_date": "2026-07-10",
+			"reason":               "E2E forced termination for unpaid bills",
+			"deposit_handling":     "write_off",
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -130,6 +132,9 @@ func TestE2ELeaseTerminationAcceptance(t *testing.T) {
 		if readBack.Status != "force_terminated" {
 			t.Fatalf("expected lease status %q, got %q", "force_terminated", readBack.Status)
 		}
+		if readBack.EndDate != "2026-07-15" || readBack.ActualMoveOutDate == nil || *readBack.ActualMoveOutDate != "2026-07-10" {
+			t.Fatalf("unexpected force termination lifecycle dates: %+v", readBack)
+		}
 		if readBack.DepositStatus != "written_off" {
 			t.Fatalf("expected lease deposit_status %q, got %q", "written_off", readBack.DepositStatus)
 		}
@@ -178,18 +183,19 @@ type terminationE2ELeaseFixture struct {
 }
 
 type terminationE2ELeaseResponse struct {
-	ID                        string `json:"id"`
-	TenantID                  string `json:"tenant_id"`
-	RoomID                    string `json:"room_id"`
-	PropertyID                string `json:"property_id"`
-	RentAmount                int    `json:"rent_amount"`
-	StartDate                 string `json:"start_date"`
-	EndDate                   string `json:"end_date"`
-	ElectricityBillingCadence string `json:"electricity_billing_cadence"`
-	StartingMeterReading      *int   `json:"starting_meter_reading"`
-	Status                    string `json:"status"`
-	DepositAmount             int    `json:"deposit_amount"`
-	DepositStatus             string `json:"deposit_status"`
+	ID                        string  `json:"id"`
+	TenantID                  string  `json:"tenant_id"`
+	RoomID                    string  `json:"room_id"`
+	PropertyID                string  `json:"property_id"`
+	RentAmount                int     `json:"rent_amount"`
+	StartDate                 string  `json:"start_date"`
+	EndDate                   string  `json:"end_date"`
+	ActualMoveOutDate         *string `json:"actual_move_out_date"`
+	ElectricityBillingCadence string  `json:"electricity_billing_cadence"`
+	StartingMeterReading      *int    `json:"starting_meter_reading"`
+	Status                    string  `json:"status"`
+	DepositAmount             int     `json:"deposit_amount"`
+	DepositStatus             string  `json:"deposit_status"`
 }
 
 type terminationE2EForceTerminationResponse struct {

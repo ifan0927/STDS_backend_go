@@ -11,7 +11,8 @@ properties:
       - lease_not_active
       - deposit_not_held
       - charge_exceeds_deposit
-      - rent_refund_not_calculated
+      - checkout_date_before_lease_start
+      - manual_rent_refund_decision_required
   message:
     type: string
   source_id:

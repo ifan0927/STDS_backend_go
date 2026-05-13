@@ -11,6 +11,7 @@ properties:
       - electricity_payment
       - deposit_refund
       - deposit_deduction
+      - rent_refund
       - journal_expense
   accounting_title_id:
     type: string

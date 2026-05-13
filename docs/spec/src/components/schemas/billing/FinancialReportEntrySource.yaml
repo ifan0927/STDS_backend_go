@@ -16,3 +16,4 @@ properties:
       - journal_expense
       - deposit_refund
       - deposit_deduction
+      - rent_refund

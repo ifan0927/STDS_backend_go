@@ -199,6 +199,7 @@ LIMIT 1`)).
 	l.rent_amount,
 	l.start_date,
 	l.end_date,
+	l.actual_move_out_date,
 	l.rent_billing_cadence,
 	l.electricity_billing_cadence,
 	l.starting_meter_reading,
@@ -222,7 +223,7 @@ WHERE l.tenant_id = $1
 ORDER BY l.created_at DESC`)).
 		WithArgs("30000000-0000-0000-0000-000000000001", "10000000-0000-0000-0000-000000000001", "active").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "tenant_id", "property_id", "room_id", "rent_amount", "start_date", "end_date", "rent_billing_cadence", "electricity_billing_cadence", "starting_meter_reading", "status", "deposit_amount", "deposit_refund_amount", "deposit_deduction_amount", "deposit_status", "deposit_deduction_reason", "notes", "termination_reason", "settlement_detail", "created_at", "updated_at", "version",
+			"id", "tenant_id", "property_id", "room_id", "rent_amount", "start_date", "end_date", "actual_move_out_date", "rent_billing_cadence", "electricity_billing_cadence", "starting_meter_reading", "status", "deposit_amount", "deposit_refund_amount", "deposit_deduction_amount", "deposit_status", "deposit_deduction_reason", "notes", "termination_reason", "settlement_detail", "created_at", "updated_at", "version",
 		}).AddRow(
 			"40000000-0000-0000-0000-000000000001",
 			"30000000-0000-0000-0000-000000000001",
@@ -231,6 +232,7 @@ ORDER BY l.created_at DESC`)).
 			12000,
 			startDate,
 			endDate,
+			nil,
 			"quarterly",
 			"monthly",
 			1250,

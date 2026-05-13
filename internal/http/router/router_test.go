@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1479,9 +1480,12 @@ func TestPreviewLeaseCheckoutSettlementReturnsTokenAndForwardsScope(t *testing.T
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/leases/40000000-0000-0000-0000-000000000001/checkout-settlement/preview", strings.NewReader(`{
 		"checkout_date":"2026-12-31",
+		"actual_move_out_date":"2026-12-20",
 		"reason":"tenant requested",
 		"cleaning_fee":3000,
-		"key_card_loss_fee":1000
+		"key_card_loss_fee":1000,
+		"manual_rent_refund_amount":500,
+		"manual_rent_refund_reason":"manual refund approved"
 	}`))
 	req.Header.Set("Authorization", "Bearer valid-token")
 	req.Header.Set("Content-Type", "application/json")
@@ -1499,11 +1503,255 @@ func TestPreviewLeaseCheckoutSettlementReturnsTokenAndForwardsScope(t *testing.T
 	if payload["preview_token"] == nil || payload["net_direction"] != "refund" {
 		t.Fatalf("unexpected checkout preview response: %+v", payload)
 	}
+	if payload["actual_move_out_date"] != "2026-12-20" {
+		t.Fatalf("actual_move_out_date = %v, want 2026-12-20", payload["actual_move_out_date"])
+	}
+	if payload["manual_rent_refund_amount"] != float64(500) || payload["manual_rent_refund_reason"] != "manual refund approved" {
+		t.Fatalf("unexpected manual rent refund fields: %+v", payload)
+	}
+	lines, ok := payload["lines"].([]any)
+	if !ok {
+		t.Fatalf("lines has unexpected shape: %+v", payload["lines"])
+	}
+	hasRentRefundLine := false
+	for _, item := range lines {
+		line, ok := item.(map[string]any)
+		if !ok {
+			t.Fatalf("line has unexpected shape: %+v", item)
+		}
+		if line["kind"] == "rent_refund" && line["direction"] == "refund" && line["amount"] == float64(500) {
+			hasRentRefundLine = true
+		}
+	}
+	if !hasRentRefundLine {
+		t.Fatalf("expected rent_refund line in response: %+v", lines)
+	}
+	if payload["total_refund"] != float64(36500) {
+		t.Fatalf("total_refund = %v, want 36500", payload["total_refund"])
+	}
 	if payload["total_charge"] != float64(4000) {
 		t.Fatalf("total_charge = %v, want 4000", payload["total_charge"])
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestFinalizeLeaseCheckoutSettlementForwardsNewContractFields(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+
+	engine := newTestEngineWithAllServices(
+		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
+		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{
+			propertyByLeaseID: map[string]string{
+				"40000000-0000-0000-0000-000000000001": testPropertyID1,
+			},
+		},
+		"",
+		fakeJobRunsRepo{},
+		fakePropertyQueryRepo{},
+		fakeLeaseQueryRepo{},
+		fakeTenantQueryRepo{},
+		apptenant.NewCreateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
+		apptenant.NewUpdateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
+		applease.NewCreateLeaseService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil)),
+		nil,
+		func(deps *handler.APIServerDeps) {
+			repo := fakeLeaseRepo{}
+			deps.Leases.PreviewCheckout = applease.NewPreviewCheckoutSettlementService(repo, dbtxrunner.New(db, nil))
+			deps.Leases.FinalizeCheckout = applease.NewFinalizeCheckoutSettlementService(repo, fakeDepositAccountingRepo{}, dbtxrunner.New(db, nil))
+		},
+	)
+
+	body := `{
+		"checkout_date":"2026-12-31",
+		"actual_move_out_date":"2026-12-20",
+		"reason":"tenant requested",
+		"cleaning_fee":3000,
+		"key_card_loss_fee":1000,
+		"manual_rent_refund_amount":1000,
+		"manual_rent_refund_reason":"manual rent refund approved"
+	}`
+	previewReq := httptest.NewRequest(http.MethodPost, "/api/v1/leases/40000000-0000-0000-0000-000000000001/checkout-settlement/preview", strings.NewReader(body))
+	previewReq.Header.Set("Authorization", "Bearer valid-token")
+	previewReq.Header.Set("Content-Type", "application/json")
+	previewResp := httptest.NewRecorder()
+	engine.ServeHTTP(previewResp, previewReq)
+	if previewResp.Code != http.StatusOK {
+		t.Fatalf("expected preview 200, got %d: %s", previewResp.Code, previewResp.Body.String())
+	}
+	previewPayload := map[string]any{}
+	if err := json.Unmarshal(previewResp.Body.Bytes(), &previewPayload); err != nil {
+		t.Fatalf("unmarshal preview response: %v", err)
+	}
+	token, ok := previewPayload["preview_token"].(string)
+	if !ok || token == "" {
+		t.Fatalf("expected preview token, got %+v", previewPayload)
+	}
+
+	finalizeBody := `{
+		"checkout_date":"2026-12-31",
+		"actual_move_out_date":"2026-12-20",
+		"reason":"tenant requested",
+		"cleaning_fee":3000,
+		"key_card_loss_fee":1000,
+		"manual_rent_refund_amount":1000,
+		"manual_rent_refund_reason":"manual rent refund approved",
+		"preview_token":` + strconv.Quote(token) + `
+	}`
+	finalizeReq := httptest.NewRequest(http.MethodPost, "/api/v1/leases/40000000-0000-0000-0000-000000000001/checkout-settlement/finalize", strings.NewReader(finalizeBody))
+	finalizeReq.Header.Set("Authorization", "Bearer valid-token")
+	finalizeReq.Header.Set("Content-Type", "application/json")
+	finalizeResp := httptest.NewRecorder()
+	engine.ServeHTTP(finalizeResp, finalizeReq)
+	if finalizeResp.Code != http.StatusOK {
+		t.Fatalf("expected finalize 200, got %d: %s", finalizeResp.Code, finalizeResp.Body.String())
+	}
+	finalizePayload := map[string]any{}
+	if err := json.Unmarshal(finalizeResp.Body.Bytes(), &finalizePayload); err != nil {
+		t.Fatalf("unmarshal finalize response: %v", err)
+	}
+	if finalizePayload["actual_move_out_date"] != "2026-12-20" {
+		t.Fatalf("actual_move_out_date = %v, want 2026-12-20", finalizePayload["actual_move_out_date"])
+	}
+	if finalizePayload["manual_rent_refund_amount"] != float64(1000) || finalizePayload["manual_rent_refund_reason"] != "manual rent refund approved" {
+		t.Fatalf("unexpected manual rent refund fields: %+v", finalizePayload)
+	}
+	lines, ok := finalizePayload["lines"].([]any)
+	if !ok {
+		t.Fatalf("lines = %T, want array", finalizePayload["lines"])
+	}
+	hasRentRefundLine := false
+	for _, rawLine := range lines {
+		line, ok := rawLine.(map[string]any)
+		if !ok {
+			continue
+		}
+		if line["kind"] == "rent_refund" && line["amount"] == float64(1000) && line["direction"] == "refund" {
+			hasRentRefundLine = true
+		}
+	}
+	if !hasRentRefundLine {
+		t.Fatalf("expected finalized rent_refund line, got %+v", lines)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestForceTerminateLeaseForwardsTerminationDates(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+
+	var forceTerminateParams applease.ForceTerminateLeaseParams
+	engine := newTestEngineWithAllServices(
+		fakeUserRepo{userID: "20000000-0000-0000-0000-000000000001", assignedPropertyIDs: []string{testPropertyID1}},
+		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{
+			propertyByLeaseID: map[string]string{
+				"40000000-0000-0000-0000-000000000001": testPropertyID1,
+			},
+		},
+		"",
+		fakeJobRunsRepo{},
+		fakePropertyQueryRepo{},
+		fakeLeaseQueryRepo{},
+		fakeTenantQueryRepo{},
+		apptenant.NewCreateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
+		apptenant.NewUpdateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
+		applease.NewCreateLeaseService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil)),
+		nil,
+		func(deps *handler.APIServerDeps) {
+			deps.Leases.ForceTerminateLease = applease.NewForceTerminateLeaseService(fakeLeaseRepo{forceTerminateParams: &forceTerminateParams}, dbtxrunner.New(db, nil))
+		},
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/leases/40000000-0000-0000-0000-000000000001/force-terminate", strings.NewReader(`{
+		"termination_date":"2026-07-15",
+		"actual_move_out_date":"2026-07-10",
+		"reason":"tenant unreachable",
+		"deposit_handling":"write_off"
+	}`))
+	req.Header.Set("Authorization", "Bearer valid-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if got := forceTerminateParams.TerminationDate.Format("2006-01-02"); got != "2026-07-15" {
+		t.Fatalf("termination date = %q, want 2026-07-15", got)
+	}
+	if forceTerminateParams.ActualMoveOutDate == nil || forceTerminateParams.ActualMoveOutDate.Format("2006-01-02") != "2026-07-10" {
+		t.Fatalf("actual move-out date = %v, want 2026-07-10", forceTerminateParams.ActualMoveOutDate)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+func TestForceTerminateLeaseBadDateUsesSharedAPIErrorShape(t *testing.T) {
+	engine := newTestEngineWithAllServices(
+		fakeUserRepo{assignedPropertyIDs: []string{testPropertyID1}},
+		fakeAuthenticator{assignedPropertyIDs: []string{testPropertyID1}},
+		fakePropertyRepo{},
+		fakeResourceOwnershipRepo{
+			propertyByLeaseID: map[string]string{
+				"40000000-0000-0000-0000-000000000001": testPropertyID1,
+			},
+		},
+		"",
+		fakeJobRunsRepo{},
+		fakePropertyQueryRepo{},
+		fakeLeaseQueryRepo{},
+		fakeTenantQueryRepo{},
+		apptenant.NewCreateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
+		apptenant.NewUpdateTenantService(fakeTenantRepo{}, dbtxrunner.New(nil, nil)),
+		applease.NewCreateLeaseService(fakeLeaseRepo{}, dbtxrunner.New(nil, nil)),
+		nil,
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/leases/40000000-0000-0000-0000-000000000001/force-terminate", strings.NewReader(`{
+		"termination_date":"not-a-date",
+		"reason":"tenant unreachable",
+		"deposit_handling":"write_off"
+	}`))
+	req.Header.Set("Authorization", "Bearer valid-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", resp.Code, resp.Body.String())
+	}
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if payload["error_code"] != "BAD_REQUEST" {
+		t.Fatalf("expected BAD_REQUEST, got %v", payload["error_code"])
+	}
+	if _, ok := payload["details"].(map[string]any); !ok {
+		t.Fatalf("expected shared error details object, got %#v", payload["details"])
 	}
 }
 
@@ -4788,9 +5036,16 @@ type fakeLeaseRepo struct {
 	createErr                  error
 	billsErr                   error
 	settlementDetail           map[string]interface{}
+	forceTerminateParams       *applease.ForceTerminateLeaseParams
 	findForceTerminationIDSink *string
 	forceTerminationID         string
 	forceTerminationErr        error
+}
+
+type fakeDepositAccountingRepo struct{}
+
+func (fakeDepositAccountingRepo) CreateDepositAccountingEntry(context.Context, *sql.Tx, applease.DepositAccountingEntryParams) error {
+	return nil
 }
 
 type fakeLeaseQueryRepo struct {
@@ -6051,6 +6306,7 @@ func (f fakeLeaseRepo) TerminateLease(_ context.Context, _ *sql.Tx, params apple
 	}
 	lease.Status = "terminated"
 	lease.EndDate = params.EndDate
+	lease.ActualMoveOutDate = params.ActualMoveOutDate
 	lease.TerminationReason = &params.TerminationReason
 	if params.SettlementDetail != nil {
 		lease.SettlementDetail = &params.SettlementDetail
@@ -6059,11 +6315,16 @@ func (f fakeLeaseRepo) TerminateLease(_ context.Context, _ *sql.Tx, params apple
 }
 
 func (f fakeLeaseRepo) ForceTerminateLease(_ context.Context, _ *sql.Tx, params applease.ForceTerminateLeaseParams) (*applease.Lease, error) {
+	if f.forceTerminateParams != nil {
+		*f.forceTerminateParams = params
+	}
 	lease, err := f.FindLeaseByIDForUpdate(context.Background(), nil, params.LeaseID)
 	if err != nil {
 		return nil, err
 	}
 	lease.Status = "force_terminated"
+	lease.EndDate = params.TerminationDate
+	lease.ActualMoveOutDate = params.ActualMoveOutDate
 	lease.TerminationReason = &params.TerminationReason
 	lease.DepositStatus = params.DepositStatus
 	return lease, nil
