@@ -14,6 +14,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	appattachment "stds_backend/internal/application/attachment"
+	appbrand "stds_backend/internal/application/brand"
 	appiam "stds_backend/internal/application/iam"
 	appjobs "stds_backend/internal/application/jobs"
 	appjournal "stds_backend/internal/application/journal"
@@ -45,6 +46,7 @@ type APIServer struct {
 	updateCurrentUser *appiam.UpdateCurrentUserService
 	updateUser        *appiam.UpdateUserService
 	assignProperties  *appiam.AssignUserPropertiesService
+	brandProfile      *appbrand.Service
 	jobTriggerService *appjobs.TriggerService
 	propertyQueryRepo dbpropertyquery.Repository
 	propertyDashboard *appproperty.DashboardService
@@ -86,6 +88,7 @@ type APIServerDeps struct {
 	UpdateCurrentUser *appiam.UpdateCurrentUserService
 	UpdateUser        *appiam.UpdateUserService
 	AssignProperties  *appiam.AssignUserPropertiesService
+	BrandProfile      *appbrand.Service
 	JobTrigger        *appjobs.TriggerService
 	PropertyQuery     dbpropertyquery.Repository
 	PropertyDashboard *appproperty.DashboardService
@@ -468,6 +471,7 @@ func NewAPIServer(deps APIServerDeps) *APIServer {
 		updateCurrentUser: deps.UpdateCurrentUser,
 		updateUser:        deps.UpdateUser,
 		assignProperties:  deps.AssignProperties,
+		brandProfile:      deps.BrandProfile,
 		jobTriggerService: deps.JobTrigger,
 		propertyQueryRepo: deps.PropertyQuery,
 		propertyDashboard: deps.PropertyDashboard,
@@ -512,6 +516,7 @@ func validateAPIServerDeps(deps APIServerDeps) {
 		{"update_current_user", deps.UpdateCurrentUser},
 		{"update_user", deps.UpdateUser},
 		{"assign_properties", deps.AssignProperties},
+		{"brand_profile", deps.BrandProfile},
 		{"job_trigger", deps.JobTrigger},
 		{"property_query", deps.PropertyQuery},
 		{"property_dashboard", deps.PropertyDashboard},
@@ -1537,6 +1542,40 @@ func (s *APIServer) ExportLeaseCheckoutSettlement(c *gin.Context, id string, par
 		return
 	}
 	writeHTMLDocument(c, document)
+}
+
+// GetBrandProfile handles singleton brand profile retrieval.
+func (s *APIServer) GetBrandProfile(c *gin.Context) {
+	profile, err := s.brandProfile.GetProfile(c.Request.Context())
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toBrandProfileResponse(profile))
+}
+
+// UpsertBrandProfile handles singleton brand profile creation and update.
+func (s *APIServer) UpsertBrandProfile(c *gin.Context) {
+	var request api.UpsertBrandProfileRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.Error(apperr.ErrBadRequest.WithCause(err))
+		return
+	}
+
+	profile, err := s.brandProfile.UpsertProfile(c.Request.Context(), appbrand.UpsertProfileInput{
+		BrandName:      request.BrandName,
+		ContactPhone:   request.ContactPhone,
+		ContactEmail:   emailPtrToStringPtr(request.ContactEmail),
+		ContactAddress: request.ContactAddress,
+		Version:        request.Version,
+	})
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toBrandProfileResponse(profile))
 }
 
 // ListProperties handles the property listing endpoint.
@@ -3720,6 +3759,32 @@ func (s *APIServer) runJob(c *gin.Context, jobKey appjobs.JobKey, windowKey stri
 	})
 
 	c.JSON(http.StatusAccepted, response)
+}
+
+func toBrandProfileResponse(profile *appbrand.Profile) api.BrandProfileResponse {
+	id, idOK := parseUUID(profile.ID)
+	brandName := profile.BrandName
+	createdAt := profile.CreatedAt
+	updatedAt := profile.UpdatedAt
+	version := profile.Version
+
+	response := api.BrandProfileResponse{
+		BrandName:      &brandName,
+		ContactAddress: profile.ContactAddress,
+		ContactPhone:   profile.ContactPhone,
+		CreatedAt:      &createdAt,
+		UpdatedAt:      &updatedAt,
+		Version:        &version,
+	}
+	if profile.ContactEmail != nil {
+		email := openapi_types.Email(*profile.ContactEmail)
+		response.ContactEmail = &email
+	}
+	if idOK {
+		response.Id = &id
+	}
+
+	return response
 }
 
 func toPropertyResponse(property *dbpropertyquery.Property) api.PropertyResponse {

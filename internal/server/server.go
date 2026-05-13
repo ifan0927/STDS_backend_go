@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	appattachment "stds_backend/internal/application/attachment"
+	appbrand "stds_backend/internal/application/brand"
 	appiam "stds_backend/internal/application/iam"
 	appjobs "stds_backend/internal/application/jobs"
 	appjournal "stds_backend/internal/application/journal"
@@ -22,6 +23,7 @@ import (
 	"stds_backend/internal/platform/database"
 	dbattachments "stds_backend/internal/platform/database/attachments"
 	dbbilling "stds_backend/internal/platform/database/billing"
+	dbbrandprofile "stds_backend/internal/platform/database/brandprofile"
 	dbjobruns "stds_backend/internal/platform/database/jobruns"
 	dbjournal "stds_backend/internal/platform/database/journal"
 	dbleasequery "stds_backend/internal/platform/database/leasequery"
@@ -80,6 +82,7 @@ func New(cfg *config.Config) (*Server, error) {
 	resourceOwnershipRepo := dbresourceownership.NewRepository(db)
 	jobRunsRepo := dbjobruns.NewRepository(db)
 	attachmentRepo := dbattachments.NewRepository(db)
+	brandProfileRepo := dbbrandprofile.NewRepository(db)
 
 	storageClient, err := platformstorage.NewAttachmentStorage(context.Background(), cfg.App.Env, cfg.Storage)
 	if err != nil {
@@ -111,6 +114,7 @@ func New(cfg *config.Config) (*Server, error) {
 		customClaimsService,
 	)
 	txRunner := dbtxrunner.New(db, bus)
+	brandProfileService := appbrand.NewService(brandProfileRepositoryAdapter{repo: brandProfileRepo}, txRunner)
 	createPropertyService := appproperty.NewCreatePropertyService(propertyRepositoryAdapter{repo: propertyRepo}, propertyAccountRepositoryAdapter{repo: billingRepo}, txRunner)
 	updatePropertyService := appproperty.NewUpdatePropertyService(propertyRepositoryAdapter{repo: propertyRepo}, txRunner)
 	deletePropertyService := appproperty.NewDeletePropertyService(propertyRepositoryAdapter{repo: propertyRepo}, txRunner)
@@ -168,6 +172,7 @@ func New(cfg *config.Config) (*Server, error) {
 		UpdateCurrentUser: updateCurrentUserService,
 		UpdateUser:        updateUserService,
 		AssignProperties:  assignUserPropertiesService,
+		BrandProfile:      brandProfileService,
 		JobTrigger:        jobTriggerService,
 		PropertyQuery:     propertyQueryRepo,
 		PropertyDashboard: propertyDashboardService,

@@ -19,6 +19,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	appattachment "stds_backend/internal/application/attachment"
+	appbrand "stds_backend/internal/application/brand"
 	appiam "stds_backend/internal/application/iam"
 	appjobs "stds_backend/internal/application/jobs"
 	appjournal "stds_backend/internal/application/journal"
@@ -143,6 +144,29 @@ func TestGeneratedWrapperBindingErrorsUseStandardErrorResponse(t *testing.T) {
 			engine.ServeHTTP(resp, req)
 
 			assertStandardErrorResponse(t, resp, http.StatusBadRequest, apperr.CodeBadRequest)
+		})
+	}
+}
+
+func TestBrandProfileRoutePolicyRejectsStaffAndOwner(t *testing.T) {
+	for _, role := range []string{"staff", "owner"} {
+		t.Run(role, func(t *testing.T) {
+			engine := newTestEngine(
+				fakeUserRepo{role: role},
+				fakeAuthenticator{role: role},
+				fakePropertyRepo{},
+				fakeResourceOwnershipRepo{},
+				"",
+				fakeJobRunsRepo{},
+			)
+
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/brand/profile", nil)
+			req.Header.Set("Authorization", "Bearer valid-token")
+			resp := httptest.NewRecorder()
+
+			engine.ServeHTTP(resp, req)
+
+			assertStandardErrorResponse(t, resp, http.StatusForbidden, apperr.CodeForbidden)
 		})
 	}
 }
@@ -6847,6 +6871,7 @@ func defaultAPIServerDeps(userRepo *fakeUserRepo, authenticator fakeAuthenticato
 		UpdateCurrentUser: appiam.NewUpdateCurrentUserService(userRepo),
 		UpdateUser:        appiam.NewUpdateUserService(userAccountRepo, appiam.NewCustomClaimsService(authenticator)),
 		AssignProperties:  appiam.NewAssignUserPropertiesService(testManagedUserRepositoryAdapter{repo: userRepo}, testPropertyExistenceChecker{repo: fakePropertyQueryRepo{}}, appiam.NewCustomClaimsService(authenticator)),
+		BrandProfile:      appbrand.NewService(nil, nil),
 		JobTrigger:        appjobs.NewTriggerService(jobRunsRepo, nil, time.Minute, 3),
 		PropertyQuery:     propertyQueryRepo,
 		PropertyDashboard: appproperty.NewDashboardService(nil),
