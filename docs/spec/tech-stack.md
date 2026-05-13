@@ -39,6 +39,14 @@
   - db-g1-small（$25/month，超預算且超出需求）
   - Neon/Supabase（非 GCP 全套）
 
+### Brand Readonly DB Boundary
+
+- **用途**：未來 brand thin backend 只讀 demo 品牌頁需要的 approved DB views，不直接讀 core backend base tables。
+- **Core migration 責任**：建立 approved views，例如 `approved_brand_profile_v1`、`approved_brand_faq_items_v1`、`approved_brand_property_availability_v1`。
+- **Cloud SQL provisioning 責任**：由部署/DBA 流程建立 brand readonly principal，授予 schema `USAGE` 與 approved views 的 `SELECT`，不得授予 `properties`、`rooms`、`brand_profiles`、`brand_faq_items`、tenant、lease、bill、deposit、attachment、accounting 等 base table 權限。
+- **Credential 邊界**：brand thin backend 使用自己的 Cloud SQL credential / secret，不共用 core backend runtime 或 migration DB user。
+- **測試策略**：repo 的 PostgreSQL migration contract test 使用 ephemeral equivalent role 驗證 approved views 可讀、base tables 不可讀；本地 Docker bootstrap 若補 readonly user，只作為 fresh local DB 便利設定，不是 production 權限來源。
+
 ### Persistence / Data Access
 
 - **整體策略**：SQL-first；migration、schema、index、constraint 以 SQL 為準，business rule 不下沉至 DB trigger / stored procedure

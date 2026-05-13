@@ -1,0 +1,1 @@
+DROP VIEW IF EXISTS approved_brand_property_availability_v1;

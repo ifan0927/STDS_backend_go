@@ -277,6 +277,26 @@ go test -tags=e2e ./test/e2e
 - Run all pending migrations: `go run ./cmd/migrate up`
 - Roll back applied migrations in reverse order: `go run ./cmd/migrate down`
 
+## Brand readonly database access
+
+Demo brand frontend data is exposed to a future thin backend through approved
+PostgreSQL views only. The core backend migrations create the views; deployment
+or DBA provisioning must create the Cloud SQL readonly principal and grant only
+the approved view access.
+
+The current approved views are:
+
+- `approved_brand_profile_v1`
+- `approved_brand_faq_items_v1`
+- `approved_brand_property_availability_v1`
+
+The brand readonly principal should receive `USAGE` on the schema and `SELECT`
+on those views only. Do not grant it direct access to base tables such as
+`properties`, `rooms`, `brand_profiles`, `brand_faq_items`, `tenants`, `leases`,
+`bills`, `attachments`, or deposit/accounting tables. Local PostgreSQL contract
+tests use an ephemeral equivalent role to verify that the approved views are
+selectable while base tables are not.
+
 ## Legacy migration planning
 
 - Validate the checked-in legacy JSON exports and generate the Task 5 architecture report: `go run ./cmd/migrate_legacy plan`

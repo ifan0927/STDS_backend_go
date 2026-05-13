@@ -39,6 +39,7 @@ var expectedMigrationVersions = []string{
 	"000021",
 	"000022",
 	"000023",
+	"000024",
 }
 
 func TestRunnerUpAppliesMigrationsAndRecordsVersions(t *testing.T) {
@@ -79,6 +80,53 @@ func TestBrandFAQApprovedViewContract(t *testing.T) {
 		if !strings.Contains(migration, snippet) {
 			t.Fatalf("expected migration to contain %q", snippet)
 		}
+	}
+}
+
+func TestBrandPropertyAvailabilityApprovedViewContract(t *testing.T) {
+	migrations := migrationsByVersion(t, "up")
+	sql := migrations["000024"].SQL
+
+	requiredSnippets := []string{
+		"CREATE VIEW approved_brand_property_availability_v1 AS",
+		"p.id AS property_id",
+		"p.property_public_name",
+		"p.address",
+		"AS has_vacant_room",
+		"FROM properties p",
+		"FROM rooms r",
+		"r.status = 'vacant'",
+		"r.deleted_at IS NULL",
+		"p.deleted_at IS NULL",
+	}
+	for _, snippet := range requiredSnippets {
+		if !strings.Contains(sql, snippet) {
+			t.Fatalf("000024 migration missing %q", snippet)
+		}
+	}
+
+	forbiddenSnippets := []string{
+		"SELECT *",
+		"r.id",
+		"r.name",
+		"tenant",
+		"lease",
+		"bill",
+		"deposit",
+		"attachment",
+		"created_at",
+		"updated_at",
+		"version",
+	}
+	for _, snippet := range forbiddenSnippets {
+		if strings.Contains(sql, snippet) {
+			t.Fatalf("000024 approved view exposes disallowed snippet %q", snippet)
+		}
+	}
+
+	downMigration := migrationsByVersion(t, "down")["000024"].SQL
+	if !strings.Contains(downMigration, "DROP VIEW IF EXISTS approved_brand_property_availability_v1") {
+		t.Fatal("000024 down migration missing approved view drop")
 	}
 }
 
@@ -447,6 +495,102 @@ WHERE at.id IS NULL
 	assertColumnAbsent(t, ctx, db, "monthly_snapshot_entries", "accounting_title_name")
 }
 
+func TestBrandPropertyAvailabilityViewPostgresContract(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		databaseURL = os.Getenv("DATABASE_URL")
+	}
+	if databaseURL == "" {
+		t.Skip("set TEST_DATABASE_URL or DATABASE_URL to run PostgreSQL migration contract test")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	db, err := sql.Open("pgx", databaseURL)
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+
+	if err := db.PingContext(ctx); err != nil {
+		t.Fatalf("PingContext: %v", err)
+	}
+
+	schemaName := fmt.Sprintf("brand_availability_test_%d", time.Now().UnixNano())
+	roleName := fmt.Sprintf("brand_readonly_test_%d", time.Now().UnixNano())
+	if _, err := db.ExecContext(ctx, `CREATE SCHEMA `+schemaName); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+	defer func() {
+		if _, err := db.ExecContext(context.Background(), `RESET ROLE`); err != nil {
+			t.Errorf("reset role: %v", err)
+		}
+		if _, err := db.ExecContext(context.Background(), `DROP OWNED BY `+roleName); err != nil {
+			t.Errorf("drop owned by readonly role: %v", err)
+		}
+		if _, err := db.ExecContext(context.Background(), `REVOKE `+roleName+` FROM CURRENT_USER`); err != nil {
+			t.Errorf("revoke readonly role membership: %v", err)
+		}
+		if _, err := db.ExecContext(context.Background(), `DROP SCHEMA IF EXISTS `+schemaName+` CASCADE`); err != nil {
+			t.Errorf("drop schema: %v", err)
+		}
+		if _, err := db.ExecContext(context.Background(), `DROP ROLE IF EXISTS `+roleName); err != nil {
+			t.Errorf("drop role: %v", err)
+		}
+	}()
+	if _, err := db.ExecContext(ctx, `SET search_path TO `+schemaName+`, public`); err != nil {
+		t.Fatalf("set search_path: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `CREATE ROLE `+roleName); err != nil {
+		t.Fatalf("create readonly role: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `GRANT `+roleName+` TO CURRENT_USER`); err != nil {
+		t.Fatalf("grant readonly role to current user: %v", err)
+	}
+
+	upMigrations, err := loadMigrations("up")
+	if err != nil {
+		t.Fatalf("load up migrations: %v", err)
+	}
+	if err := NewRunner(db).apply(ctx, upMigrations, true); err != nil {
+		t.Fatalf("apply migrations: %v", err)
+	}
+
+	seedBrandPropertyAvailabilityRows(t, ctx, db)
+	assertBrandPropertyAvailabilityRows(t, ctx, db)
+
+	if _, err := db.ExecContext(ctx, `GRANT USAGE ON SCHEMA `+schemaName+` TO `+roleName); err != nil {
+		t.Fatalf("grant schema usage: %v", err)
+	}
+	approvedViews := []string{
+		"approved_brand_profile_v1",
+		"approved_brand_faq_items_v1",
+		"approved_brand_property_availability_v1",
+	}
+	for _, viewName := range approvedViews {
+		if _, err := db.ExecContext(ctx, `GRANT SELECT ON `+schemaName+`.`+viewName+` TO `+roleName); err != nil {
+			t.Fatalf("grant %s select: %v", viewName, err)
+		}
+	}
+
+	if _, err := db.ExecContext(ctx, `SET ROLE `+roleName); err != nil {
+		t.Fatalf("set readonly role: %v", err)
+	}
+	for _, viewName := range approvedViews {
+		if _, err := db.ExecContext(ctx, `SELECT * FROM `+schemaName+`.`+viewName+` LIMIT 1`); err != nil {
+			t.Fatalf("readonly role should select %s: %v", viewName, err)
+		}
+	}
+	for _, tableName := range []string{"properties", "rooms", "brand_profiles", "brand_faq_items"} {
+		if _, err := db.ExecContext(ctx, `SELECT * FROM `+schemaName+`.`+tableName+` LIMIT 1`); err == nil {
+			t.Fatalf("readonly role should not select base table %s", tableName)
+		}
+	}
+}
+
 func newRunnerTest(t *testing.T) (*sql.DB, sqlmock.Sqlmock, *Runner) {
 	t.Helper()
 
@@ -558,6 +702,169 @@ VALUES ($1, $2, 'legacy snapshot row', 100, '{}'::jsonb)
 `, snapshotID, category); err != nil {
 			t.Fatalf("insert monthly snapshot entry %s: %v", category, err)
 		}
+	}
+}
+
+func seedBrandPropertyAvailabilityRows(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+
+	var userID string
+	if err := db.QueryRowContext(ctx, `
+INSERT INTO users (firebase_uid, email, name, role)
+VALUES ('brand-availability-owner', 'brand-availability-owner@example.com', 'Brand Availability Owner', 'owner')
+RETURNING id
+`).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	properties := []struct {
+		name       string
+		publicName string
+		address    string
+		deleted    bool
+		rooms      []struct {
+			status  string
+			deleted bool
+		}
+	}{
+		{
+			name:       "Vacant Property",
+			publicName: "Public Vacant Property",
+			address:    "Vacant Address",
+			rooms: []struct {
+				status  string
+				deleted bool
+			}{
+				{status: "vacant"},
+				{status: "occupied"},
+				{status: "maintenance"},
+			},
+		},
+		{
+			name:       "Occupied Property",
+			publicName: "Public Occupied Property",
+			address:    "Occupied Address",
+			rooms: []struct {
+				status  string
+				deleted bool
+			}{
+				{status: "occupied"},
+				{status: "maintenance"},
+				{status: "vacant", deleted: true},
+			},
+		},
+		{
+			name:       "Deleted Property",
+			publicName: "Public Deleted Property",
+			address:    "Deleted Address",
+			deleted:    true,
+			rooms: []struct {
+				status  string
+				deleted bool
+			}{
+				{status: "vacant"},
+			},
+		},
+	}
+
+	for _, property := range properties {
+		var propertyID string
+		deletedAt := "NULL"
+		if property.deleted {
+			deletedAt = "now()"
+		}
+		if err := db.QueryRowContext(ctx, `
+INSERT INTO properties (name, property_public_name, address, electricity_unit_price, owner_id, deleted_at)
+VALUES ($1, $2, $3, 5, $4, `+deletedAt+`)
+RETURNING id
+`, property.name, property.publicName, property.address, userID).Scan(&propertyID); err != nil {
+			t.Fatalf("insert property %s: %v", property.name, err)
+		}
+
+		for i, room := range property.rooms {
+			roomDeletedAt := "NULL"
+			if room.deleted {
+				roomDeletedAt = "now()"
+			}
+			if _, err := db.ExecContext(ctx, `
+INSERT INTO rooms (property_id, name, status, deleted_at)
+VALUES ($1, $2, $3, `+roomDeletedAt+`)
+`, propertyID, fmt.Sprintf("%s Room %d", property.name, i+1), room.status); err != nil {
+				t.Fatalf("insert room for %s: %v", property.name, err)
+			}
+		}
+	}
+}
+
+func assertBrandPropertyAvailabilityRows(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+
+	rows, err := db.QueryContext(ctx, `
+SELECT property_public_name, address, has_vacant_room
+FROM approved_brand_property_availability_v1
+ORDER BY property_public_name
+`)
+	if err != nil {
+		t.Fatalf("query approved brand property availability: %v", err)
+	}
+	defer rows.Close()
+
+	type availabilityRow struct {
+		publicName    string
+		address       string
+		hasVacantRoom bool
+	}
+	var got []availabilityRow
+	for rows.Next() {
+		var row availabilityRow
+		if err := rows.Scan(&row.publicName, &row.address, &row.hasVacantRoom); err != nil {
+			t.Fatalf("scan approved brand property availability: %v", err)
+		}
+		got = append(got, row)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate approved brand property availability: %v", err)
+	}
+
+	want := []availabilityRow{
+		{publicName: "Public Occupied Property", address: "Occupied Address", hasVacantRoom: false},
+		{publicName: "Public Vacant Property", address: "Vacant Address", hasVacantRoom: true},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d availability rows, got %+v", len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("availability row %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+
+	columns, err := db.QueryContext(ctx, `
+SELECT column_name
+FROM information_schema.columns
+WHERE table_schema = current_schema()
+  AND table_name = 'approved_brand_property_availability_v1'
+ORDER BY ordinal_position
+`)
+	if err != nil {
+		t.Fatalf("query approved view columns: %v", err)
+	}
+	defer columns.Close()
+
+	var columnNames []string
+	for columns.Next() {
+		var columnName string
+		if err := columns.Scan(&columnName); err != nil {
+			t.Fatalf("scan approved view column: %v", err)
+		}
+		columnNames = append(columnNames, columnName)
+	}
+	if err := columns.Err(); err != nil {
+		t.Fatalf("iterate approved view columns: %v", err)
+	}
+	expectedColumns := []string{"property_id", "property_public_name", "address", "has_vacant_room"}
+	if strings.Join(columnNames, ",") != strings.Join(expectedColumns, ",") {
+		t.Fatalf("approved view columns = %v, want %v", columnNames, expectedColumns)
 	}
 }
 
