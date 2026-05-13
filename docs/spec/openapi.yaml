@@ -7328,6 +7328,9 @@ components:
           format: uuid
         name:
           type: string
+        property_public_name:
+          type: string
+          description: Public brand-page display name. Internal management name remains name.
         address:
           type: string
         subtitle:
@@ -7390,6 +7393,9 @@ components:
       properties:
         name:
           type: string
+        property_public_name:
+          type: string
+          description: Public brand-page display name. Defaults from name when omitted.
         subtitle:
           type: string
           nullable: true
@@ -7429,6 +7435,9 @@ components:
       properties:
         name:
           type: string
+        property_public_name:
+          type: string
+          description: Public brand-page display name. Can be updated independently from name.
         subtitle:
           type: string
           nullable: true

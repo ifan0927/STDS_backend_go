@@ -61,6 +61,7 @@ CREATE INDEX idx_users_role ON users (role) WHERE deleted_at IS NULL;
 CREATE TABLE properties (
     id                      UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     name                    VARCHAR(200) NOT NULL,
+    property_public_name    VARCHAR(200) NOT NULL CHECK (btrim(property_public_name) <> ''),
     address                 TEXT         NOT NULL,
     -- electricityUnitPrice：台幣正數/度，物業層級電價，可接受小數
     electricity_unit_price  NUMERIC(10,4) CHECK (electricity_unit_price > 0),

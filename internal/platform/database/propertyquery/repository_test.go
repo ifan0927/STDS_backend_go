@@ -24,13 +24,14 @@ func TestListAccessibleReturnsOccupancySummary(t *testing.T) {
 
 	mock.ExpectQuery(`(?s)LEFT JOIN rooms ON rooms.property_id = p.id AND rooms.deleted_at IS NULL\s+WHERE p.deleted_at IS NULL\s+GROUP BY p.id ORDER BY p.created_at DESC`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "subtitle", "address", "electricity_unit_price", "default_electricity_billing_cadence", "owner_id",
+			"id", "name", "property_public_name", "subtitle", "address", "electricity_unit_price", "default_electricity_billing_cadence", "owner_id",
 			"contact_phone", "contact_email", "notes", "facilities",
 			"total_rooms", "occupied_rooms", "vacant_rooms", "maintenance_rooms", "occupancy_rate",
 			"created_at", "updated_at", "version",
 		}).AddRow(
 			"10000000-0000-0000-0000-000000000001",
 			"Demo Property",
+			"Demo Public Property",
 			nil,
 			"Demo Address",
 			4.5,
@@ -59,6 +60,9 @@ func TestListAccessibleReturnsOccupancySummary(t *testing.T) {
 	}
 	if properties[0].Occupancy.TotalRooms != 4 || properties[0].Occupancy.OccupancyRate != 0.5 {
 		t.Fatalf("unexpected occupancy summary: %+v", properties[0].Occupancy)
+	}
+	if properties[0].PropertyPublicName != "Demo Public Property" {
+		t.Fatalf("PropertyPublicName = %q, want Demo Public Property", properties[0].PropertyPublicName)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {

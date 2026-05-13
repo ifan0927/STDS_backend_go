@@ -798,7 +798,10 @@ type CreatePropertyRequest struct {
 	Name                 string                  `json:"name"`
 	Notes                *string                 `json:"notes"`
 	OwnerId              openapi_types.UUID      `json:"owner_id"`
-	Subtitle             *string                 `json:"subtitle"`
+
+	// PropertyPublicName Public brand-page display name. Defaults from name when omitted.
+	PropertyPublicName *string `json:"property_public_name,omitempty"`
+	Subtitle           *string `json:"subtitle"`
 }
 
 // CreatePropertyRequestDefaultElectricityBillingCadence 物業預設電費計費 cadence，僅影響新建 Lease
@@ -1281,9 +1284,12 @@ type PropertyResponse struct {
 	Notes                *string                 `json:"notes"`
 	OccupancySummary     *OccupancySummary       `json:"occupancy_summary,omitempty"`
 	OwnerId              *openapi_types.UUID     `json:"owner_id,omitempty"`
-	Subtitle             *string                 `json:"subtitle"`
-	UpdatedAt            *time.Time              `json:"updated_at,omitempty"`
-	Version              *int                    `json:"version,omitempty"`
+
+	// PropertyPublicName Public brand-page display name. Internal management name remains name.
+	PropertyPublicName *string    `json:"property_public_name,omitempty"`
+	Subtitle           *string    `json:"subtitle"`
+	UpdatedAt          *time.Time `json:"updated_at,omitempty"`
+	Version            *int       `json:"version,omitempty"`
 }
 
 // PropertyResponseDefaultElectricityBillingCadence defines model for PropertyResponse.DefaultElectricityBillingCadence.
@@ -1536,7 +1542,10 @@ type UpdatePropertyRequest struct {
 	Facilities           *map[string]interface{} `json:"facilities"`
 	Name                 *string                 `json:"name,omitempty"`
 	Notes                *string                 `json:"notes"`
-	Subtitle             *string                 `json:"subtitle"`
+
+	// PropertyPublicName Public brand-page display name. Can be updated independently from name.
+	PropertyPublicName *string `json:"property_public_name,omitempty"`
+	Subtitle           *string `json:"subtitle"`
 }
 
 // UpdatePropertyRequestDefaultElectricityBillingCadence 僅影響之後新建的 Lease，不回頭修改既有 Lease

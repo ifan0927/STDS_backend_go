@@ -16,6 +16,7 @@ type UpdatePropertyInput struct {
 	ID                               string
 	ActorRole                        string
 	Name                             *string
+	PropertyPublicName               *string
 	Subtitle                         *string
 	ClearSubtitle                    bool
 	Address                          *string
@@ -57,7 +58,7 @@ func (s *UpdatePropertyService) Execute(ctx context.Context, input UpdatePropert
 	if strings.TrimSpace(input.ActorRole) == "" {
 		return nil, apperr.ErrUnauthorized
 	}
-	if input.Name == nil && input.Subtitle == nil && !input.ClearSubtitle && input.Address == nil && input.ElectricityUnitPrice == nil && input.DefaultElectricityBillingCadence == nil && input.ContactPhone == nil && !input.ClearContactPhone && input.ContactEmail == nil && !input.ClearContactEmail && input.Notes == nil && !input.ClearNotes && input.Facilities == nil && !input.ClearFacilities {
+	if input.Name == nil && input.PropertyPublicName == nil && input.Subtitle == nil && !input.ClearSubtitle && input.Address == nil && input.ElectricityUnitPrice == nil && input.DefaultElectricityBillingCadence == nil && input.ContactPhone == nil && !input.ClearContactPhone && input.ContactEmail == nil && !input.ClearContactEmail && input.Notes == nil && !input.ClearNotes && input.Facilities == nil && !input.ClearFacilities {
 		return nil, apperr.ErrBadRequest
 	}
 
@@ -76,6 +77,7 @@ func (s *UpdatePropertyService) Execute(ctx context.Context, input UpdatePropert
 		aggregate, err := domainproperty.Rehydrate(domainproperty.State{
 			ID:                               current.ID,
 			Name:                             current.Name,
+			PropertyPublicName:               current.PropertyPublicName,
 			Subtitle:                         current.Subtitle,
 			Address:                          current.Address,
 			ElectricityUnitPrice:             current.ElectricityUnitPrice,
@@ -94,6 +96,7 @@ func (s *UpdatePropertyService) Execute(ctx context.Context, input UpdatePropert
 		if err := aggregate.Update(domainproperty.UpdateInput{
 			ActorRole:                        input.ActorRole,
 			Name:                             input.Name,
+			PropertyPublicName:               input.PropertyPublicName,
 			Subtitle:                         input.Subtitle,
 			ClearSubtitle:                    input.ClearSubtitle,
 			Address:                          input.Address,
@@ -115,6 +118,7 @@ func (s *UpdatePropertyService) Execute(ctx context.Context, input UpdatePropert
 		property, err := s.propertyRepo.Update(ctx, tx, UpdatePropertyParams{
 			ID:                               state.ID,
 			Name:                             state.Name,
+			PropertyPublicName:               state.PropertyPublicName,
 			Subtitle:                         state.Subtitle,
 			Address:                          state.Address,
 			ElectricityUnitPrice:             state.ElectricityUnitPrice,

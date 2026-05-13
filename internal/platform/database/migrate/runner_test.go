@@ -36,6 +36,7 @@ var expectedMigrationVersions = []string{
 	"000018",
 	"000019",
 	"000020",
+	"000021",
 }
 
 func TestRunnerUpAppliesMigrationsAndRecordsVersions(t *testing.T) {
@@ -222,6 +223,37 @@ func TestCheckoutDatesAndRentRefundMigrationAddsNullableColumnAndCategories(t *t
 	downSQL := migrationsByVersion(t, "down")["000020"].SQL
 	if !strings.Contains(downSQL, "DROP COLUMN IF EXISTS actual_move_out_date") {
 		t.Fatal("000020 down migration missing actual_move_out_date drop")
+	}
+}
+
+func TestPropertyPublicNameMigrationBackfillsAndEnforcesNonEmptyValue(t *testing.T) {
+	migrations := migrationsByVersion(t, "up")
+	sql := migrations["000021"].SQL
+
+	requiredSnippets := []string{
+		"ALTER TABLE properties",
+		"ADD COLUMN IF NOT EXISTS property_public_name VARCHAR(200)",
+		"UPDATE properties",
+		"SET property_public_name = name",
+		"ALTER COLUMN property_public_name SET NOT NULL",
+		"properties_property_public_name_non_empty_check",
+		"btrim(property_public_name) <> ''",
+	}
+	for _, snippet := range requiredSnippets {
+		if !strings.Contains(sql, snippet) {
+			t.Fatalf("000021 migration missing %q", snippet)
+		}
+	}
+
+	downSQL := migrationsByVersion(t, "down")["000021"].SQL
+	requiredDownSnippets := []string{
+		"DROP CONSTRAINT IF EXISTS properties_property_public_name_non_empty_check",
+		"DROP COLUMN IF EXISTS property_public_name",
+	}
+	for _, snippet := range requiredDownSnippets {
+		if !strings.Contains(downSQL, snippet) {
+			t.Fatalf("000021 down migration missing %q", snippet)
+		}
 	}
 }
 

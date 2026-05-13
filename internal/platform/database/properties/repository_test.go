@@ -73,10 +73,11 @@ func TestCreatePersistsPropertyInTransaction(t *testing.T) {
 	facilities := map[string]interface{}{"elevator": true}
 
 	mock.ExpectQuery("INSERT INTO properties").
-		WithArgs("Green Villa", &subtitle, "Taipei", 4.5, "monthly", "owner-1", &contactPhone, &contactEmail, &notes, `{"elevator":true}`).
+		WithArgs("Green Villa", "Green Villa Public", &subtitle, "Taipei", 4.5, "monthly", "owner-1", &contactPhone, &contactEmail, &notes, `{"elevator":true}`).
 		WillReturnRows(propertyRows().AddRow(
 			"property-1",
 			"Green Villa",
+			"Green Villa Public",
 			subtitle,
 			"Taipei",
 			4.5,
@@ -93,6 +94,7 @@ func TestCreatePersistsPropertyInTransaction(t *testing.T) {
 
 	property, err := repo.Create(context.Background(), tx, CreatePropertyParams{
 		Name:                             "Green Villa",
+		PropertyPublicName:               "Green Villa Public",
 		Subtitle:                         &subtitle,
 		Address:                          "Taipei",
 		ElectricityUnitPrice:             4.5,
@@ -106,7 +108,7 @@ func TestCreatePersistsPropertyInTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if property.ID != "property-1" || property.Name != "Green Villa" || property.Address != "Taipei" || property.OwnerID != "owner-1" {
+	if property.ID != "property-1" || property.Name != "Green Villa" || property.PropertyPublicName != "Green Villa Public" || property.Address != "Taipei" || property.OwnerID != "owner-1" {
 		t.Fatalf("unexpected property: %+v", property)
 	}
 	if property.ElectricityUnitPrice == nil || *property.ElectricityUnitPrice != 4.5 {
@@ -145,6 +147,7 @@ func TestFindByIDScansNullableElectricityUnitPrice(t *testing.T) {
 		WithArgs("property-1").
 		WillReturnRows(propertyRows().AddRow(
 			"property-1",
+			"Green Villa",
 			"Green Villa",
 			nil,
 			"Taipei",
@@ -214,10 +217,11 @@ func TestUpdatePersistsPropertyWithNullableElectricityUnitPrice(t *testing.T) {
 	updatedAt := createdAt.Add(time.Minute)
 
 	mock.ExpectQuery("UPDATE properties").
-		WithArgs("property-1", "Green Villa Updated", nil, "New Taipei", nil, "bimonthly", "owner-2", nil, nil, nil, nil, 3).
+		WithArgs("property-1", "Green Villa Updated", "Public Green Villa", nil, "New Taipei", nil, "bimonthly", "owner-2", nil, nil, nil, nil, 3).
 		WillReturnRows(propertyRows().AddRow(
 			"property-1",
 			"Green Villa Updated",
+			"Public Green Villa",
 			nil,
 			"New Taipei",
 			nil,
@@ -235,6 +239,7 @@ func TestUpdatePersistsPropertyWithNullableElectricityUnitPrice(t *testing.T) {
 	property, err := repo.Update(context.Background(), tx, UpdatePropertyParams{
 		ID:                               "property-1",
 		Name:                             "Green Villa Updated",
+		PropertyPublicName:               "Public Green Villa",
 		Address:                          "New Taipei",
 		ElectricityUnitPrice:             nil,
 		DefaultElectricityBillingCadence: "bimonthly",
@@ -244,7 +249,7 @@ func TestUpdatePersistsPropertyWithNullableElectricityUnitPrice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
-	if property.Name != "Green Villa Updated" || property.Address != "New Taipei" || property.OwnerID != "owner-2" {
+	if property.Name != "Green Villa Updated" || property.PropertyPublicName != "Public Green Villa" || property.Address != "New Taipei" || property.OwnerID != "owner-2" {
 		t.Fatalf("unexpected property: %+v", property)
 	}
 	if property.ElectricityUnitPrice != nil {
@@ -270,12 +275,13 @@ func TestUpdateMapsNoRowsToNotFound(t *testing.T) {
 	unitPrice := 5.25
 
 	mock.ExpectQuery("UPDATE properties").
-		WithArgs("property-404", "Green Villa", nil, "Taipei", &unitPrice, "monthly", "owner-1", nil, nil, nil, nil, 9).
+		WithArgs("property-404", "Green Villa", "Green Villa", nil, "Taipei", &unitPrice, "monthly", "owner-1", nil, nil, nil, nil, 9).
 		WillReturnError(sql.ErrNoRows)
 
 	_, err := repo.Update(context.Background(), tx, UpdatePropertyParams{
 		ID:                               "property-404",
 		Name:                             "Green Villa",
+		PropertyPublicName:               "Green Villa",
 		Address:                          "Taipei",
 		ElectricityUnitPrice:             &unitPrice,
 		DefaultElectricityBillingCadence: "monthly",
@@ -729,6 +735,7 @@ func propertyRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"id",
 		"name",
+		"property_public_name",
 		"subtitle",
 		"address",
 		"electricity_unit_price",

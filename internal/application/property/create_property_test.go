@@ -23,10 +23,10 @@ func TestCreatePropertyServiceCreatesProperty(t *testing.T) {
 
 	mock.ExpectBegin()
 	mock.ExpectQuery("INSERT INTO properties").
-		WithArgs("Property A", nil, "Address A", 4.5, "monthly", "owner-1", nil, nil, nil, nil).
+		WithArgs("Property A", "Property A", nil, "Address A", 4.5, "monthly", "owner-1", nil, nil, nil, nil).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "subtitle", "address", "electricity_unit_price", "default_electricity_billing_cadence", "owner_id", "contact_phone", "contact_email", "notes", "facilities", "created_at", "updated_at", "version",
-		}).AddRow("property-1", "Property A", nil, "Address A", 4.5, "monthly", "owner-1", nil, nil, nil, nil, time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), 1))
+			"id", "name", "property_public_name", "subtitle", "address", "electricity_unit_price", "default_electricity_billing_cadence", "owner_id", "contact_phone", "contact_email", "notes", "facilities", "created_at", "updated_at", "version",
+		}).AddRow("property-1", "Property A", "Property A", nil, "Address A", 4.5, "monthly", "owner-1", nil, nil, nil, nil, time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), 1))
 	mock.ExpectExec("INSERT INTO property_accounts").
 		WithArgs("property-1").
 		WillReturnResult(sqlmock.NewResult(1, 1))
@@ -46,6 +46,9 @@ func TestCreatePropertyServiceCreatesProperty(t *testing.T) {
 
 	if property.ID != "property-1" {
 		t.Fatalf("expected property-1, got %q", property.ID)
+	}
+	if property.PropertyPublicName != "Property A" {
+		t.Fatalf("expected property_public_name default Property A, got %q", property.PropertyPublicName)
 	}
 	if property.ElectricityUnitPrice == nil || *property.ElectricityUnitPrice != 4.5 {
 		t.Fatalf("expected electricity_unit_price 4.5, got %v", property.ElectricityUnitPrice)
@@ -74,6 +77,7 @@ func (a sqlPropertyAccountRepositoryAdapter) CreatePropertyAccount(ctx context.C
 func (a sqlPropertyRepositoryAdapter) Create(ctx context.Context, tx *sql.Tx, params CreatePropertyParams) (*Property, error) {
 	property, err := a.repo.Create(ctx, tx, dbproperties.CreatePropertyParams{
 		Name:                             params.Name,
+		PropertyPublicName:               params.PropertyPublicName,
 		Subtitle:                         params.Subtitle,
 		Address:                          params.Address,
 		ElectricityUnitPrice:             params.ElectricityUnitPrice,
@@ -91,6 +95,7 @@ func (a sqlPropertyRepositoryAdapter) Create(ctx context.Context, tx *sql.Tx, pa
 	return &Property{
 		ID:                               property.ID,
 		Name:                             property.Name,
+		PropertyPublicName:               property.PropertyPublicName,
 		Subtitle:                         property.Subtitle,
 		Address:                          property.Address,
 		ElectricityUnitPrice:             property.ElectricityUnitPrice,
@@ -110,6 +115,23 @@ func TestCreatePropertyServiceValidatesInput(t *testing.T) {
 	service := NewCreatePropertyService(nil, nil, nil)
 
 	if _, err := service.Execute(context.Background(), CreatePropertyInput{}); err == nil {
+		t.Fatal("expected validation error, got nil")
+	}
+}
+
+func TestCreatePropertyServiceRejectsBlankPropertyPublicName(t *testing.T) {
+	service := NewCreatePropertyService(nil, nil, nil)
+	propertyPublicName := "   "
+
+	_, err := service.Execute(context.Background(), CreatePropertyInput{
+		Name:                             "Property A",
+		PropertyPublicName:               &propertyPublicName,
+		Address:                          "Address A",
+		ElectricityUnitPrice:             4.5,
+		DefaultElectricityBillingCadence: "monthly",
+		OwnerID:                          "owner-1",
+	})
+	if err == nil {
 		t.Fatal("expected validation error, got nil")
 	}
 }

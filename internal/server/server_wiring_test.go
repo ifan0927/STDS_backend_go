@@ -175,6 +175,7 @@ func TestPropertyMappingsPreserveContractFields(t *testing.T) {
 	property := toApplicationProperty(&dbproperties.Property{
 		ID:                               "property-1",
 		Name:                             "Property One",
+		PropertyPublicName:               "Public Property One",
 		Address:                          "Address One",
 		ElectricityUnitPrice:             &unitPrice,
 		DefaultElectricityBillingCadence: "bimonthly",
@@ -186,6 +187,7 @@ func TestPropertyMappingsPreserveContractFields(t *testing.T) {
 	expectedProperty := &appproperty.Property{
 		ID:                               "property-1",
 		Name:                             "Property One",
+		PropertyPublicName:               "Public Property One",
 		Address:                          "Address One",
 		ElectricityUnitPrice:             &unitPrice,
 		DefaultElectricityBillingCadence: "bimonthly",

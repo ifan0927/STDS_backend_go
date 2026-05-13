@@ -17,6 +17,7 @@ const (
 type State struct {
 	ID                               string
 	Name                             string
+	PropertyPublicName               string
 	Subtitle                         *string
 	Address                          string
 	ElectricityUnitPrice             *float64
@@ -72,6 +73,7 @@ type RoomAggregate struct {
 type UpdateInput struct {
 	ActorRole                        string
 	Name                             *string
+	PropertyPublicName               *string
 	Subtitle                         *string
 	ClearSubtitle                    bool
 	Address                          *string
@@ -124,6 +126,13 @@ func (a *Aggregate) Update(input UpdateInput) error {
 			return ErrNameRequired
 		}
 		a.state.Name = name
+	}
+	if input.PropertyPublicName != nil {
+		propertyPublicName := strings.TrimSpace(*input.PropertyPublicName)
+		if propertyPublicName == "" {
+			return ErrPropertyPublicNameRequired
+		}
+		a.state.PropertyPublicName = propertyPublicName
 	}
 	if input.Subtitle != nil {
 		a.state.Subtitle = normalizeOptionalString(*input.Subtitle)
@@ -222,6 +231,10 @@ func normalizeState(state State, requireElectricityPrice bool) (State, error) {
 	state.Name = strings.TrimSpace(state.Name)
 	if state.Name == "" {
 		return State{}, ErrNameRequired
+	}
+	state.PropertyPublicName = strings.TrimSpace(state.PropertyPublicName)
+	if state.PropertyPublicName == "" {
+		state.PropertyPublicName = state.Name
 	}
 	state.Subtitle = normalizeOptionalStringPtr(state.Subtitle)
 

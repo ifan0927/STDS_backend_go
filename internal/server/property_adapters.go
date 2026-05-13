@@ -42,6 +42,7 @@ func (a propertyAccountRepositoryAdapter) CreatePropertyAccount(ctx context.Cont
 func (a propertyRepositoryAdapter) Create(ctx context.Context, tx *sql.Tx, params appproperty.CreatePropertyParams) (*appproperty.Property, error) {
 	property, err := a.repo.Create(ctx, tx, dbproperties.CreatePropertyParams{
 		Name:                             params.Name,
+		PropertyPublicName:               params.PropertyPublicName,
 		Subtitle:                         params.Subtitle,
 		Address:                          params.Address,
 		ElectricityUnitPrice:             params.ElectricityUnitPrice,
@@ -75,6 +76,7 @@ func (a propertyRepositoryAdapter) Update(ctx context.Context, tx *sql.Tx, param
 	property, err := a.repo.Update(ctx, tx, dbproperties.UpdatePropertyParams{
 		ID:                               params.ID,
 		Name:                             params.Name,
+		PropertyPublicName:               params.PropertyPublicName,
 		Subtitle:                         params.Subtitle,
 		Address:                          params.Address,
 		ElectricityUnitPrice:             params.ElectricityUnitPrice,
@@ -189,6 +191,7 @@ func toApplicationProperty(property *dbproperties.Property) *appproperty.Propert
 	return &appproperty.Property{
 		ID:                               property.ID,
 		Name:                             property.Name,
+		PropertyPublicName:               property.PropertyPublicName,
 		Subtitle:                         property.Subtitle,
 		Address:                          property.Address,
 		ElectricityUnitPrice:             property.ElectricityUnitPrice,

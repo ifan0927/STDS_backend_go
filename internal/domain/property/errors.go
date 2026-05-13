@@ -4,6 +4,7 @@ import "errors"
 
 var (
 	ErrNameRequired                    = errors.New("property name is required")
+	ErrPropertyPublicNameRequired      = errors.New("property public name is required")
 	ErrAddressRequired                 = errors.New("property address is required")
 	ErrOwnerIDRequired                 = errors.New("property owner id is required")
 	ErrElectricityPriceMustBePositive  = errors.New("property electricity price must be positive")

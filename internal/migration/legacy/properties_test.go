@@ -119,6 +119,7 @@ RETURNING id
 	mock.ExpectQuery(regexp.QuoteMeta(`
 INSERT INTO properties (
 	name,
+	property_public_name,
 	subtitle,
 	address,
 	contact_phone,
@@ -128,10 +129,11 @@ INSERT INTO properties (
 	electricity_unit_price,
 	default_electricity_billing_cadence,
 	owner_id
-) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11)
 RETURNING id
 `)).
 		WithArgs(
+			"第一雅築",
 			"第一雅築",
 			"第一雅築",
 			"台南市永康區中華路619巷22弄29號",
@@ -336,6 +338,7 @@ RETURNING id
 	mock.ExpectQuery(regexp.QuoteMeta(`
 INSERT INTO properties (
 	name,
+	property_public_name,
 	subtitle,
 	address,
 	contact_phone,
@@ -345,10 +348,11 @@ INSERT INTO properties (
 	electricity_unit_price,
 	default_electricity_billing_cadence,
 	owner_id
-) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11)
 RETURNING id
 `)).
 		WithArgs(
+			"第一雅築",
 			"第一雅築",
 			nil,
 			"台南市永康區中華路619巷22弄29號",

@@ -19,6 +19,7 @@ var ErrNotFound = errors.New("property query not found")
 type Property struct {
 	ID                               string
 	Name                             string
+	PropertyPublicName               string
 	Subtitle                         *string
 	Address                          string
 	ElectricityUnitPrice             *float64
@@ -90,6 +91,7 @@ func (r *SQLRepository) FindByID(ctx context.Context, propertyID string) (*Prope
 SELECT
 	p.id,
 	p.name,
+	p.property_public_name,
 	p.subtitle,
 	p.address,
 	p.electricity_unit_price,
@@ -132,6 +134,7 @@ func (r *SQLRepository) ListAccessible(ctx context.Context, role string, userID 
 SELECT
 	p.id,
 	p.name,
+	p.property_public_name,
 	p.subtitle,
 	p.address,
 	p.electricity_unit_price,
@@ -292,6 +295,7 @@ func scanProperty(row rowScanner) (*Property, error) {
 	if err := row.Scan(
 		&property.ID,
 		&property.Name,
+		&property.PropertyPublicName,
 		&subtitle,
 		&property.Address,
 		&electricityUnitPrice,

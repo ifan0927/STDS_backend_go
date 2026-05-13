@@ -58,6 +58,10 @@ func mapDomainError(err error) error {
 	switch {
 	case errors.Is(err, domainproperty.ErrNameRequired):
 		return apperr.ErrValidationNameRequired
+	case errors.Is(err, domainproperty.ErrPropertyPublicNameRequired):
+		return apperr.ErrBadRequest.WithDetails(map[string]interface{}{
+			"field": "property_public_name",
+		})
 	case errors.Is(err, domainproperty.ErrAddressRequired):
 		return apperr.ErrValidationAddressRequired
 	case errors.Is(err, domainproperty.ErrOwnerIDRequired):

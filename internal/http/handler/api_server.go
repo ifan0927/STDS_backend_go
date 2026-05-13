@@ -1596,6 +1596,7 @@ func (s *APIServer) CreateProperty(c *gin.Context) {
 
 	property, err := s.createPropertySvc.Execute(c.Request.Context(), appproperty.CreatePropertyInput{
 		Name:                             request.Name,
+		PropertyPublicName:               request.PropertyPublicName,
 		Subtitle:                         request.Subtitle,
 		Address:                          request.Address,
 		ElectricityUnitPrice:             request.ElectricityUnitPrice,
@@ -1677,6 +1678,7 @@ func (s *APIServer) UpdateProperty(c *gin.Context, id string) {
 		ID:                               id,
 		ActorRole:                        principal.Role,
 		Name:                             request.Name,
+		PropertyPublicName:               request.PropertyPublicName,
 		Subtitle:                         request.Subtitle,
 		ClearSubtitle:                    jsonFieldIsNull(fields, "subtitle"),
 		Address:                          request.Address,
@@ -3730,16 +3732,17 @@ func toPropertyResponse(property *dbpropertyquery.Property) api.PropertyResponse
 	version := property.Version
 
 	response := api.PropertyResponse{
-		Address:          &address,
-		ContactPhone:     property.ContactPhone,
-		CreatedAt:        &createdAt,
-		Name:             &name,
-		Notes:            property.Notes,
-		OccupancySummary: toDBPropertyOccupancySummaryResponse(property.Occupancy),
-		Facilities:       property.Facilities,
-		Subtitle:         property.Subtitle,
-		UpdatedAt:        &updatedAt,
-		Version:          &version,
+		Address:            &address,
+		ContactPhone:       property.ContactPhone,
+		CreatedAt:          &createdAt,
+		Name:               &name,
+		PropertyPublicName: &property.PropertyPublicName,
+		Notes:              property.Notes,
+		OccupancySummary:   toDBPropertyOccupancySummaryResponse(property.Occupancy),
+		Facilities:         property.Facilities,
+		Subtitle:           property.Subtitle,
+		UpdatedAt:          &updatedAt,
+		Version:            &version,
 	}
 	if property.ContactEmail != nil {
 		if parsed, err := mail.ParseAddress(*property.ContactEmail); err == nil {
@@ -3800,6 +3803,7 @@ func toCreatedPropertyResponse(property *appproperty.Property) api.PropertyRespo
 	queryShape := &dbpropertyquery.Property{
 		ID:                               property.ID,
 		Name:                             property.Name,
+		PropertyPublicName:               property.PropertyPublicName,
 		Subtitle:                         property.Subtitle,
 		Address:                          property.Address,
 		ElectricityUnitPrice:             property.ElectricityUnitPrice,

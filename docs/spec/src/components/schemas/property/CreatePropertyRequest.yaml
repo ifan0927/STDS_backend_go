@@ -8,6 +8,9 @@ required:
 properties:
   name:
     type: string
+  property_public_name:
+    type: string
+    description: Public brand-page display name. Defaults from name when omitted.
   subtitle:
     type: string
     nullable: true
