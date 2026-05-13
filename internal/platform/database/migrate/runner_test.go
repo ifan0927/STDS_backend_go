@@ -38,6 +38,7 @@ var expectedMigrationVersions = []string{
 	"000020",
 	"000021",
 	"000022",
+	"000023",
 }
 
 func TestRunnerUpAppliesMigrationsAndRecordsVersions(t *testing.T) {
@@ -63,6 +64,22 @@ func TestRunnerUpAppliesMigrationsAndRecordsVersions(t *testing.T) {
 	}
 
 	verifyMigrationExpectations(t, mock)
+}
+
+func TestBrandFAQApprovedViewContract(t *testing.T) {
+	migration := migrationsByVersion(t, "up")["000023"].SQL
+
+	requiredSnippets := []string{
+		"CREATE VIEW approved_brand_faq_items_v1 AS",
+		"SELECT\n    question,\n    answer,\n    sort_order",
+		"WHERE is_active = true\n  AND deleted_at IS NULL",
+		"ORDER BY sort_order",
+	}
+	for _, snippet := range requiredSnippets {
+		if !strings.Contains(migration, snippet) {
+			t.Fatalf("expected migration to contain %q", snippet)
+		}
+	}
 }
 
 func TestRunnerUpSkipsAlreadyAppliedMigrations(t *testing.T) {

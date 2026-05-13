@@ -93,6 +93,12 @@ paths:
     $ref: paths/property/dashboard.yaml
   /brand/profile:
     $ref: paths/brand/brand_profile.yaml
+  /brand/faq-items:
+    $ref: paths/brand/brand_faq_items.yaml
+  /brand/faq-items/{id}:
+    $ref: paths/brand/brand_faq_items_{id}.yaml
+  /brand/faq-items/{id}/deactivate:
+    $ref: paths/brand/brand_faq_items_{id}_deactivate.yaml
   /properties:
     $ref: paths/property/properties.yaml
   /properties/{id}:

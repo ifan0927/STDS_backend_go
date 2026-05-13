@@ -1,0 +1,18 @@
+type: object
+required:
+  - question
+  - answer
+  - sort_order
+  - is_active
+  - version
+properties:
+  question:
+    type: string
+  answer:
+    type: string
+  sort_order:
+    type: integer
+  is_active:
+    type: boolean
+  version:
+    type: integer
