@@ -585,6 +585,18 @@ type BillResponseStatus string
 // BillResponseType defines model for BillResponse.Type.
 type BillResponseType string
 
+// BrandProfileResponse defines model for BrandProfileResponse.
+type BrandProfileResponse struct {
+	BrandName      *string              `json:"brand_name,omitempty"`
+	ContactAddress *string              `json:"contact_address"`
+	ContactEmail   *openapi_types.Email `json:"contact_email"`
+	ContactPhone   *string              `json:"contact_phone"`
+	CreatedAt      *time.Time           `json:"created_at,omitempty"`
+	Id             *openapi_types.UUID  `json:"id,omitempty"`
+	UpdatedAt      *time.Time           `json:"updated_at,omitempty"`
+	Version        *int                 `json:"version,omitempty"`
+}
+
 // CancelRepairRequest defines model for CancelRepairRequest.
 type CancelRepairRequest struct {
 	Reason *string `json:"reason,omitempty"`
@@ -1590,6 +1602,17 @@ type UpdateUserRequest struct {
 // UpdateUserRequestRole defines model for UpdateUserRequest.Role.
 type UpdateUserRequestRole string
 
+// UpsertBrandProfileRequest defines model for UpsertBrandProfileRequest.
+type UpsertBrandProfileRequest struct {
+	BrandName      string               `json:"brand_name"`
+	ContactAddress *string              `json:"contact_address"`
+	ContactEmail   *openapi_types.Email `json:"contact_email"`
+	ContactPhone   *string              `json:"contact_phone"`
+
+	// Version Required when updating an existing brand profile; omit for first creation.
+	Version *int `json:"version,omitempty"`
+}
+
 // UserListResponse defines model for UserListResponse.
 type UserListResponse struct {
 	Data       *[]UserResponse     `json:"data,omitempty"`
@@ -1850,6 +1873,9 @@ type SubmitBillMeterJSONRequestBody = RecordMeterRequest
 // RecordBillPaymentJSONRequestBody defines body for RecordBillPayment for application/json ContentType.
 type RecordBillPaymentJSONRequestBody = RecordPaymentRequest
 
+// UpsertBrandProfileJSONRequestBody defines body for UpsertBrandProfile for application/json ContentType.
+type UpsertBrandProfileJSONRequestBody = UpsertBrandProfileRequest
+
 // CreateJournalLogJSONRequestBody defines body for CreateJournalLog for application/json ContentType.
 type CreateJournalLogJSONRequestBody = CreateJournalLogRequest
 
@@ -1978,6 +2004,12 @@ type ServerInterface interface {
 	// Export bill receipt as HTML
 	// (GET /bills/{id}/receipt)
 	ExportBillReceipt(c *gin.Context, id string, params ExportBillReceiptParams)
+	// 取得品牌基本資料
+	// (GET /brand/profile)
+	GetBrandProfile(c *gin.Context)
+	// 建立或更新品牌基本資料
+	// (PUT /brand/profile)
+	UpsertBrandProfile(c *gin.Context)
 	// Home dashboard summary read model
 	// (GET /dashboard)
 	GetDashboard(c *gin.Context)
@@ -2569,6 +2601,36 @@ func (siw *ServerInterfaceWrapper) ExportBillReceipt(c *gin.Context) {
 	}
 
 	siw.Handler.ExportBillReceipt(c, id, params)
+}
+
+// GetBrandProfile operation middleware
+func (siw *ServerInterfaceWrapper) GetBrandProfile(c *gin.Context) {
+
+	c.Set(BearerAuthScopes, []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.GetBrandProfile(c)
+}
+
+// UpsertBrandProfile operation middleware
+func (siw *ServerInterfaceWrapper) UpsertBrandProfile(c *gin.Context) {
+
+	c.Set(BearerAuthScopes, []string{})
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.UpsertBrandProfile(c)
 }
 
 // GetDashboard operation middleware
@@ -5163,6 +5225,8 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.POST(options.BaseURL+"/bills/:id/meter", wrapper.SubmitBillMeter)
 	router.POST(options.BaseURL+"/bills/:id/payment", wrapper.RecordBillPayment)
 	router.GET(options.BaseURL+"/bills/:id/receipt", wrapper.ExportBillReceipt)
+	router.GET(options.BaseURL+"/brand/profile", wrapper.GetBrandProfile)
+	router.PUT(options.BaseURL+"/brand/profile", wrapper.UpsertBrandProfile)
 	router.GET(options.BaseURL+"/dashboard", wrapper.GetDashboard)
 	router.GET(options.BaseURL+"/force-terminations/:id", wrapper.GetForceTermination)
 	router.POST(options.BaseURL+"/internal/jobs/force-terminations/compensate", wrapper.RunForceTerminationCompensationJob)

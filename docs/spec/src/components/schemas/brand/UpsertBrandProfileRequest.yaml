@@ -1,0 +1,19 @@
+type: object
+required:
+  - brand_name
+properties:
+  brand_name:
+    type: string
+  contact_phone:
+    type: string
+    nullable: true
+  contact_email:
+    type: string
+    format: email
+    nullable: true
+  contact_address:
+    type: string
+    nullable: true
+  version:
+    type: integer
+    description: Required when updating an existing brand profile; omit for first creation.

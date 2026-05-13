@@ -1,0 +1,25 @@
+type: object
+properties:
+  id:
+    type: string
+    format: uuid
+  brand_name:
+    type: string
+  contact_phone:
+    type: string
+    nullable: true
+  contact_email:
+    type: string
+    format: email
+    nullable: true
+  contact_address:
+    type: string
+    nullable: true
+  created_at:
+    type: string
+    format: date-time
+  updated_at:
+    type: string
+    format: date-time
+  version:
+    type: integer

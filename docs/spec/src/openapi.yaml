@@ -91,6 +91,8 @@ paths:
     $ref: paths/iam/users_{id}_password-reset.yaml
   /dashboard:
     $ref: paths/property/dashboard.yaml
+  /brand/profile:
+    $ref: paths/brand/brand_profile.yaml
   /properties:
     $ref: paths/property/properties.yaml
   /properties/{id}:

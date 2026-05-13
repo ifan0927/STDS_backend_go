@@ -11,11 +11,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gin-gonic/gin"
 	googleuuid "github.com/google/uuid"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	appattachment "stds_backend/internal/application/attachment"
+	appbrand "stds_backend/internal/application/brand"
 	applease "stds_backend/internal/application/lease"
 	appproperty "stds_backend/internal/application/property"
 	apprepair "stds_backend/internal/application/repair"
@@ -118,6 +120,83 @@ func TestToPropertyResponseDropsInvalidContactEmail(t *testing.T) {
 
 	if value, ok := payload["contact_email"]; !ok || value != nil {
 		t.Fatalf("expected contact_email null, got %v", payload["contact_email"])
+	}
+}
+
+func TestUpsertBrandProfileReturnsUpdatedProfile(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("open sqlmock: %v", err)
+	}
+	defer db.Close()
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+
+	now := time.Date(2026, 5, 13, 10, 0, 0, 0, time.UTC)
+	repo := &handlerBrandProfileRepoStub{
+		findForUpdateProfile: &appbrand.Profile{ID: "10000000-0000-0000-0000-000000000001", Version: 1},
+		updateProfile: &appbrand.Profile{
+			ID:             "10000000-0000-0000-0000-000000000001",
+			BrandName:      "STDS Demo",
+			ContactEmail:   handlerStringPtr("hello@example.com"),
+			ContactAddress: handlerStringPtr("Taipei"),
+			CreatedAt:      now,
+			UpdatedAt:      now,
+			Version:        2,
+		},
+	}
+	server := &APIServer{brandProfile: appbrand.NewService(repo, txrunner.New(db, nil))}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/brand/profile", bytes.NewBufferString(`{"brand_name":" STDS Demo ","contact_email":"hello@example.com","contact_address":"Taipei","version":1}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	server.UpsertBrandProfile(c)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if repo.updateParams == nil || repo.updateParams.BrandName != "STDS Demo" || repo.updateParams.Version != 1 {
+		t.Fatalf("unexpected update params: %+v", repo.updateParams)
+	}
+	var response api.BrandProfileResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if response.BrandName == nil || *response.BrandName != "STDS Demo" {
+		t.Fatalf("unexpected brand name: %+v", response.BrandName)
+	}
+	if response.Version == nil || *response.Version != 2 {
+		t.Fatalf("unexpected version: %+v", response.Version)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestUpsertBrandProfileRejectsMalformedBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	server := &APIServer{brandProfile: appbrand.NewService(&handlerBrandProfileRepoStub{}, nil)}
+	engine := gin.New()
+	engine.Use(middleware.ErrorHandler(nil))
+	engine.PUT("/brand/profile", server.UpsertBrandProfile)
+
+	req := httptest.NewRequest(http.MethodPut, "/brand/profile", bytes.NewBufferString(`{"brand_name":`))
+	resp := httptest.NewRecorder()
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", resp.Code, resp.Body.String())
+	}
+	payload := map[string]any{}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if payload["error_code"] != apperr.CodeBadRequest {
+		t.Fatalf("expected bad request, got %v", payload["error_code"])
 	}
 }
 
@@ -2000,8 +2079,61 @@ func intPtr(value int) *int {
 	return &value
 }
 
+func handlerStringPtr(value string) *string {
+	return &value
+}
+
 func uuidPtr(value string) *openapi_types.UUID {
 	parsed := googleuuid.MustParse(value)
 	result := openapi_types.UUID(parsed)
 	return &result
+}
+
+type handlerBrandProfileRepoStub struct {
+	findProfile          *appbrand.Profile
+	findErr              error
+	findForUpdateProfile *appbrand.Profile
+	findForUpdateErr     error
+	createProfile        *appbrand.Profile
+	createParams         *appbrand.CreateProfileParams
+	createErr            error
+	updateProfile        *appbrand.Profile
+	updateParams         *appbrand.UpdateProfileParams
+	updateErr            error
+}
+
+func (r *handlerBrandProfileRepoStub) Find(context.Context) (*appbrand.Profile, error) {
+	if r.findErr != nil {
+		return nil, r.findErr
+	}
+	if r.findProfile != nil {
+		return r.findProfile, nil
+	}
+	return nil, appbrand.ErrBrandProfileNotFound
+}
+
+func (r *handlerBrandProfileRepoStub) FindForUpdate(context.Context, *sql.Tx) (*appbrand.Profile, error) {
+	if r.findForUpdateErr != nil {
+		return nil, r.findForUpdateErr
+	}
+	if r.findForUpdateProfile != nil {
+		return r.findForUpdateProfile, nil
+	}
+	return nil, appbrand.ErrBrandProfileNotFound
+}
+
+func (r *handlerBrandProfileRepoStub) Create(_ context.Context, _ *sql.Tx, params appbrand.CreateProfileParams) (*appbrand.Profile, error) {
+	r.createParams = &params
+	if r.createErr != nil {
+		return nil, r.createErr
+	}
+	return r.createProfile, nil
+}
+
+func (r *handlerBrandProfileRepoStub) Update(_ context.Context, _ *sql.Tx, params appbrand.UpdateProfileParams) (*appbrand.Profile, error) {
+	r.updateParams = &params
+	if r.updateErr != nil {
+		return nil, r.updateErr
+	}
+	return r.updateProfile, nil
 }

@@ -37,6 +37,7 @@ var expectedMigrationVersions = []string{
 	"000019",
 	"000020",
 	"000021",
+	"000022",
 }
 
 func TestRunnerUpAppliesMigrationsAndRecordsVersions(t *testing.T) {
@@ -253,6 +254,48 @@ func TestPropertyPublicNameMigrationBackfillsAndEnforcesNonEmptyValue(t *testing
 	for _, snippet := range requiredDownSnippets {
 		if !strings.Contains(downSQL, snippet) {
 			t.Fatalf("000021 down migration missing %q", snippet)
+		}
+	}
+}
+
+func TestBrandProfileMigrationCreatesApprovedViewShape(t *testing.T) {
+	migrations := migrationsByVersion(t, "up")
+	sql := migrations["000022"].SQL
+
+	requiredSnippets := []string{
+		"CREATE TABLE brand_profiles",
+		"singleton_key   BOOLEAN",
+		"brand_name      VARCHAR(200) NOT NULL CHECK (btrim(brand_name) <> '')",
+		"version         INTEGER",
+		"CREATE VIEW approved_brand_profile_v1 AS",
+		"brand_name",
+		"contact_phone",
+		"contact_email",
+		"contact_address",
+		"updated_at",
+	}
+	for _, snippet := range requiredSnippets {
+		if !strings.Contains(sql, snippet) {
+			t.Fatalf("000022 migration missing %q", snippet)
+		}
+	}
+	viewStart := strings.Index(sql, "CREATE VIEW approved_brand_profile_v1 AS")
+	if viewStart < 0 {
+		t.Fatal("000022 migration missing approved view")
+	}
+	viewSQL := sql[viewStart:]
+	if strings.Contains(viewSQL, "SELECT *") || strings.Contains(viewSQL, "created_at") || strings.Contains(viewSQL, "version") {
+		t.Fatalf("000022 approved view exposes disallowed metadata: %s", viewSQL)
+	}
+
+	downSQL := migrationsByVersion(t, "down")["000022"].SQL
+	requiredDownSnippets := []string{
+		"DROP VIEW IF EXISTS approved_brand_profile_v1",
+		"DROP TABLE IF EXISTS brand_profiles",
+	}
+	for _, snippet := range requiredDownSnippets {
+		if !strings.Contains(downSQL, snippet) {
+			t.Fatalf("000022 down migration missing %q", snippet)
 		}
 	}
 }

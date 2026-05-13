@@ -1,0 +1,84 @@
+get:
+  operationId: getBrandProfile
+  summary: 取得品牌基本資料
+  description: |
+    x-required-role: admin, organizer
+    Singleton brand profile for the demo brand frontend content controls.
+  tags:
+    - Brand
+  x-required-role:
+    - admin
+    - organizer
+  responses:
+    '200':
+      description: 品牌基本資料
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/brand/BrandProfileResponse.yaml
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+    '403':
+      description: 權限不足
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+    '404':
+      description: 尚未建立品牌基本資料
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+put:
+  operationId: upsertBrandProfile
+  summary: 建立或更新品牌基本資料
+  description: |
+    x-required-role: admin, organizer
+    Upserts the singleton brand profile. version is required when updating an existing profile.
+  tags:
+    - Brand
+  x-required-role:
+    - admin
+    - organizer
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: ../../components/schemas/brand/UpsertBrandProfileRequest.yaml
+  responses:
+    '200':
+      description: 品牌基本資料已建立或更新
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/brand/BrandProfileResponse.yaml
+    '400':
+      description: 欄位驗證錯誤
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+    '401':
+      description: 未認證
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+    '403':
+      description: 權限不足
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
+    '409':
+      description: 樂觀鎖版本衝突
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/shared/ErrorResponse.yaml
