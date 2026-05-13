@@ -76,6 +76,7 @@ const (
 // Defines values for CheckoutSettlementBlockerCode.
 const (
 	CheckoutSettlementBlockerCodeChargeExceedsDeposit             CheckoutSettlementBlockerCode = "charge_exceeds_deposit"
+	CheckoutSettlementBlockerCodeCheckoutDateBeforeLeaseStart     CheckoutSettlementBlockerCode = "checkout_date_before_lease_start"
 	CheckoutSettlementBlockerCodeDepositNotHeld                   CheckoutSettlementBlockerCode = "deposit_not_held"
 	CheckoutSettlementBlockerCodeLeaseNotActive                   CheckoutSettlementBlockerCode = "lease_not_active"
 	CheckoutSettlementBlockerCodeManualRentRefundDecisionRequired CheckoutSettlementBlockerCode = "manual_rent_refund_decision_required"

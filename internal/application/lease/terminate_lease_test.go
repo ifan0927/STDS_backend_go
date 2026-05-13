@@ -544,6 +544,39 @@ func TestPreviewCheckoutSettlementAllowsEarlyCheckoutWithNoRentRefundDecision(t 
 	}
 }
 
+func TestPreviewCheckoutSettlementBlocksCheckoutDateBeforeLeaseStart(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+	defer verifySQLMockExpectations(t, mock)
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+
+	repo := terminationRepoStub()
+	service := NewPreviewCheckoutSettlementService(repo, dbtxrunner.New(db, nil))
+	reason := "雙方協議不退未到期租金"
+
+	result, err := service.Execute(context.Background(), CheckoutSettlementInput{
+		ActorRole:              "admin",
+		AssignedPropertyIDs:    []string{"property-1"},
+		LeaseID:                terminateLeaseTestLeaseID,
+		CheckoutDate:           time.Date(2025, 12, 31, 0, 0, 0, 0, time.UTC),
+		Reason:                 "tenant requested",
+		ManualRentRefundReason: &reason,
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if result.PreviewToken != nil {
+		t.Fatalf("expected no token for checkout before lease start, got %q", *result.PreviewToken)
+	}
+	if len(result.Blockers) != 1 || result.Blockers[0].Code != checkoutBlockerCheckoutBeforeStart {
+		t.Fatalf("unexpected blockers: %+v", result.Blockers)
+	}
+}
+
 func TestPreviewCheckoutSettlementManualRentRefundAffectsTotalsButNotDepositInvariant(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

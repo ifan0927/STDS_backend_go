@@ -17,28 +17,29 @@ import (
 )
 
 const (
-	checkoutLineDepositRefund       = "deposit_refund"
-	checkoutLineCleaningFee         = "cleaning_fee"
-	checkoutLineKeyCardLoss         = "key_card_loss"
-	checkoutLineOtherFee            = "other_fee"
-	checkoutLineElectricSettlement  = "electricity_settlement"
-	checkoutLineRentRefund          = "rent_refund"
-	checkoutDirectionRefund         = "refund"
-	checkoutDirectionCharge         = "charge"
-	checkoutDirectionInfo           = "info"
-	checkoutNetRefund               = "refund"
-	checkoutNetPayable              = "payable"
-	checkoutNetZero                 = "zero"
-	checkoutWarningRentRefund       = "rent_refund_not_calculated"
-	checkoutWarningFinalMeter       = "final_meter_snapshot_only"
-	checkoutBlockerUnpaidBill       = "unpaid_bill"
-	checkoutBlockerPendingMeter     = "pending_meter"
-	checkoutBlockerLeaseNotActive   = "lease_not_active"
-	checkoutBlockerDepositNotHeld   = "deposit_not_held"
-	checkoutBlockerChargeExceedsDep = "charge_exceeds_deposit"
-	checkoutBlockerRentRefund       = "manual_rent_refund_decision_required"
-	rentRefundAccountingCategory    = "rent_refund"
-	rentRefundAccountingTitleCode   = "4604"
+	checkoutLineDepositRefund          = "deposit_refund"
+	checkoutLineCleaningFee            = "cleaning_fee"
+	checkoutLineKeyCardLoss            = "key_card_loss"
+	checkoutLineOtherFee               = "other_fee"
+	checkoutLineElectricSettlement     = "electricity_settlement"
+	checkoutLineRentRefund             = "rent_refund"
+	checkoutDirectionRefund            = "refund"
+	checkoutDirectionCharge            = "charge"
+	checkoutDirectionInfo              = "info"
+	checkoutNetRefund                  = "refund"
+	checkoutNetPayable                 = "payable"
+	checkoutNetZero                    = "zero"
+	checkoutWarningRentRefund          = "rent_refund_not_calculated"
+	checkoutWarningFinalMeter          = "final_meter_snapshot_only"
+	checkoutBlockerUnpaidBill          = "unpaid_bill"
+	checkoutBlockerPendingMeter        = "pending_meter"
+	checkoutBlockerLeaseNotActive      = "lease_not_active"
+	checkoutBlockerDepositNotHeld      = "deposit_not_held"
+	checkoutBlockerChargeExceedsDep    = "charge_exceeds_deposit"
+	checkoutBlockerRentRefund          = "manual_rent_refund_decision_required"
+	checkoutBlockerCheckoutBeforeStart = "checkout_date_before_lease_start"
+	rentRefundAccountingCategory       = "rent_refund"
+	rentRefundAccountingTitleCode      = "4604"
 )
 
 // CheckoutSettlementInput is the shared input for preview and finalize.
@@ -514,6 +515,9 @@ func checkoutSettlementBlockers(lease Lease, bills []Bill, input CheckoutSettlem
 	}
 	if lease.DepositStatus != domainlease.DepositStatusHeld {
 		blockers = append(blockers, CheckoutSettlementBlocker{Code: checkoutBlockerDepositNotHeld, Message: "押金狀態不是 held，無法執行退租結算。"})
+	}
+	if normalizeDate(input.CheckoutDate).Before(normalizeDate(lease.StartDate)) {
+		blockers = append(blockers, CheckoutSettlementBlocker{Code: checkoutBlockerCheckoutBeforeStart, Message: "結算生效日不可早於租約起始日。"})
 	}
 	if normalizeDate(input.CheckoutDate).Before(normalizeDate(lease.EndDate)) {
 		if input.ManualRentRefundReason == nil {
