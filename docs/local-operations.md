@@ -219,6 +219,21 @@ storage emulator.
 
 Production or staging environments must provide Google Application Default Credentials, for example through `GOOGLE_APPLICATION_CREDENTIALS` or the runtime service account. The service account needs permission to create signed upload URLs and read object metadata for registration checks.
 
+## Database pool settings
+
+Cloud Run instances each own a `database/sql` pool. Staging and production
+deployments should set explicit limits so Cloud SQL connection usage stays
+bounded as Cloud Run scales:
+
+```bash
+DB_MAX_OPEN_CONNS=5
+DB_MAX_IDLE_CONNS=2
+DB_CONN_MAX_LIFETIME=5m
+```
+
+Invalid integer or duration values fail startup instead of falling back
+silently. Local development may leave these unset.
+
 ## CI checks
 
 The PR CI gate runs these checks for pull requests targeting `dev` and pushes to `dev`:

@@ -20,7 +20,11 @@ func main() {
 		log.Fatalf("load config: %v", err)
 	}
 
-	db, err := database.Open(context.Background(), cfg.DB.URL)
+	db, err := database.Open(context.Background(), cfg.DB.URL, database.PoolConfig{
+		MaxOpenConns:    cfg.DB.MaxOpenConns,
+		MaxIdleConns:    cfg.DB.MaxIdleConns,
+		ConnMaxLifetime: cfg.DB.ConnMaxLifetime,
+	})
 	if err != nil {
 		log.Fatalf("open database: %v", err)
 	}

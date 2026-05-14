@@ -124,7 +124,7 @@ func runProperties(args []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	db, err := database.Open(context.Background(), cfg.DB.URL)
+	db, err := database.Open(context.Background(), cfg.DB.URL, databasePoolConfig(cfg.DB))
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
@@ -162,7 +162,7 @@ func runRooms(args []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	db, err := database.Open(context.Background(), cfg.DB.URL)
+	db, err := database.Open(context.Background(), cfg.DB.URL, databasePoolConfig(cfg.DB))
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
@@ -201,7 +201,7 @@ func runTenants(args []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	db, err := database.Open(context.Background(), cfg.DB.URL)
+	db, err := database.Open(context.Background(), cfg.DB.URL, databasePoolConfig(cfg.DB))
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
@@ -241,7 +241,7 @@ func runLeases(args []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	db, err := database.Open(context.Background(), cfg.DB.URL)
+	db, err := database.Open(context.Background(), cfg.DB.URL, databasePoolConfig(cfg.DB))
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
@@ -280,7 +280,7 @@ func runRoomStatus(args []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	db, err := database.Open(context.Background(), cfg.DB.URL)
+	db, err := database.Open(context.Background(), cfg.DB.URL, databasePoolConfig(cfg.DB))
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
@@ -318,7 +318,7 @@ func runBills(args []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	db, err := database.Open(context.Background(), cfg.DB.URL)
+	db, err := database.Open(context.Background(), cfg.DB.URL, databasePoolConfig(cfg.DB))
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
@@ -361,7 +361,7 @@ func runJournal(args []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	db, err := database.Open(context.Background(), cfg.DB.URL)
+	db, err := database.Open(context.Background(), cfg.DB.URL, databasePoolConfig(cfg.DB))
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
@@ -401,7 +401,7 @@ func runValidate(args []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	db, err := database.Open(context.Background(), cfg.DB.URL)
+	db, err := database.Open(context.Background(), cfg.DB.URL, databasePoolConfig(cfg.DB))
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
@@ -425,4 +425,12 @@ func runValidate(args []string) error {
 	)
 
 	return nil
+}
+
+func databasePoolConfig(cfg config.DatabaseConfig) database.PoolConfig {
+	return database.PoolConfig{
+		MaxOpenConns:    cfg.MaxOpenConns,
+		MaxIdleConns:    cfg.MaxIdleConns,
+		ConnMaxLifetime: cfg.ConnMaxLifetime,
+	}
 }

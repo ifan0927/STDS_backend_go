@@ -35,7 +35,10 @@ type AppConfig struct {
 
 // DatabaseConfig contains database connection settings.
 type DatabaseConfig struct {
-	URL string
+	URL             string
+	MaxOpenConns    int
+	MaxIdleConns    int
+	ConnMaxLifetime time.Duration
 }
 
 // FirebaseConfig contains Firebase authentication client settings.
@@ -73,6 +76,19 @@ func (c FirebaseConfig) UsesAuthEmulator() bool {
 func Load() (*Config, error) {
 	_ = godotenv.Load()
 
+	dbMaxOpenConns, err := getOptionalIntEnv("DB_MAX_OPEN_CONNS")
+	if err != nil {
+		return nil, err
+	}
+	dbMaxIdleConns, err := getOptionalIntEnv("DB_MAX_IDLE_CONNS")
+	if err != nil {
+		return nil, err
+	}
+	dbConnMaxLifetime, err := getOptionalDurationEnv("DB_CONN_MAX_LIFETIME")
+	if err != nil {
+		return nil, err
+	}
+
 	cfg := &Config{
 		App: AppConfig{
 			Name:                getEnv("APP_NAME", "stds-backend"),
@@ -87,7 +103,10 @@ func Load() (*Config, error) {
 			WriteTimeout:        getDurationEnv("APP_WRITE_TIMEOUT", 10*time.Second),
 		},
 		DB: DatabaseConfig{
-			URL: os.Getenv("DATABASE_URL"),
+			URL:             os.Getenv("DATABASE_URL"),
+			MaxOpenConns:    dbMaxOpenConns,
+			MaxIdleConns:    dbMaxIdleConns,
+			ConnMaxLifetime: dbConnMaxLifetime,
 		},
 		Firebase: FirebaseConfig{
 			ProjectID:                os.Getenv("FIREBASE_PROJECT_ID"),
@@ -156,4 +175,38 @@ func getIntEnv(key string, fallback int) int {
 	}
 
 	return parsed
+}
+
+func getOptionalIntEnv(key string) (int, error) {
+	value := os.Getenv(key)
+	if value == "" {
+		return 0, nil
+	}
+
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be an integer: %w", key, err)
+	}
+	if parsed < 0 {
+		return 0, fmt.Errorf("%s must be non-negative", key)
+	}
+
+	return parsed, nil
+}
+
+func getOptionalDurationEnv(key string) (time.Duration, error) {
+	value := os.Getenv(key)
+	if value == "" {
+		return 0, nil
+	}
+
+	duration, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a duration: %w", key, err)
+	}
+	if duration < 0 {
+		return 0, fmt.Errorf("%s must be non-negative", key)
+	}
+
+	return duration, nil
 }

@@ -56,7 +56,11 @@ type Server struct {
 // New wires configuration, infrastructure clients, and the HTTP router into a
 // runnable server instance.
 func New(cfg *config.Config) (*Server, error) {
-	db, err := database.Open(context.Background(), cfg.DB.URL)
+	db, err := database.Open(context.Background(), cfg.DB.URL, database.PoolConfig{
+		MaxOpenConns:    cfg.DB.MaxOpenConns,
+		MaxIdleConns:    cfg.DB.MaxIdleConns,
+		ConnMaxLifetime: cfg.DB.ConnMaxLifetime,
+	})
 	if err != nil {
 		return nil, err
 	}
