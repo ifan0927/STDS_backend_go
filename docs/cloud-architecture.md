@@ -293,13 +293,18 @@ Important fields:
 - `method`
 - `path`
 - `status`
-- `latency`
+- `latency_ms`
 - scheduler `job_key`
-- scheduler `window_key`
-- scheduler result
+- scheduler `job_window_key`
+- scheduler `job_status`
+- scheduler `job_retry_count`
+- scheduler `job_duration_ms`
 
 Do not log bearer tokens, scheduler keys, DB passwords, private keys, or full
 request/response bodies containing sensitive data.
+
+The operator-facing filters, metric checks, alert expectations, and evidence
+format live in `docs/staging-runbook.md`.
 
 ### Monitoring
 

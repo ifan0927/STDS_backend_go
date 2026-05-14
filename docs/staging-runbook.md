@@ -596,6 +596,219 @@ The core backend runtime service account needs enough bucket access to generate
 signed upload/download URLs and read object metadata during attachment
 registration checks.
 
+## Logging, Monitoring, And Alerting
+
+Staging uses GCP-native Cloud Logging and Cloud Monitoring. Do not add
+Prometheus, Grafana, custom metrics, tracing, or APM for the first demo wave
+unless a concrete staging blocker requires it.
+
+### Runtime Logging Contract
+
+Cloud Run automatically sends these log streams to Cloud Logging:
+
+- Cloud Run request logs.
+- Container stdout and stderr.
+- Cloud Run system and revision logs.
+
+The backend writes JSON structured logs to stdout through Go `log/slog`.
+Non-local environments use info level by default. Each application log includes
+the baseline `service` and `env` fields.
+
+HTTP access logs are emitted by the Gin logging middleware after each request.
+Expected fields include:
+
+```text
+request_id
+method
+path
+status
+latency_ms
+user_id
+firebase_uid
+role
+property_id
+error_code
+job_key
+job_window_key
+job_status
+job_retry_count
+job_duration_ms
+```
+
+`property_id` is populated when the route resolver can determine the authorized
+property. Scheduler fields are populated only for scheduler-trigger endpoints.
+
+HTTP 5xx errors add a structured error log with `request_id`, `method`, `path`,
+`error_code`, and `cause`. Panic recovery adds `request_id`, `method`, `path`,
+`panic`, and `stack`.
+
+The migration commands used during database preparation write plain stdout and
+stderr output, not application JSON logs. Treat migration evidence as command
+status, migration version, import counts, validation summaries, and redacted
+database target metadata.
+
+Application logs must remain allowlist-based. Do not log raw request objects,
+raw request or response bodies, `Authorization` headers, Firebase ID tokens,
+scheduler keys, DB passwords, private keys, Secret Manager values, full
+`DATABASE_URL`, signed URL query strings, or credential file contents.
+Treat Cloud Logging viewer access as sensitive operational access because logs
+can include user, Firebase UID, role, property, request, and error context.
+
+### Cloud Logging Queries
+
+Use the Cloud Logging Logs Explorer. Start with the staging Cloud Run service
+resource and narrow from there.
+
+Replace placeholders before use:
+
+```text
+resource.type="cloud_run_revision"
+resource.labels.service_name="<staging-cloud-run-service>"
+resource.labels.location="<staging-region>"
+```
+
+Recent application errors:
+
+```text
+resource.type="cloud_run_revision"
+resource.labels.service_name="<staging-cloud-run-service>"
+resource.labels.location="<staging-region>"
+severity>=ERROR
+```
+
+HTTP 5xx request logs:
+
+```text
+resource.type="cloud_run_revision"
+resource.labels.service_name="<staging-cloud-run-service>"
+resource.labels.location="<staging-region>"
+httpRequest.status>=500
+```
+
+Follow one request across access and error logs:
+
+```text
+resource.type="cloud_run_revision"
+resource.labels.service_name="<staging-cloud-run-service>"
+resource.labels.location="<staging-region>"
+jsonPayload.request_id="<request-id>"
+```
+
+Check one deployed path:
+
+```text
+resource.type="cloud_run_revision"
+resource.labels.service_name="<staging-cloud-run-service>"
+resource.labels.location="<staging-region>"
+jsonPayload.path="/healthz"
+```
+
+Authenticated smoke requests should prove that `user_id`, `firebase_uid`, and
+`role` are present when expected, but evidence must never include the bearer
+token used to make the request.
+
+Attachment smoke should prove the upload/download endpoints, status, and
+`request_id` are visible. Do not attach full signed upload/download URLs,
+nonces, or signed URL query strings as evidence.
+
+Scheduler endpoint logs are not required for staging v1 because Cloud Scheduler
+jobs are excluded from the first demo wave. When scheduler jobs are enabled
+later, inspect `jsonPayload.job_key`, `jsonPayload.job_window_key`,
+`jsonPayload.job_status`, `jsonPayload.job_retry_count`, and
+`jsonPayload.job_duration_ms`.
+
+Current scheduler logging has an important limit: job fields are attached to
+the HTTP access log after a scheduler trigger returns a result. If the trigger
+fails before returning that result, the request may only have normal
+`error_code` and `cause` fields in the error log. Use the persisted
+`scheduler_job_runs` row for `job_key`, `window_key`, `status`, and `message`
+when investigating scheduler failures after scheduler jobs are enabled.
+
+### Current Gaps To Account For
+
+These are accepted staging v1 constraints, not blockers for the first demo
+wave:
+
+- Successful API startup does not emit a dedicated application startup log; use
+  Cloud Run revision/system logs and `/healthz` smoke evidence to confirm the
+  revision is serving.
+- 5xx `cause`, panic values, stack traces, and migration driver errors are not
+  redacted by a centralized scrubber. Evidence must be reviewed before posting.
+- Scheduler failure logs may not include scheduler-specific fields when failure
+  happens before result metadata is attached.
+- Batch job summaries do not persist per-item failure details in structured log
+  fields.
+- `cmd/migrate` and `cmd/migrate_legacy` output is command-line text rather
+  than JSON structured logging.
+
+### Cloud Monitoring Checks
+
+Inspect these Cloud Run metrics for the staging service after deploy and smoke:
+
+- Request count.
+- Request latency.
+- 4xx and 5xx response count.
+- Container instance count.
+- CPU and memory utilization.
+
+Inspect these Cloud SQL metrics for the staging database:
+
+- CPU utilization.
+- Storage utilization.
+- Connection count.
+- Memory pressure where available for the selected machine type.
+
+Compare Cloud SQL connection count with the actual `max_connections` result
+captured during database setup. The Cloud Run runtime env should keep
+`DB_MAX_OPEN_CONNS=5`, `DB_MAX_IDLE_CONNS=2`, and
+`DB_CONN_MAX_LIFETIME=5m` for staging v1 unless later evidence justifies a
+change.
+
+### Alerting Baseline
+
+Configure alert policies only for actionable staging signals:
+
+- Cloud Run service unavailable or uptime check failing.
+- Elevated Cloud Run 5xx count or error ratio.
+- Cloud Run instance count reaches the configured `max-instances`.
+- Cloud SQL CPU sustained above the accepted staging threshold.
+- Cloud SQL connection count approaching the verified `max_connections` limit.
+- Cloud SQL storage utilization above the accepted staging threshold.
+- Billing budget threshold for the staging project.
+
+Use a human-operated notification channel such as email for staging. Do not add
+pager-style production incident routing for this first demo wave.
+
+Keep log-based metrics optional. If one is added, keep it narrow and low-volume,
+such as scheduler failed results after scheduler jobs are introduced, auth
+validation failures, or signed URL generation count. Do not add request or
+response body logging to support metrics.
+
+### Observability Evidence
+
+Attach only non-secret evidence:
+
+- Cloud Run Logs Explorer filter for the staging service.
+- One redacted Cloud Run request log showing method, path, status, and latency.
+- One redacted application access log showing `request_id`, `service`, `env`,
+  `path`, `status`, and `latency_ms`.
+- One authenticated smoke access log showing that identity fields are present,
+  with bearer tokens and unrelated user data omitted.
+- One attachment smoke access log showing endpoint, status, and `request_id`,
+  with signed URLs and URL query strings omitted.
+- One redacted 5xx or synthetic error evidence if safely available; otherwise
+  note that no 5xx occurred during smoke.
+- Cloud Monitoring screenshots or metric names for Cloud Run request count,
+  latency, 5xx count, and instance count.
+- Cloud SQL metric names or screenshots for CPU, storage, and connection count.
+- Alert policy names, conditions, thresholds, and notification channel metadata.
+- Billing budget name and threshold summary.
+- Confirmation that reviewed logs did not contain tokens, scheduler keys,
+  database passwords, private keys, secret values, full `DATABASE_URL`, signed
+  URL query strings, or full request/response bodies.
+- Confirmation that external-provider errors, if any, were summarized without
+  raw Firebase, Resend, GCS, or database error payloads.
+
 ## Verification Evidence
 
 Attach only non-secret evidence to the issue or pull request.
@@ -651,10 +864,16 @@ GCS evidence:
 
 Logging evidence:
 
-- Cloud Run request log is visible.
-- Application structured log is visible.
+- Cloud Run request log is visible for the staging service.
+- Application structured JSON log is visible with `service`, `env`,
+  `request_id`, `path`, `status`, and `latency_ms`.
+- Cloud Logging filters used for request logs, application logs, and errors.
+- Cloud Monitoring metric checks for Cloud Run request count, latency, 5xx
+  count, instance count, and Cloud SQL CPU/storage/connections.
+- Alert policy metadata and billing budget summary.
 - Logs do not contain bearer tokens, scheduler keys, database passwords, secret
-  values, or full request/response bodies containing sensitive data.
+  values, private keys, full `DATABASE_URL`, signed URL query strings, or full
+  request/response bodies containing sensitive data.
 
 Scheduler evidence is not required for staging v1 because scheduler jobs are
 outside the first demo wave.
