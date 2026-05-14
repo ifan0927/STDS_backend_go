@@ -93,6 +93,8 @@ The generated Go bindings live in `internal/http/api/openapi.gen.go`.
   E2E flows, environment variables, CI command details, and migration planning.
 - [Cloud architecture](docs/cloud-architecture.md): proposed GCP staging and
   production-candidate architecture baseline.
+- [Staging runbook](docs/staging-runbook.md): staging v1 environment, secrets,
+  IAM, private networking, and verification evidence contract.
 - [Infrastructure guideline](docs/infra-guideline.md): infrastructure operating
   guidance.
 - [Vertical slice handbook](docs/vertical-slice-handbook.md): implementation

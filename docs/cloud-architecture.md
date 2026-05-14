@@ -15,8 +15,7 @@ the early production candidate. It intentionally avoids an external Application
 Load Balancer in the first version. Firebase Hosting is the browser-facing edge
 for frontend traffic, while Cloud Run hosts backend services.
 
-Cloud SQL private IP and Cloud Run Direct VPC egress are included in the
-target architecture from staging v1 onward if the operational setup is accepted.
+Cloud SQL private IP and Cloud Run Direct VPC egress are included in staging v1.
 This is a security hardening choice because legacy property data will be
 migrated early. It is not treated as an HTTP ingress boundary.
 
@@ -102,8 +101,8 @@ DB_MAX_IDLE_CONNS
 DB_CONN_MAX_LIFETIME
 ```
 
-This is a required repo-side implementation item before relying on the values
-below. The current runtime must be reviewed before marking this decision done.
+The Go runtime reads these values from the environment and applies them to the
+`database/sql` pool when opening the PostgreSQL connection.
 
 Initial target values:
 
@@ -113,9 +112,9 @@ staging:
   DB_MAX_IDLE_CONNS=2
   DB_CONN_MAX_LIFETIME=5m
 
-production candidate:
-  DB_MAX_OPEN_CONNS=10
-  DB_MAX_IDLE_CONNS=5
+production candidate initial:
+  DB_MAX_OPEN_CONNS=5
+  DB_MAX_IDLE_CONNS=2
   DB_CONN_MAX_LIFETIME=5m
 ```
 
@@ -384,14 +383,15 @@ verified with GCP Billing and the Pricing Calculator before production go-live.
 
 - Firebase Hosting frontend.
 - Cloud Run core backend.
-- Cloud SQL private-IP target architecture, if operator setup is accepted.
+- Cloud SQL private IP with VPC / Direct VPC egress.
 - Secret Manager env injection.
 - GCS signed URL upload.
 - Cloud Logging / Monitoring baseline.
 - Cloud Run `max-instances=2`.
 - DB pool limits implemented and configured.
-- Smoke checks for deployment, DB migration, Firebase Auth, scheduler
-  protection, signed URL upload, and log visibility.
+- Smoke checks for deployment, DB migration, Firebase Auth, signed URL upload,
+  and log visibility.
+- Cloud Scheduler jobs are excluded from the first staging demo wave.
 
 ### Production Readiness Review
 
@@ -425,8 +425,6 @@ deployment line.
 ## Open Decisions
 
 - Should staging and production share one Cloud SQL instance initially?
-- Should staging enable Cloud SQL private IP from day one, or should private IP
-  be allowed to slip to staging hardening if setup blocks the deployment line?
 - How will Cloud Build migrations reach private Cloud SQL?
 - How will operators inspect the database without enabling public IP?
 - Should production require Cloud SQL HA before go-live?

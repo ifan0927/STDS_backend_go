@@ -82,7 +82,11 @@ func runBootstrapDevUser(cfg *config.Config, args []string) error {
 		return err
 	}
 
-	db, err := database.Open(context.Background(), cfg.DB.URL)
+	db, err := database.Open(context.Background(), cfg.DB.URL, database.PoolConfig{
+		MaxOpenConns:    cfg.DB.MaxOpenConns,
+		MaxIdleConns:    cfg.DB.MaxIdleConns,
+		ConnMaxLifetime: cfg.DB.ConnMaxLifetime,
+	})
 	if err != nil {
 		return err
 	}

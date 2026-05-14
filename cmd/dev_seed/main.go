@@ -28,7 +28,11 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	db, err := database.Open(ctx, cfg.DB.URL)
+	db, err := database.Open(ctx, cfg.DB.URL, database.PoolConfig{
+		MaxOpenConns:    cfg.DB.MaxOpenConns,
+		MaxIdleConns:    cfg.DB.MaxIdleConns,
+		ConnMaxLifetime: cfg.DB.ConnMaxLifetime,
+	})
 	if err != nil {
 		log.Fatalf("open database: %v", err)
 	}
