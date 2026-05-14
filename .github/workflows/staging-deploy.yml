@@ -1,0 +1,188 @@
+name: Staging Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref or commit SHA to deploy.
+        required: true
+        default: dev
+      image_tag:
+        description: Artifact Registry image tag for this deployment.
+        required: true
+        default: manual
+      run_smoke:
+        description: Run minimal health/openapi smoke after deploy.
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  predeploy:
+    name: Staging predeploy checks
+    runs-on: ubuntu-latest
+    outputs:
+      commit_sha: ${{ steps.validate.outputs.commit_sha }}
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: stds_backend
+          POSTGRES_USER: stds
+          POSTGRES_PASSWORD: stds
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U stds -d stds_backend"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          ref: dev
+          fetch-depth: 0
+
+      - name: Validate deployment inputs
+        id: validate
+        env:
+          DEPLOY_REF: ${{ inputs.ref }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          if ! [[ "$IMAGE_TAG" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]]; then
+            echo "image_tag must be a Docker-compatible tag without spaces, commas, quotes, or shell metacharacters" >&2
+            exit 1
+          fi
+
+          git fetch --no-tags origin dev
+          git fetch --no-tags origin staging || true
+
+          case "$DEPLOY_REF" in
+            dev|refs/heads/dev)
+              target_ref="origin/dev"
+              ;;
+            staging|refs/heads/staging)
+              target_ref="origin/staging"
+              ;;
+            *)
+              if [[ "$DEPLOY_REF" =~ ^[0-9a-f]{40}$ ]]; then
+                target_ref="$DEPLOY_REF"
+              else
+                echo "ref must be dev, staging, refs/heads/dev, refs/heads/staging, or a full 40-character commit SHA" >&2
+                exit 1
+              fi
+              ;;
+          esac
+
+          git cat-file -e "$target_ref^{commit}"
+          commit_sha="$(git rev-parse "$target_ref^{commit}")"
+          if ! git merge-base --is-ancestor "$commit_sha" origin/dev; then
+            if git show-ref --verify --quiet refs/remotes/origin/staging; then
+              git merge-base --is-ancestor "$commit_sha" origin/staging
+            else
+              echo "commit must be reachable from origin/dev or origin/staging" >&2
+              exit 1
+            fi
+          fi
+
+          git checkout --detach "$commit_sha"
+          echo "commit_sha=$commit_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Install oapi-codegen
+        run: go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.4.1
+
+      - name: Run Go tests
+        run: go test ./...
+
+      - name: Build API
+        run: go build -o /tmp/stds-api ./cmd/api
+
+      - name: Lint OpenAPI source
+        run: npm run openapi:lint
+
+      - name: Regenerate OpenAPI artifacts
+        run: npm run openapi:generate
+
+      - name: Check generated OpenAPI artifacts are committed
+        run: |
+          git diff --check --exit-code -- docs/spec/openapi.yaml internal/http/api/openapi.gen.go
+          git diff --exit-code -- docs/spec/openapi.yaml internal/http/api/openapi.gen.go
+
+      - name: Run migrations against empty PostgreSQL
+        env:
+          DATABASE_URL: postgres://stds:stds@localhost:5432/stds_backend?sslmode=disable
+        run: go run ./cmd/migrate up
+
+      - name: Build staging container image
+        run: docker build -t stds-backend:staging-predeploy .
+
+      - name: Check staging deployment contract
+        run: |
+          test -f cloudbuild.staging.yaml
+          test -f .github/workflows/staging-deploy.yml
+          grep -q "workflow_dispatch:" .github/workflows/staging-deploy.yml
+          ! grep -q "branches: \\[staging\\]" .github/workflows/staging-deploy.yml
+          grep -q "_DATABASE_URL_SECRET" cloudbuild.staging.yaml
+          grep -q "_RESEND_API_KEY_SECRET" cloudbuild.staging.yaml
+          grep -q "_VPC_NETWORK" cloudbuild.staging.yaml
+          grep -q "_VPC_SUBNET" cloudbuild.staging.yaml
+          ! grep -E "postgres://|mysql://|RESEND_API_KEY=[A-Za-z0-9_-]|DATABASE_URL=postgres://" cloudbuild.staging.yaml
+
+  deploy:
+    name: Submit Cloud Build staging deploy
+    runs-on: ubuntu-latest
+    needs: predeploy
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.predeploy.outputs.commit_sha }}
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.STAGING_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.STAGING_GITHUB_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Submit Cloud Build
+        run: |
+          gcloud builds submit \
+            --project="${{ vars.STAGING_GCP_PROJECT_ID }}" \
+            --config=cloudbuild.staging.yaml \
+            --service-account="projects/${{ vars.STAGING_GCP_PROJECT_ID }}/serviceAccounts/${{ vars.STAGING_CLOUD_BUILD_SERVICE_ACCOUNT_EMAIL }}" \
+            --substitutions="_REGION=${{ vars.STAGING_REGION }},_SERVICE_NAME=${{ vars.STAGING_CLOUD_RUN_SERVICE }},_ARTIFACT_REGISTRY_REPO=${{ vars.STAGING_ARTIFACT_REGISTRY_REPO }},_IMAGE_NAME=stds-backend,_IMAGE_TAG=${{ inputs.image_tag }},_RUNTIME_SERVICE_ACCOUNT=${{ vars.STAGING_RUNTIME_SERVICE_ACCOUNT_EMAIL }},_VPC_NETWORK=${{ vars.STAGING_VPC_NETWORK }},_VPC_SUBNET=${{ vars.STAGING_VPC_SUBNET }},_VPC_EGRESS=${{ vars.STAGING_VPC_EGRESS }},_APP_BASE_URL=${{ vars.STAGING_APP_BASE_URL }},_FIREBASE_PROJECT_ID=${{ vars.STAGING_FIREBASE_PROJECT_ID }},_RESEND_FROM_EMAIL=${{ vars.STAGING_RESEND_FROM_EMAIL }},_GCS_BUCKET_NAME=${{ vars.STAGING_GCS_BUCKET_NAME }},_DATABASE_URL_SECRET=${{ vars.STAGING_DATABASE_URL_SECRET }},_RESEND_API_KEY_SECRET=${{ vars.STAGING_RESEND_API_KEY_SECRET }}" \
+            .
+
+      - name: Minimal deployed smoke
+        if: ${{ inputs.run_smoke }}
+        env:
+          STAGING_SMOKE_BASE_URL: ${{ vars.STAGING_SMOKE_BASE_URL }}
+        run: |
+          curl -fsS "$STAGING_SMOKE_BASE_URL/healthz"
+          curl -fsS "$STAGING_SMOKE_BASE_URL/openapi.yaml" > /tmp/staging-openapi.yaml

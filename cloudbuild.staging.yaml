@@ -1,0 +1,57 @@
+substitutions:
+  _REGION: asia-east1
+  _SERVICE_NAME: stds-backend-staging
+  _ARTIFACT_REGISTRY_REPO: stds-staging
+  _IMAGE_NAME: stds-backend
+  _IMAGE_TAG: manual
+  _RUNTIME_SERVICE_ACCOUNT: stds-cloud-run-core-staging@staging-project.iam.gserviceaccount.com
+  _VPC_NETWORK: stds-staging-vpc
+  _VPC_SUBNET: stds-staging-subnet
+  _VPC_EGRESS: private-ranges-only
+  _APP_BASE_URL: https://staging.example.com
+  _FIREBASE_PROJECT_ID: staging-firebase-project
+  _RESEND_FROM_EMAIL: staging@example.com
+  _GCS_BUCKET_NAME: stds-staging-attachments
+  _DATABASE_URL_SECRET: stds-staging-database-url
+  _RESEND_API_KEY_SECRET: stds-staging-resend-api-key
+
+steps:
+  - id: build-image
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${_IMAGE_TAG}
+      - .
+
+  - id: push-image
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${_IMAGE_TAG}
+
+  - id: deploy-cloud-run
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE_NAME}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${_IMAGE_TAG}
+      - --region=${_REGION}
+      - --platform=managed
+      - --service-account=${_RUNTIME_SERVICE_ACCOUNT}
+      - --allow-unauthenticated
+      - --network=${_VPC_NETWORK}
+      - --subnet=${_VPC_SUBNET}
+      - --vpc-egress=${_VPC_EGRESS}
+      - --min-instances=0
+      - --max-instances=2
+      - --set-env-vars=APP_NAME=stds-backend,APP_ENV=staging,APP_HOST=0.0.0.0,APP_PORT=8080,GIN_MODE=release,APP_BASE_URL=${_APP_BASE_URL},APP_READ_TIMEOUT=5s,APP_WRITE_TIMEOUT=10s,APP_SCHEDULER_JOB_TIMEOUT=2m,APP_SCHEDULER_MAX_RETRIES=3,FIREBASE_PROJECT_ID=${_FIREBASE_PROJECT_ID},FIREBASE_PASSWORD_RESET_REDIRECT_URL=${_APP_BASE_URL}/reset-password,RESEND_FROM_EMAIL=${_RESEND_FROM_EMAIL},RESEND_FROM_NAME=STDS,RESEND_BASE_URL=https://api.resend.com,GCS_BUCKET_NAME=${_GCS_BUCKET_NAME},GCS_SIGNED_URL_TTL=15m,DB_MAX_OPEN_CONNS=5,DB_MAX_IDLE_CONNS=2,DB_CONN_MAX_LIFETIME=5m
+      - --set-secrets=DATABASE_URL=${_DATABASE_URL_SECRET}:latest,RESEND_API_KEY=${_RESEND_API_KEY_SECRET}:latest
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REGISTRY_REPO}/${_IMAGE_NAME}:${_IMAGE_TAG}
+
+options:
+  logging: CLOUD_LOGGING_ONLY
