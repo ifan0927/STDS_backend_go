@@ -394,6 +394,10 @@ verified with GCP Billing and the Pricing Calculator before production go-live.
 - Smoke checks for deployment, database preparation, Firebase Auth, signed URL
   upload, and log visibility.
 - Cloud Scheduler jobs are excluded from the first staging demo wave.
+- Deployment starts as a manual GitHub Actions trigger that runs predeploy
+  checks, then submits Cloud Build for image build, Artifact Registry push, and
+  Cloud Run deploy. Automatic deployment on `staging` branch push is a later
+  hardening step after the first setup evidence is reviewed.
 
 ### Production Readiness Review
 

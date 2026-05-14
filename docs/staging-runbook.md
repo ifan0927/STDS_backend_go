@@ -120,6 +120,132 @@ The runtime image contains only the compiled `cmd/api` binary plus Alpine
 runtime packages for CA certificates and timezone data. Do not copy `.env`
 files, credentials, private keys, or other local secrets into the image.
 
+## Dev To Staging Deployment
+
+The first staging deployment wave uses a manual GitHub Actions trigger. Do not
+enable automatic `push` deployment from the `staging` branch until the first GCP
+setup, deploy, and smoke evidence have been reviewed.
+
+The intended flow is:
+
+1. Merge application changes to `dev` through the existing PR CI gate.
+2. Choose the exact `dev` commit SHA or staging branch ref to deploy.
+3. Manually run the `Staging Deploy` GitHub Actions workflow with that ref and
+   an image tag.
+4. Let GitHub Actions run staging predeploy checks.
+5. Let Cloud Build build the image, push Artifact Registry, and deploy Cloud Run.
+6. Run minimal smoke from the workflow only when requested, then complete the
+   fuller deployed smoke checklist under the staging smoke issue.
+
+The predeploy checks should catch low-cost failures before touching GCP:
+
+- Go tests and API build.
+- OpenAPI lint and generated artifact sync.
+- Empty PostgreSQL migration smoke.
+- Docker image build.
+- Staging deployment contract checks for manual trigger, Cloud Build config, and
+  Secret Manager references.
+
+GitHub Actions is the trigger and status-reporting entry point. Deployment-layer
+execution stays in Cloud Build. Do not put secret values, database passwords,
+private keys, or full bearer credentials into GitHub workflow files, Cloud Build
+substitutions, logs, pull requests, or issue evidence.
+
+### GitHub Configuration
+
+Configure these GitHub repository variables before running the manual workflow:
+
+```text
+STAGING_GCP_PROJECT_ID
+STAGING_REGION
+STAGING_WORKLOAD_IDENTITY_PROVIDER
+STAGING_GITHUB_DEPLOY_SERVICE_ACCOUNT
+STAGING_CLOUD_BUILD_SERVICE_ACCOUNT_EMAIL
+STAGING_CLOUD_RUN_SERVICE
+STAGING_RUNTIME_SERVICE_ACCOUNT_EMAIL
+STAGING_VPC_NETWORK
+STAGING_VPC_SUBNET
+STAGING_VPC_EGRESS
+STAGING_ARTIFACT_REGISTRY_REPO
+STAGING_APP_BASE_URL
+STAGING_SMOKE_BASE_URL
+STAGING_FIREBASE_PROJECT_ID
+STAGING_RESEND_FROM_EMAIL
+STAGING_GCS_BUCKET_NAME
+STAGING_DATABASE_URL_SECRET
+STAGING_RESEND_API_KEY_SECRET
+```
+
+These values are configuration identifiers, service account emails, resource
+names, or public staging URLs. Secret values remain in Secret Manager and must
+not be copied into GitHub repository variables.
+
+`STAGING_APP_BASE_URL` is the browser-facing application URL used by the
+backend for generated links. `STAGING_SMOKE_BASE_URL` is the deployed backend
+base URL used by the optional minimal smoke step and must route directly to the
+backend paths `/healthz` and `/openapi.yaml`.
+
+`STAGING_GITHUB_DEPLOY_SERVICE_ACCOUNT` is the account GitHub OIDC impersonates
+to submit the build. `STAGING_CLOUD_BUILD_SERVICE_ACCOUNT_EMAIL` is the Cloud
+Build execution account email; the workflow expands it into the Cloud Build
+resource path expected by `gcloud builds submit`. That account needs Artifact
+Registry push, Cloud Run deploy, runtime service-account act-as, and any
+explicitly approved migration connectivity for later phases.
+
+`STAGING_RUNTIME_SERVICE_ACCOUNT_EMAIL` is the Cloud Run runtime identity. It
+must be a full service account email, not a bare account id. `STAGING_VPC_NETWORK`
+and `STAGING_VPC_SUBNET` configure Cloud Run Direct VPC egress for private Cloud
+SQL connectivity. `STAGING_VPC_EGRESS` should normally be `private-ranges-only`
+for staging v1 unless operator evidence justifies a different value.
+
+### Cloud Build Configuration
+
+`cloudbuild.staging.yaml` accepts these substitutions:
+
+```text
+_REGION
+_SERVICE_NAME
+_ARTIFACT_REGISTRY_REPO
+_IMAGE_NAME
+_IMAGE_TAG
+_RUNTIME_SERVICE_ACCOUNT
+_VPC_NETWORK
+_VPC_SUBNET
+_VPC_EGRESS
+_APP_BASE_URL
+_FIREBASE_PROJECT_ID
+_RESEND_FROM_EMAIL
+_GCS_BUCKET_NAME
+_DATABASE_URL_SECRET
+_RESEND_API_KEY_SECRET
+```
+
+Cloud Build performs:
+
+1. Docker image build from the repository `Dockerfile`.
+2. Artifact Registry push.
+3. Cloud Run deploy for the core backend service with Direct VPC egress.
+
+`DATABASE_URL` and `RESEND_API_KEY` are injected into Cloud Run from Secret
+Manager by secret name. The staging workflow and Cloud Build config must not
+contain the secret values.
+
+### Deployment Evidence
+
+Attach only non-secret evidence after a staging deploy:
+
+- GitHub Actions run URL and selected source ref.
+- Cloud Build build ID and final status.
+- Artifact Registry image path and tag.
+- Cloud Run service name, region, revision, runtime service account, ingress,
+  min/max instances, and redacted env summary.
+- Secret Manager secret names referenced by Cloud Run, without values.
+- Minimal smoke status when `run_smoke` was enabled.
+
+If deployment fails, keep Cloud Build and Cloud Run logs available for diagnosis
+and rerun from a known `dev` ref after fixing the repo-side or GCP-side cause.
+Do not assume automatic database rollback.
+
 ## Secret Manager
 
 Recommended staging secret names:
