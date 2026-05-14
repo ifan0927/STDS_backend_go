@@ -40,6 +40,7 @@ APP_NAME=stds-backend
 APP_ENV=staging
 APP_HOST=0.0.0.0
 APP_PORT=8080
+GIN_MODE=release
 APP_BASE_URL=https://<staging-admin-domain>
 APP_READ_TIMEOUT=5s
 APP_WRITE_TIMEOUT=10s
@@ -76,6 +77,48 @@ GOOGLE_APPLICATION_CREDENTIALS
 
 Cloud Run should use the runtime service account and Application Default
 Credentials instead of a checked-in or mounted service account key file.
+
+## Container Image
+
+Build the backend API image from the repository root:
+
+```bash
+docker build -t stds-backend:staging .
+```
+
+Run a local smoke container against the local PostgreSQL container from Docker
+Desktop on macOS:
+
+```bash
+docker compose up -d postgres
+docker run --rm --name stds-backend-smoke \
+  -p 8080:8080 \
+  -e APP_ENV=e2e \
+  -e APP_PORT=8080 \
+  -e GIN_MODE=release \
+  -e DATABASE_URL='postgres://stds:stds@host.docker.internal:5432/stds_backend?sslmode=disable' \
+  -e FIREBASE_PROJECT_ID=demo-stds-backend \
+  -e FIREBASE_AUTH_EMULATOR_HOST=host.docker.internal:9099 \
+  -e RESEND_API_KEY=local-smoke-only \
+  -e RESEND_FROM_EMAIL=dev@example.com \
+  -e GCS_BUCKET_NAME=stds-local-smoke \
+  -e ATTACHMENT_STORAGE_MODE=fake-metadata \
+  stds-backend:staging
+```
+
+From another terminal, verify health:
+
+```bash
+curl http://localhost:8080/healthz
+```
+
+The expected smoke result is HTTP 200 with `"ok":true`. `"db":true` requires
+the local database to be reachable and migrated. Stop the smoke container with
+`docker stop stds-backend-smoke`.
+
+The runtime image contains only the compiled `cmd/api` binary plus Alpine
+runtime packages for CA certificates and timezone data. Do not copy `.env`
+files, credentials, private keys, or other local secrets into the image.
 
 ## Secret Manager
 
