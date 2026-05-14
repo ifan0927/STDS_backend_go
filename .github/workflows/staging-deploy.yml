@@ -174,7 +174,9 @@ jobs:
         run: |
           gcloud builds submit \
             --project="${{ vars.STAGING_GCP_PROJECT_ID }}" \
+            --region="${{ vars.STAGING_REGION }}" \
             --config=cloudbuild.staging.yaml \
+            --gcs-source-staging-dir="gs://${{ vars.STAGING_GCP_PROJECT_ID }}_cloudbuild/source" \
             --service-account="projects/${{ vars.STAGING_GCP_PROJECT_ID }}/serviceAccounts/${{ vars.STAGING_CLOUD_BUILD_SERVICE_ACCOUNT_EMAIL }}" \
             --substitutions="_REGION=${{ vars.STAGING_REGION }},_SERVICE_NAME=${{ vars.STAGING_CLOUD_RUN_SERVICE }},_ARTIFACT_REGISTRY_REPO=${{ vars.STAGING_ARTIFACT_REGISTRY_REPO }},_IMAGE_NAME=stds-backend,_IMAGE_TAG=${{ inputs.image_tag }},_RUNTIME_SERVICE_ACCOUNT=${{ vars.STAGING_RUNTIME_SERVICE_ACCOUNT_EMAIL }},_VPC_NETWORK=${{ vars.STAGING_VPC_NETWORK }},_VPC_SUBNET=${{ vars.STAGING_VPC_SUBNET }},_VPC_EGRESS=${{ vars.STAGING_VPC_EGRESS }},_APP_BASE_URL=${{ vars.STAGING_APP_BASE_URL }},_FIREBASE_PROJECT_ID=${{ vars.STAGING_FIREBASE_PROJECT_ID }},_RESEND_FROM_EMAIL=${{ vars.STAGING_RESEND_FROM_EMAIL }},_GCS_BUCKET_NAME=${{ vars.STAGING_GCS_BUCKET_NAME }},_DATABASE_URL_SECRET=${{ vars.STAGING_DATABASE_URL_SECRET }},_RESEND_API_KEY_SECRET=${{ vars.STAGING_RESEND_API_KEY_SECRET }}" \
             .
