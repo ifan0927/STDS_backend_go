@@ -94,7 +94,21 @@ demo property with rooms, tenants, leases, bills, meter history, reports,
 journal, repair, and checkout data. It is local frontend support data and is
 separate from schema migrations and legacy migration validation.
 
-5. Get an ID token from the emulator:
+5. Create or repair the local brand readonly database user when developing the
+   future brand thin backend boundary:
+
+```bash
+scripts/dev_brand_readonly.sh
+```
+
+This local helper uses `DATABASE_URL` as the admin connection by default,
+creates or repairs `brand_readonly`, grants only the approved brand views, and
+verifies representative core base tables are not selectable. Override
+`BRAND_READONLY_PASSWORD`, `BRAND_READONLY_ADMIN_DATABASE_URL`, or
+`BRAND_READONLY_DATABASE_URL` when your local database connection differs from
+the Docker defaults.
+
+6. Get an ID token from the emulator:
 
 ```bash
 go run ./cmd/auth-emulator issue-token \
@@ -102,7 +116,7 @@ go run ./cmd/auth-emulator issue-token \
   --password 'Test123!'
 ```
 
-6. Use the returned token to call a protected route:
+7. Use the returned token to call a protected route:
 
 ```bash
 curl -i \
@@ -296,6 +310,28 @@ on those views only. Do not grant it direct access to base tables such as
 `bills`, `attachments`, or deposit/accounting tables. Local PostgreSQL contract
 tests use an ephemeral equivalent role to verify that the approved views are
 selectable while base tables are not.
+
+For local thin-backend development, the expected order is:
+
+```bash
+docker compose up -d postgres
+go run ./cmd/migrate up
+scripts/dev_demo_seed.sh
+scripts/dev_brand_readonly.sh
+```
+
+The local readonly connection string defaults to:
+
+```bash
+BRAND_READONLY_DATABASE_URL=postgres://brand_readonly:brand_readonly@localhost:5432/stds_backend?sslmode=disable
+```
+
+Staging and production must provision the equivalent Cloud SQL principal outside
+application migrations. The deployment or DBA workflow should create the
+dedicated readonly principal, grant schema `USAGE`, grant `SELECT` only on the
+approved views, store the thin-backend credential through the environment or
+Secret Manager, and run a deployed smoke check that mirrors the local approved
+view and base-table denial checks.
 
 ## Legacy migration planning
 
