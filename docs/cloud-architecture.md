@@ -389,8 +389,10 @@ verified with GCP Billing and the Pricing Calculator before production go-live.
 - Cloud Logging / Monitoring baseline.
 - Cloud Run `max-instances=2`.
 - DB pool limits implemented and configured.
-- Smoke checks for deployment, DB migration, Firebase Auth, signed URL upload,
-  and log visibility.
+- Staging database preparation covers schema migrations, legacy data import,
+  legacy validation, and first admin Firebase/DB user bootstrap.
+- Smoke checks for deployment, database preparation, Firebase Auth, signed URL
+  upload, and log visibility.
 - Cloud Scheduler jobs are excluded from the first staging demo wave.
 
 ### Production Readiness Review
@@ -403,6 +405,8 @@ Before production go-live:
 - Confirm DB pool limits under realistic load.
 - Confirm Cloud Build migration connectivity to private Cloud SQL.
 - Confirm operator DB access path without public DB IP.
+- Confirm whether legacy data import remains a manual operator step or moves
+  into a controlled deployment workflow.
 - Confirm Firebase Hosting rewrite behavior and whether Cloud Run default URL
   disabling is safe.
 - Confirm GCS CORS for production frontend origins.
@@ -415,6 +419,8 @@ Expected repo changes for this architecture:
 - Dockerfile and `.dockerignore`.
 - Cloud Build staging deployment config.
 - GitHub Actions trigger/status workflow if needed.
+- Staging database preparation runbook covering schema migration, legacy data
+  import, validation, and first admin bootstrap.
 - DB pool config support.
 - Staging smoke script.
 - Deployment runbooks and verification evidence templates.
@@ -427,6 +433,8 @@ deployment line.
 - Should staging and production share one Cloud SQL instance initially?
 - How will Cloud Build migrations reach private Cloud SQL?
 - How will operators inspect the database without enabling public IP?
+- Should legacy data import stay manual for staging v1, or become a controlled
+  Cloud Build/operator workflow after the first demo wave?
 - Should production require Cloud SQL HA before go-live?
 - Should Cloud Run default `run.app` URLs be disabled, and does that work with
   the selected Firebase Hosting rewrite path?
