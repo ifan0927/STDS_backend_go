@@ -9,6 +9,10 @@ requests, logs, or evidence.
 
 ## Scope
 
+The long-term operator handbook lives in the
+[GitHub Wiki](https://github.com/ifan0927/STDS_backend_go/wiki/Staging-v1-Operator-Handbook-2026-05-15-v1).
+This runbook remains the deployment and evidence checklist.
+
 Staging v1 includes:
 
 - Firebase Hosting admin frontend with `/api/**` rewrite to the core backend.
