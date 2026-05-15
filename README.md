@@ -28,7 +28,7 @@ go run ./cmd/api
 
 - Scalar UI: `http://localhost:8080/scalar`
 - OpenAPI file: `http://localhost:8080/openapi.yaml`
-- Health check: `http://localhost:8080/healthz`
+- Health check: `http://localhost:8080/health`
 
 For Firebase Auth Emulator setup, local demo data, E2E flows, attachment
 storage, and other operational details, see

@@ -157,6 +157,61 @@ DATABASE_URL=postgres://stds:stds@localhost:5432/stds_backend_legacy_e2e?sslmode
 DATABASE_URL=postgres://stds:stds@localhost:5432/stds_backend_legacy_e2e?sslmode=disable go run ./cmd/migrate_legacy validate
 ```
 
+To prepare a one-time local plain SQL dump from the local legacy JSON exports,
+use the operator script:
+
+```bash
+docker compose up -d postgres
+scripts/prepare_legacy_db_dump.sh
+```
+
+With no arguments, the script uses the already-running `stds-postgres`
+container from `docker-compose.yml`. It fails with an instruction to run
+`docker compose up -d postgres` when that container is not running; it does not
+start PostgreSQL automatically. Each run creates a temporary PostgreSQL
+role/user, password, and database with timestamp/pid-based defaults. Override
+`TEMP_DB_ROLE`, `TEMP_DB_PASSWORD`, `TEMP_DB_NAME`, `TEMP_DB_HOST`, or
+`TEMP_DB_PORT` only when an operator needs explicit names or connection
+metadata.
+
+The script runs `go run ./cmd/migrate up`, then the complete
+`cmd/migrate_legacy` sequence: `plan`, `properties`, `rooms`, `tenants`,
+`leases`, `room-status`, `bills`, `journal`, and `validate`. It prints the
+temporary role/user, password, database name, host, and port, but treats the
+full `DATABASE_URL` as an internal migration setting rather than the primary
+operator output. It also prints the latest `schema_migrations.version` and the
+legacy mapping-table counts before writing a plain SQL dump under
+`artifacts/db_dumps` with `pg_dump --no-owner --no-privileges`.
+
+The dump includes migrated schema objects such as approved views and table data
+from the temporary database, including application `users` rows that exist at
+dump time. Because it uses `--no-owner --no-privileges`, it does not include
+PostgreSQL users, roles, owners, or grants. Cloud SQL readonly principals and
+grants must be provisioned manually after import, not by this dump.
+
+By default, the temporary database and role are dropped after the dump. Set
+`KEEP_TEMP_DB=1` to keep them for debugging:
+
+```bash
+KEEP_TEMP_DB=1 scripts/prepare_legacy_db_dump.sh
+```
+
+The script does not add admin or e2e application users by default. To include
+one admin backend `users` row in the dump, opt in explicitly and provide all
+admin fields:
+
+```bash
+INCLUDE_ADMIN_USER=1 \
+ADMIN_FIREBASE_UID=local-admin-uid \
+ADMIN_EMAIL=admin@example.com \
+ADMIN_NAME='Local Admin' \
+scripts/prepare_legacy_db_dump.sh
+```
+
+Database dumps may contain sensitive operational and tenant data. Do not commit
+files under `artifacts/db_dumps`, attach them to issues or pull requests, paste
+dump contents into chat, or post full GCS object URLs after manual upload.
+
 Before sign-off, review the generated validation report and source/target
 reconciliation. By default, `scripts/legacy_e2e_test.sh` requires
 `artifacts/legacy_migration/task13_validation_report.json` to exist.

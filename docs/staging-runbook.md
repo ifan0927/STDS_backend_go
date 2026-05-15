@@ -109,7 +109,7 @@ docker run --rm --name stds-backend-smoke \
 From another terminal, verify health:
 
 ```bash
-curl http://localhost:8080/healthz
+curl http://localhost:8080/health
 ```
 
 The expected smoke result is HTTP 200 with `"ok":true`. `"db":true` requires
@@ -183,7 +183,7 @@ not be copied into GitHub repository variables.
 `STAGING_APP_BASE_URL` is the browser-facing application URL used by the
 backend for generated links. `STAGING_SMOKE_BASE_URL` is the deployed backend
 base URL used by the optional minimal smoke step and must route directly to the
-backend paths `/healthz` and `/openapi.yaml`.
+backend paths `/health` and `/openapi.yaml`.
 
 `STAGING_GITHUB_DEPLOY_SERVICE_ACCOUNT` is the account GitHub OIDC impersonates
 to submit the build. `STAGING_CLOUD_BUILD_SERVICE_ACCOUNT_EMAIL` is the Cloud
@@ -294,8 +294,9 @@ Expected access:
 - Push to the staging Artifact Registry repository.
 - Deploy or update the staging Cloud Run service.
 - Act as the core backend runtime service account only for deployment.
-- Access private Cloud SQL for migrations only after the migration path is
-  explicitly documented and verified.
+- No Cloud SQL access for staging database preparation in the v1 dump/import
+  path unless a separate future migration workflow is explicitly documented and
+  verified.
 
 Cloud Scheduler is intentionally excluded from staging v1. Do not create a
 scheduler service account or scheduler jobs for the first demo wave.
@@ -332,10 +333,10 @@ Staging v1 requires:
 - VPC and subnet configured for Cloud Run Direct VPC egress.
 - No public DB IP as the default access path.
 
-The operator must document how migrations reach private Cloud SQL. If Cloud
-Build cannot reach the private database in the first pass, migrations must be a
-manual operator step with non-secret evidence. Do not temporarily enable public
-DB IP unless an explicit exception, rollback plan, and expiry are documented.
+The operator must document how manual import, inspection, and post-import SQL
+provisioning reach Cloud SQL without enabling a public database IP. Do not
+temporarily enable public DB IP unless an explicit exception, rollback plan, and
+expiry are documented.
 
 Operators also need a documented database inspection path that does not require
 enabling public IP.
@@ -343,138 +344,105 @@ enabling public IP.
 ## Staging Database Preparation
 
 Prepare the staging demo database as one coordinated operator step after the
-repo-side contracts for the staging issue set have landed. The preparation path
-uses the documented private Cloud SQL access path and must not temporarily
-enable a public database IP unless an explicit exception, rollback plan, and
-expiry are documented.
+repo-side contracts for the staging issue set have landed. Staging v1 does not
+run repository legacy migration commands directly against Cloud SQL or require a
+private migration runner for this step. The operator prepares a local plain SQL
+dump from the existing local `stds-postgres` container, manually uploads that
+dump to GCS, imports it through Cloud SQL Console/manual import, and then
+records non-secret database evidence.
 
-The operator runner can be a Cloud Build private pool, a controlled VM, or
-another approved environment. It must have:
+Run the steps in this order:
 
-- a checkout of this repository.
-- the project Go toolchain.
-- `psql`.
-- private network access to the staging Cloud SQL database.
-- `DATABASE_URL` provided without printing the value.
-
-Run the steps in this order against the staging database:
-
-1. Apply schema migrations.
-2. Import legacy data from the checked-in legacy JSON exports.
-3. Validate the imported legacy data.
-4. Bootstrap the first staging admin user by aligning a Firebase Auth user with
-   a backend `users` row.
-5. Run deployed smoke checks through the staging API.
+1. Prepare a local dump with `scripts/prepare_legacy_db_dump.sh`.
+2. Upload the generated SQL dump to an operator-controlled GCS location.
+3. Import the dump into the staging database with Cloud SQL Console/manual
+   import.
+4. Provision Cloud SQL-only database principals and grants, such as the brand
+   readonly principal, through DataGrip, Cloud SQL Studio, or another approved
+   manual SQL path.
+5. Create the initial Firebase Auth users in Firebase Console when needed.
+6. Align backend app `users` rows through dump opt-in or manual SQL upsert.
+7. Run deployed smoke checks through the staging API.
 
 The staging database must not be destructively reset as part of this runbook.
 If a preparation step fails, stop the deployment or demo handoff, keep the
 failed state for diagnosis where practical, and attach non-secret evidence.
 Do not assume automatic `down` rollback for staging.
 
-### Schema Migrations
+### Local Dump Preparation
 
-Run pending schema migrations with the same embedded migration runner used by
-local operations and PR CI:
+Prepare the import artifact from the repository root on the operator machine.
+The script expects the local Docker Compose PostgreSQL container to already be
+running:
 
 ```bash
-go run ./cmd/migrate up
+docker compose up -d postgres
+scripts/prepare_legacy_db_dump.sh
 ```
 
-`DATABASE_URL` must target the staging Cloud SQL database through the documented
-private access path. Do not print the connection string. If this command runs in
-Cloud Build later, the build service account needs only the secret and private
-Cloud SQL access required for this step. If Cloud Build private connectivity is
-not ready in the first pass, run this as a manual operator step and attach
-non-secret evidence.
+The script creates a temporary database and role beside the existing
+`stds-postgres` container, runs `go run ./cmd/migrate up`, runs the full
+`cmd/migrate_legacy` sequence through `validate`, prints non-secret summary
+checks, and writes a plain SQL dump under `artifacts/db_dumps` using
+`pg_dump --no-owner --no-privileges`.
+
+The dump includes schema objects from migrations, including approved views, and
+table data such as the application `users` table rows that exist in the
+temporary database. It does not include PostgreSQL roles, database users,
+ownership, or grants. By default the script does not add staging admin or e2e
+application users; include exactly one initial admin backend `users` row only
+when the operator explicitly sets `INCLUDE_ADMIN_USER=1` with the required admin
+fields.
+
+Do not commit the dump, attach it to issues or pull requests, paste dump
+contents, paste the full GCS object URL, or paste database connection strings.
+The dump and uploaded object are sensitive operational artifacts.
 
 Expected evidence:
 
-- command status or Cloud Build step ID.
-- latest `schema_migrations.version`.
-- redacted database target summary showing staging database name only.
-
-Operator script from the repository root:
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-set +x
-
-: "${DATABASE_URL:?DATABASE_URL must point to the staging database}"
-
-go run ./cmd/migrate up
-
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c \
-  "SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1;"
-```
-
-### Legacy Data Import
-
-Legacy data import is separate from schema migration. Confirm the source
-inventory, then use the existing stage-owned legacy migration commands against
-the same staging database:
-
-```bash
-go run ./cmd/migrate_legacy plan
-go run ./cmd/migrate_legacy properties
-go run ./cmd/migrate_legacy rooms
-go run ./cmd/migrate_legacy tenants
-go run ./cmd/migrate_legacy leases
-go run ./cmd/migrate_legacy room-status
-go run ./cmd/migrate_legacy bills
-go run ./cmd/migrate_legacy journal
-go run ./cmd/migrate_legacy validate
-```
-
-The source for this staging demo wave is the checked-in legacy JSON export set
-under `docs/mirgations`. Do not read directly from the legacy production
-database during staging setup. The command writes reports under
-`artifacts/legacy_migration`; review the validation report before treating the
-database as demo-ready.
-
-Expected evidence:
-
-- stage command status for each legacy import step.
+- dump script command status.
+- generated dump filename only, not the object URL.
+- latest `schema_migrations.version` from the temporary database.
 - `task13_validation_report.json` summary counts.
 - confirmation that validation completed without required-check failures.
 - mapping-table counts for `legacy_property_mappings`,
   `legacy_room_mappings`, `legacy_tenant_mappings`, `legacy_lease_mappings`,
   `legacy_bill_mappings`, and `legacy_schedule_mappings`.
 
-Operator script from the repository root:
+### Cloud SQL Manual Import
 
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-set +x
+Upload the generated plain SQL dump to a controlled GCS location, then import it
+with Cloud SQL Console/manual import into the staging database. Keep the object
+private, remove it according to the operator retention decision, and do not post
+the object URL or dump content as evidence.
 
-: "${DATABASE_URL:?DATABASE_URL must point to the staging database}"
+After import, record:
 
-go run ./cmd/migrate_legacy plan
-go run ./cmd/migrate_legacy properties
-go run ./cmd/migrate_legacy rooms
-go run ./cmd/migrate_legacy tenants
-go run ./cmd/migrate_legacy leases
-go run ./cmd/migrate_legacy room-status
-go run ./cmd/migrate_legacy bills
-go run ./cmd/migrate_legacy journal
-go run ./cmd/migrate_legacy validate
+- Cloud SQL import status.
+- staging database name.
+- latest imported `schema_migrations.version`.
+- legacy validation and mapping-count summary copied from the local dump run.
+- confirmation that no PostgreSQL roles, grants, or owner metadata were expected
+  from the dump.
 
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
-SELECT 'legacy_property_mappings' AS table_name, COUNT(*) FROM legacy_property_mappings
-UNION ALL
-SELECT 'legacy_room_mappings', COUNT(*) FROM legacy_room_mappings
-UNION ALL
-SELECT 'legacy_tenant_mappings', COUNT(*) FROM legacy_tenant_mappings
-UNION ALL
-SELECT 'legacy_lease_mappings', COUNT(*) FROM legacy_lease_mappings
-UNION ALL
-SELECT 'legacy_bill_mappings', COUNT(*) FROM legacy_bill_mappings
-UNION ALL
-SELECT 'legacy_schedule_mappings', COUNT(*) FROM legacy_schedule_mappings
-ORDER BY table_name;
-SQL
-```
+### Cloud SQL Principals And Grants
+
+Approved brand views are created by repository migrations and therefore are
+present in the dump/import. The brand readonly database principal and its grants
+are not created by the dump and are not application migration responsibility.
+Provision them after import through DataGrip, Cloud SQL Studio, or another
+approved manual SQL path.
+
+Grant the brand readonly principal schema `USAGE` and `SELECT` only on approved
+views. Do not grant access to base tables such as `properties`, `rooms`,
+`brand_profiles`, `brand_faq_items`, `tenants`, `leases`, `bills`,
+`attachments`, or deposit/accounting tables.
+
+Expected evidence:
+
+- readonly database principal name only, without password.
+- approved view `SELECT` check.
+- representative base-table denial check.
 
 ### First Staging Admin Bootstrap
 
@@ -483,20 +451,21 @@ requires an existing authenticated admin, but the first admin does not exist
 yet. For staging v1, bootstrap exactly one initial admin through an operator
 step, then create later users through the normal admin API.
 
-1. Create or identify the first admin user in the staging Firebase Auth project.
-2. Record the Firebase UID and email as non-secret setup inputs.
-3. Upsert the matching backend user row through the documented private database
-   access path:
+Create or identify the first admin user in the staging Firebase Auth project
+through Firebase Console. Do not describe Firebase Auth user creation as a
+repository script flow for this first staging wave. Record the Firebase UID and
+email as non-secret setup inputs.
 
-Operator script from the repository root or another controlled runner with
-private staging database access:
+The matching backend app `users` row can be handled in either of these ways:
+
+- Include it in the dump by running `scripts/prepare_legacy_db_dump.sh` with
+  `INCLUDE_ADMIN_USER=1` and the required admin fields.
+- Upsert it after Cloud SQL import through DataGrip, Cloud SQL Studio, or
+  another approved manual SQL path.
+
+Manual SQL template:
 
 ```bash
-#!/usr/bin/env bash
-set -euo pipefail
-set +x
-
-: "${DATABASE_URL:?DATABASE_URL must point to the staging database}"
 : "${STAGING_ADMIN_FIREBASE_UID:?first admin Firebase UID is required}"
 : "${STAGING_ADMIN_EMAIL:?first admin email is required}"
 : "${STAGING_ADMIN_NAME:?first admin display name is required}"
@@ -534,41 +503,11 @@ RETURNING id, firebase_uid, email, role, deleted_at IS NULL AS active;
 SQL
 ```
 
-The SQL executed by the script is:
-
-```sql
-INSERT INTO users (
-    firebase_uid,
-    email,
-    name,
-    role,
-    permission_overrides,
-    assigned_property_ids
-) VALUES (
-    '<firebase_uid>',
-    '<admin_email>',
-    '<admin_name>',
-    'admin',
-    '[]'::jsonb,
-    '[]'::jsonb
-)
-ON CONFLICT (firebase_uid) WHERE deleted_at IS NULL
-DO UPDATE SET
-    email = EXCLUDED.email,
-    name = EXCLUDED.name,
-    role = EXCLUDED.role,
-    permission_overrides = EXCLUDED.permission_overrides,
-    assigned_property_ids = EXCLUDED.assigned_property_ids,
-    updated_at = now(),
-    version = users.version + 1
-RETURNING id, firebase_uid, email, role, deleted_at IS NULL AS active;
-```
-
 After the first admin can sign in, run `POST /auth/sync` through the staging
 frontend/API path and use the normal user-management APIs for additional demo
 users. Do not use the local Firebase Auth Emulator bootstrap commands in
-staging. Do not give Cloud Build or the database preparation runner Firebase
-Auth admin permissions for this first staging wave; Firebase Auth user creation
+staging. Do not give Cloud Build or the database preparation flow Firebase Auth
+admin permissions for this first staging wave; Firebase Auth user creation
 remains an operator action in the Firebase project.
 
 Expected evidence:
@@ -700,7 +639,7 @@ Check one deployed path:
 resource.type="cloud_run_revision"
 resource.labels.service_name="<staging-cloud-run-service>"
 resource.labels.location="<staging-region>"
-jsonPayload.path="/healthz"
+jsonPayload.path="/health"
 ```
 
 Authenticated smoke requests should prove that `user_id`, `firebase_uid`, and
@@ -730,7 +669,7 @@ These are accepted staging v1 constraints, not blockers for the first demo
 wave:
 
 - Successful API startup does not emit a dedicated application startup log; use
-  Cloud Run revision/system logs and `/healthz` smoke evidence to confirm the
+  Cloud Run revision/system logs and `/health` smoke evidence to confirm the
   revision is serving.
 - 5xx `cause`, panic values, stack traces, and migration driver errors are not
   redacted by a centralized scrubber. Evidence must be reviewed before posting.
@@ -837,8 +776,10 @@ Cloud SQL / VPC evidence:
 - VPC / subnet / Direct VPC egress summary.
 - Database user names only, without passwords.
 - `max_connections` query result.
-- Schema migration result and latest `schema_migrations.version`.
-- Legacy migration validation summary.
+- Cloud SQL manual import status and latest imported `schema_migrations.version`.
+- Legacy validation summary from the local dump preparation run.
+- Confirmation that approved views came from migration/dump and readonly
+  principals/grants were provisioned manually after import.
 - First admin Firebase UID/email and backend user row summary.
 - Operator database inspection path.
 

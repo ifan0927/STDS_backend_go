@@ -394,8 +394,10 @@ verified with GCP Billing and the Pricing Calculator before production go-live.
 - Cloud Logging / Monitoring baseline.
 - Cloud Run `max-instances=2`.
 - DB pool limits implemented and configured.
-- Staging database preparation covers schema migrations, legacy data import,
-  legacy validation, and first admin Firebase/DB user bootstrap.
+- Staging database preparation uses a local operator plain SQL dump from
+  `scripts/prepare_legacy_db_dump.sh`, manual GCS upload, Cloud SQL
+  Console/manual import, post-import readonly principal/grant provisioning, and
+  first admin Firebase/backend user alignment.
 - Smoke checks for deployment, database preparation, Firebase Auth, signed URL
   upload, and log visibility.
 - Cloud Scheduler jobs are excluded from the first staging demo wave.
@@ -412,10 +414,10 @@ Before production go-live:
 - Confirm backup window and PITR.
 - Confirm whether HA is required.
 - Confirm DB pool limits under realistic load.
-- Confirm Cloud Build migration connectivity to private Cloud SQL.
+- Confirm the operator Cloud SQL manual import and post-import inspection path.
 - Confirm operator DB access path without public DB IP.
-- Confirm whether legacy data import remains a manual operator step or moves
-  into a controlled deployment workflow.
+- Confirm whether the local dump/manual import flow remains sufficient after the
+  first staging demo wave.
 - Confirm Firebase Hosting rewrite behavior and whether Cloud Run default URL
   disabling is safe.
 - Confirm GCS CORS for production frontend origins.
@@ -428,8 +430,9 @@ Expected repo changes for this architecture:
 - Dockerfile and `.dockerignore`.
 - Cloud Build staging deployment config.
 - GitHub Actions trigger/status workflow if needed.
-- Staging database preparation runbook covering schema migration, legacy data
-  import, validation, and first admin bootstrap.
+- Staging database preparation runbook covering local dump generation, manual
+  GCS upload, Cloud SQL import, validation evidence, manual readonly principal
+  provisioning, and first admin bootstrap.
 - DB pool config support.
 - Staging smoke script.
 - Deployment runbooks and verification evidence templates.
@@ -440,10 +443,11 @@ deployment line.
 ## Open Decisions
 
 - Should staging and production share one Cloud SQL instance initially?
-- How will Cloud Build migrations reach private Cloud SQL?
+- How long should staging rely on local dump generation plus Cloud SQL manual
+  import before introducing a controlled migration/import runner?
 - How will operators inspect the database without enabling public IP?
-- Should legacy data import stay manual for staging v1, or become a controlled
-  Cloud Build/operator workflow after the first demo wave?
+- Should the legacy dump/import artifact retention policy be stricter after the
+  first demo wave?
 - Should production require Cloud SQL HA before go-live?
 - Should Cloud Run default `run.app` URLs be disabled, and does that work with
   the selected Firebase Hosting rewrite path?

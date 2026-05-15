@@ -36,7 +36,7 @@ func TestE2EHarnessAuthenticatedSmoke(t *testing.T) {
 	client := newAPIClient(cfg.BaseURL, token.IDToken)
 
 	t.Run("health endpoint reaches API and database", func(t *testing.T) {
-		resp, body, err := client.getJSON(ctx, "/healthz")
+		resp, body, err := client.getJSON(ctx, "/health")
 		if err != nil {
 			t.Fatal(err)
 		}

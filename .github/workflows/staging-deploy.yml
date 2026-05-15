@@ -186,5 +186,5 @@ jobs:
         env:
           STAGING_SMOKE_BASE_URL: ${{ vars.STAGING_SMOKE_BASE_URL }}
         run: |
-          curl -fsS "$STAGING_SMOKE_BASE_URL/healthz"
+          curl -fsS "$STAGING_SMOKE_BASE_URL/health"
           curl -fsS "$STAGING_SMOKE_BASE_URL/openapi.yaml" > /tmp/staging-openapi.yaml
