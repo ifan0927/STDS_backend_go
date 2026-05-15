@@ -3,13 +3,21 @@ package database
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-const pingTimeout = 3 * time.Second
+const (
+	startupPingTimeout  = 10 * time.Second
+	startupPingAttempts = 3
+	startupPingDelay    = 2 * time.Second
+)
+
+type pingFunc func(context.Context) error
+type sleepFunc func(context.Context, time.Duration) error
 
 // PoolConfig contains optional database/sql pool limits.
 type PoolConfig struct {
@@ -30,15 +38,48 @@ func Open(ctx context.Context, databaseURL string, poolConfigs ...PoolConfig) (*
 		applyPoolConfig(db, poolConfigs[0])
 	}
 
-	pingCtx, cancel := context.WithTimeout(ctx, pingTimeout)
-	defer cancel()
-
-	if err := db.PingContext(pingCtx); err != nil {
+	if err := pingWithRetry(ctx, db.PingContext, sleepContext); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("ping database: %w", err)
 	}
 
 	return db, nil
+}
+
+func pingWithRetry(ctx context.Context, ping pingFunc, sleep sleepFunc) error {
+	var attemptErrs []error
+
+	for attempt := 1; attempt <= startupPingAttempts; attempt++ {
+		pingCtx, cancel := context.WithTimeout(ctx, startupPingTimeout)
+		err := ping(pingCtx)
+		cancel()
+		if err == nil {
+			return nil
+		}
+
+		attemptErrs = append(attemptErrs, fmt.Errorf("attempt %d/%d: %w", attempt, startupPingAttempts, err))
+		if attempt == startupPingAttempts {
+			break
+		}
+		if err := sleep(ctx, startupPingDelay); err != nil {
+			attemptErrs = append(attemptErrs, fmt.Errorf("wait before retry: %w", err))
+			break
+		}
+	}
+
+	return errors.Join(attemptErrs...)
+}
+
+func sleepContext(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func applyPoolConfig(db *sql.DB, cfg PoolConfig) {
