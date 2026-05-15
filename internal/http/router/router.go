@@ -54,7 +54,7 @@ func New(
 	healthHandler := handler.NewHealthHandler(appCfg, db)
 	docsHandler := handler.NewDocsHandler()
 
-	engine.GET("/healthz", healthHandler.Live)
+	engine.GET("/health", healthHandler.Live)
 	engine.GET("/openapi.yaml", docsHandler.OpenAPI)
 	engine.GET("/scalar", docsHandler.Scalar)
 

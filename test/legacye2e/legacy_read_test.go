@@ -48,7 +48,7 @@ func TestLegacyE2EMigratedDataReadChecks(t *testing.T) {
 	targets := discoverLegacyReadTargets(t, ctx, db)
 
 	t.Run("health endpoint reaches migrated database", func(t *testing.T) {
-		resp, body, err := client.getJSON(ctx, "/healthz")
+		resp, body, err := client.getJSON(ctx, "/health")
 		if err != nil {
 			t.Fatal(err)
 		}

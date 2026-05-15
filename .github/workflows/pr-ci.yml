@@ -175,7 +175,7 @@ jobs:
         run: |
           /tmp/stds-api > /tmp/stds-api.log 2>&1 &
           for i in {1..30}; do
-            if curl -fsS http://127.0.0.1:8080/healthz > /dev/null; then
+            if curl -fsS http://127.0.0.1:8080/health > /dev/null; then
               exit 0
             fi
             sleep 1

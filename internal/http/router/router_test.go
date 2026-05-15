@@ -73,6 +73,41 @@ func TestGetPropertyUsesFormalAPIWiring(t *testing.T) {
 	}
 }
 
+func TestHealthUsesCloudRunSafeRoute(t *testing.T) {
+	engine := newTestEngine(fakeUserRepo{}, fakeAuthenticator{}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	resp := httptest.NewRecorder()
+
+	engine.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+
+	var payload struct {
+		Name string `json:"name"`
+		Env  string `json:"env"`
+		OK   bool   `json:"ok"`
+		DB   bool   `json:"db"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode health response: %v", err)
+	}
+	if payload.Name != "test" || payload.Env != "test" || !payload.OK {
+		t.Fatalf("unexpected health payload: %+v", payload)
+	}
+
+	oldReq := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	oldResp := httptest.NewRecorder()
+
+	engine.ServeHTTP(oldResp, oldReq)
+
+	if oldResp.Code != http.StatusNotFound {
+		t.Fatalf("expected /healthz to be unregistered, got %d: %s", oldResp.Code, oldResp.Body.String())
+	}
+}
+
 func TestGeneratedAPIRoutesHaveRoutePolicies(t *testing.T) {
 	engine := newTestEngine(fakeUserRepo{}, fakeAuthenticator{}, fakePropertyRepo{}, fakeResourceOwnershipRepo{}, "", fakeJobRunsRepo{})
 
