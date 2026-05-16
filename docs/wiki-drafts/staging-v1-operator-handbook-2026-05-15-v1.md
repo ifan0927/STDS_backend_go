@@ -24,8 +24,8 @@ wave:
 - Admin frontend deploy path: GitHub Actions -> Cloud Build -> Firebase
   Hosting is proven.
 - Admin frontend deployed Playwright smoke passed against Firebase Hosting.
-- Brand thin backend and brand frontend are later work, not part of this v1
-  completion.
+- Brand frontend Cloudflare Pages deployment and core public brand endpoints are
+  later work, not part of this v1 completion.
 
 Cloud Run deploy success is not the same as full staging readiness. Database
 import, auth seed state, GCS, Resend, logging, and frontend E2E evidence must be

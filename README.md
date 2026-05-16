@@ -17,13 +17,13 @@ STDS is split across focused repositories:
   truth for operational workflows and backend contracts.
 - [STDS Admin Frontend](https://github.com/ifan0927/stds_fronted): internal
   management console for property operations.
-- [STDS Brand Backend](https://github.com/ifan0927/stds_brand_backend):
-  restricted read-only backend boundary for brand/public data.
 - [STDS Brand Frontend](https://github.com/ifan0927/stds_brand_frontend):
-  public-facing brand site.
+  public-facing brand site deployed as a static Cloudflare Pages site.
 
-The core backend remains the authority for operational state. The brand backend
-is intentionally separated and limited to approved read-only database views.
+The core backend remains the authority for operational state. Public brand
+content is exposed through dedicated public read-only endpoints that read the
+approved brand views and stay separate from the authenticated admin brand
+management endpoints.
 
 ## Design Approach
 
@@ -45,7 +45,8 @@ is intentionally separated and limited to approved read-only database views.
 
 The staging architecture uses GCP-managed services:
 
-- Firebase Hosting for browser-facing admin and brand frontends.
+- Firebase Hosting for the browser-facing admin frontend.
+- Cloudflare Pages for the browser-facing brand frontend.
 - Cloud Run for backend services.
 - Cloud SQL for PostgreSQL with private connectivity.
 - Secret Manager for runtime secrets.
@@ -55,8 +56,8 @@ The staging architecture uses GCP-managed services:
 - Cloud Logging and Cloud Monitoring for baseline observability.
 
 The first staging line has been deployed and verified for the core backend and
-admin frontend. Production deployment, stricter ingress hardening, brand backend
-deployment, and brand frontend deployment are separate follow-up work.
+admin frontend. Production deployment, stricter ingress hardening, core public
+brand endpoints, and brand frontend deployment are separate follow-up work.
 
 ## Runtime Responsibilities
 
@@ -144,8 +145,8 @@ See [docs/local-operations.md](docs/local-operations.md) for setup details.
 
 Core backend and admin frontend staging v1 are complete for the first demo / UAT
 wave. The staging line has proven container build, Cloud Build deployment, Cloud
-Run startup, Cloud SQL private connectivity, Firebase Hosting frontend deploy,
-and deployed Playwright smoke coverage.
+Run startup, Cloud SQL private connectivity, Firebase Hosting admin frontend
+deploy, and deployed Playwright smoke coverage.
 
 This is not a production readiness claim. Production deployment and hardening
 remain separate work.
