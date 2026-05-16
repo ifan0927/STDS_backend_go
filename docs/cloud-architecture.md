@@ -425,7 +425,11 @@ verified with GCP Billing and the Pricing Calculator before production go-live.
   branch push runs GitHub Actions predeploy checks, waits for GitHub `staging`
   Environment approval, then submits Cloud Build for image build, Artifact
   Registry push, and Cloud Run deploy. Manual workflow dispatch remains as a
-  controlled operator rerun path.
+  controlled operator rerun path. The GitHub deploy service account also reads
+  the current Cloud Run traffic split before deploy and can update staging
+  traffic for smoke-failure rollback; missing `run.services.get` or
+  `run.services.update` here blocks the workflow before Cloud Build deployment
+  begins.
 
 ### Production Readiness Review
 
