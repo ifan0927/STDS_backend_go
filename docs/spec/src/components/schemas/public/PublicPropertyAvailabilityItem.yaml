@@ -1,0 +1,16 @@
+type: object
+required:
+  - property_id
+  - property_public_name
+  - address
+  - has_vacant_room
+properties:
+  property_id:
+    type: string
+    format: uuid
+  property_public_name:
+    type: string
+  address:
+    type: string
+  has_vacant_room:
+    type: boolean

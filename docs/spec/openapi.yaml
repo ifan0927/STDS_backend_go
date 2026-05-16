@@ -1053,6 +1053,54 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /public/brand/profile:
+    get:
+      operationId: getPublicBrandProfile
+      summary: 取得公開品牌基本資料
+      description: |
+        Public readonly brand profile for the brand site build-time data fetch. No Firebase JWT is required.
+      tags:
+        - Public
+      security: []
+      responses:
+        '200':
+          description: 公開品牌基本資料
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicBrandProfileResponse'
+  /public/brand/faqs:
+    get:
+      operationId: listPublicBrandFAQs
+      summary: 列出公開品牌 FAQ
+      description: |
+        Public readonly active brand FAQ items for the brand site build-time data fetch. No Firebase JWT is required.
+      tags:
+        - Public
+      security: []
+      responses:
+        '200':
+          description: 公開品牌 FAQ 清單
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicBrandFAQListResponse'
+  /public/properties/availability:
+    get:
+      operationId: listPublicPropertyAvailability
+      summary: 列出公開物業空房狀態
+      description: |
+        Public readonly property availability for the brand site build-time data fetch. No Firebase JWT is required.
+      tags:
+        - Public
+      security: []
+      responses:
+        '200':
+          description: 公開物業空房狀態清單
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicPropertyAvailabilityListResponse'
   /properties:
     get:
       operationId: listProperties
@@ -7726,6 +7774,88 @@ components:
       properties:
         version:
           type: integer
+    PublicBrandProfile:
+      type: object
+      required:
+        - brand_name
+        - contact_phone
+        - contact_email
+        - contact_address
+        - updated_at
+      properties:
+        brand_name:
+          type: string
+        contact_phone:
+          type: string
+          nullable: true
+        contact_email:
+          type: string
+          format: email
+          nullable: true
+        contact_address:
+          type: string
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+    PublicBrandProfileResponse:
+      type: object
+      required:
+        - profile
+      properties:
+        profile:
+          type: object
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/PublicBrandProfile'
+    PublicBrandFAQItem:
+      type: object
+      required:
+        - question
+        - answer
+        - sort_order
+      properties:
+        question:
+          type: string
+        answer:
+          type: string
+        sort_order:
+          type: integer
+    PublicBrandFAQListResponse:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicBrandFAQItem'
+    PublicPropertyAvailabilityItem:
+      type: object
+      required:
+        - property_id
+        - property_public_name
+        - address
+        - has_vacant_room
+      properties:
+        property_id:
+          type: string
+          format: uuid
+        property_public_name:
+          type: string
+        address:
+          type: string
+        has_vacant_room:
+          type: boolean
+    PublicPropertyAvailabilityListResponse:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicPropertyAvailabilityItem'
     PropertyResponse:
       type: object
       properties:

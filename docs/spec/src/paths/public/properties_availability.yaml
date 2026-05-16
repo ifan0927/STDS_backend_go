@@ -1,0 +1,15 @@
+get:
+  operationId: listPublicPropertyAvailability
+  summary: 列出公開物業空房狀態
+  description: |
+    Public readonly property availability for the brand site build-time data fetch. No Firebase JWT is required.
+  tags:
+    - Public
+  security: []
+  responses:
+    '200':
+      description: 公開物業空房狀態清單
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/public/PublicPropertyAvailabilityListResponse.yaml

@@ -20,6 +20,7 @@ import (
 	appjournal "stds_backend/internal/application/journal"
 	applease "stds_backend/internal/application/lease"
 	appproperty "stds_backend/internal/application/property"
+	apppublicbrand "stds_backend/internal/application/publicbrand"
 	apprepair "stds_backend/internal/application/repair"
 	apptenant "stds_backend/internal/application/tenant"
 	domainusers "stds_backend/internal/domain/users"
@@ -48,6 +49,7 @@ type APIServer struct {
 	assignProperties  *appiam.AssignUserPropertiesService
 	brandProfile      *appbrand.Service
 	brandFAQ          *appbrand.FAQService
+	publicBrand       PublicBrandServices
 	jobTriggerService *appjobs.TriggerService
 	propertyQueryRepo dbpropertyquery.Repository
 	propertyDashboard *appproperty.DashboardService
@@ -91,6 +93,7 @@ type APIServerDeps struct {
 	AssignProperties  *appiam.AssignUserPropertiesService
 	BrandProfile      *appbrand.Service
 	BrandFAQ          *appbrand.FAQService
+	PublicBrand       PublicBrandServices
 	JobTrigger        *appjobs.TriggerService
 	PropertyQuery     dbpropertyquery.Repository
 	PropertyDashboard *appproperty.DashboardService
@@ -161,6 +164,12 @@ type RepairServices struct {
 type RepairQueryRepository interface {
 	List(ctx context.Context, query apprepair.ListQuery) (apprepair.ListResult, error)
 	FindByID(ctx context.Context, id string) (*apprepair.RepairRequest, error)
+}
+
+type PublicBrandServices struct {
+	Profile      *apppublicbrand.ProfileService
+	FAQ          *apppublicbrand.FAQService
+	Availability *apppublicbrand.AvailabilityService
 }
 
 type BillingQueryService interface {
@@ -475,6 +484,7 @@ func NewAPIServer(deps APIServerDeps) *APIServer {
 		assignProperties:  deps.AssignProperties,
 		brandProfile:      deps.BrandProfile,
 		brandFAQ:          deps.BrandFAQ,
+		publicBrand:       deps.PublicBrand,
 		jobTriggerService: deps.JobTrigger,
 		propertyQueryRepo: deps.PropertyQuery,
 		propertyDashboard: deps.PropertyDashboard,
@@ -521,6 +531,9 @@ func validateAPIServerDeps(deps APIServerDeps) {
 		{"assign_properties", deps.AssignProperties},
 		{"brand_profile", deps.BrandProfile},
 		{"brand_faq", deps.BrandFAQ},
+		{"public_brand_profile", deps.PublicBrand.Profile},
+		{"public_brand_faq", deps.PublicBrand.FAQ},
+		{"public_brand_availability", deps.PublicBrand.Availability},
 		{"job_trigger", deps.JobTrigger},
 		{"property_query", deps.PropertyQuery},
 		{"property_dashboard", deps.PropertyDashboard},
@@ -1594,6 +1607,39 @@ func (s *APIServer) ListBrandFAQItems(c *gin.Context, params api.ListBrandFAQIte
 	}
 
 	c.JSON(http.StatusOK, toBrandFAQItemListResponse(items))
+}
+
+// GetPublicBrandProfile handles public approved brand profile retrieval.
+func (s *APIServer) GetPublicBrandProfile(c *gin.Context) {
+	profile, err := s.publicBrand.Profile.GetProfile(c.Request.Context())
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toPublicBrandProfileResponse(profile))
+}
+
+// ListPublicBrandFAQs handles public approved FAQ listing.
+func (s *APIServer) ListPublicBrandFAQs(c *gin.Context) {
+	items, err := s.publicBrand.FAQ.ListFAQItems(c.Request.Context())
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toPublicBrandFAQListResponse(items))
+}
+
+// ListPublicPropertyAvailability handles public approved property availability listing.
+func (s *APIServer) ListPublicPropertyAvailability(c *gin.Context) {
+	items, err := s.publicBrand.Availability.ListPropertyAvailability(c.Request.Context())
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, toPublicPropertyAvailabilityResponse(items))
 }
 
 // CreateBrandFAQItem handles brand FAQ item creation.
@@ -3913,6 +3959,53 @@ func toBrandFAQItemResponse(item *appbrand.FAQItem) api.BrandFAQItemResponse {
 	}
 
 	return response
+}
+
+func toPublicBrandProfileResponse(profile *apppublicbrand.Profile) api.PublicBrandProfileResponse {
+	if profile == nil {
+		return api.PublicBrandProfileResponse{Profile: nil}
+	}
+
+	payload := api.PublicBrandProfile{
+		BrandName:      profile.BrandName,
+		ContactPhone:   profile.ContactPhone,
+		ContactAddress: profile.ContactAddress,
+		UpdatedAt:      profile.UpdatedAt,
+	}
+	if profile.ContactEmail != nil {
+		email := openapi_types.Email(*profile.ContactEmail)
+		payload.ContactEmail = &email
+	}
+
+	return api.PublicBrandProfileResponse{Profile: &payload}
+}
+
+func toPublicBrandFAQListResponse(items []apppublicbrand.FAQItem) api.PublicBrandFAQListResponse {
+	payloads := make([]api.PublicBrandFAQItem, 0, len(items))
+	for _, item := range items {
+		payloads = append(payloads, api.PublicBrandFAQItem{
+			Question:  item.Question,
+			Answer:    item.Answer,
+			SortOrder: item.SortOrder,
+		})
+	}
+
+	return api.PublicBrandFAQListResponse{Items: payloads}
+}
+
+func toPublicPropertyAvailabilityResponse(items []apppublicbrand.PropertyAvailability) api.PublicPropertyAvailabilityListResponse {
+	payloads := make([]api.PublicPropertyAvailabilityItem, 0, len(items))
+	for _, item := range items {
+		propertyID, _ := parseUUID(item.PropertyID)
+		payloads = append(payloads, api.PublicPropertyAvailabilityItem{
+			PropertyId:         propertyID,
+			PropertyPublicName: item.PropertyPublicName,
+			Address:            item.Address,
+			HasVacantRoom:      item.HasVacantRoom,
+		})
+	}
+
+	return api.PublicPropertyAvailabilityListResponse{Items: payloads}
 }
 
 func toPropertyResponse(property *dbpropertyquery.Property) api.PropertyResponse {

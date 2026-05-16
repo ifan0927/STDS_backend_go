@@ -513,8 +513,8 @@ separate brand readonly database principal.
 Expected evidence:
 
 - approved views are present after migration/import.
-- core public brand endpoints are not part of staging v1 unless issue #209 is
-  explicitly included in the deployment wave.
+- core public brand endpoints are included when issue #209 is promoted into the
+  staging deployment wave.
 
 ### First Staging Admin Bootstrap
 

@@ -1365,6 +1365,45 @@ type PropertyTenantLeaseRosterRow struct {
 	TenantPhone        *string             `json:"tenant_phone"`
 }
 
+// PublicBrandFAQItem defines model for PublicBrandFAQItem.
+type PublicBrandFAQItem struct {
+	Answer    string `json:"answer"`
+	Question  string `json:"question"`
+	SortOrder int    `json:"sort_order"`
+}
+
+// PublicBrandFAQListResponse defines model for PublicBrandFAQListResponse.
+type PublicBrandFAQListResponse struct {
+	Items []PublicBrandFAQItem `json:"items"`
+}
+
+// PublicBrandProfile defines model for PublicBrandProfile.
+type PublicBrandProfile struct {
+	BrandName      string               `json:"brand_name"`
+	ContactAddress *string              `json:"contact_address"`
+	ContactEmail   *openapi_types.Email `json:"contact_email"`
+	ContactPhone   *string              `json:"contact_phone"`
+	UpdatedAt      time.Time            `json:"updated_at"`
+}
+
+// PublicBrandProfileResponse defines model for PublicBrandProfileResponse.
+type PublicBrandProfileResponse struct {
+	Profile *PublicBrandProfile `json:"profile"`
+}
+
+// PublicPropertyAvailabilityItem defines model for PublicPropertyAvailabilityItem.
+type PublicPropertyAvailabilityItem struct {
+	Address            string             `json:"address"`
+	HasVacantRoom      bool               `json:"has_vacant_room"`
+	PropertyId         openapi_types.UUID `json:"property_id"`
+	PropertyPublicName string             `json:"property_public_name"`
+}
+
+// PublicPropertyAvailabilityListResponse defines model for PublicPropertyAvailabilityListResponse.
+type PublicPropertyAvailabilityListResponse struct {
+	Items []PublicPropertyAvailabilityItem `json:"items"`
+}
+
 // RecordMeterRequest defines model for RecordMeterRequest.
 type RecordMeterRequest struct {
 	// CurrentReading 本月電表度數（員工輸入）
@@ -2225,6 +2264,15 @@ type ServerInterface interface {
 	// 租客名冊 HTML 匯出
 	// (GET /properties/{id}/tenant-roster)
 	ExportPropertyTenantRoster(c *gin.Context, id string, params ExportPropertyTenantRosterParams)
+	// 列出公開品牌 FAQ
+	// (GET /public/brand/faqs)
+	ListPublicBrandFAQs(c *gin.Context)
+	// 取得公開品牌基本資料
+	// (GET /public/brand/profile)
+	GetPublicBrandProfile(c *gin.Context)
+	// 列出公開物業空房狀態
+	// (GET /public/properties/availability)
+	ListPublicPropertyAvailability(c *gin.Context)
 	// 維修列表
 	// (GET /repair-requests)
 	ListRepairRequests(c *gin.Context, params ListRepairRequestsParams)
@@ -4428,6 +4476,45 @@ func (siw *ServerInterfaceWrapper) ExportPropertyTenantRoster(c *gin.Context) {
 	siw.Handler.ExportPropertyTenantRoster(c, id, params)
 }
 
+// ListPublicBrandFAQs operation middleware
+func (siw *ServerInterfaceWrapper) ListPublicBrandFAQs(c *gin.Context) {
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ListPublicBrandFAQs(c)
+}
+
+// GetPublicBrandProfile operation middleware
+func (siw *ServerInterfaceWrapper) GetPublicBrandProfile(c *gin.Context) {
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.GetPublicBrandProfile(c)
+}
+
+// ListPublicPropertyAvailability operation middleware
+func (siw *ServerInterfaceWrapper) ListPublicPropertyAvailability(c *gin.Context) {
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ListPublicPropertyAvailability(c)
+}
+
 // ListRepairRequests operation middleware
 func (siw *ServerInterfaceWrapper) ListRepairRequests(c *gin.Context) {
 
@@ -5441,6 +5528,9 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.POST(options.BaseURL+"/properties/:id/rooms", wrapper.CreatePropertyRoom)
 	router.GET(options.BaseURL+"/properties/:id/tenant-lease-roster", wrapper.ListPropertyTenantLeaseRoster)
 	router.GET(options.BaseURL+"/properties/:id/tenant-roster", wrapper.ExportPropertyTenantRoster)
+	router.GET(options.BaseURL+"/public/brand/faqs", wrapper.ListPublicBrandFAQs)
+	router.GET(options.BaseURL+"/public/brand/profile", wrapper.GetPublicBrandProfile)
+	router.GET(options.BaseURL+"/public/properties/availability", wrapper.ListPublicPropertyAvailability)
 	router.GET(options.BaseURL+"/repair-requests", wrapper.ListRepairRequests)
 	router.POST(options.BaseURL+"/repair-requests", wrapper.CreateRepairRequest)
 	router.DELETE(options.BaseURL+"/repair-requests/:id", wrapper.DeleteRepairRequest)

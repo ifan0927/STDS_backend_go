@@ -26,6 +26,7 @@ import (
 	applease "stds_backend/internal/application/lease"
 	appnotification "stds_backend/internal/application/notification"
 	appproperty "stds_backend/internal/application/property"
+	apppublicbrand "stds_backend/internal/application/publicbrand"
 	apprepair "stds_backend/internal/application/repair"
 	apptenant "stds_backend/internal/application/tenant"
 	"stds_backend/internal/config"
@@ -202,6 +203,69 @@ func TestBrandProfileRoutePolicyRejectsStaffAndOwner(t *testing.T) {
 			engine.ServeHTTP(resp, req)
 
 			assertStandardErrorResponse(t, resp, http.StatusForbidden, apperr.CodeForbidden)
+		})
+	}
+}
+
+func TestPublicBrandRoutesAllowNoAuth(t *testing.T) {
+	routes := []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodGet, path: "/api/v1/public/brand/profile"},
+		{method: http.MethodGet, path: "/api/v1/public/brand/faqs"},
+		{method: http.MethodGet, path: "/api/v1/public/properties/availability"},
+	}
+
+	for _, route := range routes {
+		t.Run(route.path, func(t *testing.T) {
+			engine := newTestEngine(
+				fakeUserRepo{},
+				fakeAuthenticator{},
+				fakePropertyRepo{},
+				fakeResourceOwnershipRepo{},
+				"",
+				fakeJobRunsRepo{},
+			)
+
+			req := httptest.NewRequest(route.method, route.path, nil)
+			resp := httptest.NewRecorder()
+
+			engine.ServeHTTP(resp, req)
+
+			if resp.Code != http.StatusOK {
+				t.Fatalf("expected 200 without auth, got %d: %s", resp.Code, resp.Body.String())
+			}
+		})
+	}
+}
+
+func TestAdminBrandRoutesStillRequireAuth(t *testing.T) {
+	routes := []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodGet, path: "/api/v1/brand/profile"},
+		{method: http.MethodGet, path: "/api/v1/brand/faq-items"},
+	}
+
+	for _, route := range routes {
+		t.Run(route.path, func(t *testing.T) {
+			engine := newTestEngine(
+				fakeUserRepo{},
+				fakeAuthenticator{},
+				fakePropertyRepo{},
+				fakeResourceOwnershipRepo{},
+				"",
+				fakeJobRunsRepo{},
+			)
+
+			req := httptest.NewRequest(route.method, route.path, nil)
+			resp := httptest.NewRecorder()
+
+			engine.ServeHTTP(resp, req)
+
+			assertStandardErrorResponse(t, resp, http.StatusUnauthorized, apperr.CodeUnauthorized)
 		})
 	}
 }
@@ -6943,6 +7007,7 @@ func defaultAPIServerDeps(userRepo *fakeUserRepo, authenticator fakeAuthenticato
 		AssignProperties:  appiam.NewAssignUserPropertiesService(testManagedUserRepositoryAdapter{repo: userRepo}, testPropertyExistenceChecker{repo: fakePropertyQueryRepo{}}, appiam.NewCustomClaimsService(authenticator)),
 		BrandProfile:      appbrand.NewService(nil, nil),
 		BrandFAQ:          appbrand.NewFAQService(nil, nil),
+		PublicBrand:       newFakePublicBrandServices(),
 		JobTrigger:        appjobs.NewTriggerService(jobRunsRepo, nil, time.Minute, 3),
 		PropertyQuery:     propertyQueryRepo,
 		PropertyDashboard: appproperty.NewDashboardService(nil),
@@ -7102,6 +7167,29 @@ type testNotificationSender struct {
 
 func (s *testNotificationSender) Send(_ context.Context, _ platformnotification.SendCommand) error {
 	return s.sendErr
+}
+
+func newFakePublicBrandServices() handler.PublicBrandServices {
+	repo := fakePublicBrandRepo{}
+	return handler.PublicBrandServices{
+		Profile:      apppublicbrand.NewProfileService(repo),
+		FAQ:          apppublicbrand.NewFAQService(repo),
+		Availability: apppublicbrand.NewAvailabilityService(repo),
+	}
+}
+
+type fakePublicBrandRepo struct{}
+
+func (fakePublicBrandRepo) GetProfile(context.Context) (*apppublicbrand.Profile, error) {
+	return nil, nil
+}
+
+func (fakePublicBrandRepo) ListFAQItems(context.Context) ([]apppublicbrand.FAQItem, error) {
+	return []apppublicbrand.FAQItem{}, nil
+}
+
+func (fakePublicBrandRepo) ListPropertyAvailability(context.Context) ([]apppublicbrand.PropertyAvailability, error) {
+	return []apppublicbrand.PropertyAvailability{}, nil
 }
 
 func firstAssignedPropertyIDs(assigned []string) []string {
