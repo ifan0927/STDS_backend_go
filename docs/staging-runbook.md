@@ -268,7 +268,10 @@ migrations, secrets, repository history, or pull requests.
 If rollback cannot be performed automatically, the workflow fails loudly and
 records non-secret evidence for manual recovery. The GitHub deploy service
 account therefore needs permission to read the Cloud Run service and update
-Cloud Run traffic for the staging service.
+Cloud Run traffic for the staging service. In the current GCP permission model,
+that same rollback command also needs permission to read the deployed image from
+the staging Artifact Registry repository and act as the Cloud Run runtime
+service account.
 
 If the workflow fails during `Capture pre-deploy Cloud Run traffic` with
 `run.services.get`, the blocker is the GitHub deploy service account, not the
@@ -276,6 +279,13 @@ Cloud Build execution service account. Confirm
 `stds-github-deploy-staging@stds-439609.iam.gserviceaccount.com` has narrow
 Cloud Run service read and traffic update permissions (`run.services.get` /
 `run.services.update`) for the staging service before rerunning.
+
+If rollback reaches `gcloud run services update-traffic` but fails with
+`artifactregistry.repositories.downloadArtifacts`, grant the GitHub deploy
+service account Artifact Registry Reader on the staging backend image
+repository. If it fails with `iam.serviceAccounts.actAs`, grant
+`roles/iam.serviceAccountUser` narrowly on the Cloud Run runtime service
+account. Run 25963082591 exercised both blockers during the rollback drill.
 
 ### Deployment Evidence
 
@@ -363,6 +373,10 @@ Expected access:
   (`run.services.get`).
 - Update staging Cloud Run traffic only for smoke-failure rollback
   (`run.services.update`).
+- Read deployed images from the staging Artifact Registry repository during
+  Cloud Run traffic updates (`artifactregistry.repositories.downloadArtifacts`).
+- Act as the core backend runtime service account only for Cloud Run traffic
+  update / rollback validation (`iam.serviceAccounts.actAs`).
 - No runtime secret access and no Cloud SQL access.
 
 Cloud Scheduler is intentionally excluded from staging v1. Do not create a
