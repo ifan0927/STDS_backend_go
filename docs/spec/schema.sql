@@ -102,7 +102,7 @@ CREATE TABLE brand_profiles (
     version         INTEGER     NOT NULL DEFAULT 1
 );
 
--- Approved readonly view: future brand thin backend may read this view, not brand_profiles.
+-- Approved readonly view: core public brand endpoints read this view, not brand_profiles.
 CREATE VIEW approved_brand_profile_v1 AS
 SELECT
     brand_name,
@@ -135,7 +135,7 @@ CREATE INDEX idx_brand_faq_items_sort_order
     ON brand_faq_items (sort_order)
     WHERE deleted_at IS NULL;
 
--- Approved readonly view: future brand thin backend may read active FAQ rows through this view only.
+-- Approved readonly view: core public brand endpoints read active FAQ rows through this view only.
 CREATE VIEW approved_brand_faq_items_v1 AS
 SELECT
     question,
@@ -183,7 +183,7 @@ CREATE INDEX idx_rooms_property_status ON rooms (property_id, status) WHERE dele
 
 -- ============================================================
 -- Approved readonly brand property availability view
--- 說明: Future brand thin backend 只讀 approved views，不直接讀 core base tables
+-- 說明: Core public brand endpoints 只讀 approved views，不直接讀 core base tables
 -- ============================================================
 
 CREATE VIEW approved_brand_property_availability_v1 AS

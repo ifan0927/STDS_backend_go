@@ -68,16 +68,17 @@ demo property with rooms, tenants, leases, bills, meter history, reports,
 journal, repair, and checkout data. It is local frontend support data and is
 separate from schema migrations and legacy migration validation.
 
-5. Create or repair the local brand readonly database user when developing the
-   future brand thin backend boundary:
+5. Optionally create or repair the local brand readonly database user when
+   diagnosing the retired brand thin backend boundary:
 
 ```bash
 scripts/dev_brand_readonly.sh
 ```
 
-This local helper uses `DATABASE_URL` as the admin connection by default,
-creates or repairs `brand_readonly`, grants only the approved brand views, and
-verifies representative core base tables are not selectable. Override
+This helper is not required for the active brand site architecture. It uses
+`DATABASE_URL` as the admin connection by default, creates or repairs
+`brand_readonly`, grants only the approved brand views, and verifies
+representative core base tables are not selectable. Override
 `BRAND_READONLY_PASSWORD`, `BRAND_READONLY_ADMIN_DATABASE_URL`, or
 `BRAND_READONLY_DATABASE_URL` when your local database connection differs from
 the Docker defaults.
@@ -186,8 +187,8 @@ legacy mapping-table counts before writing a plain SQL dump under
 The dump includes migrated schema objects such as approved views and table data
 from the temporary database, including application `users` rows that exist at
 dump time. Because it uses `--no-owner --no-privileges`, it does not include
-PostgreSQL users, roles, owners, or grants. Cloud SQL readonly principals and
-grants must be provisioned manually after import, not by this dump.
+PostgreSQL users, roles, owners, or grants. The active brand site architecture
+does not require post-import brand readonly principal provisioning.
 
 By default, the temporary database and role are dropped after the dump. Set
 `KEEP_TEMP_DB=1` to keep them for debugging:
@@ -315,10 +316,11 @@ go test -tags=e2e ./test/e2e
 
 ## Brand readonly database access
 
-Demo brand frontend data is exposed to a future thin backend through approved
-PostgreSQL views only. The core backend migrations create the views; deployment
-or DBA provisioning must create the Cloud SQL readonly principal and grant only
-the approved view access.
+Demo brand frontend data is exposed through core backend public read-only
+endpoints that read approved PostgreSQL views only. The separate brand thin
+backend path has been retired for the active architecture; a dedicated
+`brand_readonly` principal is no longer a deployment dependency for the brand
+site.
 
 The current approved views are:
 
@@ -326,14 +328,14 @@ The current approved views are:
 - `approved_brand_faq_items_v1`
 - `approved_brand_property_availability_v1`
 
-The brand readonly principal should receive `USAGE` on the schema and `SELECT`
-on those views only. Do not grant it direct access to base tables such as
-`properties`, `rooms`, `brand_profiles`, `brand_faq_items`, `tenants`, `leases`,
-`bills`, `attachments`, or deposit/accounting tables. Local PostgreSQL contract
-tests use an ephemeral equivalent role to verify that the approved views are
-selectable while base tables are not.
+Public handlers should read those views only and should not query base tables
+such as `properties`, `rooms`, `brand_profiles`, `brand_faq_items`, `tenants`,
+`leases`, `bills`, `attachments`, or deposit/accounting tables. Local
+PostgreSQL contract tests still use an ephemeral equivalent role to verify that
+the approved views are selectable while base tables are not.
 
-For local thin-backend development, the expected order is:
+For local diagnosis of the retired readonly-principal path, the optional order
+is:
 
 ```bash
 docker compose up -d postgres
@@ -348,12 +350,10 @@ The local readonly connection string defaults to:
 BRAND_READONLY_DATABASE_URL=postgres://brand_readonly:brand_readonly@localhost:5432/stds_backend?sslmode=disable
 ```
 
-Staging and production must provision the equivalent Cloud SQL principal outside
-application migrations. The deployment or DBA workflow should create the
-dedicated readonly principal, grant schema `USAGE`, grant `SELECT` only on the
-approved views, store the thin-backend credential through the environment or
-Secret Manager, and run a deployed smoke check that mirrors the local approved
-view and base-table denial checks.
+Staging and production do not need a brand readonly Cloud SQL principal for the
+active Cloudflare Pages plus core public endpoint architecture. Reintroduce a
+dedicated readonly principal only if a future issue revives a separate runtime
+brand service or requires stronger database credential isolation.
 
 ## Legacy migration planning
 
