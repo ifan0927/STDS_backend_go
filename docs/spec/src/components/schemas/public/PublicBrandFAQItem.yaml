@@ -1,0 +1,12 @@
+type: object
+required:
+  - question
+  - answer
+  - sort_order
+properties:
+  question:
+    type: string
+  answer:
+    type: string
+  sort_order:
+    type: integer

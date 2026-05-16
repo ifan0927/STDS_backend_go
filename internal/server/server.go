@@ -15,6 +15,7 @@ import (
 	applease "stds_backend/internal/application/lease"
 	appnotification "stds_backend/internal/application/notification"
 	appproperty "stds_backend/internal/application/property"
+	apppublicbrand "stds_backend/internal/application/publicbrand"
 	apprepair "stds_backend/internal/application/repair"
 	apptenant "stds_backend/internal/application/tenant"
 	"stds_backend/internal/config"
@@ -32,6 +33,7 @@ import (
 	dbproperties "stds_backend/internal/platform/database/properties"
 	dbpropertydashboard "stds_backend/internal/platform/database/propertydashboard"
 	dbpropertyquery "stds_backend/internal/platform/database/propertyquery"
+	dbpublicbrand "stds_backend/internal/platform/database/publicbrand"
 	dbrepair "stds_backend/internal/platform/database/repair"
 	dbresourceownership "stds_backend/internal/platform/database/resourceownership"
 	dbtenantquery "stds_backend/internal/platform/database/tenantquery"
@@ -89,6 +91,7 @@ func New(cfg *config.Config) (*Server, error) {
 	attachmentRepo := dbattachments.NewRepository(db)
 	brandProfileRepo := dbbrandprofile.NewRepository(db)
 	brandFAQRepo := dbbrandfaq.NewRepository(db)
+	publicBrandRepo := dbpublicbrand.NewRepository(db)
 
 	storageClient, err := platformstorage.NewAttachmentStorage(context.Background(), cfg.App.Env, cfg.Storage)
 	if err != nil {
@@ -122,6 +125,11 @@ func New(cfg *config.Config) (*Server, error) {
 	txRunner := dbtxrunner.New(db, bus)
 	brandProfileService := appbrand.NewService(brandProfileRepositoryAdapter{repo: brandProfileRepo}, txRunner)
 	brandFAQService := appbrand.NewFAQService(brandFAQRepositoryAdapter{repo: brandFAQRepo}, txRunner)
+	publicBrandServices := handler.PublicBrandServices{
+		Profile:      apppublicbrand.NewProfileService(publicBrandRepo),
+		FAQ:          apppublicbrand.NewFAQService(publicBrandRepo),
+		Availability: apppublicbrand.NewAvailabilityService(publicBrandRepo),
+	}
 	createPropertyService := appproperty.NewCreatePropertyService(propertyRepositoryAdapter{repo: propertyRepo}, propertyAccountRepositoryAdapter{repo: billingRepo}, txRunner)
 	updatePropertyService := appproperty.NewUpdatePropertyService(propertyRepositoryAdapter{repo: propertyRepo}, txRunner)
 	deletePropertyService := appproperty.NewDeletePropertyService(propertyRepositoryAdapter{repo: propertyRepo}, txRunner)
@@ -181,6 +189,7 @@ func New(cfg *config.Config) (*Server, error) {
 		AssignProperties:  assignUserPropertiesService,
 		BrandProfile:      brandProfileService,
 		BrandFAQ:          brandFAQService,
+		PublicBrand:       publicBrandServices,
 		JobTrigger:        jobTriggerService,
 		PropertyQuery:     propertyQueryRepo,
 		PropertyDashboard: propertyDashboardService,

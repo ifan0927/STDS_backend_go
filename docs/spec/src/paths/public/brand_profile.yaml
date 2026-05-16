@@ -1,0 +1,15 @@
+get:
+  operationId: getPublicBrandProfile
+  summary: 取得公開品牌基本資料
+  description: |
+    Public readonly brand profile for the brand site build-time data fetch. No Firebase JWT is required.
+  tags:
+    - Public
+  security: []
+  responses:
+    '200':
+      description: 公開品牌基本資料
+      content:
+        application/json:
+          schema:
+            $ref: ../../components/schemas/public/PublicBrandProfileResponse.yaml

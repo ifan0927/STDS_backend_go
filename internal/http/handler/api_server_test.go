@@ -20,6 +20,7 @@ import (
 	appbrand "stds_backend/internal/application/brand"
 	applease "stds_backend/internal/application/lease"
 	appproperty "stds_backend/internal/application/property"
+	apppublicbrand "stds_backend/internal/application/publicbrand"
 	apprepair "stds_backend/internal/application/repair"
 	"stds_backend/internal/http/api"
 	"stds_backend/internal/http/middleware"
@@ -238,6 +239,158 @@ func TestListBrandFAQItemsForwardsIncludeInactive(t *testing.T) {
 	}
 	if response.Data == nil || len(*response.Data) != 1 || (*response.Data)[0].Question == nil || *(*response.Data)[0].Question != "Q1" {
 		t.Fatalf("unexpected response: %+v", response)
+	}
+}
+
+func TestGetPublicBrandProfileReturnsNullableWrapper(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	server := &APIServer{publicBrand: newHandlerPublicBrandServices(handlerPublicBrandRepoStub{})}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/public/brand/profile", nil)
+
+	server.GetPublicBrandProfile(c)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	payload := map[string]any{}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if _, ok := payload["profile"]; !ok || payload["profile"] != nil {
+		t.Fatalf("expected profile null wrapper, got %#v", payload)
+	}
+}
+
+func TestGetPublicBrandProfileReturnsApprovedProfile(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	phone := "02-1234-5678"
+	updatedAt := time.Date(2026, 5, 16, 10, 0, 0, 0, time.UTC)
+	server := &APIServer{publicBrand: newHandlerPublicBrandServices(handlerPublicBrandRepoStub{
+		profile: &apppublicbrand.Profile{
+			BrandName:    "STDS",
+			ContactPhone: &phone,
+			UpdatedAt:    updatedAt,
+		},
+	})}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/public/brand/profile", nil)
+
+	server.GetPublicBrandProfile(c)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var response api.PublicBrandProfileResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if response.Profile == nil || response.Profile.BrandName != "STDS" {
+		t.Fatalf("unexpected profile response: %+v", response)
+	}
+	if response.Profile.ContactPhone == nil || *response.Profile.ContactPhone != phone {
+		t.Fatalf("unexpected contact phone: %+v", response.Profile.ContactPhone)
+	}
+}
+
+func TestListPublicBrandFAQsReturnsItemsArray(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	server := &APIServer{publicBrand: newHandlerPublicBrandServices(handlerPublicBrandRepoStub{})}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/public/brand/faqs", nil)
+
+	server.ListPublicBrandFAQs(c)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	payload := map[string][]any{}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if payload["items"] == nil || len(payload["items"]) != 0 {
+		t.Fatalf("expected empty items array, got %#v", payload)
+	}
+}
+
+func TestListPublicBrandFAQsReturnsApprovedItems(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	server := &APIServer{publicBrand: newHandlerPublicBrandServices(handlerPublicBrandRepoStub{
+		faqs: []apppublicbrand.FAQItem{{Question: "Q1", Answer: "A1", SortOrder: 10}},
+	})}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/public/brand/faqs", nil)
+
+	server.ListPublicBrandFAQs(c)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var response api.PublicBrandFAQListResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if len(response.Items) != 1 || response.Items[0].Question != "Q1" || response.Items[0].SortOrder != 10 {
+		t.Fatalf("unexpected FAQ response: %+v", response)
+	}
+}
+
+func TestListPublicPropertyAvailabilityReturnsItemsArray(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	server := &APIServer{publicBrand: newHandlerPublicBrandServices(handlerPublicBrandRepoStub{})}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/public/properties/availability", nil)
+
+	server.ListPublicPropertyAvailability(c)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	payload := map[string][]any{}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if payload["items"] == nil || len(payload["items"]) != 0 {
+		t.Fatalf("expected empty items array, got %#v", payload)
+	}
+}
+
+func TestListPublicPropertyAvailabilityReturnsApprovedItems(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	server := &APIServer{publicBrand: newHandlerPublicBrandServices(handlerPublicBrandRepoStub{
+		availability: []apppublicbrand.PropertyAvailability{{
+			PropertyID:         "10000000-0000-0000-0000-000000000001",
+			PropertyPublicName: "信義館",
+			Address:            "台北市信義區",
+			HasVacantRoom:      true,
+		}},
+	})}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/public/properties/availability", nil)
+
+	server.ListPublicPropertyAvailability(c)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var response api.PublicPropertyAvailabilityListResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if len(response.Items) != 1 || response.Items[0].PropertyPublicName != "信義館" || !response.Items[0].HasVacantRoom {
+		t.Fatalf("unexpected availability response: %+v", response)
 	}
 }
 
@@ -2310,4 +2463,33 @@ func (r *handlerBrandFAQRepoStub) Deactivate(_ context.Context, _ *sql.Tx, _ str
 		return nil, r.deactivateErr
 	}
 	return r.deactivateItem, nil
+}
+
+func newHandlerPublicBrandServices(repo handlerPublicBrandRepoStub) PublicBrandServices {
+	return PublicBrandServices{
+		Profile:      apppublicbrand.NewProfileService(repo),
+		FAQ:          apppublicbrand.NewFAQService(repo),
+		Availability: apppublicbrand.NewAvailabilityService(repo),
+	}
+}
+
+type handlerPublicBrandRepoStub struct {
+	profile         *apppublicbrand.Profile
+	profileErr      error
+	faqs            []apppublicbrand.FAQItem
+	faqsErr         error
+	availability    []apppublicbrand.PropertyAvailability
+	availabilityErr error
+}
+
+func (r handlerPublicBrandRepoStub) GetProfile(context.Context) (*apppublicbrand.Profile, error) {
+	return r.profile, r.profileErr
+}
+
+func (r handlerPublicBrandRepoStub) ListFAQItems(context.Context) ([]apppublicbrand.FAQItem, error) {
+	return r.faqs, r.faqsErr
+}
+
+func (r handlerPublicBrandRepoStub) ListPropertyAvailability(context.Context) ([]apppublicbrand.PropertyAvailability, error) {
+	return r.availability, r.availabilityErr
 }

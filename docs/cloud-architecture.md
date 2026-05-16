@@ -428,8 +428,9 @@ verified with GCP Billing and the Pricing Calculator before production go-live.
   controlled operator rerun path. The GitHub deploy service account also reads
   the current Cloud Run traffic split before deploy and can update staging
   traffic for smoke-failure rollback; missing `run.services.get` or
-  `run.services.update` here blocks the workflow before Cloud Build deployment
-  begins.
+  `run.services.update` blocks the workflow before or during rollback. The
+  rollback traffic update also requires staging Artifact Registry image read and
+  narrow act-as permission on the Cloud Run runtime service account.
 
 ### Production Readiness Review
 

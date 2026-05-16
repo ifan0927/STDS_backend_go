@@ -1,0 +1,9 @@
+type: object
+required:
+  - profile
+properties:
+  profile:
+    type: object
+    nullable: true
+    allOf:
+      - $ref: ./PublicBrandProfile.yaml
