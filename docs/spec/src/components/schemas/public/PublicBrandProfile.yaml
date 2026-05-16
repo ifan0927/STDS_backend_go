@@ -1,0 +1,23 @@
+type: object
+required:
+  - brand_name
+  - contact_phone
+  - contact_email
+  - contact_address
+  - updated_at
+properties:
+  brand_name:
+    type: string
+  contact_phone:
+    type: string
+    nullable: true
+  contact_email:
+    type: string
+    format: email
+    nullable: true
+  contact_address:
+    type: string
+    nullable: true
+  updated_at:
+    type: string
+    format: date-time

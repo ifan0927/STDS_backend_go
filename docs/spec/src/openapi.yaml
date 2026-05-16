@@ -99,6 +99,12 @@ paths:
     $ref: paths/brand/brand_faq_items_{id}.yaml
   /brand/faq-items/{id}/deactivate:
     $ref: paths/brand/brand_faq_items_{id}_deactivate.yaml
+  /public/brand/profile:
+    $ref: paths/public/brand_profile.yaml
+  /public/brand/faqs:
+    $ref: paths/public/brand_faqs.yaml
+  /public/properties/availability:
+    $ref: paths/public/properties_availability.yaml
   /properties:
     $ref: paths/property/properties.yaml
   /properties/{id}:

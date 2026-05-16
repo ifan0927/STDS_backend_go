@@ -56,8 +56,10 @@ The staging architecture uses GCP-managed services:
 - Cloud Logging and Cloud Monitoring for baseline observability.
 
 The first staging line has been deployed and verified for the core backend and
-admin frontend. Production deployment, stricter ingress hardening, core public
-brand endpoints, and brand frontend deployment are separate follow-up work.
+admin frontend. Core public brand endpoints are part of the core backend
+contract for the Cloudflare Pages brand frontend. Production deployment,
+stricter ingress hardening, and brand frontend deployment remain separate
+follow-up work.
 
 ## Runtime Responsibilities
 

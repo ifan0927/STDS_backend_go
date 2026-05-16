@@ -20,6 +20,7 @@ import (
 type authStrategy string
 
 const (
+	authStrategyNone              authStrategy = "none"
 	authStrategyFirebase          authStrategy = "firebase"
 	authStrategyFirebaseTokenOnly authStrategy = "firebase_token_only"
 	authStrategyScheduler         authStrategy = "scheduler"
@@ -123,6 +124,8 @@ func compileRoutePolicies(appCfg config.AppConfig, authenticator platformfirebas
 	for _, policy := range rawPolicies {
 		compiled := compiledRoutePolicy{}
 		switch policy.authStrategy {
+		case authStrategyNone:
+			compiled.authenticate = func(*gin.Context) {}
 		case authStrategyFirebaseTokenOnly:
 			compiled.authenticate = middleware.FirebaseTokenOnly(authenticator)
 		case authStrategyScheduler:
@@ -208,6 +211,9 @@ func routePolicies(authzRepos AuthorizationRepositories) []routePolicy {
 		{method: "POST", path: "/api/v1/brand/faq-items", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer"}},
 		{method: "PATCH", path: "/api/v1/brand/faq-items/:id", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer"}},
 		{method: "POST", path: "/api/v1/brand/faq-items/:id/deactivate", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer"}},
+		{method: "GET", path: "/api/v1/public/brand/profile", authStrategy: authStrategyNone},
+		{method: "GET", path: "/api/v1/public/brand/faqs", authStrategy: authStrategyNone},
+		{method: "GET", path: "/api/v1/public/properties/availability", authStrategy: authStrategyNone},
 		{method: "GET", path: "/api/v1/properties", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff", "owner"}},
 		{method: "POST", path: "/api/v1/properties", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff"}},
 		{method: "GET", path: "/api/v1/properties/:id/attachments", authStrategy: authStrategyFirebase, allowedRoles: []string{"admin", "organizer", "staff", "owner"}, propertyResolver: middleware.ParamPropertyID("id")},
