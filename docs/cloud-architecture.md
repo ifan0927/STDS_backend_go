@@ -8,12 +8,14 @@ production readiness review.
 ## Overview
 
 STDS runs on GCP using Firebase Hosting, Cloud Run, Cloud SQL, Secret Manager,
-Cloud Storage, Cloud Scheduler, and Cloud Logging / Monitoring.
+Cloud Storage, Cloud Scheduler, and Cloud Logging / Monitoring. The public
+brand frontend is deployed separately on Cloudflare Pages.
 
 This document is the deployment architecture baseline for the staging line and
 the early production candidate. It intentionally avoids an external Application
 Load Balancer in the first version. Firebase Hosting is the browser-facing edge
-for frontend traffic, while Cloud Run hosts backend services.
+for the admin frontend, Cloudflare Pages is the browser-facing edge for the
+brand frontend, and Cloud Run hosts the core backend service.
 
 Cloud SQL private IP and Cloud Run Direct VPC egress are included in staging v1.
 This is a security hardening choice because legacy property data will be
@@ -23,22 +25,26 @@ migrated early. It is not treated as an HTTP ingress boundary.
 
 ### No External Application Load Balancer In The First Version
 
-Firebase Hosting handles browser-facing TLS, custom domains, CDN behavior, and
-frontend rewrites. API security remains enforced by Firebase Auth, DB-backed
-authorization, service account IAM, and scheduler keys.
+Firebase Hosting handles admin browser-facing TLS, custom domains, CDN
+behavior, and admin API rewrites. Cloudflare Pages handles the public brand
+site. API security remains enforced by Firebase Auth, DB-backed authorization,
+service account IAM, and scheduler keys.
 
 An external Application Load Balancer is a future option for a stronger
 production edge, Cloud Armor, host/path routing across many services, WAF,
 rate limiting, or strict Cloud Run ingress through the load balancer. It is out
 of scope for the staging deployment line.
 
-### Firebase Hosting Rewrites For Browser-To-Backend Calls
+### Browser-To-Backend Calls
 
-Admin and brand frontends should call backend APIs through Firebase Hosting
-rewrites where practical:
+Admin frontend browser calls should use Firebase Hosting rewrites where
+practical:
 
 - admin frontend: `/api/**` to the core backend Cloud Run service.
-- brand frontend: `/brand-api/**` to the brand thin backend Cloud Run service.
+
+The brand frontend is a Cloudflare Pages static site. It fetches public brand
+data at build time from core backend public read-only endpoints and does not
+require a Firebase Hosting brand rewrite or separate brand backend runtime.
 
 The Cloud Run `run.app` URL is not part of the browser-facing contract. Whether
 the default `run.app` URL can be disabled safely is a separate hardening
@@ -74,18 +80,23 @@ availability behavior. A staging migration, bad query, or connection spike can
 affect the shared instance. If this risk becomes unacceptable, split staging and
 production into separate Cloud SQL instances.
 
-### Brand Thin Backend Isolation
+### Brand Public Read Boundary
 
-The brand-facing backend is a separate Cloud Run service with its own service
-account and DB credential. It may only query approved read-only views:
+The brand site reads data through dedicated public read-only core backend
+endpoints. These routes must live under an independent public namespace, remain
+separate from authenticated admin brand management endpoints, and query only
+approved read-only views:
 
 - `approved_brand_profile_v1`
 - `approved_brand_faq_items_v1`
 - `approved_brand_property_availability_v1`
 
-It must not have direct access to core base tables such as tenants, leases,
-bills, deposits, accounting, attachments, or operational property/room tables
-except through explicitly approved views.
+The first version intentionally uses the core backend runtime DB credential for
+these low-traffic build-time reads. This avoids the operational cost of a
+separate brand Cloud Run service and readonly credential while keeping approved
+views as the public data exposure boundary. Public handlers must not query core
+base tables such as tenants, leases, bills, deposits, accounting, attachments,
+or operational property/room tables directly.
 
 ### Explicit DB Connection Pool Limits
 
@@ -129,16 +140,15 @@ document.
 ```mermaid
 flowchart TD
     AdminUser[Admin / staff browser] --> AdminHosting[Firebase Hosting<br/>admin domain]
-    PublicUser[Public visitor] --> BrandHosting[Firebase Hosting<br/>brand domain]
+    PublicUser[Public visitor] --> BrandPages[Cloudflare Pages<br/>brand domain]
 
     AdminHosting -->|/api/** rewrite| CoreRun[Cloud Run<br/>Core Backend]
-    BrandHosting -->|/brand-api/** rewrite| BrandThinRun[Cloud Run<br/>Brand Thin Backend]
+    BrandPages -.->|build-time fetch public brand JSON| CoreRun
 
     Scheduler[Cloud Scheduler] -->|X-Scheduler-Key| CoreRun
 
     subgraph GCPProject[GCP Project]
         CoreRun
-        BrandThinRun
 
         subgraph PrivateDataPath[Private DB Connectivity]
             DirectVPC[Direct VPC egress]
@@ -148,7 +158,6 @@ flowchart TD
     end
 
     CoreRun --> DirectVPC
-    BrandThinRun --> DirectVPC
     DirectVPC --> VPC
     VPC --> CloudSQL
 
@@ -159,12 +168,10 @@ flowchart TD
     AdminHosting --> FirebaseAuth
 
     CoreRun --> SecretManager[Secret Manager<br/>env injection]
-    BrandThinRun --> SecretManager
 
     CoreRun --> Resend[Resend Email API]
 
     CoreRun --> Observability[Cloud Logging / Monitoring]
-    BrandThinRun --> Observability
 ```
 
 ### Browser API Flow
@@ -240,20 +247,30 @@ browser traffic and may call scheduler endpoints directly.
   Manager.
 - Starts with `max-instances=2` to bound DB connection pressure.
 
-### Brand Thin Backend
+### Public Brand Endpoints
 
-- Serves public brand and property availability APIs.
-- Uses its own Cloud Run service account.
-- Uses its own readonly DB credential.
-- Reads approved views only.
-- Does not use the core backend runtime DB credential.
+- Serve public brand and property availability JSON for Cloudflare Pages
+  build-time fetches.
+- Live under an independent public namespace.
+- Do not require Firebase JWT.
+- Read approved views only.
+- Use the core backend runtime DB credential in the first version.
 
 ### Firebase Hosting
 
-- Hosts admin frontend and brand frontend.
+- Hosts admin frontend.
 - Provides custom domains and TLS for browser traffic.
-- Rewrites API paths to Cloud Run services.
+- Rewrites admin API paths to the core backend Cloud Run service.
 - Does not replace backend authentication or authorization.
+
+### Cloudflare Pages
+
+- Hosts the public brand frontend.
+- Provides branch and pull-request preview deployments.
+- Builds static Astro output into `dist`.
+- Fetches public brand data from core backend public read-only endpoints at
+  build time.
+- Can be rebuilt on a schedule through a protected Pages deploy hook.
 
 ### Cloud SQL
 
@@ -344,10 +361,10 @@ No single layer is the only security boundary.
 | Layer | Control |
 | --- | --- |
 | Network | Cloud SQL private IP; no public DB endpoint in the target architecture. |
-| Browser ingress | Firebase Hosting custom domains and rewrites. |
+| Browser ingress | Firebase Hosting for admin; Cloudflare Pages for public brand. |
 | Authentication | Firebase Auth bearer token on admin APIs. |
 | Authorization | DB-backed principal, RBAC, and property-scoped middleware. |
-| Brand data boundary | Readonly DB principal and approved views only. |
+| Brand data boundary | Core public read-only endpoints over approved views only. |
 | Secrets | Secret Manager values injected into Cloud Run env vars. |
 | Storage | Browser receives scoped signed URLs, not broad GCS credentials. |
 | Scheduler | `X-Scheduler-Key` for internal job endpoints. |
@@ -360,6 +377,7 @@ Accepted tradeoffs:
 | No external Application Load Balancer | Current scale does not justify cost or operational complexity. |
 | No Cloud Armor / WAF | Revisit when public abuse or stronger production edge controls are needed. |
 | One Cloud SQL instance for staging and production | Cost-conscious choice; instance-level resource contention is accepted initially. |
+| No separate brand thin backend | Brand site is static, has no booking/write flow, and accepts build-time freshness; the extra Cloud Run service and readonly credential are retired. |
 | No HA in first version | Acceptable until a production uptime SLA is required. |
 | Cloud Run default URL disabling is not assumed | Hosting rewrites hide the URL from browser contracts, but default URL hardening must be verified separately. |
 
@@ -373,6 +391,7 @@ Approximate low-traffic monthly cost:
 | Cloud SQL storage / backups | 2-5 USD |
 | Cloud Run | 0-2 USD |
 | Firebase Hosting | 0 USD in free-tier scale |
+| Cloudflare Pages | 0 USD in free-tier scale |
 | Secret Manager | 0-1 USD at current scale |
 | Cloud Storage attachments | 0-1 USD initially |
 | Direct VPC egress | traffic-proportional; expected low at current scale |
@@ -386,7 +405,8 @@ verified with GCP Billing and the Pricing Calculator before production go-live.
 
 ### Staging v1
 
-- Firebase Hosting frontend.
+- Firebase Hosting admin frontend.
+- Cloudflare Pages brand frontend.
 - Cloud Run core backend.
 - Cloud SQL private IP with VPC / Direct VPC egress.
 - Secret Manager env injection.
@@ -396,15 +416,16 @@ verified with GCP Billing and the Pricing Calculator before production go-live.
 - DB pool limits implemented and configured.
 - Staging database preparation uses a local operator plain SQL dump from
   `scripts/prepare_legacy_db_dump.sh`, manual GCS upload, Cloud SQL
-  Console/manual import, post-import readonly principal/grant provisioning, and
-  first admin Firebase/backend user alignment.
+  Console/manual import, and first admin Firebase/backend user alignment.
 - Smoke checks for deployment, database preparation, Firebase Auth, signed URL
   upload, and log visibility.
 - Cloud Scheduler jobs are excluded from the first staging demo wave.
-- Deployment starts as a manual GitHub Actions trigger that runs predeploy
-  checks, then submits Cloud Build for image build, Artifact Registry push, and
-  Cloud Run deploy. Automatic deployment on `staging` branch push is a later
-  hardening step after the first setup evidence is reviewed.
+- Deployment starts from the backend `staging` branch as the deployment-intent
+  branch. Promotion is normally `dev` to `staging` by pull request. A `staging`
+  branch push runs GitHub Actions predeploy checks, waits for GitHub `staging`
+  Environment approval, then submits Cloud Build for image build, Artifact
+  Registry push, and Cloud Run deploy. Manual workflow dispatch remains as a
+  controlled operator rerun path.
 
 ### Production Readiness Review
 
@@ -418,8 +439,10 @@ Before production go-live:
 - Confirm operator DB access path without public DB IP.
 - Confirm whether the local dump/manual import flow remains sufficient after the
   first staging demo wave.
-- Confirm Firebase Hosting rewrite behavior and whether Cloud Run default URL
-  disabling is safe.
+- Confirm Firebase Hosting admin rewrite behavior and whether Cloud Run default
+  URL disabling is safe.
+- Confirm Cloudflare Pages branch/preview/prod environment variables and deploy
+  hook protection.
 - Confirm GCS CORS for production frontend origins.
 - Confirm Cloud Monitoring alert policies and billing budgets.
 
@@ -431,10 +454,10 @@ Expected repo changes for this architecture:
 - Cloud Build staging deployment config.
 - GitHub Actions trigger/status workflow if needed.
 - Staging database preparation runbook covering local dump generation, manual
-  GCS upload, Cloud SQL import, validation evidence, manual readonly principal
-  provisioning, and first admin bootstrap.
+  GCS upload, Cloud SQL import, validation evidence, and first admin bootstrap.
 - DB pool config support.
 - Staging smoke script.
+- Core public brand endpoint implementation and brand Pages deployment notes.
 - Deployment runbooks and verification evidence templates.
 
 Application domain logic should not need broad runtime changes for the staging
@@ -450,6 +473,4 @@ deployment line.
   first demo wave?
 - Should production require Cloud SQL HA before go-live?
 - Should Cloud Run default `run.app` URLs be disabled, and does that work with
-  the selected Firebase Hosting rewrite path?
-- When should the brand thin backend be deployed relative to core backend
-  staging?
+  the selected Firebase Hosting admin rewrite path?

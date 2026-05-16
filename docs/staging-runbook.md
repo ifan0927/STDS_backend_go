@@ -28,7 +28,8 @@ Staging v1 includes:
 Staging v1 excludes:
 
 - Cloud Scheduler jobs and scheduler smoke checks.
-- Brand thin backend deployment.
+- Brand frontend Cloudflare Pages deployment and core public brand endpoint
+  smoke checks.
 - Production deployment gates.
 - Preview or candidate environments.
 
@@ -126,20 +127,28 @@ files, credentials, private keys, or other local secrets into the image.
 
 ## Dev To Staging Deployment
 
-The first staging deployment wave uses a manual GitHub Actions trigger. Do not
-enable automatic `push` deployment from the `staging` branch until the first GCP
-setup, deploy, and smoke evidence have been reviewed.
+The backend `staging` branch is the deployment-intent branch for staging. Feature
+work still lands on `dev` first. Normal staging promotion is a `dev` to
+`staging` pull request; direct pushes to `staging` are not part of normal
+operation.
 
 The intended flow is:
 
 1. Merge application changes to `dev` through the existing PR CI gate.
-2. Choose the exact `dev` commit SHA or staging branch ref to deploy.
-3. Manually run the `Staging Deploy` GitHub Actions workflow with that ref and
-   an image tag.
-4. Let GitHub Actions run staging predeploy checks.
-5. Let Cloud Build build the image, push Artifact Registry, and deploy Cloud Run.
-6. Run minimal smoke from the workflow only when requested, then complete the
-   fuller deployed smoke checklist under the staging smoke issue.
+2. Open a `dev` to `staging` promotion pull request.
+3. Let backend PR CI run against the `staging` target.
+4. Merge the promotion pull request after review.
+5. Let the `staging` branch push start the `Staging Deploy` workflow.
+6. Let GitHub Actions run staging predeploy checks before approval.
+7. Approve the GitHub `staging` Environment deployment.
+8. Let Cloud Build build the image, push Artifact Registry, and deploy Cloud Run.
+9. Let the workflow run minimal deployed smoke and rollback Cloud Run traffic if
+   smoke fails after a successful deploy.
+
+`workflow_dispatch` remains available as a controlled operator rerun path. Manual
+dispatch may choose a reachable `dev` or `staging` ref, or a full commit SHA, and
+may provide a manual image tag. Automatic `staging` branch deploys always use the
+pushed `staging` commit SHA and a commit-SHA image tag.
 
 The predeploy checks should catch low-cost failures before touching GCP:
 
@@ -147,17 +156,27 @@ The predeploy checks should catch low-cost failures before touching GCP:
 - OpenAPI lint and generated artifact sync.
 - Empty PostgreSQL migration smoke.
 - Docker image build.
-- Staging deployment contract checks for manual trigger, Cloud Build config, and
-  Secret Manager references.
+- Staging deployment contract checks for branch trigger, manual rerun support,
+  approval gate, rollback support, Cloud Build config, and Secret Manager
+  references.
 
 GitHub Actions is the trigger and status-reporting entry point. Deployment-layer
 execution stays in Cloud Build. Do not put secret values, database passwords,
 private keys, or full bearer credentials into GitHub workflow files, Cloud Build
 substitutions, logs, pull requests, or issue evidence.
 
+Concurrent backend staging deploys are serialized by the workflow concurrency
+group. New deploys wait for the active staging deploy instead of canceling it.
+
 ### GitHub Configuration
 
-Configure these GitHub repository variables before running the manual workflow:
+Configure the GitHub `staging` Environment with the required human reviewer
+before enabling automatic promotion deploys. The GCP-touching deploy job must use
+that environment so approval happens after predeploy checks and before Cloud
+Build submission.
+
+Configure these GitHub repository or environment variables before running the
+workflow:
 
 ```text
 STAGING_GCP_PROJECT_ID
@@ -234,17 +253,37 @@ Cloud Build performs:
 Manager by secret name. The staging workflow and Cloud Build config must not
 contain the secret values.
 
+### Smoke Failure Rollback
+
+Before each deploy, the workflow records the Cloud Run traffic split that is
+serving traffic. After Cloud Build deploys the new revision, the workflow records
+the deployed revision and runs minimal smoke when enabled.
+
+For automatic `staging` branch deploys, minimal smoke is enabled. If deploy
+succeeds but smoke fails, GitHub Actions rolls Cloud Run traffic back to the
+pre-deploy traffic split with `gcloud run services update-traffic`. Rollback is
+application traffic rollback only. It does not roll back database schema, data,
+migrations, secrets, repository history, or pull requests.
+
+If rollback cannot be performed automatically, the workflow fails loudly and
+records non-secret evidence for manual recovery. The GitHub deploy service
+account therefore needs permission to read the Cloud Run service and update
+Cloud Run traffic for the staging service.
+
 ### Deployment Evidence
 
 Attach only non-secret evidence after a staging deploy:
 
-- GitHub Actions run URL and selected source ref.
+- GitHub Actions run URL and selected source commit SHA.
 - Cloud Build build ID and final status.
 - Artifact Registry image path and tag.
-- Cloud Run service name, region, revision, runtime service account, ingress,
-  min/max instances, and redacted env summary.
+- Cloud Run service name, region, pre-deploy serving revision or traffic split,
+  deployed revision, runtime service account, ingress, min/max instances, and
+  redacted env summary.
 - Secret Manager secret names referenced by Cloud Run, without values.
-- Minimal smoke status when `run_smoke` was enabled.
+- Minimal smoke status when enabled.
+- Rollback command/result when rollback runs.
+- Failure summary when rollback cannot be performed automatically.
 
 If deployment fails, keep Cloud Build and Cloud Run logs available for diagnosis
 and rerun from a known `dev` ref after fixing the repo-side or GCP-side cause.
@@ -361,12 +400,9 @@ Run the steps in this order:
 2. Upload the generated SQL dump to an operator-controlled GCS location.
 3. Import the dump into the staging database with Cloud SQL Console/manual
    import.
-4. Provision Cloud SQL-only database principals and grants, such as the brand
-   readonly principal, through DataGrip, Cloud SQL Studio, or another approved
-   manual SQL path.
-5. Create the initial Firebase Auth users in Firebase Console when needed.
-6. Align backend app `users` rows through dump opt-in or manual SQL upsert.
-7. Run deployed smoke checks through the staging API.
+4. Create the initial Firebase Auth users in Firebase Console when needed.
+5. Align backend app `users` rows through dump opt-in or manual SQL upsert.
+6. Run deployed smoke checks through the staging API.
 
 The staging database must not be destructively reset as part of this runbook.
 If a preparation step fails, stop the deployment or demo handoff, keep the
@@ -429,24 +465,18 @@ After import, record:
 - confirmation that no PostgreSQL roles, grants, or owner metadata were expected
   from the dump.
 
-### Cloud SQL Principals And Grants
+### Public Brand Views
 
 Approved brand views are created by repository migrations and therefore are
-present in the dump/import. The brand readonly database principal and its grants
-are not created by the dump and are not application migration responsibility.
-Provision them after import through DataGrip, Cloud SQL Studio, or another
-approved manual SQL path.
-
-Grant the brand readonly principal schema `USAGE` and `SELECT` only on approved
-views. Do not grant access to base tables such as `properties`, `rooms`,
-`brand_profiles`, `brand_faq_items`, `tenants`, `leases`, `bills`,
-`attachments`, or deposit/accounting tables.
+present in the dump/import. The active brand site architecture uses core
+backend public read-only endpoints over these views and does not require a
+separate brand readonly database principal.
 
 Expected evidence:
 
-- readonly database principal name only, without password.
-- approved view `SELECT` check.
-- representative base-table denial check.
+- approved views are present after migration/import.
+- core public brand endpoints are not part of staging v1 unless issue #209 is
+  explicitly included in the deployment wave.
 
 ### First Staging Admin Bootstrap
 
@@ -782,8 +812,7 @@ Cloud SQL / VPC evidence:
 - `max_connections` query result.
 - Cloud SQL manual import status and latest imported `schema_migrations.version`.
 - Legacy validation summary from the local dump preparation run.
-- Confirmation that approved views came from migration/dump and readonly
-  principals/grants were provisioned manually after import.
+- Confirmation that approved views came from migration/dump.
 - First admin Firebase UID/email and backend user row summary.
 - Operator database inspection path.
 
