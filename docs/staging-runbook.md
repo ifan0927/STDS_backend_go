@@ -270,6 +270,13 @@ records non-secret evidence for manual recovery. The GitHub deploy service
 account therefore needs permission to read the Cloud Run service and update
 Cloud Run traffic for the staging service.
 
+If the workflow fails during `Capture pre-deploy Cloud Run traffic` with
+`run.services.get`, the blocker is the GitHub deploy service account, not the
+Cloud Build execution service account. Confirm
+`stds-github-deploy-staging@stds-439609.iam.gserviceaccount.com` has narrow
+Cloud Run service read and traffic update permissions (`run.services.get` /
+`run.services.update`) for the staging service before rerunning.
+
 ### Deployment Evidence
 
 Attach only non-secret evidence after a staging deploy:
@@ -340,6 +347,23 @@ Expected access:
 - No Cloud SQL access for staging database preparation in the v1 dump/import
   path unless a separate future migration workflow is explicitly documented and
   verified.
+
+GitHub deploy service account:
+
+```text
+stds-github-deploy-staging
+```
+
+Expected access:
+
+- Submit backend staging Cloud Build jobs.
+- Use the approved Cloud Build source bucket path.
+- Act as the backend Cloud Build service account only for deployment.
+- Read the staging Cloud Run service traffic split before deploy
+  (`run.services.get`).
+- Update staging Cloud Run traffic only for smoke-failure rollback
+  (`run.services.update`).
+- No runtime secret access and no Cloud SQL access.
 
 Cloud Scheduler is intentionally excluded from staging v1. Do not create a
 scheduler service account or scheduler jobs for the first demo wave.
