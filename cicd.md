@@ -1,5 +1,9 @@
 # CI/CD Strategy
 
+> Status: historical/provisional delivery notes. Current executable pipeline
+> contracts are `.github/workflows/**`, `cloudbuild.staging.yaml`, and
+> `docs/staging-runbook.md`; this file is not production readiness evidence.
+
 ## Goal
 
 The goal of this CI/CD plan is to provide the minimum necessary delivery guardrails for the backend without introducing unnecessary platform complexity.

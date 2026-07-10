@@ -406,9 +406,9 @@ Repository 原則：
 策略：
 
 - API authentication 使用 Firebase ID token
-- Firebase custom claims 承載 `role` 與 `assigned_property_ids`
-- middleware 驗證 token 後，仍會載入 DB user
-- request context 內最終使用的是 normalized principal
+- Firebase ID token 用於驗證外部身份與取得 `firebase_uid`
+- middleware 驗證 token 後載入 active DB user
+- request context 的 normalized principal 使用 DB `role` 與 `assigned_property_ids`；Custom Claims 不覆蓋 DB principal
 
 你開發時要記得：
 
