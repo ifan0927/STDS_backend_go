@@ -1,5 +1,7 @@
 # 實作任務清單
 
+> Status: historical roadmap. Checkbox狀態已落後現行implementation，不得用來判斷完成度或建立現行contract。Current state見[`../current-state.md`](../current-state.md)，工程規範見[`../.rules/`](../.rules/)。
+
 產出依據：docs/design/domain-model.md v3.3
 
 ---

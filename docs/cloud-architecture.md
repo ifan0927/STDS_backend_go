@@ -406,7 +406,6 @@ verified with GCP Billing and the Pricing Calculator before production go-live.
 ### Staging v1
 
 - Firebase Hosting admin frontend.
-- Cloudflare Pages brand frontend.
 - Cloud Run core backend.
 - Cloud SQL private IP with VPC / Direct VPC egress.
 - Secret Manager env injection.
@@ -420,6 +419,8 @@ verified with GCP Billing and the Pricing Calculator before production go-live.
 - Smoke checks for deployment, database preparation, Firebase Auth, signed URL
   upload, and log visibility.
 - Cloud Scheduler jobs are excluded from the first staging demo wave.
+- Cloudflare Pages brand frontend deployment is a separate repository follow-up;
+  only the core public brand endpoints belong to this backend contract.
 - Deployment starts from the backend `staging` branch as the deployment-intent
   branch. Promotion is normally `dev` to `staging` by pull request. A `staging`
   branch push runs GitHub Actions predeploy checks, waits for GitHub `staging`

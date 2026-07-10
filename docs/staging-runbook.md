@@ -1,8 +1,10 @@
 # Staging Deployment Runbook
 
-Status: staging v1 contract for the first demo wave.
+Status: staging v1 contract for the first demo/UAT wave; not a production contract.
 
-This runbook defines the repository-side staging contract. The human operator
+This runbook defines the repository-side staging contract. Production
+readiness, migration cutover, rollback, RTO and RPO are tracked separately in
+[`production-readiness.md`](production-readiness.md). The human operator
 performs GCP Console or `gcloud` changes. Do not paste secret values, tokens,
 private keys, database passwords, or full bearer credentials into issues, pull
 requests, logs, or evidence.

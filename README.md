@@ -31,7 +31,8 @@ management endpoints.
 - PostgreSQL schema, migrations, and constraints as the persistence source of
   truth.
 - Firebase Auth for identity verification; DB user records remain the runtime
-  authorization source for roles, permission overrides, and property scope.
+  authorization source for roles and property scope. `permission_overrides` is
+  stored but its authorization semantics are not yet defined.
 - Layered Go structure: HTTP transport, application services, domain logic,
   database adapters, and server composition are kept separate.
 - Structured JSON logging with request IDs, error codes, user/property context,
@@ -43,7 +44,8 @@ management endpoints.
 
 ## Cloud Architecture
 
-The staging architecture uses GCP-managed services:
+The overall architecture uses the following managed services. The first backend
+staging/UAT slice excludes the separately deployed Cloudflare brand frontend:
 
 - Firebase Hosting for the browser-facing admin frontend.
 - Cloudflare Pages for the browser-facing brand frontend.
@@ -127,8 +129,15 @@ See [docs/local-operations.md](docs/local-operations.md) for setup details.
 
 ## Documentation Map
 
+- [Documentation authority](docs/README.md): authority order, inventory, and
+  canonical/generated/historical boundaries.
+- [Current-state inventory](docs/current-state.md): implemented, partial,
+  reserved, and not-implemented capabilities.
+- [Domain rules](docs/design/domain-rule.md): confirmed business rules only.
+- [Domain decision backlog](docs/design/decision-backlog.md): unresolved and
+  risky rules that must not be inferred from implementation.
 - [Cloud architecture](docs/cloud-architecture.md): GCP staging and
-  production-candidate architecture decisions.
+  proposed production-candidate architecture baseline.
 - [Staging runbook](docs/staging-runbook.md): staging v1 deployment, secrets,
   IAM, private networking, and evidence checklist.
 - [Local operations](docs/local-operations.md): local environment, scripts,
@@ -137,8 +146,12 @@ See [docs/local-operations.md](docs/local-operations.md) for setup details.
   rules for config, logging, auth, DB, errors, and middleware.
 - [Vertical slice handbook](docs/vertical-slice-handbook.md): guidance for
   adding API slices in the existing architecture.
-- [Domain model](docs/design/domain-model.md): domain model and business-rule
-  baseline.
+- [Domain model](docs/design/domain-model.md): current as-is bounded contexts,
+  lifecycles, and cross-context boundaries.
+- [Legacy migration contract](docs/migration/README.md): tracked scope,
+  validation, evidence, and cutover contracts without production data.
+- [Production readiness](docs/production-readiness.md): unresolved production
+  gates, recovery, and sign-off areas.
 - [GitHub Wiki operator handbook](https://github.com/ifan0927/STDS_backend_go/wiki/Staging-v1-Operator-Handbook-2026-05-15-v1):
   long-term staging operator notes, IAM matrix, OIDC/WIF notes, troubleshooting
   ledger, and observability playbook.
