@@ -39,13 +39,18 @@ func TestE2EDashboardReadModelsAcceptance(t *testing.T) {
 	createRoom(t, ctx, adminClient, assignedProperty.ID, "E2E Dashboard Vacant Room")
 	createRoom(t, ctx, adminClient, unassignedProperty.ID, "E2E Dashboard Unassigned Room")
 	tenant := createTenant(t, ctx, adminClient)
+	const expectedRent = 18000
+	taipei := time.FixedZone("Asia/Taipei", 8*60*60)
+	currentMonth := time.Now().In(taipei)
+	leaseStart := time.Date(currentMonth.Year(), currentMonth.Month(), 1, 0, 0, 0, 0, taipei)
+	leaseEnd := leaseStart.AddDate(0, 1, -1)
 	leaseLifecycleE2ECreateLease(t, ctx, adminClient, leaseLifecycleE2ECreateLeaseParams{
 		PropertyID: assignedProperty.ID,
 		RoomID:     occupiedRoom.ID,
 		TenantID:   tenant.ID,
-		StartDate:  "2026-05-01",
-		EndDate:    "2026-06-30",
-		RentAmount: 18000,
+		StartDate:  leaseStart.Format("2006-01-02"),
+		EndDate:    leaseEnd.Format("2006-01-02"),
+		RentAmount: expectedRent,
 		Deposit:    36000,
 		Cadence:    "monthly",
 	})
@@ -128,8 +133,8 @@ func TestE2EDashboardReadModelsAcceptance(t *testing.T) {
 		if dashboard.PropertySummaries[0].PropertyID != assignedProperty.ID {
 			t.Fatalf("expected assigned property summary %q, got %q", assignedProperty.ID, dashboard.PropertySummaries[0].PropertyID)
 		}
-		if dashboard.MonthlyBillingSummary.ExpectedRent == 0 {
-			t.Fatalf("expected backend monthly billing summary to include generated rent: %+v", dashboard.MonthlyBillingSummary)
+		if dashboard.MonthlyBillingSummary.ExpectedRent != expectedRent {
+			t.Fatalf("expected current-month rent %d, got %+v", expectedRent, dashboard.MonthlyBillingSummary)
 		}
 	})
 }
