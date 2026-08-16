@@ -3,6 +3,7 @@ package publicbrand
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"stds_backend/internal/shared/apperr"
@@ -104,7 +105,7 @@ func (s *AvailabilityService) ListPropertyAvailability(ctx context.Context) ([]P
 		return nil, mapError(err)
 	}
 
-	return ensurePropertyAvailability(items), nil
+	return sanitizePropertyAvailability(items), nil
 }
 
 func ensureFAQItems(items []FAQItem) []FAQItem {
@@ -115,12 +116,29 @@ func ensureFAQItems(items []FAQItem) []FAQItem {
 	return items
 }
 
-func ensurePropertyAvailability(items []PropertyAvailability) []PropertyAvailability {
-	if items == nil {
-		return []PropertyAvailability{}
+func sanitizePropertyAvailability(items []PropertyAvailability) []PropertyAvailability {
+	sanitized := make([]PropertyAvailability, 0, len(items))
+	for _, item := range items {
+		address, ok := addressThroughDistrict(item.Address)
+		if !ok {
+			continue
+		}
+
+		item.Address = address
+		sanitized = append(sanitized, item)
 	}
 
-	return items
+	return sanitized
+}
+
+func addressThroughDistrict(address string) (string, bool) {
+	address = strings.TrimSpace(address)
+	districtEnd := strings.Index(address, "區")
+	if districtEnd < 0 {
+		return "", false
+	}
+
+	return strings.TrimSpace(address[:districtEnd+len("區")]), true
 }
 
 func mapError(err error) error {

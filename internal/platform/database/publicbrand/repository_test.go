@@ -250,18 +250,21 @@ func TestListPropertyAvailabilityReadsApprovedView(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectQuery(regexp.QuoteMeta(`
-SELECT property_id, property_public_name, address, has_vacant_room
-FROM approved_brand_property_availability_v1
+SELECT availability.property_id, properties.subtitle, availability.address, availability.has_vacant_room
+FROM approved_brand_property_availability_v1 AS availability
+JOIN properties ON properties.id = availability.property_id
+WHERE properties.subtitle IS NOT NULL
+  AND btrim(properties.subtitle) <> ''
 `)).
 		WillReturnRows(sqlmock.NewRows(availabilityColumns()).
-			AddRow("10000000-0000-0000-0000-000000000001", "信義館", "台北市信義區", true).
-			AddRow("10000000-0000-0000-0000-000000000002", "松山館", "台北市松山區", false))
+			AddRow("10000000-0000-0000-0000-000000000001", "信義副標", "台北市信義區", true).
+			AddRow("10000000-0000-0000-0000-000000000002", "松山副標", "台北市松山區", false))
 
 	items, err := repo.ListPropertyAvailability(context.Background())
 	if err != nil {
 		t.Fatalf("list property availability: %v", err)
 	}
-	if len(items) != 2 || !items[0].HasVacantRoom || items[1].PropertyPublicName != "松山館" {
+	if len(items) != 2 || !items[0].HasVacantRoom || items[1].PropertyPublicName != "松山副標" {
 		t.Fatalf("unexpected availability items: %+v", items)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -274,8 +277,11 @@ func TestListPropertyAvailabilityReturnsNonNilEmptySlice(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectQuery(regexp.QuoteMeta(`
-SELECT property_id, property_public_name, address, has_vacant_room
-FROM approved_brand_property_availability_v1
+SELECT availability.property_id, properties.subtitle, availability.address, availability.has_vacant_room
+FROM approved_brand_property_availability_v1 AS availability
+JOIN properties ON properties.id = availability.property_id
+WHERE properties.subtitle IS NOT NULL
+  AND btrim(properties.subtitle) <> ''
 `)).
 		WillReturnRows(sqlmock.NewRows(availabilityColumns()))
 
@@ -300,8 +306,11 @@ func TestListPropertyAvailabilityWrapsScanRowsAndDatabaseErrors(t *testing.T) {
 		defer db.Close()
 
 		mock.ExpectQuery(regexp.QuoteMeta(`
-SELECT property_id, property_public_name, address, has_vacant_room
-FROM approved_brand_property_availability_v1
+SELECT availability.property_id, properties.subtitle, availability.address, availability.has_vacant_room
+FROM approved_brand_property_availability_v1 AS availability
+JOIN properties ON properties.id = availability.property_id
+WHERE properties.subtitle IS NOT NULL
+  AND btrim(properties.subtitle) <> ''
 `)).
 			WillReturnRows(sqlmock.NewRows(availabilityColumns()).
 				AddRow("10000000-0000-0000-0000-000000000001", "信義館", "台北市信義區", "invalid-bool"))
@@ -323,8 +332,11 @@ FROM approved_brand_property_availability_v1
 		defer db.Close()
 
 		mock.ExpectQuery(regexp.QuoteMeta(`
-SELECT property_id, property_public_name, address, has_vacant_room
-FROM approved_brand_property_availability_v1
+SELECT availability.property_id, properties.subtitle, availability.address, availability.has_vacant_room
+FROM approved_brand_property_availability_v1 AS availability
+JOIN properties ON properties.id = availability.property_id
+WHERE properties.subtitle IS NOT NULL
+  AND btrim(properties.subtitle) <> ''
 `)).
 			WillReturnRows(sqlmock.NewRows(availabilityColumns()).RowError(0, sqlmock.ErrCancelled).
 				AddRow("10000000-0000-0000-0000-000000000001", "信義館", "台北市信義區", true))
@@ -349,8 +361,11 @@ FROM approved_brand_property_availability_v1
 		defer db.Close()
 
 		mock.ExpectQuery(regexp.QuoteMeta(`
-SELECT property_id, property_public_name, address, has_vacant_room
-FROM approved_brand_property_availability_v1
+SELECT availability.property_id, properties.subtitle, availability.address, availability.has_vacant_room
+FROM approved_brand_property_availability_v1 AS availability
+JOIN properties ON properties.id = availability.property_id
+WHERE properties.subtitle IS NOT NULL
+  AND btrim(properties.subtitle) <> ''
 `)).
 			WillReturnError(sqlmock.ErrCancelled)
 

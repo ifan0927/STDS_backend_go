@@ -96,19 +96,27 @@ func TestFAQServiceMapsRepositoryError(t *testing.T) {
 
 func TestAvailabilityServiceReturnsItemsAndNonNilEmptySlice(t *testing.T) {
 	service := NewAvailabilityService(&fakeAvailabilityRepository{
-		items: []PropertyAvailability{{
-			PropertyID:         "10000000-0000-0000-0000-000000000001",
-			PropertyPublicName: "信義館",
-			Address:            "台北市信義區",
-			HasVacantRoom:      true,
-		}},
+		items: []PropertyAvailability{
+			{
+				PropertyID:         "10000000-0000-0000-0000-000000000001",
+				PropertyPublicName: "信義館",
+				Address:            "台北市信義區測試路 1 號",
+				HasVacantRoom:      true,
+			},
+			{
+				PropertyID:         "10000000-0000-0000-0000-000000000002",
+				PropertyPublicName: "無法辨識館",
+				Address:            "無法辨識的位置",
+				HasVacantRoom:      false,
+			},
+		},
 	})
 
 	items, err := service.ListPropertyAvailability(context.Background())
 	if err != nil {
 		t.Fatalf("list availability: %v", err)
 	}
-	if len(items) != 1 || !items[0].HasVacantRoom {
+	if len(items) != 1 || !items[0].HasVacantRoom || items[0].Address != "台北市信義區" {
 		t.Fatalf("unexpected availability items: %+v", items)
 	}
 

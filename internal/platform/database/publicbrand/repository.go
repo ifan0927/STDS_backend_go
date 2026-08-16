@@ -9,7 +9,8 @@ import (
 	apppublicbrand "stds_backend/internal/application/publicbrand"
 )
 
-// SQLRepository reads public brand data from approved database views.
+// SQLRepository reads public brand data from approved database views and joins
+// the property subtitle used as the public availability display name.
 type SQLRepository struct {
 	db *sql.DB
 }
@@ -76,8 +77,11 @@ ORDER BY sort_order
 // ListPropertyAvailability returns approved public property availability rows.
 func (r *SQLRepository) ListPropertyAvailability(ctx context.Context) ([]apppublicbrand.PropertyAvailability, error) {
 	const query = `
-SELECT property_id, property_public_name, address, has_vacant_room
-FROM approved_brand_property_availability_v1
+SELECT availability.property_id, properties.subtitle, availability.address, availability.has_vacant_room
+FROM approved_brand_property_availability_v1 AS availability
+JOIN properties ON properties.id = availability.property_id
+WHERE properties.subtitle IS NOT NULL
+  AND btrim(properties.subtitle) <> ''
 `
 
 	rows, err := r.db.QueryContext(ctx, query)
