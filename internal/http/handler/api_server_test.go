@@ -369,12 +369,20 @@ func TestListPublicPropertyAvailabilityReturnsApprovedItems(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	server := &APIServer{publicBrand: newHandlerPublicBrandServices(handlerPublicBrandRepoStub{
-		availability: []apppublicbrand.PropertyAvailability{{
-			PropertyID:         "10000000-0000-0000-0000-000000000001",
-			PropertyPublicName: "信義館",
-			Address:            "台北市信義區",
-			HasVacantRoom:      true,
-		}},
+		availability: []apppublicbrand.PropertyAvailability{
+			{
+				PropertyID:         "10000000-0000-0000-0000-000000000001",
+				PropertyPublicName: "信義副標",
+				Address:            "台北市信義區測試路 1 號",
+				HasVacantRoom:      true,
+			},
+			{
+				PropertyID:         "10000000-0000-0000-0000-000000000002",
+				PropertyPublicName: "無法辨識副標",
+				Address:            "無法辨識的位置",
+				HasVacantRoom:      false,
+			},
+		},
 	})}
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
@@ -389,7 +397,7 @@ func TestListPublicPropertyAvailabilityReturnsApprovedItems(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("json.Unmarshal: %v", err)
 	}
-	if len(response.Items) != 1 || response.Items[0].PropertyPublicName != "信義館" || !response.Items[0].HasVacantRoom {
+	if len(response.Items) != 1 || response.Items[0].PropertyPublicName != "信義副標" || response.Items[0].Address != "台北市信義區" || !response.Items[0].HasVacantRoom {
 		t.Fatalf("unexpected availability response: %+v", response)
 	}
 }
