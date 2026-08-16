@@ -1,5 +1,7 @@
 # STDS Backend Vertical Slice Handbook
 
+> Status: historical implementation example. 現行layer與testing規範以[`docs/.rules/coding-style.md`](.rules/coding-style.md)與[`docs/.rules/testing.md`](.rules/testing.md)為準。
+
 這份文件用這次實作的兩支 API 當範本：
 
 - Read API：`GET /users/me`
@@ -37,8 +39,8 @@
 
 對應程式：
 
-- [internal/http/handler/api_server.go](/Users/cheni-fan/stds_backend/internal/http/handler/api_server.go:226)
-- [internal/platform/database/users/repository.go](/Users/cheni-fan/stds_backend/internal/platform/database/users/repository.go:89)
+- [`internal/http/handler/api_server.go`](../internal/http/handler/api_server.go)
+- [`internal/platform/database/users/repository.go`](../internal/platform/database/users/repository.go)
 
 ### 2. Write API：`POST /users`
 
@@ -54,9 +56,9 @@
 
 對應程式：
 
-- [internal/application/iam/create_user.go](/Users/cheni-fan/stds_backend/internal/application/iam/create_user.go:11)
-- [internal/http/handler/api_server.go](/Users/cheni-fan/stds_backend/internal/http/handler/api_server.go:205)
-- [internal/platform/database/users/repository.go](/Users/cheni-fan/stds_backend/internal/platform/database/users/repository.go:111)
+- [`internal/application/iam/create_user.go`](../internal/application/iam/create_user.go)
+- [`internal/http/handler/api_server.go`](../internal/http/handler/api_server.go)
+- [`internal/platform/database/users/repository.go`](../internal/platform/database/users/repository.go)
 
 ### 3. Wiring
 
@@ -67,8 +69,8 @@
 
 對應程式：
 
-- [internal/server/server.go](/Users/cheni-fan/stds_backend/internal/server/server.go:42)
-- [internal/http/router/router.go](/Users/cheni-fan/stds_backend/internal/http/router/router.go:17)
+- [`internal/server/server.go`](../internal/server/server.go)
+- [`internal/http/router/router.go`](../internal/http/router/router.go)
 
 ### 4. 測試
 
@@ -79,8 +81,8 @@
 
 對應程式：
 
-- [internal/application/iam/create_user_test.go](/Users/cheni-fan/stds_backend/internal/application/iam/create_user_test.go:1)
-- [internal/http/router/router_test.go](/Users/cheni-fan/stds_backend/internal/http/router/router_test.go:1)
+- [`internal/application/iam/create_user_test.go`](../internal/application/iam/create_user_test.go)
+- [`internal/http/router/router_test.go`](../internal/http/router/router_test.go)
 
 ---
 
@@ -102,11 +104,11 @@
 
 關鍵檔案：
 
-- [internal/http/router/router.go](/Users/cheni-fan/stds_backend/internal/http/router/router.go:16)
-- [internal/http/middleware/auth.go](/Users/cheni-fan/stds_backend/internal/http/middleware/auth.go:14)
-- [internal/http/middleware/authorization.go](/Users/cheni-fan/stds_backend/internal/http/middleware/authorization.go:16)
-- [internal/http/middleware/error_handler.go](/Users/cheni-fan/stds_backend/internal/http/middleware/error_handler.go:14)
-- [internal/platform/database/postgres.go](/Users/cheni-fan/stds_backend/internal/platform/database/postgres.go:14)
+- [`internal/http/router/router.go`](../internal/http/router/router.go)
+- [`internal/http/middleware/auth.go`](../internal/http/middleware/auth.go)
+- [`internal/http/middleware/authorization.go`](../internal/http/middleware/authorization.go)
+- [`internal/http/middleware/error_handler.go`](../internal/http/middleware/error_handler.go)
+- [`internal/platform/database/postgres.go`](../internal/platform/database/postgres.go)
 
 實務上你要記住的是：**新的 API 通常不需要再碰 middleware 與 server bootstrap，除非你真的引入了新的 cross-cutting concern。**
 
@@ -241,7 +243,7 @@
 
 ### 你可以直接沿用的錯誤型別
 
-在 [internal/shared/apperr/common.go](/Users/cheni-fan/stds_backend/internal/shared/apperr/common.go:5) 已經有基礎錯誤，這次又補了：
+在 [`internal/shared/apperr/common.go`](../internal/shared/apperr/common.go) 已經有基礎錯誤，這次又補了：
 
 - `USER_NOT_FOUND`
 - `EMAIL_ALREADY_EXISTS`

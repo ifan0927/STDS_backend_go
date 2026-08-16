@@ -1,5 +1,9 @@
 # Error Code 規劃
 
+> Status: current guidance mixed with historical planning. OpenAPI response
+> contracts in `docs/spec/src/**` and runtime error mapping take precedence;
+> issue/order notes below are not an implementation completion source.
+
 產出日期：2026-04-15
 
 ## 目標

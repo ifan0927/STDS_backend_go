@@ -1,8 +1,12 @@
 # Staging v1 Operator Handbook
 
+> Status: historical publishing snapshot dated 2026-05-15. This file is not a
+> deployment or production source of truth; use `docs/staging-runbook.md` for the
+> repo staging contract and verify any live Wiki content separately.
+
 Target: GitHub Wiki page
 
-Source of truth for operator handbook; repo docs keep contracts/checklists.
+Historical source snapshot for the operator handbook; repo docs keep contracts/checklists.
 
 This handbook captures the staging v1 setup as operated through issue #202. It
 is meant to be pasted into the GitHub Wiki and kept as the non-secret operator

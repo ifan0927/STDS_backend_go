@@ -1,8 +1,9 @@
 -- ============================================================
--- STDS Database Schema
--- 產出依據：docs/design/domain-model.md v3.3
+-- STDS Database Schema Reference
+-- Physical schema source of truth: internal/platform/database/migrate/migrations/*.up.sql
+-- This file is a human-readable reference and must not override migrations.
 -- 設計原則：
---   - 全部軟刪除，加 deleted_at 欄位
+--   - Mutable business entities generally use deleted_at; immutable snapshots and execution records may not
 --   - 金額用整數儲存（台幣，無小數）
 --   - 樂觀鎖 aggregate 加 version 欄位
 --   - Value Object 展開為多欄位（欄位數少、查詢頻繁）或 JSONB（結構化但不查詢）
@@ -28,14 +29,13 @@ CREATE TABLE users (
     email           VARCHAR(255) NOT NULL,
     name            VARCHAR(100) NOT NULL,
     -- role 為 Value Object，展開為欄位；RBAC 授權模型基礎
-    -- role 與 assigned_property_ids 也透過 Firebase Custom Claims 存於 ID token
+    -- runtime authorization loads role from the active DB user principal
     role            VARCHAR(50)  NOT NULL CHECK (role IN ('admin', 'organizer', 'staff', 'owner')),
     -- permission_overrides：個別權限覆寫清單，結構化但不需獨立查詢，用 JSONB
     -- 選擇 JSONB 原因：覆寫清單無需 JOIN 查詢，直接序列化隨 User 讀取即可
     permission_overrides JSONB   NOT NULL DEFAULT '[]',
-    -- assigned_property_ids：物業指派清單，透過 Firebase Custom Claims 存於 ID token；用 JSONB array 避免額外 table
-    -- 選擇 JSONB 原因：domain model 指出指派清單整批寫入 Custom Claims，不需獨立 JOIN 查詢
-    -- 注意：Custom Claims 上限 1000 bytes，接近上限時 middleware 改從 DB 查詢（搭配 cache）
+    -- assigned_property_ids：物業指派清單；middleware uses this DB value for runtime property scope
+    -- Firebase Custom Claims may be synchronized as a secondary copy but do not override the DB principal
     assigned_property_ids JSONB  NOT NULL DEFAULT '[]',
     deleted_at      TIMESTAMPTZ,
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
@@ -527,6 +527,9 @@ CREATE TABLE journal_logs (
     -- 選擇展開原因：費用資料結構簡單（金額 + 描述），展開後可直接彙總
     expense_amount      INTEGER,        -- null 表示無費用
     expense_description TEXT,
+    expense_accounting_title_id UUID REFERENCES accounting_titles(id),
+    expense_accounting_title_code VARCHAR(20),
+    expense_accounting_title_name VARCHAR(100),
     deleted_at  TIMESTAMPTZ,
     created_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
     updated_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
@@ -537,6 +540,7 @@ CREATE TABLE journal_logs (
 CREATE INDEX idx_journal_logs_property_created_at ON journal_logs (property_id, created_at DESC) WHERE deleted_at IS NULL;
 -- idx_journal_logs_room_id: 外鍵關聯
 CREATE INDEX idx_journal_logs_room_id ON journal_logs (room_id) WHERE deleted_at IS NULL AND room_id IS NOT NULL;
+CREATE INDEX idx_journal_logs_expense_accounting_title_id ON journal_logs (expense_accounting_title_id);
 
 
 -- ============================================================
@@ -768,7 +772,7 @@ CREATE INDEX idx_bill_attachments_bill_id ON bill_attachments (bill_id) WHERE de
 -- RBAC 支援表（混合型授權：RBAC 基礎功能控管）
 -- 說明: 混合型授權模型，role 欄位在 users table 中已定義（RBAC 基礎）；
 --       resource-based 控制透過 users.assigned_property_ids 與 properties.owner_id 實作。
---       認證由 Firebase Auth 管理，role 與 assigned_property_ids 透過 Firebase Custom Claims 存於 ID token。
---       後端 middleware 以 Firebase Admin SDK 驗證 token 後直接讀取 claims，不需每次查詢 DB。
+--       認證由 Firebase Auth 管理；後端 middleware 驗證 token 後以 firebase_uid 載入 active DB principal。
+--       runtime authorization 使用 DB role、assigned_property_ids 與 properties.owner_id；Custom Claims 只可作 secondary copy。
 --       現階段 role 已內建於 users.role 欄位，權限在應用層硬編碼，不建立 role_permissions 表。
 -- ============================================================

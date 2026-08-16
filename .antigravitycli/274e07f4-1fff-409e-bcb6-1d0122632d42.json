@@ -1,0 +1,14 @@
+{
+  "id": "274e07f4-1fff-409e-bcb6-1d0122632d42",
+  "name": "/Users/cheni-fan/stds_backend",
+  "projectResources": {
+    "resources": [
+      {
+        "gitFolder": {
+          "folderUri": "file:///Users/cheni-fan/stds_backend",
+          "allowWrite": true
+        }
+      }
+    ]
+  }
+}

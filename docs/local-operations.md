@@ -357,5 +357,9 @@ brand service or requires stronger database credential isolation.
 
 ## Legacy migration planning
 
-- Validate the checked-in legacy JSON exports and generate the Task 5 architecture report: `go run ./cmd/migrate_legacy plan`
+- Validate the private, ignored development/UAT legacy JSON exports and generate the architecture report: `go run ./cmd/migrate_legacy plan`
 - Override source/report directories when needed: `go run ./cmd/migrate_legacy plan --source-dir docs/mirgations --report-dir artifacts/legacy_migration`
+
+The version-controlled migration scope, validation, evidence, and cutover
+contracts live under [`docs/migration/`](migration/README.md). Do not force-add
+`docs/mirgations`, `artifacts`, dumps, or reports.
