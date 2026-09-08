@@ -190,7 +190,7 @@ _RESEND_API_KEY_SECRET
 ```
 
 Frontend manual workflow:
-`/Users/cheni-fan/stds_frontend/.github/workflows/staging-frontend-deploy.yml`
+`/Users/cheni-fan/Developer/active/stds_frontend/.github/workflows/staging-frontend-deploy.yml`
 
 `workflow_dispatch` inputs:
 
@@ -365,7 +365,7 @@ Never include:
   - `.github/workflows/staging-deploy.yml`
   - `cloudbuild.staging.yaml`
 - Frontend repo docs/workflows:
-  - `/Users/cheni-fan/stds_frontend/docs/staging-environment-contract.md`
-  - `/Users/cheni-fan/stds_frontend/docs/staging-observability-baseline.md`
-  - `/Users/cheni-fan/stds_frontend/.github/workflows/staging-frontend-deploy.yml`
-  - `/Users/cheni-fan/stds_frontend/cloudbuild.staging.yaml`
+  - `/Users/cheni-fan/Developer/active/stds_frontend/docs/staging-environment-contract.md`
+  - `/Users/cheni-fan/Developer/active/stds_frontend/docs/staging-observability-baseline.md`
+  - `/Users/cheni-fan/Developer/active/stds_frontend/.github/workflows/staging-frontend-deploy.yml`
+  - `/Users/cheni-fan/Developer/active/stds_frontend/cloudbuild.staging.yaml`
