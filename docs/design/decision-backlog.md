@@ -19,4 +19,4 @@
 
 ## Decision Gate
 
-每一項在移入 canonical rule 前，至少要確認生命週期、授權、歷史資料、刪除/更正、transaction boundary與cross-module side effects。確認結果只寫最終規則；討論過程與方案比較留在對應ADR或Linear工作項。
+每一項在移入 canonical rule 前，至少要確認生命週期、授權、歷史資料、刪除/更正、transaction boundary與cross-module side effects。確認結果只寫最終規則；討論過程與方案比較留在對應 ADR 或使用者指定的工作項。

@@ -75,4 +75,4 @@ For local development without Firebase credentials, set `FIREBASE_AUTH_EMULATOR_
 - No features beyond what was asked. No abstractions for single-use code.
 - Touch only what you must. Don't "improve" adjacent code unless it was broken by your changes.
 - Remove imports/variables/functions made unused by YOUR changes only.
-- Surface assumptions and tradeoffs before implementing; ask if unclear.
+- Follow `AGENTS.md` for task scope and clarification: resolve routine choices from existing conventions, and ask only about decisions that materially change the outcome.
